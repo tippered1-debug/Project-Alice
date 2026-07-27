@@ -20,8 +20,489 @@
 #include "alice_ui.hpp"
 #include "economy.hpp"
 #include "economy_production.hpp"
+#include "land_ownership.hpp"
+#include "gamerule.hpp"
+
+#include <array>
+#include <cmath>
+#include <span>
 
 namespace ui {
+
+namespace {
+
+struct province_land_text : element_base {
+	text::layout internal_layout;
+	std::string value;
+	text::text_color color = text::text_color::black;
+	text::alignment alignment = text::alignment::left;
+	float scale = 0.8f;
+	bool header = false;
+	int16_t cached_width = -1;
+	int16_t cached_height = -1;
+
+	void rebuild(sys::state& state) {
+		internal_layout.contents.clear();
+		internal_layout.number_of_lines = 0;
+		cached_width = base_data.size.x;
+		cached_height = base_data.size.y;
+		text::single_line_layout line{
+			internal_layout,
+			text::layout_parameters{0, 0, base_data.size.x, base_data.size.y,
+				text::make_font_id(state, header, scale * 20.f), 0, alignment,
+				color, true, true},
+			alice_ui::state_is_rtl(state) ? text::layout_base::rtl_status::rtl
+				: text::layout_base::rtl_status::ltr
+		};
+		line.add_text(state, value);
+	}
+
+	void set_text(sys::state& state, std::string new_value) {
+		if(value != new_value || cached_width != base_data.size.x
+				|| cached_height != base_data.size.y) {
+			value = std::move(new_value);
+			rebuild(state);
+		}
+	}
+
+	void on_create(sys::state& state) noexcept override { rebuild(state); }
+	void on_update(sys::state& state) noexcept override {
+		if(cached_width != base_data.size.x || cached_height != base_data.size.y)
+			rebuild(state);
+	}
+	message_result test_mouse(sys::state&, int32_t, int32_t,
+			mouse_probe_type) noexcept override {
+		return message_result::unseen;
+	}
+	void render(sys::state& state, int32_t x, int32_t y) noexcept override {
+		auto const font = text::make_font_id(state, header, scale * 20.f);
+		auto const line_height = state.font_collection.line_height(state, font);
+		auto const y_offset = (base_data.size.y - line_height) / 2.f;
+		auto const cmod = get_color_modification(false, false, false);
+		for(auto& chunk : internal_layout.contents) {
+			render_text_chunk(state, chunk, float(x) + chunk.x,
+				float(y) + y_offset, font, get_text_color(state, color), cmod);
+		}
+	}
+};
+
+std::string land_localize(sys::state& state, std::string_view key) {
+	return text::produce_simple_string(state, key);
+}
+
+std::string land_signed_percent(float value) {
+	auto result = text::format_percentage(std::abs(value), 2);
+	if(value > 0.0000005f)
+		return "+" + result;
+	if(value < -0.0000005f)
+		return "-" + result;
+	return "—";
+}
+
+} // namespace
+
+class province_land_panel;
+
+class province_land_toggle : public element_base {
+public:
+	void on_create(sys::state&) noexcept override { }
+	message_result test_mouse(sys::state&, int32_t, int32_t,
+			mouse_probe_type type) noexcept override {
+		return type == mouse_probe_type::click
+			? message_result::consumed : message_result::unseen;
+	}
+	message_result on_lbutton_down(sys::state& state, int32_t, int32_t,
+		sys::key_modifiers) noexcept override;
+};
+
+class province_land_panel : public window_element_base {
+	static constexpr int32_t panel_width = 500;
+	static constexpr int32_t panel_height = 480;
+	static constexpr int32_t collapsed_height = 86;
+	static constexpr std::array<std::array<float, 3>, 5> owner_colors{{
+		{{0.12f, 0.49f, 0.42f}},
+		{{0.51f, 0.13f, 0.12f}},
+		{{0.76f, 0.52f, 0.16f}},
+		{{0.20f, 0.36f, 0.58f}},
+		{{0.43f, 0.25f, 0.51f}},
+	}};
+	static constexpr std::array<std::array<float, 3>, 3> use_colors{{
+		{{0.12f, 0.49f, 0.42f}},
+		{{0.76f, 0.52f, 0.16f}},
+		{{0.51f, 0.13f, 0.12f}},
+	}};
+
+	province_land_text* title = nullptr;
+	province_land_text* context = nullptr;
+	province_land_text* ownership_title = nullptr;
+	province_land_text* use_title = nullptr;
+	province_land_text* market_title = nullptr;
+	province_land_text* legal_title = nullptr;
+	province_land_text* policy_line = nullptr;
+	province_land_text* toggle_hint = nullptr;
+	province_land_toggle* toggle_control = nullptr;
+	std::array<province_land_text*, 5> owner_legend{};
+	std::array<province_land_text*, 3> metric_labels{};
+	std::array<province_land_text*, 3> metric_values{};
+	std::array<province_land_text*, 3> use_legend{};
+	std::array<province_land_text*, 3> market_values{};
+	std::array<province_land_text*, 4> law_chips{};
+	std::array<float, 5> ownership{};
+	std::array<float, 5> ownership_change{};
+	std::array<float, 3> land_use{};
+	bool expanded = false;
+	bool user_positioned = false;
+
+	province_land_text* make_text(sys::state& state,
+			text::text_color color = text::text_color::black,
+			float scale = 0.75f, bool header = false,
+			text::alignment alignment = text::alignment::left) {
+		auto element = std::make_unique<province_land_text>();
+		element->parent = this;
+		element->color = color;
+		element->scale = scale;
+		element->header = header;
+		element->alignment = alignment;
+		auto result = element.get();
+		element->on_create(state);
+		add_child_to_front(std::move(element));
+		return result;
+	}
+
+	static void place(province_land_text* element, int32_t x, int32_t y,
+			int32_t width, int32_t height) {
+		element->base_data.position.x = int16_t(x);
+		element->base_data.position.y = int16_t(y);
+		element->base_data.size.x = int16_t(width);
+		element->base_data.size.y = int16_t(height);
+	}
+
+	static std::string metric(sys::state& state, std::string_view key,
+			std::string const& value) {
+		return land_localize(state, key) + "  " + value;
+	}
+
+	void set_content_visible(sys::state& state, bool visible) {
+		ownership_title->set_visible(state, visible);
+		use_title->set_visible(state, visible);
+		market_title->set_visible(state, visible);
+		legal_title->set_visible(state, visible);
+		policy_line->set_visible(state, visible);
+		for(auto* item : owner_legend)
+			item->set_visible(state, visible);
+		for(auto* item : metric_labels)
+			item->set_visible(state, visible);
+		for(auto* item : metric_values)
+			item->set_visible(state, visible);
+		for(auto* item : use_legend)
+			item->set_visible(state, visible);
+		for(auto* item : market_values)
+			item->set_visible(state, visible);
+		for(auto* item : law_chips)
+			item->set_visible(state, visible);
+	}
+
+public:
+	void on_create(sys::state& state) noexcept override {
+		base_data.size.x = panel_width;
+		base_data.size.y = collapsed_height;
+		title = make_text(state, text::text_color::white, 1.05f, true);
+		context = make_text(state, text::text_color::white, 0.67f);
+		ownership_title = make_text(state, text::text_color::brown, 0.72f, true);
+		use_title = make_text(state, text::text_color::brown, 0.72f, true);
+		market_title = make_text(state, text::text_color::brown, 0.72f, true);
+		legal_title = make_text(state, text::text_color::brown, 0.72f, true);
+		policy_line = make_text(state, text::text_color::brown, 0.61f);
+		for(auto& item : owner_legend)
+			item = make_text(state, text::text_color::black, 0.61f);
+		for(auto& item : metric_labels)
+			item = make_text(state, text::text_color::brown, 0.58f, true);
+		for(auto& item : metric_values)
+			item = make_text(state, text::text_color::black, 0.82f, true);
+		for(auto& item : use_legend)
+			item = make_text(state, text::text_color::black, 0.60f);
+		for(auto& item : market_values)
+			item = make_text(state, text::text_color::black, 0.60f);
+		for(auto& item : law_chips)
+			item = make_text(state, text::text_color::brown, 0.56f, true,
+				text::alignment::center);
+		toggle_hint = make_text(state, text::text_color::white, 1.05f, true,
+			text::alignment::center);
+		auto control = std::make_unique<province_land_toggle>();
+		control->parent = this;
+		control->on_create(state);
+		toggle_control = control.get();
+		add_child_to_front(std::move(control));
+		set_content_visible(state, false);
+	}
+
+	void toggle(sys::state& state) {
+		expanded = !expanded;
+		if(!expanded)
+			user_positioned = false;
+		base_data.size.y = int16_t(expanded ? panel_height : collapsed_height);
+		set_content_visible(state, expanded);
+		impl_on_update(state);
+	}
+
+	bool has_user_position() const noexcept {
+		return user_positioned;
+	}
+
+	message_result test_mouse(sys::state&, int32_t, int32_t,
+			mouse_probe_type type) noexcept override {
+		if(type == mouse_probe_type::click || type == mouse_probe_type::tooltip)
+			return message_result::consumed;
+		return message_result::unseen;
+	}
+
+	message_result on_lbutton_down(sys::state& state, int32_t, int32_t,
+			sys::key_modifiers) noexcept override {
+		if(!expanded) {
+			toggle(state);
+		} else {
+			user_positioned = true;
+			state.ui_state.drag_target = this;
+		}
+		return message_result::consumed;
+	}
+
+	void on_update(sys::state& state) noexcept override {
+		auto const province = retrieve<dcon::province_id>(state, parent);
+		if(!province)
+			return;
+		auto const config = economy::land_ownership::configuration_for(
+			state, province);
+		auto const normalized = economy::land_ownership::normalize({
+			state.world.province_get_landowners_share(province),
+			state.world.province_get_capitalists_share(province),
+			std::max(0.f, 1.f
+				- state.world.province_get_landowners_share(province)
+				- state.world.province_get_capitalists_share(province)
+				- state.world.province_get_state_land_share(province)
+				- state.world.province_get_foreign_land_share(province)),
+			state.world.province_get_state_land_share(province),
+			state.world.province_get_foreign_land_share(province),
+		});
+		ownership = {normalized.smallholders, normalized.landed_elites,
+			normalized.capitalists, normalized.state, normalized.foreign};
+		ownership_change = {
+			state.world.province_get_smallholder_land_change(province),
+			state.world.province_get_landowner_land_change(province),
+			state.world.province_get_capitalist_land_change(province),
+			state.world.province_get_state_land_change(province),
+			state.world.province_get_foreign_land_change(province),
+		};
+		auto const tenants = std::clamp(
+			state.world.province_get_land_use_tenant_share(province), 0.f, 1.f);
+		auto const landless = std::clamp(
+			state.world.province_get_land_use_landless_share(province),
+			0.f, 1.f - tenants);
+		land_use = {std::max(0.f, 1.f - tenants - landless),
+			tenants, landless};
+
+		auto const year = state.current_date.to_ymd(state.start_date).year;
+		title->set_text(state, land_localize(state, "alice_land_panel_title"));
+		auto const province_name = text::produce_simple_string(
+			state, dcon::fatten(state.world, province).get_name());
+		auto const profile_name = land_localize(state,
+			economy::land_ownership::profile_localization_key(
+				economy::land_ownership::profile_for(state, province)));
+		context->set_text(state, province_name + "  /  " + profile_name + "  /  "
+			+ (expanded
+				? land_localize(state, "alice_land_drag_hint")
+				: land_localize(state, "alice_land_click_expand"))
+			+ (expanded ? "  /  " + std::to_string(year) : ""));
+		toggle_hint->set_text(state, expanded ? "−" : "+");
+		ownership_title->set_text(state,
+			land_localize(state, "alice_land_ownership"));
+		use_title->set_text(state, land_localize(state, "alice_land_use"));
+		market_title->set_text(state, land_localize(state, "alice_land_market_pulse"));
+		legal_title->set_text(state, land_localize(state, "alice_land_legal_regime"));
+
+		std::array<std::string_view, 5> const owner_keys{
+			"alice_land_smallholders", "alice_land_estates",
+			"alice_land_capital", "alice_land_state", "alice_land_foreign"};
+		for(std::size_t i = 0; i < owner_legend.size(); ++i) {
+			owner_legend[i]->set_text(state,
+				land_localize(state, owner_keys[i]) + "  "
+				+ text::format_percentage(ownership[i], 1) + "  "
+				+ land_signed_percent(ownership_change[i]));
+		}
+
+		std::array<std::string_view, 3> const metric_keys{
+			"alice_land_price", "alice_land_smoothed_rent",
+			"alice_land_turnover"};
+		for(std::size_t i = 0; i < metric_labels.size(); ++i)
+			metric_labels[i]->set_text(state, land_localize(state, metric_keys[i]));
+		metric_values[0]->set_text(state, text::format_money(
+			state.world.province_get_land_market_value(province)));
+		metric_values[1]->set_text(state, text::format_money(
+			state.world.province_get_smoothed_land_rent(province)) + " / "
+			+ land_localize(state, "alice_day"));
+		metric_values[2]->set_text(state, text::format_percentage(
+			state.world.province_get_land_market_turnover(province), 2));
+
+		std::array<std::string_view, 3> const use_keys{
+			"alice_land_owner_operators", "alice_land_tenants",
+			"alice_land_landless"};
+		for(std::size_t i = 0; i < use_legend.size(); ++i) {
+			use_legend[i]->set_text(state, land_localize(state, use_keys[i])
+				+ "  " + text::format_percentage(land_use[i], 1));
+		}
+		market_values[0]->set_text(state, metric(state, "alice_land_bids",
+			text::format_percentage(
+				state.world.province_get_land_market_bids(province), 2)));
+		market_values[1]->set_text(state, metric(state, "alice_land_asks",
+			text::format_percentage(
+				state.world.province_get_land_market_asks(province), 2)));
+		market_values[2]->set_text(state, metric(state, "alice_land_distress",
+			text::format_percentage(
+				state.world.province_get_land_market_distress_asks(province), 2)));
+
+		auto const none = land_localize(state, "alice_land_none");
+		law_chips[0]->set_text(state, metric(state, "alice_land_tax",
+			config.annual_land_tax_rate > 0.f
+				? text::format_percentage(config.annual_land_tax_rate, 1) : none));
+		law_chips[1]->set_text(state, land_localize(state,
+			economy::land_ownership::tenant_law_localization_key(
+				config.tenant_regime)));
+		law_chips[2]->set_text(state, land_localize(state,
+			economy::land_ownership::estate_law_localization_key(
+				config.estate_regime)));
+		law_chips[3]->set_text(state, metric(state, "alice_land_foreign",
+			land_localize(state, config.foreign_investment_allowed
+				? "alice_land_open" : "alice_land_closed")));
+
+		std::string active_policy = land_localize(state, "alice_land_market_policy");
+		if(config.nationalization_rate > 0.f)
+			active_policy = land_localize(state, "alice_land_nationalization");
+		else if(config.privatization_rate > 0.f)
+			active_policy = land_localize(state, "alice_land_privatization");
+		else if(config.right_to_buy_rate > 0.f)
+			active_policy = land_localize(state, "alice_land_law_tenant_buy");
+		else if(config.agrarian_reform_rate > 0.f)
+			active_policy = land_localize(state, "alice_land_agrarian_reform");
+		auto const reform_turnover =
+			state.world.province_get_land_reform_turnover(province);
+		if(reform_turnover > 0.0000001f) {
+			policy_line->set_text(state,
+				land_localize(state, "alice_land_reform_execution") + " "
+				+ text::format_percentage(reform_turnover, 2) + "  •  "
+				+ land_localize(state, "alice_land_compensation") + " "
+				+ text::format_money(
+					state.world.province_get_land_reform_compensation(province))
+				+ "  •  " + land_localize(state, "alice_land_resistance") + " "
+				+ text::format_percentage(
+					state.world.province_get_land_elite_resistance(province), 0));
+		} else {
+			policy_line->set_text(state,
+				land_localize(state, "alice_land_policy") + ": "
+				+ active_policy + "   •   "
+				+ land_localize(state, "alice_land_reserve") + ": "
+				+ std::to_string(int32_t(config.reserve_months)));
+		}
+
+		place(title, 22, 8, 410, 28);
+		place(context, 22, 36, 410, 20);
+		place(toggle_hint, 448, 13, 30, 30);
+		toggle_control->base_data.position.x = 438;
+		toggle_control->base_data.position.y = 6;
+		toggle_control->base_data.size.x = 50;
+		toggle_control->base_data.size.y = 50;
+		place(ownership_title, 22, 75, 456, 20);
+		for(std::size_t i = 0; i < owner_legend.size(); ++i)
+			place(owner_legend[i], 24 + int32_t(i % 3) * 151,
+				123 + int32_t(i / 3) * 21, 145, 18);
+		for(std::size_t i = 0; i < metric_labels.size(); ++i) {
+			place(metric_labels[i], 24 + int32_t(i) * 151, 174, 139, 18);
+			place(metric_values[i], 24 + int32_t(i) * 151, 194, 139, 28);
+		}
+		place(use_title, 22, 244, 210, 20);
+		place(market_title, 258, 244, 220, 20);
+		for(std::size_t i = 0; i < use_legend.size(); ++i)
+			place(use_legend[i], 24, 291 + int32_t(i) * 21, 210, 18);
+		for(std::size_t i = 0; i < market_values.size(); ++i)
+			place(market_values[i], 260, 276 + int32_t(i) * 24, 210, 20);
+		place(legal_title, 22, 372, 456, 20);
+		for(std::size_t i = 0; i < law_chips.size(); ++i)
+			place(law_chips[i], 22 + int32_t(i) * 114, 401, 108, 25);
+		place(policy_line, 22, 439, 456, 20);
+	}
+
+	tooltip_behavior has_tooltip(sys::state&) noexcept override {
+		return tooltip_behavior::tooltip;
+	}
+	void update_tooltip(sys::state& state, int32_t, int32_t,
+			text::columnar_layout& contents) noexcept override {
+		text::add_line(state, contents, "alice_land_panel_tooltip");
+		text::add_line_break_to_layout(state, contents);
+		text::add_line(state, contents, "alice_land_panel_law_tooltip");
+		text::add_line_break_to_layout(state, contents);
+		text::add_line(state, contents, "alice_land_reform_tooltip");
+	}
+
+	void render(sys::state& state, int32_t x, int32_t y) noexcept override {
+		auto card = [&](int32_t cx, int32_t cy, int32_t width, int32_t height) {
+			ogl::render_alpha_colored_rect(state, float(x + cx), float(y + cy),
+				float(width), float(height), 0.94f, 0.91f, 0.83f, 1.f);
+			ogl::render_alpha_colored_rect(state, float(x + cx), float(y + cy),
+				float(width), 2.f, 0.68f, 0.46f, 0.17f, 1.f);
+		};
+		auto const current_height = expanded ? panel_height : collapsed_height;
+		ogl::render_alpha_colored_rect(state, float(x + 7), float(y + 8),
+			panel_width, current_height, 0.f, 0.f, 0.f, 0.38f);
+		ogl::render_alpha_colored_rect(state, float(x), float(y),
+			panel_width, current_height, 0.13f, 0.095f, 0.07f, 0.99f);
+		ogl::render_alpha_colored_rect(state, float(x), float(y),
+			panel_width, 64.f, 0.30f, 0.075f, 0.065f, 1.f);
+		ogl::render_alpha_colored_rect(state, float(x), float(y + 62),
+			panel_width, 2.f, 0.76f, 0.56f, 0.22f, 1.f);
+		if(!expanded) {
+			float cursor = float(x + 22);
+			for(std::size_t i = 0; i < ownership.size(); ++i) {
+				auto const segment = i + 1 == ownership.size()
+					? float(x + 478) - cursor
+					: std::round(456.f * std::max(0.f, ownership[i]));
+				if(segment > 0.f)
+					ogl::render_alpha_colored_rect(state, cursor, float(y + 69),
+						segment, 9.f, owner_colors[i][0], owner_colors[i][1],
+						owner_colors[i][2], 1.f);
+				cursor += segment;
+			}
+			return;
+		}
+		card(14, 68, 472, 91);
+		card(14, 166, 472, 66);
+		card(14, 238, 222, 124);
+		card(250, 238, 236, 124);
+		card(14, 366, 472, 100);
+
+		auto draw_bar = [&](int32_t bx, int32_t by, int32_t width,
+				std::span<float const> values, auto const& colors) {
+			float cursor = float(x + bx);
+			for(std::size_t i = 0; i < values.size(); ++i) {
+				auto const segment = i + 1 == values.size()
+					? float(x + bx + width) - cursor
+					: std::round(float(width) * std::max(0.f, values[i]));
+				if(segment > 0.f)
+					ogl::render_alpha_colored_rect(state, cursor, float(y + by),
+						segment, 11.f, colors[i][0], colors[i][1],
+						colors[i][2], 1.f);
+				cursor += segment;
+			}
+		};
+		draw_bar(24, 101, 452, ownership, owner_colors);
+		draw_bar(24, 272, 202, land_use, use_colors);
+	}
+};
+
+message_result province_land_toggle::on_lbutton_down(sys::state& state,
+		int32_t, int32_t, sys::key_modifiers) noexcept {
+	static_cast<province_land_panel*>(parent)->toggle(state);
+	return message_result::consumed;
+}
+
 class land_rally_point : public button_element_base {
 public:
 	void on_update(sys::state& state) noexcept override {
@@ -2617,6 +3098,15 @@ void province_view_window::on_create(sys::state& state) noexcept {
 	market_window = ptr3.get();
 	market_window->set_visible(state, false);
 	add_child_to_front(std::move(ptr3));
+
+	auto land = std::make_unique<province_land_panel>();
+	land->parent = this;
+	land->base_data.position.x = base_data.size.x + 12;
+	land->base_data.position.y = 0;
+	land->on_create(state);
+	land_panel = land.get();
+	land_panel->set_visible(state, false);
+	add_child_to_front(std::move(land));
 }
 
 message_result province_view_window::get(sys::state& state, Cyto::Any& payload) noexcept {
@@ -2698,6 +3188,26 @@ void province_view_window::on_update(sys::state& state) noexcept {
 	economy_window->impl_on_update(state);
 
 	active_province = state.map_state.get_selected_province();
+	if(land_panel) {
+		if(!land_panel->has_user_position()) {
+			auto const absolute = get_absolute_location(state, *this);
+			auto constexpr land_width = 500;
+			auto const right_position = int32_t(base_data.size.x) + 12;
+			auto const fits_right = absolute.x + right_position + land_width
+				<= ui_width(state);
+			land_panel->base_data.position.x = int16_t(
+				fits_right ? right_position : -land_width - 12);
+			land_panel->base_data.position.y = 0;
+		}
+		auto const subtab_open = economy_window->is_visible()
+			|| factories_window->is_visible() || tiles_window->is_visible()
+			|| market_window->is_visible();
+		auto const show_land = gamerule::age_of_transformation_enabled(state)
+			&& bool(active_province) && !subtab_open;
+		land_panel->set_visible(state, show_land);
+		if(show_land)
+			land_panel->impl_on_update(state);
+	}
 
 	//Hide unit builder if not our province
 	auto n = state.world.province_get_nation_from_province_ownership(active_province);
