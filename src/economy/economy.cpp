@@ -995,8 +995,30 @@ float subsistence_size(sys::state const& state, dcon::province_id p) {
 	return state.world.province_get_rgo_base_size(p) * (1.f - rgo_ownership);
 }
 
+float subsistence_capacity_ratio(sys::state const& state) {
+	if(!gamerule::age_of_transformation_enabled(state))
+		return 1.1f;
+	return std::isfinite(state.defines.alice_subsistence_capacity_ratio)
+		? std::clamp(state.defines.alice_subsistence_capacity_ratio, 0.f, 1.f)
+		: 0.85f;
+}
+
+float subsistence_shortage_ratio(float potential_employment,
+	float available_employment) {
+	if(!std::isfinite(potential_employment)
+		|| !std::isfinite(available_employment)
+		|| potential_employment <= 0.f) {
+		return 0.f;
+	}
+	auto const available = std::clamp(available_employment, 0.f,
+		potential_employment);
+	return std::clamp(
+		(potential_employment - available) / potential_employment,
+		0.f, 1.f);
+}
+
 float subsistence_max_pseudoemployment(sys::state& state, dcon::province_id p) {
-	return subsistence_size(state, p) * 1.1f;
+	return subsistence_size(state, p) * subsistence_capacity_ratio(state);
 }
 
 void update_local_subsistence_factor(sys::state& state) {

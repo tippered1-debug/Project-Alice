@@ -1,4 +1,5 @@
 #include "economy/economy_pops.hpp"
+#include "economy/economy.hpp"
 #include "economy/price.hpp"
 
 #include <array>
@@ -71,6 +72,15 @@ TEST_CASE("subsistence is added as free needs coverage rather than money", "[eco
 	auto with_subsistence = demographics::life_needs_coverage_from_components(0.f, 0.f, 400000.f, 400000.f, 0.4f);
 	REQUIRE(without_subsistence == Approx(0.f));
 	REQUIRE(with_subsistence == Approx(0.4f));
+}
+
+TEST_CASE("subsistence shortage is bounded and exposes uncovered rural labor", "[economy][subsistence]") {
+	REQUIRE(economy::subsistence_shortage_ratio(100.f, 85.f) == Approx(0.15f));
+	REQUIRE(economy::subsistence_shortage_ratio(100.f, 120.f) == Approx(0.f));
+	REQUIRE(economy::subsistence_shortage_ratio(100.f, -10.f) == Approx(1.f));
+	REQUIRE(economy::subsistence_shortage_ratio(0.f, 0.f) == Approx(0.f));
+	REQUIRE(economy::subsistence_shortage_ratio(
+		std::numeric_limits<float>::quiet_NaN(), 10.f) == Approx(0.f));
 }
 
 TEST_CASE("zero life needs cost remains finite and bounded", "[economy][migration]") {
