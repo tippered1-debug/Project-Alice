@@ -1,9 +1,12 @@
 #include "transformation_politics.hpp"
+#include "economy/industry_ownership.hpp"
 
 #include "culture.hpp"
 #include "demographics.hpp"
+#include "nations.hpp"
 #include "policy_execution.hpp"
 #include "system_state.hpp"
+#include "triggers.hpp"
 
 #include <algorithm>
 #include <array>
@@ -62,6 +65,13 @@ float power_per_capita(population_sample const& sample, ruleset_config const& co
 		+ bounded(config.property_power_weight, 1.50f, 0.0f, 10.0f) * unit_interval(sample.property_ownership)
 		+ bounded(config.literacy_power_weight, 0.35f, 0.0f, 10.0f) * unit_interval(sample.literacy)
 		+ bounded(config.consciousness_power_weight, 0.30f, 0.0f, 10.0f) * unit_interval(sample.consciousness);
+	// Rights and organization determine how much private wealth or mass can be
+	// converted into institutional influence. The floor preserves non-zero
+	// pressure for excluded populations without treating them as voters.
+	auto const institutional_access = 0.15f + 0.85f
+		* unit_interval(sample.political_rights)
+		* unit_interval(sample.political_organization);
+	result *= institutional_access;
 	return std::clamp(finite_or(result, 0.0f), 0.0f, maximum);
 }
 
@@ -245,6 +255,59 @@ float default_property_proxy(population_role role) {
 	}
 }
 
+float default_political_rights(population_role role) {
+	switch(role) {
+	case population_role::landowner:
+	case population_role::capital_owner:
+	case population_role::intellectual:
+	case population_role::administrator:
+	case population_role::officer:
+		return 1.00f;
+	case population_role::artisan:
+	case population_role::industrial_worker:
+	case population_role::farmer:
+	case population_role::soldier:
+		return 0.60f;
+	case population_role::agricultural_laborer:
+	case population_role::other_middle:
+		return 0.35f;
+	case population_role::other_rich:
+		return 0.85f;
+	case population_role::enslaved:
+		return 0.00f;
+	case population_role::other_poor:
+	default:
+		return 0.20f;
+	}
+}
+
+float default_political_organization(population_role role) {
+	switch(role) {
+	case population_role::landowner:
+	case population_role::capital_owner:
+	case population_role::administrator:
+	case population_role::officer:
+		return 0.75f;
+	case population_role::intellectual:
+	case population_role::industrial_worker:
+		return 0.80f;
+	case population_role::artisan:
+	case population_role::soldier:
+	case population_role::other_middle:
+		return 0.50f;
+	case population_role::farmer:
+		return 0.30f;
+	case population_role::agricultural_laborer:
+	case population_role::other_poor:
+		return 0.15f;
+	case population_role::enslaved:
+		return 0.05f;
+	case population_role::other_rich:
+	default:
+		return 0.65f;
+	}
+}
+
 interest_group_snapshot aggregate_interest_groups(
 	std::vector<population_sample> const& samples,
 	ruleset_config const& config) {
@@ -257,6 +320,7 @@ interest_group_snapshot aggregate_interest_groups(
 	result.enabled = true;
 	std::array<group_accumulator, interest_group_count> accumulated{};
 	double represented_population = 0.0;
+	double electorate_population = 0.0;
 	double total_support = 0.0;
 	double total_power = 0.0;
 
@@ -272,6 +336,7 @@ interest_group_snapshot aggregate_interest_groups(
 		auto const consciousness = unit_interval(sample.consciousness);
 		auto const individual_power = power_per_capita(sample, config, wealth);
 		represented_population += population;
+		electorate_population += double(population) * double(unit_interval(sample.political_rights));
 
 		for(std::size_t i = 0; i < interest_group_count; ++i) {
 			auto const support = double(population) * double(unit_interval(affinities[i]));
@@ -290,6 +355,7 @@ interest_group_snapshot aggregate_interest_groups(
 	}
 
 	result.represented_population = finite_nonnegative_float(represented_population);
+	result.electorate_population = finite_nonnegative_float(electorate_population);
 	for(std::size_t i = 0; i < interest_group_count; ++i) {
 		auto const& source = accumulated[i];
 		auto& destination = result.groups[i];
@@ -391,7 +457,8 @@ legitimacy_breakdown calculate_legitimacy(
 	interest_group_snapshot const& snapshot,
 	coalition_result const& coalition,
 	ruleset_config const& config,
-	interest_group_mask previous_coalition) {
+	interest_group_mask previous_coalition,
+	float foreign_ownership) {
 	legitimacy_breakdown result;
 	if(!config.enabled || !snapshot.enabled || coalition.groups == 0)
 		return result;
@@ -416,12 +483,16 @@ legitimacy_breakdown calculate_legitimacy(
 	result.minority_penalty = power < target ? 15.0f * unit_interval((target - power) / target) : 0.0f;
 	result.representation_gap_penalty = 15.0f * std::max(0.0f, power - support);
 	result.fragmentation_penalty = 2.0f * float(group_count - 1);
+	result.foreign_ownership_penalty =
+		std::max(0.0f, config.maximum_foreign_ownership_penalty)
+		* unit_interval(foreign_ownership);
 
 	auto const positive =
 		result.power_mandate + result.popular_support + result.coalition_cohesion
 		+ result.social_breadth + result.continuity + result.majority_bonus;
 	auto const penalties =
-		result.minority_penalty + result.representation_gap_penalty + result.fragmentation_penalty;
+		result.minority_penalty + result.representation_gap_penalty
+		+ result.fragmentation_penalty + result.foreign_ownership_penalty;
 	result.total = std::clamp(finite_or(positive - penalties, 0.0f), 0.0f, 100.0f);
 	return result;
 }
@@ -429,14 +500,16 @@ legitimacy_breakdown calculate_legitimacy(
 nation_result evaluate_population(
 	std::vector<population_sample> const& samples,
 	ruleset_config const& config,
-	interest_group_mask previous_coalition) {
+	interest_group_mask previous_coalition,
+	float foreign_ownership) {
 	nation_result result;
 	if(!config.enabled)
 		return result;
 	result.enabled = true;
 	result.interest_groups = aggregate_interest_groups(samples, config);
 	result.coalition = select_governing_coalition(result.interest_groups, config, previous_coalition);
-	result.legitimacy = calculate_legitimacy(result.interest_groups, result.coalition, config, previous_coalition);
+	result.legitimacy = calculate_legitimacy(result.interest_groups, result.coalition, config,
+		previous_coalition, foreign_ownership);
 	return result;
 }
 
@@ -481,6 +554,8 @@ population_sample sample_from_pop(sys::state const& state, dcon::pop_id pop) {
 
 	result.population = nonnegative(state.world.pop_get_size(pop));
 	result.role = population_role_for_pop_type(state, state.world.pop_get_poptype(pop));
+	result.political_rights = default_political_rights(result.role);
+	result.political_organization = default_political_organization(result.role);
 	if(result.population > 0.0f)
 		result.savings_per_capita = nonnegative(state.world.pop_get_savings(pop)) / result.population;
 	result.income_security =
@@ -489,14 +564,38 @@ population_sample sample_from_pop(sys::state const& state, dcon::pop_id pop) {
 		+ 0.15f * unit_interval(pop_demographics::get_luxury_needs(state, pop));
 	result.property_ownership = default_property_proxy(result.role);
 	if(auto const province = state.world.pop_get_province_from_pop_location(pop); province) {
+		// Colonial subjects contribute to popular pressure and hardship, but the
+		// ordinary electoral institutions do not represent them. Keep their mass
+		// in the model while sharply reducing the conversion into formal power.
+		if(state.world.province_get_is_colonial(province))
+			result.political_rights *= 0.10f;
 		auto const landed_share = unit_interval(state.world.province_get_landowners_share(province));
 		auto const capitalist_share = unit_interval(state.world.province_get_capitalists_share(province));
+		// Political standing follows what a class actually owns. Land and
+		// industry are blended by their market values, so a province with no
+		// industry behaves exactly as it did before this existed.
+		auto const industry = economy::industry_ownership::current_distribution(state, province);
+		auto const land_value = nonnegative(state.world.province_get_land_market_value(province));
+		auto const industry_value = nonnegative(state.world.province_get_industry_market_value(province));
+		auto const total_value = land_value + industry_value;
+		auto const industry_weight = total_value > 0.0f ? industry_value / total_value : 0.0f;
+		auto const blend = [&](float from_land, float from_industry) {
+			return unit_interval((1.0f - industry_weight) * from_land
+				+ industry_weight * from_industry);
+		};
 		if(result.role == population_role::landowner) {
-			result.property_ownership = unit_interval(0.25f + 0.75f * landed_share);
+			result.property_ownership =
+				unit_interval(0.25f + 0.75f * blend(landed_share, industry.landed_elites));
 		} else if(result.role == population_role::capital_owner) {
-			result.property_ownership = unit_interval(0.25f + 0.75f * capitalist_share);
+			result.property_ownership =
+				unit_interval(0.25f + 0.75f * blend(capitalist_share, industry.capitalists));
 		} else if(result.role == population_role::farmer) {
 			result.property_ownership *= unit_interval(1.f - landed_share - capitalist_share);
+		} else if(result.role == population_role::industrial_worker) {
+			// Worker-owned industry is the point of industrial democracy: it has
+			// to turn into political weight, not just into income.
+			result.property_ownership = unit_interval(result.property_ownership
+				+ industry_weight * industry.workers);
 		}
 	}
 	result.literacy = unit_interval(pop_demographics::get_literacy(state, pop));
@@ -518,6 +617,30 @@ std::vector<population_sample> collect_nation_population(sys::state const& state
 	return result;
 }
 
+
+// Value-weighted share of a nation's land and industry that is held abroad.
+float foreign_owned_share(sys::state const& state, dcon::nation_id nation) {
+	if(!nation || !state.world.nation_is_valid(nation))
+		return 0.0f;
+	double total_value = 0.0;
+	double foreign_value = 0.0;
+	for(auto ownership : state.world.nation_get_province_ownership(nation)) {
+		auto const province = ownership.get_province();
+		auto const land_value = double(nonnegative(
+			state.world.province_get_land_market_value(province)));
+		auto const industry_value = double(nonnegative(
+			state.world.province_get_industry_market_value(province)));
+		total_value += land_value + industry_value;
+		foreign_value += land_value
+			* double(unit_interval(state.world.province_get_foreign_land_share(province)));
+		foreign_value += industry_value
+			* double(economy::industry_ownership::current_distribution(state, province).foreign);
+	}
+	if(total_value <= 0.0)
+		return 0.0f;
+	return unit_interval(float(foreign_value / total_value));
+}
+
 nation_result evaluate_nation(
 	sys::state const& state,
 	dcon::nation_id nation,
@@ -525,7 +648,8 @@ nation_result evaluate_nation(
 	interest_group_mask previous_coalition) {
 	if(!config.enabled)
 		return {};
-	return evaluate_population(collect_nation_population(state, nation), config, previous_coalition);
+	return evaluate_population(collect_nation_population(state, nation), config,
+		previous_coalition, foreign_owned_share(state, nation));
 }
 
 issue_support_result evaluate_issue_support(sys::state& state,
@@ -540,6 +664,8 @@ issue_support_result evaluate_issue_support(sys::state& state,
 	std::array<double, interest_group_count> group_power{};
 	double popular_backing = 0.0;
 	double population = 0.0;
+	double electoral_backing = 0.0;
+	double electorate = 0.0;
 	double power_backing = 0.0;
 	double total_power = 0.0;
 	auto const issue_key = pop_demographics::to_key(state, option);
@@ -557,6 +683,9 @@ issue_support_result evaluate_issue_support(sys::state& state,
 			auto const pop_power = double(sample.population) * double(per_capita_power);
 			popular_backing += double(sample.population) * double(support);
 			population += double(sample.population);
+			electoral_backing += double(sample.population)
+				* double(unit_interval(sample.political_rights)) * double(support);
+			electorate += double(sample.population) * double(unit_interval(sample.political_rights));
 			power_backing += pop_power * double(support);
 			total_power += pop_power;
 			for(std::size_t i = 0; i < interest_group_count; ++i) {
@@ -568,6 +697,8 @@ issue_support_result evaluate_issue_support(sys::state& state,
 	});
 
 	result.popular_support = population > 0.0 ? unit_interval(float(popular_backing / population)) : 0.f;
+	result.electoral_support = electorate > 0.0
+		? unit_interval(float(electoral_backing / electorate)) : 0.f;
 	result.political_power_support = total_power > 0.0 ? unit_interval(float(power_backing / total_power)) : 0.f;
 	for(std::size_t i = 0; i < interest_group_count; ++i) {
 		result.group_support[i] = group_power[i] > 0.0
@@ -605,16 +736,21 @@ movement_pressure_breakdown calculate_movement_pressure(movement_pressure_inputs
 	auto const legitimacy = unit_interval(inputs.legitimacy);
 	auto const hardship = unit_interval(inputs.economic_hardship);
 	auto const implementation_gap = unit_interval(inputs.implementation_gap);
+	auto const regional_control = unit_interval(inputs.regional_control);
+	auto const regional_execution = unit_interval(inputs.regional_execution);
 	result.political_power_pressure = 18.f * power;
 	result.coalition_opposition_pressure = 12.f * (1.f - coalition) * power;
 	result.legitimacy_pressure = 12.f * (1.f - legitimacy);
 	result.hardship_pressure = 25.f * hardship;
 	result.implementation_pressure = 25.f * implementation_gap;
+	result.regional_control_pressure = 10.f * (1.f - regional_control);
+	result.regional_implementation_pressure = 10.f * (1.f - regional_execution);
 	result.legitimacy_relief = 12.f * legitimacy * coalition;
 	result.total_adjustment = std::clamp(
 		result.political_power_pressure + result.coalition_opposition_pressure
 		+ result.legitimacy_pressure + result.hardship_pressure
-		+ result.implementation_pressure - result.legitimacy_relief,
+		+ result.implementation_pressure + result.regional_control_pressure
+		+ result.regional_implementation_pressure - result.legitimacy_relief,
 		-15.f, 60.f);
 	return result;
 }
@@ -635,8 +771,13 @@ movement_pressure_breakdown movement_pressure_for(sys::state& state,
 	if(auto const* political = cached_nation_result(state, nation); political && political->enabled)
 		inputs.legitimacy = unit_interval(political->legitimacy.total / 100.f);
 
+	auto const policy = option
+		? nations::policy_execution::policy_kind::reform_implementation
+		: nations::policy_execution::policy_kind::crime_suppression;
 	double hardship = 0.0;
 	double population = 0.0;
+	double regional_control = 0.0;
+	double regional_execution = 0.0;
 	for(auto membership : state.world.movement_get_pop_movement_membership(movement)) {
 		auto const pop = membership.get_pop().id;
 		auto const size = nonnegative(state.world.pop_get_size(pop));
@@ -645,11 +786,219 @@ movement_pressure_breakdown movement_pressure_for(sys::state& state,
 			+ 0.3f * unit_interval(pop_demographics::get_everyday_needs(state, pop));
 		hardship += double(size) * double(1.f - needs);
 		population += double(size);
+		if(auto const province = state.world.pop_get_province_from_pop_location(pop); province) {
+			regional_control += double(size) * double(unit_interval(
+				state.world.province_get_control_ratio(province)));
+			regional_execution += double(size) * double(
+				nations::policy_execution::effective_policy(state, nation, province, policy).effective_execution);
+		}
 	}
 	inputs.economic_hardship = population > 0.0 ? unit_interval(float(hardship / population)) : 0.f;
 	inputs.implementation_gap = 1.f - nations::policy_execution::average_effective_policy(
-		state, nation, nations::policy_execution::policy_kind::reform_implementation);
+		state, nation, policy);
+	inputs.regional_control = population > 0.0
+		? unit_interval(float(regional_control / population)) : 1.0f;
+	inputs.regional_execution = population > 0.0
+		? unit_interval(float(regional_execution / population)) : 1.0f;
 	return calculate_movement_pressure(inputs);
+}
+
+void record_reform_outcome(sys::state& state,
+	dcon::nation_id nation, dcon::issue_option_id option) {
+	if(!ruleset_config_for(state).enabled || !nation || !option
+		|| !state.world.nation_is_valid(nation))
+		return;
+
+	auto const* political = cached_nation_result(state, nation);
+	if(!political || !political->enabled || political->government.groups == 0)
+		return;
+	if(nation.index() >= state.transformation_government_state.size())
+		return;
+
+	auto const support = evaluate_issue_support(state, nation, option);
+	auto const representation_gap = std::max(
+		0.0f, support.political_power_support - support.electoral_support);
+	auto& government = state.transformation_government_state[nation.index()];
+	for(std::size_t index = 0; index < interest_group_count; ++index) {
+		if((government.groups & (interest_group_mask(1u) << index)) == 0)
+			continue;
+		// A negotiated reform changes confidence gradually. The electoral gap
+		// is a cabinet-wide cost; group support determines who feels heard.
+		auto const alignment = 2.0f * unit_interval(support.group_support[index]) - 1.0f;
+		auto const delta = 0.025f * alignment
+			+ 0.010f * (1.0f - representation_gap);
+		government.confidence[index] = std::clamp(
+			finite_or(government.confidence[index], 0.5f) + delta, 0.0f, 1.0f);
+	}
+
+	if(state.transformation_politics_cache_valid
+		&& nation.index() < state.transformation_politics_cache.size()) {
+		auto& result = state.transformation_politics_cache[nation.index()];
+		result.government.confidence = government.confidence;
+		float confidence_sum = 0.0f;
+		uint32_t confidence_count = 0;
+		for(std::size_t index = 0; index < interest_group_count; ++index) {
+			if((government.groups & (interest_group_mask(1u) << index)) == 0)
+				continue;
+			confidence_sum += government.confidence[index];
+			++confidence_count;
+		}
+		result.government.stability = confidence_count > 0
+			? confidence_sum / float(confidence_count) : 0.0f;
+	}
+}
+
+legislation_state const* active_bill(sys::state const& state, dcon::nation_id nation) {
+	if(!nation || nation.index() >= state.transformation_legislation_state.size())
+		return nullptr;
+	auto const& bill = state.transformation_legislation_state[nation.index()];
+	return bill.active ? &bill : nullptr;
+}
+
+bool can_propose_bill(sys::state& state,
+	dcon::nation_id nation, dcon::issue_option_id option) {
+	if(!ruleset_config_for(state).enabled || !nation || !option
+		|| !state.world.nation_is_valid(nation)
+		|| !state.world.issue_option_is_valid(option)
+		|| active_bill(state, nation))
+		return false;
+
+	auto const issue = state.world.issue_option_get_parent_issue(option);
+	if(!issue)
+		return false;
+	auto const current = state.world.nation_get_issues(nation, issue.id).id;
+	if(current == option)
+		return false;
+	auto const last_change = state.world.nation_get_last_issue_or_reform_change(nation);
+	if(last_change && last_change + int32_t(state.defines.min_delay_between_reforms * 30) > state.current_date)
+		return false;
+	if(state.world.issue_get_is_next_step_only(issue.id)
+		&& current && current.index() + 1 != option.index()
+		&& current.index() - 1 != option.index())
+		return false;
+	auto const allow = state.world.issue_option_get_allow(option);
+	return !allow || trigger::evaluate(state, allow,
+		trigger::to_generic(nation), trigger::to_generic(nation), 0);
+}
+
+void propose_bill(sys::state& state,
+	dcon::nation_id nation, dcon::issue_option_id option) {
+	// Keep the legacy local-player reform cheat useful while retaining the
+	// normal validation for every other actor. The bill itself still has to
+	// point at a real, different option and an empty slot.
+	bool const local_reform_cheat = nation == state.local_player_nation
+		&& state.cheat_data.always_allow_reforms;
+	if(!local_reform_cheat && !can_propose_bill(state, nation, option))
+		return;
+	if(!nation || !option || !state.world.nation_is_valid(nation)
+		|| !state.world.issue_option_is_valid(option) || active_bill(state, nation))
+		return;
+	auto const issue = state.world.issue_option_get_parent_issue(option);
+	if(!issue || state.world.nation_get_issues(nation, issue.id).id == option)
+		return;
+	state.transformation_legislation_state.resize(state.world.nation_size());
+	auto& bill = state.transformation_legislation_state[nation.index()];
+	bill = legislation_state{};
+	bill.active = true;
+	bill.option = option;
+	bill.sponsor = state.world.nation_get_ruling_party(nation);
+	bill.stage = legislation_stage::negotiation;
+	bill.proposed_on = state.current_date.to_raw_value();
+}
+
+namespace {
+
+void fail_bill(sys::state& state, dcon::nation_id nation, float coalition_support) {
+	if(nation.index() < state.transformation_government_state.size()) {
+		auto& government = state.transformation_government_state[nation.index()];
+		for(std::size_t index = 0; index < interest_group_count; ++index) {
+			if((government.groups & (interest_group_mask(1u) << index)) == 0)
+				continue;
+			government.confidence[index] = std::clamp(
+				finite_or(government.confidence[index], 0.5f)
+					- 0.04f * (1.0f - unit_interval(coalition_support)),
+				0.0f, 1.0f);
+		}
+	}
+	if(nation.index() < state.transformation_legislation_state.size())
+		state.transformation_legislation_state[nation.index()] = legislation_state{};
+}
+
+} // namespace
+
+void advance_legislation(sys::state& state) {
+	if(!ruleset_config_for(state).enabled)
+		return;
+	state.transformation_legislation_state.resize(state.world.nation_size());
+	for(auto nation : state.world.in_nation) {
+		auto& bill = state.transformation_legislation_state[nation.id.index()];
+		if(!bill.active)
+			continue;
+		if(!bill.option || !state.world.issue_option_is_valid(bill.option)) {
+			bill = legislation_state{};
+			continue;
+		}
+		auto const issue = state.world.issue_option_get_parent_issue(bill.option);
+		if(!issue || state.world.nation_get_issues(nation.id, issue.id).id == bill.option) {
+			bill = legislation_state{};
+			continue;
+		}
+
+		auto const support = evaluate_issue_support(state, nation.id, bill.option);
+		auto const execution = nations::policy_execution::average_effective_policy(
+			state, nation.id, nations::policy_execution::policy_kind::reform_implementation);
+		bill.coalition_support = unit_interval(support.coalition_support);
+		bill.execution = unit_interval(execution);
+		auto const negotiated_coalition = unit_interval(
+			bill.coalition_support + 0.30f * unit_interval(bill.compromise));
+		bill.mandate = unit_interval(
+			0.40f * support.political_power_support
+			+ 0.30f * negotiated_coalition
+			+ 0.15f * support.electoral_support
+			+ 0.15f * support.popular_support);
+		bill.stage_days = uint16_t(std::min<uint32_t>(65535u, uint32_t(bill.stage_days) + 1u));
+
+		switch(bill.stage) {
+		case legislation_stage::negotiation:
+			if(bill.stage_days >= 30 && bill.mandate >= 0.42f && negotiated_coalition >= 0.42f) {
+				bill.stage = legislation_stage::voting;
+				bill.stage_days = 0;
+			} else if(bill.stage_days >= 90) {
+				fail_bill(state, nation.id, bill.coalition_support);
+			} else if(bill.stage_days % 15 == 0) {
+				// Compromise is the explicit negotiation resource. It can rescue
+				// a bill with a narrow coalition, but never replaces popular or
+				// political-power support entirely.
+				bill.compromise = std::clamp(bill.compromise + 0.05f, 0.0f, 0.75f);
+			}
+			break;
+		case legislation_stage::voting:
+			if(bill.stage_days < 15)
+				break;
+			if(bill.mandate >= 0.50f && negotiated_coalition >= 0.50f) {
+				bill.stage = legislation_stage::implementation;
+				bill.stage_days = 0;
+			} else {
+				fail_bill(state, nation.id, bill.coalition_support);
+			}
+			break;
+		case legislation_stage::implementation:
+			if(bill.stage_days < 30)
+				break;
+			if(bill.execution >= 0.30f && bill.mandate >= 0.50f) {
+				auto const option = bill.option;
+				bill = legislation_state{};
+				nations::enact_issue(state, nation.id, option);
+			} else {
+				fail_bill(state, nation.id, bill.coalition_support);
+			}
+			break;
+		case legislation_stage::none:
+		default:
+			bill = legislation_state{};
+			break;
+		}
+	}
 }
 
 ruleset_config ruleset_config_for(sys::state const& state) {
@@ -667,6 +1016,7 @@ void refresh_all_nations(sys::state& state) {
 	auto const config = ruleset_config_for(state);
 	auto const nation_count = state.world.nation_size();
 	state.transformation_politics_cache.assign(nation_count, nation_result{});
+	state.transformation_government_state.resize(nation_count);
 
 	if(!config.enabled) {
 		state.transformation_politics_cache_valid = true;
@@ -675,9 +1025,68 @@ void refresh_all_nations(sys::state& state) {
 
 	for(auto nation : state.world.in_nation) {
 		auto const index = nation.id.index();
-		// Keep runtime politics a pure function of serialized state. The pure
-		// coalition API still supports hysteresis for a future saved incumbent.
-		auto result = evaluate_nation(state, nation.id, config);
+		auto& government = state.transformation_government_state[index];
+		auto result = evaluate_nation(state, nation.id, config, government.groups);
+		bool confidence_crisis_turnover = false;
+		float incumbent_confidence = 0.0f;
+		uint32_t incumbent_members = 0;
+		for(std::size_t group = 0; group < interest_group_count; ++group) {
+			if((government.groups & (interest_group_mask(1u) << group)) != 0) {
+				incumbent_confidence += finite_or(government.confidence[group], 0.0f);
+				++incumbent_members;
+			}
+		}
+		// Hysteresis protects a normal incumbent from monthly noise. It should
+		// not protect a cabinet whose own members have lost nearly all trust:
+		// a credible challenger can then force a confidence crisis and turnover.
+		if(government.groups != 0 && incumbent_members > 0
+			&& incumbent_confidence / float(incumbent_members) < 0.25f
+			&& result.coalition.best_challenger != 0
+			&& result.coalition.best_challenger_score
+				> result.coalition.incumbent_score + comparison_epsilon) {
+			government.groups = result.coalition.best_challenger;
+			confidence_crisis_turnover = true;
+			result = evaluate_nation(state, nation.id, config, government.groups);
+		}
+
+		// First observation establishes a government. Later refreshes preserve
+		// the incumbent through the coalition selector's hysteresis and record a
+		// turnover only when a challenger genuinely wins.
+		if(confidence_crisis_turnover || government.groups == 0 || result.coalition.groups != government.groups) {
+			government.groups = result.coalition.groups;
+			government.established_on = state.current_date.to_raw_value();
+			for(std::size_t group = 0; group < interest_group_count; ++group) {
+				auto const in_government = (government.groups & (interest_group_mask(1u) << group)) != 0;
+				government.confidence[group] = in_government ? 0.65f : 0.35f;
+			}
+			result.government.changed_this_refresh = true;
+		} else {
+			for(std::size_t group = 0; group < interest_group_count; ++group) {
+				auto const in_government = (government.groups & (interest_group_mask(1u) << group)) != 0;
+				auto const support = result.interest_groups.groups[group].support_share;
+				auto const security = result.interest_groups.groups[group].mean_income_security;
+				auto const target = in_government
+					? std::clamp(0.35f + 0.30f * support + 0.20f * result.coalition.cohesion
+						+ 0.15f * unit_interval(security), 0.f, 1.f)
+					: std::clamp(0.25f + 0.25f * (1.f - support), 0.f, 1.f);
+				government.confidence[group] = std::clamp(
+					0.90f * finite_or(government.confidence[group], target) + 0.10f * target, 0.f, 1.f);
+			}
+		}
+
+		result.government.groups = government.groups;
+		result.government.established_on = government.established_on;
+		result.government.confidence = government.confidence;
+		float confidence_sum = 0.f;
+		uint32_t confidence_count = 0;
+		for(std::size_t group = 0; group < interest_group_count; ++group) {
+			if((government.groups & (interest_group_mask(1u) << group)) != 0) {
+				confidence_sum += government.confidence[group];
+				++confidence_count;
+			}
+		}
+		result.government.stability = confidence_count > 0
+			? confidence_sum / float(confidence_count) : 0.f;
 		state.transformation_politics_cache[index] = std::move(result);
 	}
 	state.transformation_politics_cache_valid = true;

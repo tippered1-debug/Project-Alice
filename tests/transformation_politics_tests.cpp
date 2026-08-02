@@ -88,6 +88,29 @@ TEST_CASE("transformation support and political power normalize independently", 
 	REQUIRE(raw_support_total == Approx(snapshot.represented_population));
 }
 
+TEST_CASE("institutional access separates mass pressure from formal power",
+	"[politics][transformation][representation]") {
+	transformation::ruleset_config config;
+	config.enabled = true;
+
+	transformation::population_sample excluded;
+	excluded.role = transformation::population_role::industrial_worker;
+	excluded.population = 1000.0f;
+	excluded.political_rights = 0.0f;
+	excluded.political_organization = 0.0f;
+
+	auto represented = excluded;
+	represented.political_rights = 1.0f;
+	represented.political_organization = 1.0f;
+
+	auto const without_access = transformation::aggregate_interest_groups({ excluded }, config);
+	auto const with_access = transformation::aggregate_interest_groups({ represented }, config);
+	REQUIRE(without_access.represented_population == Approx(with_access.represented_population));
+	REQUIRE(without_access.electorate_population < with_access.electorate_population);
+	REQUIRE(without_access.groups[std::size_t(transformation::interest_group_id::organized_labor)].political_power
+		< with_access.groups[std::size_t(transformation::interest_group_id::organized_labor)].political_power);
+}
+
 TEST_CASE("wealth income and property change power without inventing popular support", "[politics][transformation]") {
 	transformation::ruleset_config config;
 	config.enabled = true;
@@ -338,6 +361,8 @@ TEST_CASE("movement pressure is explainable and legacy compatible", "[politics][
 	stable.legitimacy = 0.90f;
 	stable.economic_hardship = 0.10f;
 	stable.implementation_gap = 0.10f;
+	stable.regional_control = 0.90f;
+	stable.regional_execution = 0.90f;
 	auto const low_pressure = transformation::calculate_movement_pressure(stable);
 
 	auto crisis = stable;
@@ -346,8 +371,12 @@ TEST_CASE("movement pressure is explainable and legacy compatible", "[politics][
 	crisis.legitimacy = 0.20f;
 	crisis.economic_hardship = 0.90f;
 	crisis.implementation_gap = 0.80f;
+	crisis.regional_control = 0.10f;
+	crisis.regional_execution = 0.20f;
 	auto const high_pressure = transformation::calculate_movement_pressure(crisis);
 	REQUIRE(high_pressure.total_adjustment > low_pressure.total_adjustment);
+	REQUIRE(high_pressure.regional_control_pressure > low_pressure.regional_control_pressure);
+	REQUIRE(high_pressure.regional_implementation_pressure > low_pressure.regional_implementation_pressure);
 	REQUIRE(high_pressure.total_adjustment <= 60.f);
 	auto const unclamped =
 		high_pressure.political_power_pressure
@@ -355,9 +384,30 @@ TEST_CASE("movement pressure is explainable and legacy compatible", "[politics][
 		+ high_pressure.legitimacy_pressure
 		+ high_pressure.hardship_pressure
 		+ high_pressure.implementation_pressure
+		+ high_pressure.regional_control_pressure
+		+ high_pressure.regional_implementation_pressure
 		- high_pressure.legitimacy_relief;
 	REQUIRE(unclamped > high_pressure.total_adjustment);
 	REQUIRE(high_pressure.total_adjustment == Approx(60.f));
+}
+
+TEST_CASE("flagship politics turns reform clicks into a visible bill", "[politics][transformation][legislation]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	auto const nation = state->world.create_nation();
+	auto const issue = state->world.create_issue();
+	auto const option = state->world.create_issue_option();
+	state->world.issue_option_set_parent_issue(option, issue);
+	state->world.nation_set_issues(nation, issue, dcon::issue_option_id{});
+
+	REQUIRE(transformation::can_propose_bill(*state, nation, option));
+	transformation::propose_bill(*state, nation, option);
+	auto const* bill = transformation::active_bill(*state, nation);
+	REQUIRE(bill != nullptr);
+	REQUIRE(bill->active);
+	REQUIRE(bill->option == option);
+	REQUIRE(bill->stage == transformation::legislation_stage::negotiation);
+	REQUIRE_FALSE(transformation::can_propose_bill(*state, nation, option));
 }
 
 TEST_CASE("wealth-backed groups can outweigh equal popular reform support",

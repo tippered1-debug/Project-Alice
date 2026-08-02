@@ -14,6 +14,8 @@
 #include "economy_constants.hpp"
 #include "money.hpp"
 #include "economy.hpp"
+#include "monetary_system.hpp"
+#include "credit_market.hpp"
 
 
 namespace production_directives {
@@ -1907,6 +1909,9 @@ void update_rgo_profit(sys::state& state) {
 			// #CAUTION# changes nation values!
 			auto& cur_money = state.world.nation_get_stockpiles(controller, economy::money);
 			state.world.nation_set_stockpiles(controller, economy::money, cur_money + move_to_nation);
+			// This loop is the only place new money enters the world, so it is
+			// also the only honest source for the day's emission figure.
+			monetary::record_gold_emission(state, move_to_nation);
 		});
 	});
 
@@ -2337,6 +2342,15 @@ void update_employment(sys::state& state, bool ignore_reality, float presim_empl
 
 		auto total = unqualified_next + primary_next + secondary_next;
 		auto scaler = ve::select(total > state.world.factory_get_size(facids), state.world.factory_get_size(facids) / total, 1.f);
+
+		// A firm whose losses the bank could not finance has to shrink. Without
+		// this the till is only an accounting line and producers keep hiring on
+		// credit that does not exist.
+		scaler = scaler * ve::apply(
+			[&](dcon::province_id province) {
+				return credit::producer_employment_scale(state,
+					state.world.province_get_nation_from_province_ownership(province));
+			}, pid);
 
 #ifndef NDEBUG
 		ve::apply([&](auto p) { assert(std::isfinite(state.world.province_get_labor_demand_satisfaction(p, labor::high_education))); },

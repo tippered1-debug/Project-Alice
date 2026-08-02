@@ -1,10 +1,18 @@
 #pragma once
 
 #include "culture/transformation_politics.hpp"
+// The synthetic lab sizes dcon arrays directly, so this header needs the
+// economy declarations in its own right rather than through whichever
+// translation unit happens to include it.
+#include "economy/advanced_province_buildings.hpp"
 #include "economy/banking_stability.hpp"
+#include "economy/credit_market.hpp"
 #include "economy/demographics.hpp"
+#include "economy/economy_constants.hpp"
 #include "economy/economy_stats.hpp"
 #include "economy/human_development.hpp"
+#include "economy/industry_ownership.hpp"
+#include "economy/monetary_system.hpp"
 #include "economy/price.hpp"
 #include "economy/world_trade_capacity.hpp"
 #include "gamerule/gamerule.hpp"
@@ -14,6 +22,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -49,12 +58,16 @@ enum class invariant_field : uint8_t {
 	nation_debt,
 	national_bank,
 	private_investment,
+	money_supply,
 	market_gdp,
 	factory_profit,
 	control_ratio,
 	legitimacy,
 	coalition_power,
+	government_stability,
+	government_confidence,
 	banking_health,
+	credit_rate,
 	trade_route_volume,
 	trade_route_capacity,
 	trade_congestion,
@@ -84,12 +97,16 @@ inline constexpr std::string_view invariant_field_name(invariant_field field) no
 	case invariant_field::nation_debt: return "nation_debt";
 	case invariant_field::national_bank: return "national_bank";
 	case invariant_field::private_investment: return "private_investment";
+	case invariant_field::money_supply: return "money_supply";
 	case invariant_field::market_gdp: return "market_gdp";
 	case invariant_field::factory_profit: return "factory_profit";
 	case invariant_field::control_ratio: return "control_ratio";
 	case invariant_field::legitimacy: return "legitimacy";
 	case invariant_field::coalition_power: return "coalition_power";
+	case invariant_field::government_stability: return "government_stability";
+	case invariant_field::government_confidence: return "government_confidence";
 	case invariant_field::banking_health: return "banking_health";
+	case invariant_field::credit_rate: return "credit_rate";
 	case invariant_field::trade_route_volume: return "trade_route_volume";
 	case invariant_field::trade_route_capacity: return "trade_route_capacity";
 	case invariant_field::trade_congestion: return "trade_congestion";
@@ -143,6 +160,11 @@ struct aggregate_snapshot {
 	uint64_t rebel_controlled_province_count = 0;
 	uint64_t uncontrolled_owned_province_count = 0;
 	uint64_t transformed_nation_count = 0;
+	uint64_t stable_government_count = 0;
+	uint64_t contested_government_count = 0;
+	uint64_t fragile_government_count = 0;
+	uint64_t government_turnover_count = 0;
+	uint64_t cabinet_member_count = 0;
 	uint64_t trade_route_count = 0;
 
 	double inflation = 0.0;
@@ -168,6 +190,22 @@ struct aggregate_snapshot {
 	double government_debt = 0.0;
 	double national_bank = 0.0;
 	double private_investment = 0.0;
+	// Money-supply account. money_market_cash and money_unaccounted are signed
+	// on purpose: merchants may hold a negative net balance, and money can go
+	// missing as easily as it can appear.
+	double money_pop_savings = 0.0;
+	double money_market_cash = 0.0;
+	double money_treasury = 0.0;
+	double money_national_bank = 0.0;
+	double money_private_investment = 0.0;
+	double money_producer_banks = 0.0;
+	double money_building_savings = 0.0;
+	double money_total = 0.0;
+	double money_expected_total = 0.0;
+	double money_gold_emission = 0.0;
+	double money_unaccounted = 0.0;
+	double money_gross_total = 0.0;
+	double money_net_to_gross = 1.0;
 	double market_gdp = 0.0;
 	// Profit is deliberately signed: a negative value is an economic signal,
 	// not an invariant violation.
@@ -177,9 +215,44 @@ struct aggregate_snapshot {
 	double legitimacy_sum = 0.0;
 	double minimum_legitimacy = 0.0;
 	double coalition_power_sum = 0.0;
+	double government_stability_sum = 0.0;
+	double minimum_government_stability = 0.0;
+	double cabinet_confidence_sum = 0.0;
+	double minimum_cabinet_confidence = 0.0;
 	double banking_health_sum = 0.0;
 	double minimum_banking_health = 0.0;
 	double banking_stress_sum = 0.0;
+	// Credit market. The rate is a price, so its extremes matter as much as its
+	// average: a single exhausted lender is the interesting observation.
+	double credit_policy_rate_sum = 0.0;
+	double maximum_credit_policy_rate = 0.0;
+	double credit_utilization_sum = 0.0;
+	double credit_government_share_sum = 0.0;
+	double credit_lending_capacity = 0.0;
+	double credit_extended_to_private = 0.0;
+	double credit_private_interest_due = 0.0;
+	// Producer tills financed by the bank today, and the deficit it could not
+	// reach. The unfunded figure is the size of the old free overdraft.
+	double credit_producer_extended = 0.0;
+	double credit_producer_unfunded = 0.0;
+	// Outstanding producer loan book, and the day's service on it. A stock the
+	// flow-only version had no way to represent.
+	double credit_producer_debt = 0.0;
+	double credit_producer_interest_paid = 0.0;
+	double credit_producer_principal_repaid = 0.0;
+	double credit_producer_writeoff = 0.0;
+	uint64_t credit_market_count = 0;
+	// Industrial ownership, weighted by each province's capitalized industry
+	// value so a province with no industry cannot sway the mix.
+	double industry_value = 0.0;
+	double industry_value_capitalists = 0.0;
+	double industry_value_landed = 0.0;
+	double industry_value_state = 0.0;
+	double industry_value_foreign = 0.0;
+	double industry_value_workers = 0.0;
+	double industry_turnover = 0.0;
+	double maximum_industry_state_share = 0.0;
+	double maximum_industry_foreign_share = 0.0;
 	double trade_route_cargo = 0.0;
 	double trade_effective_capacity = 0.0;
 	double trade_congestion_sum = 0.0;
@@ -211,6 +284,13 @@ struct aggregate_snapshot {
 	double tracked_nation_monthly_army_attrition = 0.0;
 	double tracked_nation_daily_internal_migration = 0.0;
 	double tracked_nation_daily_external_migration = 0.0;
+	double tracked_nation_legitimacy = 0.0;
+	double tracked_nation_coalition_power = 0.0;
+	double tracked_nation_government_stability = 0.0;
+	double tracked_nation_minimum_cabinet_confidence = 0.0;
+	int32_t tracked_nation_government_established_on = 0;
+	uint64_t tracked_nation_government_groups = 0;
+	bool tracked_nation_government_changed = false;
 
 	invariant_counts observed_violations{};
 };
@@ -291,6 +371,26 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		result.inflation = state.inflation;
 	}
 
+	{
+		auto const& ledger = state.monetary_account;
+		result.money_pop_savings = ledger.current.pop_savings;
+		result.money_market_cash = ledger.current.market_cash;
+		result.money_treasury = ledger.current.treasury;
+		result.money_national_bank = ledger.current.national_bank;
+		result.money_private_investment = ledger.current.private_investment;
+		result.money_producer_banks = ledger.current.producer_banks;
+		result.money_building_savings = ledger.current.building_savings;
+		result.money_total = ledger.current.total();
+		result.money_expected_total = ledger.last_balance.expected_total;
+		result.money_gold_emission = ledger.last_balance.gold_emission;
+		result.money_unaccounted = ledger.last_balance.unaccounted;
+		result.money_gross_total = ledger.last_balance.gross_total;
+		result.money_net_to_gross = ledger.last_balance.net_to_gross;
+		// The aggregates are validated in doubles by validate_snapshot. Narrowing
+		// them to float here would report a spurious violation for exactly the
+		// runaway totals this account exists to catch.
+	}
+
 	bool has_banking_result = false;
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		++result.nation_count;
@@ -325,6 +425,44 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			if(!has_banking_result || banking.credit_health < result.minimum_banking_health)
 				result.minimum_banking_health = banking.credit_health;
 			has_banking_result = true;
+		}
+
+		// Rate, utilization and capacity are pure functions of serialized state
+		// and can be re-derived here. The settled flows cannot: they depend on a
+		// construction shortfall that only exists inside the daily update, so
+		// they are read back from what settlement actually recorded.
+		auto const credit = economy::credit::evaluate_nation(state, nation);
+		if(credit.enabled
+			&& detail::observe_nonnegative(result.observed_violations, invariant_field::credit_rate,
+				entity, -1, credit.policy_annual_rate)) {
+			++result.credit_market_count;
+			result.credit_policy_rate_sum += double(credit.policy_annual_rate);
+			result.maximum_credit_policy_rate = std::max(
+				result.maximum_credit_policy_rate, double(credit.policy_annual_rate));
+			result.credit_utilization_sum += double(credit.utilization);
+			result.credit_government_share_sum += double(credit.government_share);
+			result.credit_lending_capacity += double(credit.lending_capacity);
+			auto const settled = std::size_t(nation.index());
+			if(settled < state.credit_daily_flows.extended.size()) {
+				result.credit_extended_to_private +=
+					double(state.credit_daily_flows.extended[settled]);
+				result.credit_private_interest_due +=
+					double(state.credit_daily_flows.interest[settled]);
+			}
+			if(settled < state.credit_daily_flows.producer_interest_paid.size()) {
+				result.credit_producer_interest_paid +=
+					double(state.credit_daily_flows.producer_interest_paid[settled]);
+				result.credit_producer_principal_repaid +=
+					double(state.credit_daily_flows.producer_principal_repaid[settled]);
+				result.credit_producer_writeoff +=
+					double(state.credit_daily_flows.producer_writeoff[settled]);
+			}
+			if(settled < state.credit_daily_flows.producer_extended.size()) {
+				result.credit_producer_extended +=
+					double(state.credit_daily_flows.producer_extended[settled]);
+				result.credit_producer_unfunded +=
+					double(state.credit_daily_flows.producer_unfunded[settled]);
+			}
 		}
 	});
 
@@ -501,6 +639,35 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 				entity, labor_type, supply_sold, 1.0f);
 		}
 
+		{
+			auto const debt = double(state.world.province_get_producer_debt(province));
+			if(std::isfinite(debt) && debt > 0.0)
+				result.credit_producer_debt += debt;
+		}
+
+		{
+			auto const value = double(state.world.province_get_industry_market_value(province));
+			if(std::isfinite(value) && value > 0.0) {
+				auto const owners = economy::industry_ownership::current_distribution(state, province);
+				result.industry_value += value;
+				result.industry_value_capitalists += value * double(owners.capitalists);
+				result.industry_value_landed += value * double(owners.landed_elites);
+				result.industry_value_state += value * double(owners.state);
+				result.industry_value_foreign += value * double(owners.foreign);
+				result.industry_value_workers += value * double(owners.workers);
+			}
+			{
+				auto const owners = economy::industry_ownership::current_distribution(state, province);
+				result.maximum_industry_state_share = std::max(
+					result.maximum_industry_state_share, double(owners.state));
+				result.maximum_industry_foreign_share = std::max(
+					result.maximum_industry_foreign_share, double(owners.foreign));
+			}
+			auto const turnover = double(state.world.province_get_industry_market_turnover(province));
+			if(std::isfinite(turnover))
+				result.industry_turnover += turnover;
+		}
+
 		auto const stockpile = state.world.province_get_supply_depot_stockpile(province);
 		if(detail::observe_nonnegative(result.observed_violations, invariant_field::supply_depot_stockpile,
 				entity, -1, stockpile)) {
@@ -533,6 +700,8 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	});
 
 	bool has_legitimacy = false;
+	bool has_government = false;
+	bool has_cabinet_member = false;
 	if(state.transformation_politics_cache_valid
 		&& state.transformation_politics_cache.size() == state.world.nation_size()) {
 		for(std::size_t index = 0; index < state.transformation_politics_cache.size(); ++index) {
@@ -550,6 +719,61 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			if(detail::observe_nonnegative(result.observed_violations, invariant_field::coalition_power,
 					int32_t(index), -1, political.coalition.power_share, 1.0f)) {
 				result.coalition_power_sum += double(political.coalition.power_share);
+			}
+			if(detail::observe_nonnegative(result.observed_violations, invariant_field::government_stability,
+					int32_t(index), -1, political.government.stability, 1.0f)) {
+				result.government_stability_sum += double(political.government.stability);
+				if(!has_government || political.government.stability < result.minimum_government_stability)
+					result.minimum_government_stability = political.government.stability;
+				has_government = true;
+			}
+			if(!political.coalition.has_working_majority
+				|| political.government.stability < 0.45f
+				|| political.legitimacy.total < 35.0f) {
+				++result.fragile_government_count;
+			} else if(political.government.stability < 0.62f
+				|| political.legitimacy.total < 55.0f) {
+				++result.contested_government_count;
+			} else {
+				++result.stable_government_count;
+			}
+			if(political.government.changed_this_refresh)
+				++result.government_turnover_count;
+
+			double nation_minimum_confidence = 0.0;
+			bool nation_has_cabinet_member = false;
+			for(std::size_t group = 0;
+					group < politics::transformation::interest_group_count; ++group) {
+				auto const bit = politics::transformation::group_bit(
+					politics::transformation::interest_group_id(group));
+				if((political.government.groups & bit) == 0)
+					continue;
+				auto const confidence = political.government.confidence[group];
+				if(detail::observe_nonnegative(result.observed_violations,
+						invariant_field::government_confidence, int32_t(index), int32_t(group),
+						confidence, 1.0f)) {
+					++result.cabinet_member_count;
+					result.cabinet_confidence_sum += double(confidence);
+					if(!has_cabinet_member || confidence < result.minimum_cabinet_confidence)
+						result.minimum_cabinet_confidence = confidence;
+					if(!nation_has_cabinet_member || confidence < nation_minimum_confidence)
+						nation_minimum_confidence = confidence;
+					has_cabinet_member = true;
+					nation_has_cabinet_member = true;
+				}
+			}
+
+			if(tracked_nation && std::size_t(tracked_nation.index()) == index) {
+				result.tracked_nation_legitimacy = political.legitimacy.total;
+				result.tracked_nation_coalition_power = political.coalition.power_share;
+				result.tracked_nation_government_stability = political.government.stability;
+				result.tracked_nation_minimum_cabinet_confidence = nation_minimum_confidence;
+				result.tracked_nation_government_established_on =
+					political.government.established_on;
+				result.tracked_nation_government_groups =
+					uint64_t(political.government.groups);
+				result.tracked_nation_government_changed =
+					political.government.changed_this_refresh;
 			}
 		}
 	}
@@ -627,6 +851,32 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.government_debt);
 	validate_aggregate(snapshot.national_bank);
 	validate_aggregate(snapshot.private_investment);
+	validate_aggregate(snapshot.money_pop_savings);
+	validate_aggregate(snapshot.money_treasury);
+	validate_aggregate(snapshot.money_national_bank);
+	validate_aggregate(snapshot.money_private_investment);
+	validate_aggregate(snapshot.money_building_savings);
+	validate_aggregate(snapshot.money_gross_total);
+	validate_aggregate(snapshot.money_gold_emission);
+	// Only the gross position is required to be non-negative. The net supply is
+	// signed: producer tills overdraw without limit in the base game, so on a
+	// real scenario the world's net cash legitimately crosses zero. Failing the
+	// run there would turn ordinary vanilla behaviour into a hard error. The
+	// signal lives in net_to_gross and the producer balance instead.
+	auto validate_signed = [&](double value, invariant_field field) {
+		if(!std::isfinite(value)) {
+			++report.violations.nonfinite;
+			detail::remember_first(report.violations, field, -1, -1, float(value));
+		}
+	};
+	validate_signed(snapshot.money_total, invariant_field::money_supply);
+	validate_signed(snapshot.money_market_cash, invariant_field::money_supply);
+	// Producer tills run collectively negative in the base game: firms pay wages
+	// and buy inputs from a balance that is allowed to overdraw without limit.
+	// That is an economic finding, not an invalid sample.
+	validate_signed(snapshot.money_producer_banks, invariant_field::money_supply);
+	validate_signed(snapshot.money_expected_total, invariant_field::money_supply);
+	validate_signed(snapshot.money_unaccounted, invariant_field::money_supply);
 	validate_aggregate(snapshot.market_gdp);
 	if(!std::isfinite(snapshot.factory_profit)) {
 		++report.violations.nonfinite;
@@ -638,9 +888,33 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.legitimacy_sum);
 	validate_aggregate(snapshot.minimum_legitimacy);
 	validate_aggregate(snapshot.coalition_power_sum);
+	validate_aggregate(snapshot.government_stability_sum);
+	validate_aggregate(snapshot.minimum_government_stability);
+	validate_aggregate(snapshot.cabinet_confidence_sum);
+	validate_aggregate(snapshot.minimum_cabinet_confidence);
 	validate_aggregate(snapshot.banking_health_sum);
 	validate_aggregate(snapshot.minimum_banking_health);
 	validate_aggregate(snapshot.banking_stress_sum);
+	validate_aggregate(snapshot.credit_policy_rate_sum);
+	validate_aggregate(snapshot.maximum_credit_policy_rate);
+	validate_aggregate(snapshot.credit_utilization_sum);
+	validate_aggregate(snapshot.credit_government_share_sum);
+	validate_aggregate(snapshot.credit_lending_capacity);
+	validate_aggregate(snapshot.credit_extended_to_private);
+	validate_aggregate(snapshot.credit_private_interest_due);
+	validate_aggregate(snapshot.credit_producer_extended);
+	validate_aggregate(snapshot.credit_producer_unfunded);
+	validate_aggregate(snapshot.credit_producer_debt);
+	validate_aggregate(snapshot.credit_producer_interest_paid);
+	validate_aggregate(snapshot.credit_producer_principal_repaid);
+	validate_aggregate(snapshot.credit_producer_writeoff);
+	validate_aggregate(snapshot.industry_value);
+	validate_aggregate(snapshot.industry_value_capitalists);
+	validate_aggregate(snapshot.industry_value_landed);
+	validate_aggregate(snapshot.industry_value_state);
+	validate_aggregate(snapshot.industry_value_foreign);
+	validate_aggregate(snapshot.industry_value_workers);
+	validate_aggregate(snapshot.industry_turnover);
 	validate_aggregate(snapshot.trade_route_cargo);
 	validate_aggregate(snapshot.trade_effective_capacity);
 	validate_aggregate(snapshot.trade_congestion_sum);
@@ -669,6 +943,10 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.population_weighted_human_development);
 	validate_aggregate(snapshot.gross_internal_migration);
 	validate_aggregate(snapshot.gross_international_migration);
+	validate_aggregate(snapshot.tracked_nation_legitimacy);
+	validate_aggregate(snapshot.tracked_nation_coalition_power);
+	validate_aggregate(snapshot.tracked_nation_government_stability);
+	validate_aggregate(snapshot.tracked_nation_minimum_cabinet_confidence);
 
 	report.valid = report.violations.ok();
 	return report;
@@ -704,6 +982,11 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"markets\":" << snapshot.market_count
 		<< ",\"nations\":" << snapshot.nation_count
 		<< ",\"transformed_nations\":" << snapshot.transformed_nation_count
+		<< ",\"stable_governments\":" << snapshot.stable_government_count
+		<< ",\"contested_governments\":" << snapshot.contested_government_count
+		<< ",\"fragile_governments\":" << snapshot.fragile_government_count
+		<< ",\"government_turnovers\":" << snapshot.government_turnover_count
+		<< ",\"cabinet_members\":" << snapshot.cabinet_member_count
 		<< ",\"factories\":" << snapshot.factory_count
 		<< ",\"unprofitable_factories\":" << snapshot.unprofitable_factory_count
 		<< ",\"trade_routes\":" << snapshot.trade_route_count
@@ -743,7 +1026,17 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"monthly_natural_change\":" << snapshot.tracked_nation_monthly_natural_change
 		<< ",\"monthly_army_attrition\":" << snapshot.tracked_nation_monthly_army_attrition
 		<< ",\"daily_internal_migration\":" << snapshot.tracked_nation_daily_internal_migration
-		<< ",\"daily_external_migration\":" << snapshot.tracked_nation_daily_external_migration << "}"
+		<< ",\"daily_external_migration\":" << snapshot.tracked_nation_daily_external_migration
+		<< ",\"legitimacy\":" << snapshot.tracked_nation_legitimacy
+		<< ",\"coalition_power\":" << snapshot.tracked_nation_coalition_power
+		<< ",\"government_stability\":" << snapshot.tracked_nation_government_stability
+		<< ",\"minimum_cabinet_confidence\":"
+		<< snapshot.tracked_nation_minimum_cabinet_confidence
+		<< ",\"government_established_on\":"
+		<< snapshot.tracked_nation_government_established_on
+		<< ",\"government_groups\":" << snapshot.tracked_nation_government_groups
+		<< ",\"government_changed\":"
+		<< (snapshot.tracked_nation_government_changed ? "true" : "false") << "}"
 		<< ",\"living_standards\":{\"life_needs_population_sum\":"
 		<< snapshot.population_weighted_life_needs
 		<< ",\"everyday_needs_population_sum\":"
@@ -755,6 +1048,43 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"government_debt\":" << snapshot.government_debt
 		<< ",\"national_bank\":" << snapshot.national_bank
 		<< ",\"private_investment\":" << snapshot.private_investment << "}"
+		<< ",\"credit\":{\"markets\":" << snapshot.credit_market_count
+		<< ",\"policy_rate_sum\":" << snapshot.credit_policy_rate_sum
+		<< ",\"maximum_policy_rate\":" << snapshot.maximum_credit_policy_rate
+		<< ",\"utilization_sum\":" << snapshot.credit_utilization_sum
+		<< ",\"government_share_sum\":" << snapshot.credit_government_share_sum
+		<< ",\"lending_capacity\":" << snapshot.credit_lending_capacity
+		<< ",\"extended_to_private\":" << snapshot.credit_extended_to_private
+		<< ",\"private_interest_due\":" << snapshot.credit_private_interest_due
+		<< ",\"producer_extended\":" << snapshot.credit_producer_extended
+		<< ",\"producer_unfunded\":" << snapshot.credit_producer_unfunded
+		<< ",\"producer_debt\":" << snapshot.credit_producer_debt
+		<< ",\"producer_interest_paid\":" << snapshot.credit_producer_interest_paid
+		<< ",\"producer_principal_repaid\":" << snapshot.credit_producer_principal_repaid
+		<< ",\"producer_writeoff\":" << snapshot.credit_producer_writeoff << "}"
+		<< ",\"industry\":{\"value\":" << snapshot.industry_value
+		<< ",\"value_capitalists\":" << snapshot.industry_value_capitalists
+		<< ",\"value_landed\":" << snapshot.industry_value_landed
+		<< ",\"value_state\":" << snapshot.industry_value_state
+		<< ",\"value_foreign\":" << snapshot.industry_value_foreign
+		<< ",\"value_workers\":" << snapshot.industry_value_workers
+		<< ",\"turnover\":" << snapshot.industry_turnover
+		<< ",\"maximum_state_share\":" << snapshot.maximum_industry_state_share
+		<< ",\"maximum_foreign_share\":" << snapshot.maximum_industry_foreign_share << "}"
+		<< ",\"money\":{\"pop_savings\":" << snapshot.money_pop_savings
+		<< ",\"market_cash\":" << snapshot.money_market_cash
+		<< ",\"treasury\":" << snapshot.money_treasury
+		<< ",\"national_bank\":" << snapshot.money_national_bank
+		<< ",\"private_investment\":" << snapshot.money_private_investment
+		<< ",\"producer_banks\":" << snapshot.money_producer_banks
+		<< ",\"building_savings\":" << snapshot.money_building_savings
+		<< ",\"total\":" << snapshot.money_total
+		<< ",\"expected_total\":" << snapshot.money_expected_total
+		<< ",\"gold_emission\":" << snapshot.money_gold_emission
+		<< ",\"unaccounted\":" << snapshot.money_unaccounted
+
+		<< ",\"gross_total\":" << snapshot.money_gross_total
+		<< ",\"net_to_gross\":" << snapshot.money_net_to_gross << "}"
 		<< ",\"labor\":{\"price_sum\":" << snapshot.labor_price_sum
 		<< ",\"supply\":" << snapshot.labor_supply
 		<< ",\"demand\":" << snapshot.labor_demand
@@ -766,7 +1096,13 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"minimum_control_ratio\":" << snapshot.minimum_control_ratio << "}"
 		<< ",\"politics\":{\"legitimacy_sum\":" << snapshot.legitimacy_sum
 		<< ",\"minimum_legitimacy\":" << snapshot.minimum_legitimacy
-		<< ",\"coalition_power_sum\":" << snapshot.coalition_power_sum << "}"
+		<< ",\"coalition_power_sum\":" << snapshot.coalition_power_sum
+		<< ",\"government_stability_sum\":" << snapshot.government_stability_sum
+		<< ",\"minimum_government_stability\":"
+		<< snapshot.minimum_government_stability
+		<< ",\"cabinet_confidence_sum\":" << snapshot.cabinet_confidence_sum
+		<< ",\"minimum_cabinet_confidence\":"
+		<< snapshot.minimum_cabinet_confidence << "}"
 		<< ",\"banking\":{\"credit_health_sum\":" << snapshot.banking_health_sum
 		<< ",\"minimum_credit_health\":" << snapshot.minimum_banking_health
 		<< ",\"financial_stress_sum\":" << snapshot.banking_stress_sum << "}"
@@ -809,6 +1145,182 @@ struct run_result {
 	validation_report last_validation{};
 };
 
+struct synthetic_lab_result {
+	dcon::nation_id nation{};
+	dcon::province_id province{};
+	dcon::market_id market{};
+};
+
+// Build a small, deterministic world for model and balance diagnostics when no
+// Victoria 2 scenario is available. This is intentionally a laboratory fixture,
+// not replacement game content: full world ticks still require parsed scenario
+// definitions, while this state exercises isolated economy/politics models.
+[[nodiscard]] inline synthetic_lab_result initialize_synthetic_lab(sys::state& state) {
+	state.start_date = sys::absolute_time_point{sys::year_month_day{1836, 1, 1}};
+	state.current_date = sys::date{sys::year_month_day{1836, 1, 1}, state.start_date};
+	state.end_date = sys::absolute_time_point{sys::year_month_day{2036, 1, 1}};
+	state.game_seed = 424242;
+	state.inflation = 1.0f;
+	state.force_age_of_transformation_ruleset = true;
+
+	auto const money = state.world.create_commodity();
+	auto const staple = state.world.create_commodity();
+	state.world.commodity_set_cost(money, 1.0f);
+	state.world.commodity_set_cost(staple, 1.0f);
+	state.world.commodity_set_is_available_from_start(money, true);
+	state.world.commodity_set_is_available_from_start(staple, true);
+
+	auto const workers = state.world.create_pop_type();
+	auto const owners = state.world.create_pop_type();
+	state.culture_definitions.primary_factory_worker = workers;
+	state.culture_definitions.capitalists = owners;
+
+	auto const nation = state.world.create_nation();
+	auto const province = state.world.create_province();
+	auto const state_instance = state.world.create_state_instance();
+	auto const market = state.world.create_market();
+	state.province_definitions.first_sea_province =
+		dcon::province_id{dcon::province_id::value_base_t(1)};
+
+	state.world.province_set_nation_from_province_ownership(province, nation);
+	state.world.province_set_nation_from_province_control(province, nation);
+	state.world.province_set_state_membership(province, state_instance);
+	state.world.state_instance_set_capital(state_instance, province);
+	state.world.state_instance_set_market_from_local_market(state_instance, market);
+	state.world.market_set_zone_from_local_market(market, state_instance);
+	state.world.nation_set_capital(nation, province);
+	state.world.province_set_rgo(province, staple);
+	state.world.province_set_control_scale(province, 1.0f);
+	state.world.province_set_control_ratio(province, 1.0f);
+	state.world.province_set_capitalists_share(province, 0.20f);
+
+	auto const worker_pop = state.world.create_pop();
+	state.world.pop_set_poptype(worker_pop, workers);
+	state.world.pop_set_size(worker_pop, 800'000.0f);
+	state.world.pop_set_savings(worker_pop, 800'000.0f);
+	state.world.pop_set_satisfaction(worker_pop, 0.65f);
+	state.world.pop_set_uliteracy(worker_pop, pop_demographics::to_pu16(0.55f));
+	state.world.pop_set_uconsciousness(worker_pop, pop_demographics::to_pmc(4.0f));
+	state.world.force_create_pop_location(worker_pop, province);
+
+	auto const owner_pop = state.world.create_pop();
+	state.world.pop_set_poptype(owner_pop, owners);
+	state.world.pop_set_size(owner_pop, 200'000.0f);
+	state.world.pop_set_savings(owner_pop, 2'000'000.0f);
+	state.world.pop_set_satisfaction(owner_pop, 0.85f);
+	state.world.pop_set_uliteracy(owner_pop, pop_demographics::to_pu16(0.80f));
+	state.world.pop_set_uconsciousness(owner_pop, pop_demographics::to_pmc(6.0f));
+	state.world.force_create_pop_location(owner_pop, province);
+
+	state.world.pop_type_resize_life_needs(state.world.commodity_size());
+	state.world.pop_type_resize_everyday_needs(state.world.commodity_size());
+	state.world.pop_type_resize_luxury_needs(state.world.commodity_size());
+	for(auto type : state.world.in_pop_type) {
+		state.world.pop_type_set_life_needs(type, staple, 1.0f);
+		state.world.pop_type_set_everyday_needs(type, staple, 0.5f);
+		state.world.pop_type_set_luxury_needs(type, staple, 0.1f);
+	}
+
+	state.world.pop_resize_udemographics(pop_demographics::size(state));
+	state.world.province_resize_demographics(demographics::size(state));
+	state.world.nation_resize_demographics(demographics::size(state));
+	state.world.state_instance_resize_demographics(demographics::size(state));
+	state.world.nation_resize_stockpiles(state.world.commodity_size());
+	state.world.nation_resize_modifier_values(sys::national_mod_offsets::count);
+	state.world.province_resize_modifier_values(sys::provincial_mod_offsets::count);
+	state.world.nation_resize_rgo_goods_output(state.world.commodity_size());
+	state.world.nation_resize_factory_goods_output(state.world.commodity_size());
+	state.world.nation_resize_factory_goods_throughput(state.world.commodity_size());
+	state.world.nation_resize_rgo_size(state.world.commodity_size());
+	state.world.nation_resize_unlocked_commodities(state.world.commodity_size());
+	state.world.nation_resize_active_unit(0);
+	state.world.nation_resize_active_crime(0);
+	state.world.nation_resize_active_building(0);
+	state.world.nation_resize_unit_stats(0);
+	state.world.nation_resize_max_building_level(economy::max_building_types);
+	state.world.nation_resize_stockpile_targets(state.world.commodity_size());
+	state.world.nation_resize_drawing_on_stockpiles(state.world.commodity_size());
+
+	state.world.market_resize_price(state.world.commodity_size());
+	state.world.market_resize_supply(state.world.commodity_size());
+	state.world.market_resize_demand(state.world.commodity_size());
+	state.world.market_resize_stockpile(state.world.commodity_size());
+	state.world.market_resize_consumption(state.world.commodity_size());
+	state.world.market_resize_intermediate_demand(state.world.commodity_size());
+	state.world.market_resize_import(state.world.commodity_size());
+	state.world.market_resize_export(state.world.commodity_size());
+	state.world.market_resize_army_demand(state.world.commodity_size());
+	state.world.market_resize_navy_demand(state.world.commodity_size());
+	state.world.market_resize_construction_demand(state.world.commodity_size());
+	state.world.market_resize_private_construction_demand(state.world.commodity_size());
+	state.world.market_resize_actual_probability_to_buy(state.world.commodity_size());
+	state.world.market_resize_actual_probability_to_sell(state.world.commodity_size());
+	state.world.market_resize_expected_probability_to_buy(state.world.commodity_size());
+	state.world.market_resize_expected_probability_to_sell(state.world.commodity_size());
+	state.world.market_resize_aggregated_demand_history(state.world.commodity_size());
+	state.world.market_resize_aggregated_supply_history(state.world.commodity_size());
+	state.world.market_resize_life_needs_weights(state.world.commodity_size());
+	state.world.market_resize_everyday_needs_weights(state.world.commodity_size());
+	state.world.market_resize_luxury_needs_weights(state.world.commodity_size());
+	state.world.market_resize_life_needs_costs(state.world.pop_type_size());
+	state.world.market_resize_everyday_needs_costs(state.world.pop_type_size());
+	state.world.market_resize_luxury_needs_costs(state.world.pop_type_size());
+	state.world.market_resize_life_needs_scale(state.world.pop_type_size());
+	state.world.market_resize_everyday_needs_scale(state.world.pop_type_size());
+	state.world.market_resize_luxury_needs_scale(state.world.pop_type_size());
+	state.world.market_resize_satisfied_ratio_of_max_life_needs(state.world.pop_type_size());
+	state.world.market_resize_satisfied_ratio_of_max_everyday_needs(state.world.pop_type_size());
+	state.world.market_resize_satisfied_ratio_of_max_luxury_needs(state.world.pop_type_size());
+	state.world.market_resize_satisfied_ratio_of_demanded_life_needs(state.world.pop_type_size());
+	state.world.market_resize_satisfied_ratio_of_demanded_everyday_needs(state.world.pop_type_size());
+	state.world.market_resize_satisfied_ratio_of_demanded_luxury_needs(state.world.pop_type_size());
+	state.world.commodity_resize_price_record(economy::price_history_length);
+	state.world.nation_resize_gdp_record(economy::gdp_history_length);
+	for(auto commodity : state.world.in_commodity) {
+		auto const price = state.world.commodity_get_cost(commodity);
+		state.world.market_set_price(market, commodity, price);
+		state.world.market_set_supply(market, commodity, 1'000'000.0f);
+		state.world.market_set_demand(market, commodity, 900'000.0f);
+		state.world.market_set_stockpile(market, commodity, 100'000.0f);
+	}
+	for(auto type : state.world.in_pop_type) {
+		state.world.market_set_life_needs_costs(market, type, 1.0f);
+		state.world.market_set_everyday_needs_costs(market, type, 0.5f);
+		state.world.market_set_luxury_needs_costs(market, type, 0.1f);
+	}
+	state.world.market_set_gdp(market, 1'000'000.0f);
+
+	state.world.province_resize_labor_price(economy::labor::total);
+	state.world.province_resize_labor_supply(economy::labor::total);
+	state.world.province_resize_labor_demand(economy::labor::total);
+	state.world.province_resize_labor_demand_satisfaction(economy::labor::total);
+	state.world.province_resize_labor_supply_sold(economy::labor::total);
+	state.world.province_resize_pop_labor_distribution(economy::pop_labor::total);
+	services::initialize_size_of_dcon_arrays(state);
+	advanced_province_buildings::initialize_size_of_dcon_arrays(state);
+	state.world.province_set_labor_price(province, economy::labor::no_education, 1.0f);
+	state.world.province_set_labor_supply(province, economy::labor::no_education, 800'000.0f);
+	state.world.province_set_labor_demand(province, economy::labor::no_education, 760'000.0f);
+	state.world.province_set_labor_demand_satisfaction(
+		province, economy::labor::no_education, 0.95f);
+	state.world.province_set_labor_supply_sold(province, economy::labor::no_education, 0.95f);
+	state.world.province_set_pop_labor_distribution(
+		province, economy::pop_labor::primary_no_education, 1.0f);
+
+	state.world.nation_set_stockpiles(nation, money, 1'000'000.0f);
+	state.world.nation_set_national_bank(nation, 500'000.0f);
+	state.world.nation_set_private_investment(nation, 100'000.0f);
+	pop_demographics::set_employment(state, worker_pop, 760'000.0f);
+	pop_demographics::set_employment(state, owner_pop, 200'000.0f);
+	politics::transformation::refresh_all_nations(state);
+	// The lab bypasses scenario loading, so seed the money-supply baseline the
+	// same way a loaded save does. Without it the first observed day would be
+	// reported as if the entire supply had appeared from nowhere.
+	economy::monetary::initialize(state);
+
+	return synthetic_lab_result{nation, province, market};
+}
+
 using line_sink = std::function<void(std::string_view)>;
 
 namespace detail {
@@ -843,6 +1355,12 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		std::invoke(tick_function, state);
 		result.ticks_completed = tick;
 
+		if(state.money_audit.enabled) {
+			auto const report = economy::monetary::format_audit(state);
+			if(!report.empty())
+				std::fputs(report.c_str(), stdout);
+		}
+
 		auto const cadence_due = options.snapshot_cadence != 0 && tick % options.snapshot_cadence == 0;
 		auto const final_due = options.include_final_snapshot && tick == options.ticks;
 		if((cadence_due || final_due) && !emit_snapshot(tick)) {
@@ -869,6 +1387,45 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 	if(sink) {
 		return detail::run_ticks_with(state, options, tick, sink);
 	}
+	return detail::run_ticks_with(state, options, tick, [](std::string_view) {});
+}
+
+// Advances the self-contained laboratory through a deterministic demand cycle.
+// It deliberately avoids the world AI, map, military and event pipelines, whose
+// generated arrays and definitions only exist after loading a real scenario.
+[[nodiscard]] inline run_result run_synthetic_lab(sys::state& state,
+		synthetic_lab_result const& lab, run_options const& options, line_sink sink = {}) {
+	uint64_t day = 0;
+	auto tick = [&](sys::state& target) {
+		++day;
+		target.current_date += 1;
+		auto const phase = float(int32_t(day % 120) - 60) / 60.0f;
+		auto const demand = 900'000.0f + phase * 180'000.0f;
+		auto const supply = 1'000'000.0f;
+		auto const employment_ratio = std::clamp(demand / supply, 0.65f, 1.0f);
+		auto const worker_pop = dcon::pop_id{dcon::pop_id::value_base_t(0)};
+		auto const owner_pop = dcon::pop_id{dcon::pop_id::value_base_t(1)};
+		auto const staple = dcon::commodity_id{dcon::commodity_id::value_base_t(1)};
+
+		target.world.market_set_demand(lab.market, staple, demand);
+		target.world.market_set_supply(lab.market, staple, supply);
+		target.world.market_set_gdp(lab.market, demand * employment_ratio);
+		target.world.province_set_labor_demand(
+			lab.province, economy::labor::no_education, 800'000.0f * employment_ratio);
+		target.world.province_set_labor_demand_satisfaction(
+			lab.province, economy::labor::no_education, employment_ratio);
+		target.world.province_set_labor_supply_sold(
+			lab.province, economy::labor::no_education, employment_ratio);
+		pop_demographics::set_employment(target, worker_pop, 800'000.0f * employment_ratio);
+		target.world.pop_set_satisfaction(worker_pop, employment_ratio);
+		target.world.pop_set_satisfaction(owner_pop, std::clamp(0.75f + phase * 0.10f, 0.0f, 1.0f));
+		target.world.pop_set_savings(worker_pop, std::max(
+			0.0f, target.world.pop_get_savings(worker_pop) + (employment_ratio - 0.80f) * 1'000.0f));
+		if(day % 30 == 0)
+			politics::transformation::refresh_all_nations(target);
+	};
+	if(sink)
+		return detail::run_ticks_with(state, options, tick, sink);
 	return detail::run_ticks_with(state, options, tick, [](std::string_view) {});
 }
 

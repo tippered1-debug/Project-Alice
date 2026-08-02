@@ -1,4 +1,5 @@
 #include "economy/banking_stability.hpp"
+#include "economy/credit_market.hpp"
 #include "economy/economy.hpp"
 #include "nations/nations.hpp"
 #include "system_state.hpp"
@@ -110,7 +111,15 @@ TEST_CASE("state-backed banking uses local loan and preserves classic interest",
 	auto const transformed = banking::evaluate_nation(*state, nation);
 	REQUIRE(transformed.enabled);
 	REQUIRE(transformed.sanitized.outstanding_debt == Approx(900.f));
+	// The credit market now prices the loan: its multiplier is scarcity of
+	// loanable funds times the same risk term this module supplies, so it
+	// supersedes the standalone premium rather than stacking with it.
+	auto const priced = economy::credit::evaluate_nation(*state, nation);
+	REQUIRE(priced.enabled);
 	REQUIRE(economy::interest_payment(*state, nation)
-		== Approx(legacy_interest * transformed.interest_cost_multiplier));
+		== Approx(legacy_interest * priced.interest_cost_multiplier));
+	// Debt plus deployed capital against a 1000 reserve stock is scarce credit,
+	// so borrowing must be dearer than the risk premium alone implied.
+	REQUIRE(priced.interest_cost_multiplier > transformed.interest_cost_multiplier);
 	REQUIRE(nations::get_debt(*state, nation) == Approx(900.f));
 }

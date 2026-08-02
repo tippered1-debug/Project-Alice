@@ -1101,6 +1101,48 @@ void update_income_non_labor(sys::state& state) {
 		});
 	}
 
+	// The same treatment for industry: the state's and foreign owners' shares of
+	// the factory till are paid straight to the treasury and to the investing
+	// nations. Only the private remainder enters the POP dividend pool below.
+	if(gamerule::age_of_transformation_enabled(state)) {
+		province::for_each_land_province(state, [&](dcon::province_id pid) {
+			auto const bank = std::max(0.f, state.world.province_get_factory_bank(pid));
+			auto const owner = state.world.province_get_nation_from_province_ownership(pid);
+			if(!owner || bank <= 0.f)
+				return;
+			auto const state_share = std::clamp(
+				state.world.province_get_industry_state_share(pid), 0.f, 1.f);
+			auto const foreign_share = std::clamp(
+				state.world.province_get_industry_foreign_share(pid), 0.f, 1.f - state_share);
+
+			auto const state_income = bank * expected_share * state_share;
+			auto const treasury = state.world.nation_get_stockpiles(owner, economy::money);
+			state.world.nation_set_stockpiles(owner, economy::money, treasury + state_income);
+
+			auto const foreign_income = bank * expected_share * foreign_share;
+			if(foreign_income <= 0.f)
+				return;
+			float total_investment = 0.f;
+			for(auto relation : state.world.nation_get_unilateral_relationship_as_target(owner)) {
+				total_investment += std::max(0.f, relation.get_foreign_investment());
+			}
+			if(total_investment <= 0.f) {
+				// Nobody is on record as having invested here, so the return stays
+				// with the host treasury rather than vanishing.
+				auto const current = state.world.nation_get_stockpiles(owner, economy::money);
+				state.world.nation_set_stockpiles(owner, economy::money, current + foreign_income);
+				return;
+			}
+			for(auto relation : state.world.nation_get_unilateral_relationship_as_target(owner)) {
+				auto const investor = relation.get_source().id;
+				auto const weight = std::max(0.f, relation.get_foreign_investment()) / total_investment;
+				auto const current = state.world.nation_get_stockpiles(investor, economy::money);
+				state.world.nation_set_stockpiles(investor, economy::money,
+					current + foreign_income * weight);
+			}
+		});
+	}
+
 	auto const artisan_def = state.culture_definitions.artisans;
 	auto artisan_key = demographics::to_key(state, artisan_def);
 
@@ -1206,8 +1248,30 @@ void update_income_non_labor(sys::state& state) {
 		}
 
 		{
+			// Factory dividends used to go entirely to capitalists, which meant a
+			// capitalist's income was a payout from an abstract pool rather than a
+			// return on anything owned. Weight it by the recorded owners instead.
+			auto factory_workers = ve::fp_vector{ 0.f };
+			state.world.for_each_pop_type([&](dcon::pop_type_id ptid) {
+				if(ptid == state.culture_definitions.primary_factory_worker
+					|| ptid == state.culture_definitions.secondary_factory_worker) {
+					factory_workers = factory_workers
+						+ state.world.province_get_demographics(pid, demographics::to_key(state, ptid));
+				}
+			});
+			auto industry_state_share = state.world.province_get_industry_state_share(pid);
+			auto industry_foreign_share = state.world.province_get_industry_foreign_share(pid);
+			auto industry_worker_share = state.world.province_get_industry_worker_share(pid);
+			auto industry_landed_share = state.world.province_get_industry_landed_share(pid);
+			auto industry_public_share = industry_state_share + industry_foreign_share;
+			auto industry_capitalist_share = ve::max(0.f,
+				1.f - industry_public_share - industry_worker_share - industry_landed_share);
+
 			auto current = market_factory_tokens.get(mid);
-			market_factory_tokens.set(mid, current + capis);
+			market_factory_tokens.set(mid, current
+				+ capis * industry_capitalist_share
+				+ aristo * industry_landed_share
+				+ factory_workers * industry_worker_share);
 		}
 
 		// MONEY
@@ -1232,9 +1296,14 @@ void update_income_non_labor(sys::state& state) {
 
 		{
 			auto total = market_factory_money.get(mid);
-			auto current_money = state.world.province_get_factory_bank(pid);
-			if(current_money > 0.f)
-				market_factory_money.set(mid, total + current_money);
+			auto const state_share = ve::min(1.f,
+				ve::max(0.f, state.world.province_get_industry_state_share(pid)));
+			auto const foreign_share = ve::min(1.f - state_share,
+				ve::max(0.f, state.world.province_get_industry_foreign_share(pid)));
+			auto const private_share = ve::max(0.f, 1.f - state_share - foreign_share);
+			auto current_money = state.world.province_get_factory_bank(pid) * private_share;
+			market_factory_money.set(mid,
+				total + ve::select(current_money > 0.f, current_money, 0.f));
 		}
 	});
 
@@ -1357,7 +1426,25 @@ void update_income_non_labor(sys::state& state) {
 		{
 			auto candidates = ve::select(valid_market, market_factory_tokens.get(market), 0.f);
 			auto total_money = ve::select(valid_market, market_factory_money.get(market), 0.f);
-			auto income = ve::select((pop_type == capis_def) && candidates > min_registered_token_size && size > 0.f, total_money / candidates * size, 0.f);
+			auto industry_state_share = ve::min(1.f,
+				ve::max(0.f, state.world.province_get_industry_state_share(province)));
+			auto industry_foreign_share = ve::min(1.f - industry_state_share,
+				ve::max(0.f, state.world.province_get_industry_foreign_share(province)));
+			auto industry_worker_share = ve::min(1.f - industry_state_share - industry_foreign_share,
+				ve::max(0.f, state.world.province_get_industry_worker_share(province)));
+			auto industry_landed_share = ve::min(1.f - industry_state_share
+				- industry_foreign_share - industry_worker_share,
+				ve::max(0.f, state.world.province_get_industry_landed_share(province)));
+			auto industry_capitalist_share = ve::max(0.f, 1.f - industry_state_share
+				- industry_foreign_share - industry_worker_share - industry_landed_share);
+			auto owner_weight = ve::select(pop_type == capis_def, industry_capitalist_share, 0.f)
+			+ ve::select(pop_type == aristo_def, industry_landed_share, 0.f)
+			+ ve::select(
+				(pop_type == state.culture_definitions.primary_factory_worker
+					|| pop_type == state.culture_definitions.secondary_factory_worker),
+				industry_worker_share, 0.f);
+			auto income = ve::select(owner_weight > 0.f && candidates > min_registered_token_size
+				&& size > 0.f, total_money / candidates * size * owner_weight, 0.f);
 #ifndef NDEBUG
 			ve::apply([](float v) { assert(std::isfinite(v) && v >= 0); }, income);
 			from_factories = income * expected_share;
@@ -1416,9 +1503,14 @@ void update_income_non_labor(sys::state& state) {
 		}
 		{
 			auto current_money = state.world.province_get_factory_bank(pid_vector);
+			auto public_share = ve::min(1.f,
+				state.world.province_get_industry_state_share(pid_vector)
+				+ state.world.province_get_industry_foreign_share(pid_vector));
 			state.world.province_set_factory_bank(
 				pid_vector,
-				ve::select(valid_market && market_factory_tokens.get(market) > min_registered_token_size && current_money > 0.f, current_money* (1.f - expected_share), current_money)
+				ve::select(valid_market && (market_factory_tokens.get(market) > min_registered_token_size
+					|| public_share > 0.f) && current_money > 0.f,
+					current_money * (1.f - expected_share), current_money)
 			);
 		}
 	});
@@ -1547,7 +1639,9 @@ void update_income_national_subsidy(sys::state& state){
 			/ 100.f;
 
 
-		auto investment_dividents = (state.world.nation_get_private_investment(owners) + state.world.nation_get_national_bank(owners)) * investment_divident_rate;
+		auto investment_dividents = (state.world.nation_get_private_investment(owners) + state.world.nation_get_national_bank(owners))
+			* investment_divident_rate
+			* (gamerule::age_of_transformation_enabled(state) ? 0.f : 1.f);
 		auto investment_budget =
 			owner_spending
 			* budget
@@ -1679,10 +1773,12 @@ void update_income_national_subsidy(sys::state& state){
 
 	// remove investment dividents:
 	state.world.execute_serial_over_nation([&](auto ids) {
+		auto const dividend_decay = gamerule::age_of_transformation_enabled(state)
+			? 0.f : investment_divident_rate;
 		auto investment = state.world.nation_get_private_investment(ids);
-		state.world.nation_set_private_investment(ids, investment * (1.f - investment_divident_rate));
+		state.world.nation_set_private_investment(ids, investment * (1.f - dividend_decay));
 		auto bank = state.world.nation_get_national_bank(ids);
-		state.world.nation_set_national_bank(ids, bank * (1.f - investment_divident_rate));
+		state.world.nation_set_national_bank(ids, bank * (1.f - dividend_decay));
 	});
 }
 

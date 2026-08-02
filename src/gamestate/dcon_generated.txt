@@ -1738,6 +1738,49 @@ object {
 		tag{ save }
 	}
 	property{
+		name{ industry_state_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_foreign_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_worker_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_landed_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_profile }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ smoothed_factory_profit }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ producer_debt }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_market_turnover }
+		type{ float }
+	}
+	property{
+		name{ industry_market_value }
+		type{ float }
+	}
+	property{
 		name{ land_market_turnover }
 		type{ float }
 	}

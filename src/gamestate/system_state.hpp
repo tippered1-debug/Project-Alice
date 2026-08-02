@@ -31,6 +31,8 @@
 #include "network_containers.hpp"
 #include "container_types_ui.hpp"
 #include "military_supply.hpp"
+#include "credit_market.hpp"
+#include "monetary_system.hpp"
 #include "transformation_politics.hpp"
 
 namespace game_scene {
@@ -785,14 +787,28 @@ struct alignas(64) state {
 	std::vector<uint8_t> supply_depot_connected_cache;
 	bool army_supply_cache_valid = false;
 
-	// Derived flagship politics. Recomputed from POP and economy state and never
-	// serialized, so legacy saves and mods retain their existing schema.
+	// Derived flagship politics. The current result is recomputed from POP and
+	// economy state; the incumbent government beneath it is saved separately.
 	std::vector<politics::transformation::nation_result> transformation_politics_cache;
 	bool transformation_politics_cache_valid = false;
+	std::vector<politics::transformation::governing_coalition_state> transformation_government_state;
+	std::vector<politics::transformation::legislation_state> transformation_legislation_state;
 	// Unsaved command-line override used by bounded/headless regression runs on
 	// scenarios created before the flagship gamerule existed. Normal games and
 	// saves continue to use the scenario's gamerule exclusively.
 	bool force_age_of_transformation_ruleset = false;
+
+	// Daily money-supply account. Every field is derived from serialized stocks
+	// and is rebuilt by economy::monetary::initialize() on load, so it stays out
+	// of the save format while remaining identical across a resumed campaign.
+	economy::monetary::account monetary_account;
+
+	// Credit settled today, per nation. Reset at the start of every economy day
+	// and read by observability; never serialized.
+	economy::credit::daily_flows credit_daily_flows;
+
+	// Opt-in per-phase money audit, driven by --money-audit. Never serialized.
+	economy::monetary::audit money_audit;
 
 	std::vector<dcon::nation_id> nations_by_rank;
 	std::vector<dcon::nation_id> nations_by_industrial_score;

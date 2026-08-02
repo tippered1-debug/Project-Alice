@@ -66,6 +66,12 @@ struct population_sample {
 	// Normalized [0, 1]. Project Alice's native 0..10 value is scaled by the
 	// adapter.
 	float consciousness = 0.0f;
+	// Political rights and organization are deliberately separate from mass
+	// support. A disenfranchised population can still create unrest and popular
+	// pressure, but should not automatically receive the same institutional power
+	// as an organized electorate.
+	float political_rights = 1.0f;
+	float political_organization = 1.0f;
 };
 
 struct ruleset_config {
@@ -92,6 +98,8 @@ struct ruleset_config {
 	// A challenger must beat the incumbent by more than this raw-score margin.
 	// Passing the previous mask is optional, so callers control persistence.
 	float coalition_hysteresis_margin = 0.03f;
+	// Maximum legitimacy points a wholly foreign-owned economy can cost.
+	float maximum_foreign_ownership_penalty = 12.0f;
 };
 
 struct interest_group_aggregate {
@@ -111,6 +119,7 @@ struct interest_group_aggregate {
 struct interest_group_snapshot {
 	bool enabled = false;
 	float represented_population = 0.0f;
+	float electorate_population = 0.0f;
 	interest_group_mask active_groups = 0;
 	std::array<interest_group_aggregate, interest_group_count> groups{};
 };
@@ -131,6 +140,48 @@ struct coalition_result {
 	float challenger_advantage = 0.0f;
 };
 
+// Serialized independently from the derived politics cache. It gives a
+// country an actual incumbent: a coalition can survive a weak month, acquire
+// a tenure, and be replaced only by a credible challenger.
+struct governing_coalition_state {
+	interest_group_mask groups = 0;
+	int32_t established_on = 0;
+	std::array<float, interest_group_count> confidence{};
+};
+
+enum class legislation_stage : uint8_t {
+	none = 0,
+	negotiation = 1,
+	voting = 2,
+	implementation = 3,
+};
+
+// One active bill per nation keeps the first implementation vertical slice
+// legible: the player can see what is being negotiated, why it is delayed, and
+// what still has to happen before the law reaches the country.
+struct legislation_state {
+	bool active = false;
+	dcon::issue_option_id option{};
+	dcon::political_party_id sponsor{};
+	legislation_stage stage = legislation_stage::none;
+	int32_t proposed_on = 0;
+	uint16_t stage_days = 0;
+	float compromise = 0.0f;
+	float mandate = 0.0f;
+	float execution = 0.0f;
+	float coalition_support = 0.0f;
+};
+
+struct government_snapshot {
+	interest_group_mask groups = 0;
+	int32_t established_on = 0;
+	float stability = 0.0f;
+	// Confidence is deliberately exposed to the UI: the player needs to see
+	// which members of the cabinet are its weak link, not just one opaque score.
+	std::array<float, interest_group_count> confidence{};
+	bool changed_this_refresh = false;
+};
+
 struct legitimacy_breakdown {
 	float power_mandate = 0.0f;
 	float popular_support = 0.0f;
@@ -141,6 +192,10 @@ struct legitimacy_breakdown {
 	float minority_penalty = 0.0f;
 	float representation_gap_penalty = 0.0f;
 	float fragmentation_penalty = 0.0f;
+	// A government presiding over an economy owned from abroad answers to
+	// people who did not put it there. Bounded, and zero when nothing is
+	// foreign-owned, which is every classic game.
+	float foreign_ownership_penalty = 0.0f;
 	float total = 0.0f;
 };
 
@@ -148,6 +203,7 @@ struct nation_result {
 	bool enabled = false;
 	interest_group_snapshot interest_groups{};
 	coalition_result coalition{};
+	government_snapshot government{};
 	legitimacy_breakdown legitimacy{};
 };
 
@@ -157,6 +213,7 @@ struct issue_support_result {
 	bool enabled = false;
 	std::array<float, interest_group_count> group_support{};
 	float popular_support = 0.0f;
+	float electoral_support = 0.0f;
 	float political_power_support = 0.0f;
 	float coalition_support = 0.0f;
 	float opposition_support = 0.0f;
@@ -169,6 +226,10 @@ struct movement_pressure_inputs {
 	float legitimacy = 1.0f;
 	float economic_hardship = 0.0f;
 	float implementation_gap = 0.0f;
+	// National legitimacy can look healthy while a movement is concentrated
+	// in provinces where the state has little control or administrative reach.
+	float regional_control = 1.0f;
+	float regional_execution = 1.0f;
 };
 
 struct movement_pressure_breakdown {
@@ -178,6 +239,8 @@ struct movement_pressure_breakdown {
 	float legitimacy_pressure = 0.0f;
 	float hardship_pressure = 0.0f;
 	float implementation_pressure = 0.0f;
+	float regional_control_pressure = 0.0f;
+	float regional_implementation_pressure = 0.0f;
 	float legitimacy_relief = 0.0f;
 	float total_adjustment = 0.0f;
 };
@@ -194,15 +257,19 @@ coalition_result select_governing_coalition(
 	interest_group_snapshot const& snapshot,
 	ruleset_config const& config,
 	interest_group_mask previous_coalition = 0);
+// foreign_ownership is the [0, 1] share of the nation's productive assets held
+// abroad, weighted by value.
 legitimacy_breakdown calculate_legitimacy(
 	interest_group_snapshot const& snapshot,
 	coalition_result const& coalition,
 	ruleset_config const& config,
-	interest_group_mask previous_coalition = 0);
+	interest_group_mask previous_coalition = 0,
+	float foreign_ownership = 0.0f);
 nation_result evaluate_population(
 	std::vector<population_sample> const& samples,
 	ruleset_config const& config,
-	interest_group_mask previous_coalition = 0);
+	interest_group_mask previous_coalition = 0,
+	float foreign_ownership = 0.0f);
 
 // Thin Project Alice adapter. It owns no state and writes nothing, so callers
 // may cache or discard results without changing save-file compatibility.
@@ -221,9 +288,23 @@ movement_pressure_breakdown calculate_movement_pressure(
 movement_pressure_breakdown movement_pressure_for(sys::state& state,
 	dcon::movement_id movement);
 
-// Unsaved runtime cache. It is reconstructed exclusively from POP/economy
-// state. Runtime coalition selection intentionally does not use hysteresis:
-// an unsaved incumbent would make identical saves diverge after loading.
+// Apply the political aftershock of an enacted issue to the incumbent
+// cabinet. This is intentionally a small, bounded state transition: groups
+// that supported the settlement gain confidence, while a reform enacted by a
+// narrow power bloc against the electorate weakens the coalition.
+void record_reform_outcome(sys::state& state,
+	dcon::nation_id nation, dcon::issue_option_id option);
+
+legislation_state const* active_bill(sys::state const& state, dcon::nation_id nation);
+bool can_propose_bill(sys::state& state,
+	dcon::nation_id nation, dcon::issue_option_id option);
+void propose_bill(sys::state& state,
+	dcon::nation_id nation, dcon::issue_option_id option);
+void advance_legislation(sys::state& state);
+
+// Derived runtime cache. It is reconstructed from POP/economy state plus the
+// serialized incumbent coalition state. Hysteresis therefore survives a save
+// and load instead of making a continuous campaign diverge from its reload.
 ruleset_config ruleset_config_for(sys::state const& state);
 void invalidate_cache(sys::state& state);
 void refresh_all_nations(sys::state& state);

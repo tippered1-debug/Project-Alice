@@ -23,7 +23,10 @@
 #include "events.hpp"
 #include "commands.hpp"
 #include "banking_stability.hpp"
+#include "credit_market.hpp"
+#include "monetary_system.hpp"
 #include "land_ownership.hpp"
+#include "industry_ownership.hpp"
 #include "national_budget.hpp"
 #include "national_budget.hpp"
 #include "policy_execution.hpp"
@@ -126,7 +129,10 @@ float interest_payment(sys::state& state, dcon::nation_id n) {
 	*/
 	auto debt = state.world.nation_get_local_loan(n);
 	auto const legacy_payment = debt * std::max(0.01f, (state.world.nation_get_modifier_values(n, sys::national_mod_offsets::loan_interest) + 1.0f) * state.defines.loan_base_interest) / 30.0f;
-	return legacy_payment * banking_stability::evaluate_nation(state, n).interest_cost_multiplier;
+	// The credit market supersedes the standalone risk premium: its multiplier
+	// is scarcity of loanable funds times the same risk term banking_stability
+	// used to apply alone, so the two are not stacked. Classic games get one.
+	return legacy_payment * credit::evaluate_nation(state, n).interest_cost_multiplier;
 }
 float max_loan(sys::state& state, dcon::nation_id n) {
 	/*
@@ -1034,8 +1040,10 @@ void update_local_subsistence_factor(sys::state& state) {
 void update_land_ownership(sys::state& state) {
 	auto const dynamic_ownership =
 		gamerule::age_of_transformation_enabled(state);
-	if(dynamic_ownership)
+	if(dynamic_ownership) {
 		land_ownership::initialize_historical_profiles(state);
+		industry_ownership::initialize_historical_profiles(state);
+	}
 	province::ve_for_each_land_province(state, [&](auto ids) {
 		auto local_states = state.world.province_get_state_membership(ids);
 		auto weight_population =
@@ -2143,6 +2151,10 @@ void run_private_investment(sys::state& state) {
 
 static float total_history;
 static void set_profile_point(sys::state& state, std::string name) {
+	// The phases are already named and already bracket the whole day, so the
+	// money audit costs nothing to place and attributes creation to a phase
+	// rather than to the day as a whole.
+	monetary::audit_phase(state, name);
 
 	/*
 	Funnily enough, this place is great to put logging into because of the passed name.
@@ -2205,6 +2217,9 @@ static void set_profile_point(sys::state& state, std::string name) {
 
 void daily_update(sys::state& state, bool presimulation, float presimulation_stage) {
 	sanity_check(state);
+
+	monetary::begin_day(state);
+	state.credit_daily_flows.reset(state.world.nation_size());
 
 	set_profile_point(state, "start");
 
@@ -2626,6 +2641,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		}
 	);
 	land_ownership::update_markets(state);
+	industry_ownership::update_markets(state);
 
 	// PROFILE
 	set_profile_point(state, "land stats and inventions count");
@@ -3215,6 +3231,17 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			float private_spending_scale = 1.0f;
 			float pi_total = full_private_investment_cost(state, n);
 			float perceived_spending = pi_total;
+
+			// Bank credit is raised before the pool is drawn on, so a shortfall
+			// this day can be financed this day. Both stocks belong to this
+			// nation alone, which keeps the surrounding parallel_for safe.
+			{
+				auto const own_funds =
+					state.world.nation_get_private_investment(n) * investment_pool_investment_per_day;
+				auto const shortfall = std::max(0.f, pi_total - own_funds);
+				credit::settle_nation(state, n, credit::evaluate_nation(state, n, shortfall));
+			}
+
 			float pi_budget = state.world.nation_get_private_investment(n) * investment_pool_investment_per_day;
 			private_spending_scale = perceived_spending <= pi_budget ? 1.0f : pi_budget / perceived_spending;
 			state.world.nation_set_private_investment_effective_fraction(n, private_spending_scale);
@@ -4397,6 +4424,11 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 			auto current_bank = state.world.province_get_factory_bank(pid);
 			state.world.province_set_factory_bank(pid, current_bank + total_factory_profit);
+			// Nine-month profit average, the valuation basis for the ownership
+			// market, on the same footing as the land rent average.
+			state.world.province_set_smoothed_factory_profit(pid,
+				industry_ownership::update_smoothed_profit(
+					state.world.province_get_smoothed_factory_profit(pid), total_factory_profit));
 		}
 
 		{
@@ -4406,6 +4438,13 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		}
 	});
 
+	// Service what is already owed before advancing anything new, so a firm
+	// cannot borrow its way out of interest it has not paid.
+	credit::service_producer_debt(state);
+	// A till that has just gone negative is a firm financing itself. Route that
+	// through the bank so the credit is finite, priced and money-conserving,
+	// instead of an unbounded free overdraft.
+	credit::settle_producer_credit(state);
 
 	set_profile_point(state, "rgo/factory banks");
 
@@ -4710,18 +4749,12 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		}
 	}
 
-	// Removing the unconditional POP income source did not remove every
-	// self-reinforcing money loop: national_bank/private_investment accrue
-	// pop contributions (update_income_national_subsidy) and are paid back out
-	// as dividends that are themselves partly re-contributed, and loan interest
-	// is credited straight back into national_bank. Measured with
-	// scripts/run_economy_experiment.py, national_bank alone grew ~32x in the
-	// first simulated year with zero government debt -- reinvested capital
-	// compounds geometrically with nothing bounding it. state.inflation is the
-	// one factor every one of those stocks (pop savings, market cash, this
-	// aggregate) is scaled by, so it remains the system's monetary depreciation
-	// valve, not a leftover of the removed income source.
-	state.inflation = 0.999f;
+	// Close the day's money-supply books. Classic games are handed back exactly
+	// the legacy blanket decay; the flagship ruleset anchors the supply instead,
+	// symmetrically across every stock. Either way the residual is recorded, so
+	// "how much money appeared from nowhere today" is now a measured number
+	// rather than something a constant has to paper over.
+	monetary::update(state);
 
 	sanity_check(state);
 
@@ -4838,6 +4871,11 @@ void regenerate_unsaved_values(sys::state& state) {
 		if(!std::isfinite(savings) || savings < 0.f)
 			state.world.pop_set_savings(pop, 0.f);
 	});
+
+	// Seed the money-supply baseline from the stocks that were just repaired, so
+	// a resumed campaign starts the next day on the same books as a run that was
+	// never interrupted.
+	monetary::initialize(state);
 
 	state.culture_definitions.rgo_workers.clear();
 	for(auto pt : state.world.in_pop_type) {

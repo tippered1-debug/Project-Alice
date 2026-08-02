@@ -3540,6 +3540,8 @@ void state::clear_army_supply_derived_data() {
 void state::clear_unsaved_data() {
 	clear_army_supply_derived_data();
 	politics::transformation::invalidate_cache(*this);
+	transformation_government_state.clear();
+	transformation_legislation_state.clear();
 
 	/*unit_names.clear();
 	unit_names_indices.clear();
@@ -4797,6 +4799,10 @@ void state::single_game_tick() {
 			n.set_gdp_record(index, economy::gdp::value_nation_adjusted(*this, n));
 		}
 	}
+
+	// Flagship politics advances bills after the day's population and state
+	// capacity updates, so negotiation and implementation use current data.
+	politics::transformation::advance_legislation(*this);
 
 	ui_date = current_date;
 
