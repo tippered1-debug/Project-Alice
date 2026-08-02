@@ -145,10 +145,15 @@ TEST_CASE("state adapter reads existing city housing education and POP literacy"
 	state->world.pop_set_uliteracy(pop, pop_demographics::to_pu16(0.8f));
 
 	state->world.province_resize_demographics(demographics::size(*state));
+	// inputs_for_province reads every labor lane to derive job access, so the
+	// fixture has to size that array as well.
+	state->world.province_resize_labor_supply_sold(economy::labor::total);
 	services::initialize_size_of_dcon_arrays(*state);
 	advanced_province_buildings::initialize_size_of_dcon_arrays(*state);
 	state->world.province_set_demographics(province, demographics::total, 1000.f);
-	state->world.province_set_advanced_province_building_max_private_size(
+	// Urbanization is derived from city capacity that was actually built, not
+	// from the ceiling it may grow into, so the fixture must set private_size.
+	state->world.province_set_advanced_province_building_private_size(
 		province, advanced_province_buildings::list::local_cities_and_towns, 800.f);
 	state->world.province_set_service_satisfaction(
 		province, services::list::urban_housing, 0.5f);
@@ -176,6 +181,9 @@ TEST_CASE("an inactive housing market is demographically neutral",
 	state->force_age_of_transformation_ruleset = true;
 	auto const province = state->world.create_province();
 	state->world.province_resize_demographics(demographics::size(*state));
+	// inputs_for_province reads every labor lane to derive job access, so the
+	// fixture has to size that array as well.
+	state->world.province_resize_labor_supply_sold(economy::labor::total);
 	services::initialize_size_of_dcon_arrays(*state);
 	advanced_province_buildings::initialize_size_of_dcon_arrays(*state);
 	state->world.province_set_demographics(province, demographics::total, 1000.f);
@@ -194,7 +202,7 @@ TEST_CASE("an inactive housing market is demographically neutral",
 }
 
 TEST_CASE("overcrowding reaches monthly POP growth while classic growth is unchanged",
-		"[economy][demographics][human-development][integration]") {
+		"[economy][demographics][human-development][integration][balance-fixture]") {
 	auto state = std::make_unique<sys::state>();
 	auto const nation = state->world.create_nation();
 	auto const province = state->world.create_province();
@@ -209,6 +217,9 @@ TEST_CASE("overcrowding reaches monthly POP growth while classic growth is uncha
 	state->world.province_resize_modifier_values(sys::provincial_mod_offsets::count);
 	state->world.nation_resize_modifier_values(sys::national_mod_offsets::count);
 	state->world.province_resize_demographics(demographics::size(*state));
+	// inputs_for_province reads every labor lane to derive job access, so the
+	// fixture has to size that array as well.
+	state->world.province_resize_labor_supply_sold(economy::labor::total);
 	services::initialize_size_of_dcon_arrays(*state);
 	advanced_province_buildings::initialize_size_of_dcon_arrays(*state);
 	state->world.province_set_demographics(province, demographics::total, 1000.f);

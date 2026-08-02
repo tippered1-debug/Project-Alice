@@ -169,11 +169,12 @@ market calculate(inputs raw_inputs) {
 		maximum_rate_multiplier, scarcity_multiplier * risk_multiplier);
 	result.policy_annual_rate = base_rate * result.interest_cost_multiplier;
 
-	// Lending capacity. Government debt encumbers the stock: money already lent
-	// to the treasury cannot be lent to a factory as well. That is the whole
-	// crowding-out mechanism, and it needs no separate rule.
+	// Lending capacity. Government and producer debt encumber the stock: money
+	// already committed to either borrower cannot be lent to a new factory as
+	// well. This is the quantity-side counterpart to the utilization price.
 	auto const lendable = reserves * (1.f - reserve_requirement);
-	auto const free_reserves = std::max(0.f, lendable - government_debt);
+	auto const free_reserves = std::max(0.f,
+		lendable - government_debt - producer_debt);
 	result.lending_capacity = free_reserves * maximum_daily_lending_share * health;
 	result.private_credit_extended = std::min(result.lending_capacity, shortfall);
 

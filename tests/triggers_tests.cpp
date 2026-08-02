@@ -784,7 +784,7 @@ TEST_CASE("complex full reduction", "[trigger_tests]") {
 	REQUIRE(tc.compiled_trigger[5] == uint16_t(trigger::association_lt | trigger::average_consciousness_province));
 }
 
-TEST_CASE("batch-individual comparision", "[trigger_tests]") {
+TEST_CASE("batch-individual comparision", "[trigger_tests][scenario-fixture]") {
 	auto ws = load_testing_scenario_file();
 
 	{

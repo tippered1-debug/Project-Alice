@@ -155,7 +155,7 @@ TEST_CASE("Dijkstra restores heap ordering after decrease-key", "[pathfinding][m
 
 
 // these tests expect a vanilla scenario
-TEST_CASE("make_path_to_prov_valid_tests", "[pathfinding]") {
+TEST_CASE("make_path_to_prov_valid_tests", "[pathfinding][scenario-fixture]") {
 
 
 	gamestate = load_testing_scenario_file_with_save(sys::network_mode_type::host);
@@ -249,7 +249,7 @@ TEST_CASE("make_path_to_prov_valid_tests", "[pathfinding]") {
 
 
 
-TEST_CASE("make_path_to_expression_valid_tests", "[pathfinding]") {
+TEST_CASE("make_path_to_expression_valid_tests", "[pathfinding][scenario-fixture]") {
 
 	gamestate = load_testing_scenario_file_with_save(sys::network_mode_type::host);
 
@@ -1052,7 +1052,7 @@ std::vector<dcon::province_id> make_path_to_expression_tagged_vector_thread_loca
 
 
 
-TEST_CASE("make_path_to_expression_profiling", "[pathfinding_profiling]") {
+TEST_CASE("make_path_to_expression_profiling", "[pathfinding_profiling][scenario-fixture]") {
 
 	gamestate = load_testing_scenario_file_with_save(sys::network_mode_type::host);
 
@@ -1131,7 +1131,7 @@ TEST_CASE("make_path_to_expression_profiling", "[pathfinding_profiling]") {
 	
 }
 
-TEST_CASE("make_path_to_expression_profiling_AStar", "[pathfinding_profiling]") {
+TEST_CASE("make_path_to_expression_profiling_AStar", "[pathfinding_profiling][scenario-fixture]") {
 	gamestate = load_testing_scenario_file_with_save(sys::network_mode_type::host);
 	{
 		auto start = dcon::province_id{ 978 };

@@ -1182,8 +1182,8 @@ struct synthetic_lab_result {
 	state.province_definitions.first_sea_province =
 		dcon::province_id{dcon::province_id::value_base_t(1)};
 
-	state.world.province_set_nation_from_province_ownership(province, nation);
-	state.world.province_set_nation_from_province_control(province, nation);
+	state.world.force_create_province_ownership(province, nation);
+	state.world.force_create_province_control(province, nation);
 	state.world.province_set_state_membership(province, state_instance);
 	state.world.state_instance_set_capital(state_instance, province);
 	state.world.state_instance_set_market_from_local_market(state_instance, market);
@@ -1193,6 +1193,18 @@ struct synthetic_lab_result {
 	state.world.province_set_control_scale(province, 1.0f);
 	state.world.province_set_control_ratio(province, 1.0f);
 	state.world.province_set_capitalists_share(province, 0.20f);
+	// Seed one secured industrial claim so the lab observes the credit book in
+	// motion even though it deliberately does not parse a full factory setup.
+	// The positive valuation keeps it serviceable on the first day; the empty
+	// factory location then lets the normal bad-loan path close it later.
+	state.world.province_set_industry_market_value(province, 1'000'000.0f);
+	state.world.province_set_smoothed_factory_profit(province, 500.0f);
+	state.world.province_set_industry_state_share(province, 0.15f);
+	state.world.province_set_industry_foreign_share(province, 0.10f);
+	state.world.province_set_industry_worker_share(province, 0.05f);
+	state.world.province_set_industry_landed_share(province, 0.10f);
+	state.world.province_set_producer_debt(province, 50'000.0f);
+	state.world.province_set_factory_bank(province, 100'000.0f);
 
 	auto const worker_pop = state.world.create_pop();
 	state.world.pop_set_poptype(worker_pop, workers);
@@ -1403,6 +1415,13 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		auto const demand = 900'000.0f + phase * 180'000.0f;
 		auto const supply = 1'000'000.0f;
 		auto const employment_ratio = std::clamp(demand / supply, 0.65f, 1.0f);
+		// A deterministic credit shock turns the seeded claim into a bad loan;
+		// this keeps the lab useful for exercising both the ledger and write-off
+		// path without pretending to be a full scenario campaign.
+		if(day == 60) {
+			target.world.province_set_industry_market_value(lab.province, 0.0f);
+			target.world.province_set_smoothed_factory_profit(lab.province, 0.0f);
+		}
 		auto const worker_pop = dcon::pop_id{dcon::pop_id::value_base_t(0)};
 		auto const owner_pop = dcon::pop_id{dcon::pop_id::value_base_t(1)};
 		auto const staple = dcon::commodity_id{dcon::commodity_id::value_base_t(1)};

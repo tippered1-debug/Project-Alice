@@ -396,9 +396,14 @@ TEST_CASE("flagship politics turns reform clicks into a visible bill", "[politic
 	state->force_age_of_transformation_ruleset = true;
 	auto const nation = state->world.create_nation();
 	auto const issue = state->world.create_issue();
+	state->world.nation_resize_issues(state->world.issue_size());
 	auto const option = state->world.create_issue_option();
 	state->world.issue_option_set_parent_issue(option, issue);
 	state->world.nation_set_issues(nation, issue, dcon::issue_option_id{});
+	auto const party = state->world.create_political_party();
+	state->world.political_party_resize_party_issues(state->world.issue_size());
+	state->world.nation_set_ruling_party(nation, party);
+	state->world.political_party_set_party_issues(party, issue, option);
 
 	REQUIRE(transformation::can_propose_bill(*state, nation, option));
 	transformation::propose_bill(*state, nation, option);
@@ -408,6 +413,13 @@ TEST_CASE("flagship politics turns reform clicks into a visible bill", "[politic
 	REQUIRE(bill->option == option);
 	REQUIRE(bill->stage == transformation::legislation_stage::negotiation);
 	REQUIRE_FALSE(transformation::can_propose_bill(*state, nation, option));
+	transformation::advance_legislation(*state);
+	bill = transformation::active_bill(*state, nation);
+	REQUIRE(bill != nullptr);
+	REQUIRE(bill->party_support == Approx(1.0f));
+	REQUIRE(transformation::can_withdraw_bill(*state, nation));
+	transformation::withdraw_bill(*state, nation);
+	REQUIRE(transformation::active_bill(*state, nation) == nullptr);
 }
 
 TEST_CASE("wealth-backed groups can outweigh equal popular reform support",

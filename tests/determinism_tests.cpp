@@ -7,6 +7,7 @@
 #include "system_state.hpp"
 #include "serialization.hpp"
 #include "prng.hpp"
+#include "gamestate/simulation_runner.hpp"
 
 TEST_CASE("prng_simple", "[determinism]") {
 	std::unique_ptr<sys::state> game_state = std::make_unique<sys::state>(); // too big for the stack
@@ -130,29 +131,34 @@ constexpr uint32_t test_game_seed = 808080;
 
 
 
-// Compares and tests scenarios to see if they are equal after loading. Requires the scenarios to be created and put in the scenario folder before running this
-TEST_CASE("compare_scenarios", "[determinism]") {
+// The default determinism test is self-contained. Full scenario determinism
+// remains below as an opt-in fixture suite, while this exercises the same
+// checksum/telemetry path without requiring generated scenario binaries.
+TEST_CASE("synthetic_lab_is_deterministic", "[determinism][synthetic-lab]") {
 	std::unique_ptr<sys::state> game_state_1 = std::make_unique<sys::state>();
-	game_state_1->network_mode = sys::network_mode_type::host;
 	std::unique_ptr<sys::state> game_state_2 = std::make_unique<sys::state>();
-	game_state_2->network_mode = sys::network_mode_type::host;
-	if(!sys::try_read_scenario_and_save_file(*game_state_1, NATIVE("scenario_1.bin"))) {
-		std::abort();
-	}
-	else {
-		game_state_1->game_seed = test_game_seed;
-		game_state_1->fill_unsaved_data();
-	}
-	if(!sys::try_read_scenario_and_save_file(*game_state_2, NATIVE("scenario_2.bin"))) {
-		std::abort();
-	}
-	else {
-		game_state_2->game_seed = test_game_seed;
-		game_state_2->fill_unsaved_data();
-	}
+	auto const lab_1 = sys::simulation::initialize_synthetic_lab(*game_state_1);
+	auto const lab_2 = sys::simulation::initialize_synthetic_lab(*game_state_2);
+	sys::simulation::run_options options{};
+	options.ticks = 30;
+	options.snapshot_cadence = 10;
+	options.include_initial_snapshot = true;
+	options.include_final_snapshot = true;
+	options.tracked_nation = lab_1.nation;
 
-	compare_game_states(*game_state_1, *game_state_2);
+	std::vector<std::string> lines_1;
+	std::vector<std::string> lines_2;
+	auto const result_1 = sys::simulation::run_synthetic_lab(
+		*game_state_1, lab_1, options,
+		[&](std::string_view line) { lines_1.emplace_back(line); });
+	auto const result_2 = sys::simulation::run_synthetic_lab(
+		*game_state_2, lab_2, options,
+		[&](std::string_view line) { lines_2.emplace_back(line); });
 
+	REQUIRE(result_1.completed);
+	REQUIRE(result_2.completed);
+	REQUIRE(result_1.ticks_completed == result_2.ticks_completed);
+	REQUIRE(lines_1 == lines_2);
 }
 
 void do_sim_game_test(const native_string& savefile = native_string{ }) {
@@ -314,7 +320,7 @@ void do_save_game_with_saveload(const native_string& savefile = native_string{ }
 
 
 
-TEST_CASE("sim_none", "[determinism]") {
+TEST_CASE("sim_none", "[determinism][scenario-fixture]") {
 	// Test that the game states are equal AFTER loading
 	std::unique_ptr<sys::state> game_state_1 = load_testing_scenario_file();
 	std::unique_ptr<sys::state> game_state_2 = load_testing_scenario_file();
@@ -326,7 +332,7 @@ TEST_CASE("sim_none", "[determinism]") {
 
 
 // this test repopulates all the test saves which is used for the tests below. Each test uses a save and runs in a 10-year incremement from the start of that save-
-TEST_CASE("populate_test_saves", "[determinism]") {
+TEST_CASE("populate_test_saves", "[determinism][scenario-fixture]") {
 
 	std::unique_ptr<sys::state> game_state_1 = load_testing_scenario_file_with_save(sys::network_mode_type::host);
 
@@ -372,182 +378,182 @@ TEST_CASE("populate_test_saves", "[determinism]") {
 }
 //All of the following tests from first to tenth is running the entire game in 10 year intervals with a save for each to test for asserts in debug builds
 
-TEST_CASE("sim_game_solo_1", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_1", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test();
 }
 
-TEST_CASE("sim_game_solo_2", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_2", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("184611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_solo_3", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_3", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("185611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_solo_4", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_4", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("186611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_solo_5", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_5", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("187611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("sim_game_solo_6", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_6", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("188611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_solo_7", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_7", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("189611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_solo_8", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_8", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("190611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_solo_9", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_9", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("191611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_solo_10", "[determinism][sim_solo_tests]") {
+TEST_CASE("sim_game_solo_10", "[determinism][sim_solo_tests][scenario-fixture]") {
 	do_sim_game_solo_test(NATIVE("192611_TEST_SAVE.bin"));
 }
 
 
 //All of the following tests from first to tenth is running the entire game in 10 year intervals with a save for each to test for desync's.
 
-TEST_CASE("sim_game_1", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_1", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test();
 }
 
-TEST_CASE("sim_game_2", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_2", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("184611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("sim_game_3", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_3", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("185611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_4", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_4", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("186611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_5", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_5", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("187611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_6", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_6", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("188611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_7", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_7", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("189611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_8", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_8", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("190611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_9", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_9", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("191611_TEST_SAVE.bin"));
 }
-TEST_CASE("sim_game_10", "[determinism][sim_game_tests]") {
+TEST_CASE("sim_game_10", "[determinism][sim_game_tests][scenario-fixture]") {
 	do_sim_game_test(NATIVE("192611_TEST_SAVE.bin"));
 }
 
 //All of the following tests from first to tenth is running the entire game in 10 year intervals with a save for each to test if the save checksum changes when fill_unsaved_values is called. It should not change, or something is wrong.
 
-TEST_CASE("fill_unsaved_values_determinism_1", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_1", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test();
 }
 
 
-TEST_CASE("fill_unsaved_values_determinism_2", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_2", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("184611_TEST_SAVE.bin"));
 }
 
 
-TEST_CASE("fill_unsaved_values_determinism_3", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_3", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("185611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("fill_unsaved_values_determinism_4", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_4", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("186611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("fill_unsaved_values_determinism_5", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_5", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("187611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("fill_unsaved_values_determinism_6", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_6", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("188611_TEST_SAVE.bin"));
 }
 
 
-TEST_CASE("fill_unsaved_values_determinism_7", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_7", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("189611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("fill_unsaved_values_determinism_8", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_8", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("190611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("fill_unsaved_values_determinism_9", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_9", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("191611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("fill_unsaved_values_determinism_10", "[determinism][fill_unsaved_tests]") {
+TEST_CASE("fill_unsaved_values_determinism_10", "[determinism][fill_unsaved_tests][scenario-fixture]") {
 	do_fill_unsaved_values_test(NATIVE("192611_TEST_SAVE.bin"));
 }
 
 
 
-TEST_CASE("sim_game_with_saveload_1", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_1", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 	do_save_game_with_saveload();
 }
 
 
-TEST_CASE("sim_game_with_saveload_2", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_2", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 	do_save_game_with_saveload(NATIVE("184611_TEST_SAVE.bin"));
 
 
 }
 
-TEST_CASE("sim_game_with_saveload_3", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_3", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("185611_TEST_SAVE.bin"));
 
 }
 
-TEST_CASE("sim_game_with_saveload_4", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_4", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("186611_TEST_SAVE.bin"));
 
 }
 
-TEST_CASE("sim_game_with_saveload_5", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_5", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("187611_TEST_SAVE.bin"));
 }
 
-TEST_CASE("sim_game_with_saveload_6", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_6", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("188611_TEST_SAVE.bin"));
 
 }
 
-TEST_CASE("sim_game_with_saveload_7", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_7", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("189611_TEST_SAVE.bin"));
 
 }
 
-TEST_CASE("sim_game_with_saveload_8", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_8", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("190611_TEST_SAVE.bin"));
 
 }
 
-TEST_CASE("sim_game_with_saveload_9", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_9", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("191611_TEST_SAVE.bin"));
 
 }
 
-TEST_CASE("sim_game_with_saveload_10", "[determinism][sim_with_saveload_tests]") {
+TEST_CASE("sim_game_with_saveload_10", "[determinism][sim_with_saveload_tests][scenario-fixture]") {
 
 
 	do_save_game_with_saveload(NATIVE("192611_TEST_SAVE.bin"));
