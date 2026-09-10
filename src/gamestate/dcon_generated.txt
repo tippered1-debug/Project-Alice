@@ -2086,6 +2086,209 @@ relationship{
 	}
 }
 
+object{
+	name{ settlement }
+	storage_type{ erasable }
+	size{ 10000 }
+	tag{ save }
+}
+
+object{
+	name{ site }
+	storage_type{ erasable }
+	size{ 20000 }
+	tag{ save }
+}
+
+object{
+	name{ territorial_unit }
+	storage_type{ erasable }
+	size{ 10000 }
+	tag{ save }
+}
+
+object{
+	name{ local_government }
+	storage_type{ erasable }
+	size{ 10000 }
+	tag{ save }
+}
+
+object{
+	name{ infrastructure_node }
+	storage_type{ erasable }
+	size{ 20000 }
+	tag{ save }
+}
+
+object{
+	name{ infrastructure_edge }
+	storage_type{ erasable }
+	size{ 30000 }
+	tag{ save }
+}
+
+relationship{
+	name{ settlement_location }
+	tag{ save }
+
+	link{
+		object{ settlement }
+		name{ settlement }
+		type{ unique }
+	}
+	link{
+		object{ province }
+		name{ province }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ site_location }
+	tag{ save }
+
+	link{
+		object{ site }
+		name{ site }
+		type{ unique }
+	}
+	link{
+		object{ province }
+		name{ province }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ site_settlement }
+	tag{ save }
+
+	link{
+		object{ site }
+		name{ site }
+		type{ unique }
+	}
+	link{
+		object{ settlement }
+		name{ settlement }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ territorial_unit_membership }
+	tag{ save }
+
+	link{
+		object{ province }
+		name{ province }
+		type{ unique }
+	}
+	link{
+		object{ territorial_unit }
+		name{ territorial_unit }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ territorial_unit_parent }
+	tag{ save }
+
+	link{
+		object{ territorial_unit }
+		name{ child }
+		type{ unique }
+	}
+	link{
+		object{ territorial_unit }
+		name{ parent }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ local_government_jurisdiction }
+	tag{ save }
+
+	link{
+		object{ local_government }
+		name{ local_government }
+		type{ unique }
+	}
+	link{
+		object{ territorial_unit }
+		name{ territorial_unit }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ local_government_seat }
+	tag{ save }
+
+	link{
+		object{ local_government }
+		name{ local_government }
+		type{ unique }
+	}
+	link{
+		object{ settlement }
+		name{ settlement }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ infrastructure_node_location }
+	tag{ save }
+
+	link{
+		object{ infrastructure_node }
+		name{ infrastructure_node }
+		type{ unique }
+	}
+	link{
+		object{ province }
+		name{ province }
+		type{ many }
+		index_storage{ array }
+	}
+}
+
+relationship{
+	name{ infrastructure_edge_nodes }
+	storage_type{ compactable }
+	size{ 30000 }
+	tag{ save }
+
+	link{
+		object{ infrastructure_node }
+		name{ nodes }
+		type{ many }
+		index_storage{ array }
+		multiple{ 2 }
+	}
+	property{
+		name{ type }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ distance }
+		type{ float }
+		tag{ save }
+	}
+}
+
 object {
 	name{ regiment }
 	storage_type{ erasable }
