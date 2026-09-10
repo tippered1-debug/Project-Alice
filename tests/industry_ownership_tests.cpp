@@ -193,6 +193,49 @@ TEST_CASE("a month cannot turn over more than its cap", "[economy][industry]") {
 	REQUIRE(result.turnover <= Approx(0.004f));
 }
 
+TEST_CASE("profit tax uses realized profit and debits its payers",
+		"[economy][industry][tax]") {
+	auto config = open_market();
+	config.annual_profit_tax_rate = 0.10f;
+	config.monthly_taxable_profit = 1'000.f;
+	config.voluntary_ask_rate = 0.f;
+	std::array<industry::group_finance, industry::owner_group_count> finances{};
+	finances[std::size_t(industry::owner_group::capitalists)].liquid_savings = 1'000.f;
+	finances[std::size_t(industry::owner_group::workers)].liquid_savings = 1'000.f;
+
+	industry::distribution start{0.75f, 0.f, 0.f, 0.f, 0.25f};
+	auto const result = industry::clear_market(start, finances, 9'000'000.f, config);
+	REQUIRE(result.profit_tax == Approx(100.f));
+	REQUIRE(result.cash_delta[std::size_t(industry::owner_group::capitalists)]
+		== Approx(-75.f));
+	REQUIRE(result.cash_delta[std::size_t(industry::owner_group::workers)]
+		== Approx(-25.f));
+	// Changing only the asset valuation cannot change a profit assessment.
+	auto const cheap = industry::clear_market(start, finances, 1.f, config);
+	REQUIRE(cheap.profit_tax == Approx(result.profit_tax));
+}
+
+TEST_CASE("ownership purchases and profit tax share one cash budget",
+		"[economy][industry][tax][market]") {
+	auto config = open_market();
+	config.maximum_monthly_turnover = 0.10f;
+	config.voluntary_ask_rate = 1.f;
+	config.annual_profit_tax_rate = 0.10f;
+	config.monthly_taxable_profit = 1'000.f;
+	std::array<industry::group_finance, industry::owner_group_count> finances{};
+	finances[std::size_t(industry::owner_group::capitalists)].liquid_savings = 100.f;
+
+	industry::distribution start{0.f, 0.f, 0.f, 0.f, 1.f};
+	auto const result = industry::clear_market(start, finances, 1'000.f, config);
+	auto const capitalists = std::size_t(industry::owner_group::capitalists);
+	auto const workers = std::size_t(industry::owner_group::workers);
+	REQUIRE(result.cash_delta[capitalists] == Approx(-100.f));
+	REQUIRE(result.cash_delta[workers] == Approx(10.f));
+	REQUIRE(result.profit_tax == Approx(90.f));
+	REQUIRE(result.cash_delta[capitalists] + result.cash_delta[workers]
+		+ result.profit_tax == Approx(0.f));
+}
+
 TEST_CASE("dividends follow ownership rather than a single class",
 		"[economy][industry]") {
 	// This is the whole point of the system: a capitalist's income becomes a

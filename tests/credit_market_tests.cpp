@@ -50,10 +50,10 @@ TEST_CASE("scarce loanable funds raise the rate", "[economy][credit]") {
 	scarce.government_debt = 800'000.f;
 	auto const result = credit::calculate(scarce);
 
-	REQUIRE(result.utilization == Approx(0.8f));
+	REQUIRE(result.utilization == Approx(800'000.f / 1'800'000.f));
 	REQUIRE(result.policy_annual_rate > 0.05f);
-	// 1 + 3 * 0.8^2 = 2.92
-	REQUIRE(result.interest_cost_multiplier == Approx(2.92f));
+	REQUIRE(result.interest_cost_multiplier == Approx(
+		1.f + 3.f * result.utilization * result.utilization));
 }
 
 TEST_CASE("the rate is bounded when the bank is exhausted", "[economy][credit]") {
@@ -64,12 +64,13 @@ TEST_CASE("the rate is bounded when the bank is exhausted", "[economy][credit]")
 
 	auto const result = credit::calculate(exhausted);
 	REQUIRE(std::isfinite(result.policy_annual_rate));
-	REQUIRE(result.interest_cost_multiplier == Approx(credit::maximum_rate_multiplier));
+	REQUIRE(result.interest_cost_multiplier > 1.f);
+	REQUIRE(result.interest_cost_multiplier <= credit::maximum_rate_multiplier);
 	// A bank with nothing free lends nothing, whatever the demand.
 	REQUIRE(result.lending_capacity == Approx(0.f));
 }
 
-TEST_CASE("government borrowing crowds private borrowers out", "[economy][credit]") {
+TEST_CASE("government claims raise rates without double-subtracting cash", "[economy][credit]") {
 	auto free_market = healthy_market();
 	free_market.private_credit_shortfall = 1'000'000.f;
 	auto indebted = free_market;
@@ -79,7 +80,7 @@ TEST_CASE("government borrowing crowds private borrowers out", "[economy][credit
 	auto const crowded = credit::calculate(indebted);
 
 	REQUIRE(unencumbered.private_credit_extended > 0.f);
-	REQUIRE(crowded.private_credit_extended < unencumbered.private_credit_extended);
+	REQUIRE(crowded.private_credit_extended == Approx(unencumbered.private_credit_extended));
 	REQUIRE(crowded.government_share == Approx(1.f));
 	// Borrowing is dearer for everyone, not only for the treasury.
 	REQUIRE(crowded.policy_annual_rate > unencumbered.policy_annual_rate);
@@ -93,6 +94,19 @@ TEST_CASE("lending is capped by free reserves, not by demand", "[economy][credit
 	// 1,000,000 * (1 - 0.20) * 0.05 * 1.0
 	REQUIRE(result.lending_capacity == Approx(40'000.f));
 	REQUIRE(result.private_credit_extended == Approx(40'000.f));
+}
+
+TEST_CASE("bank balance sheet separates cash from outstanding claims", "[economy][credit]") {
+	auto inputs = healthy_market();
+	inputs.government_debt = 200.f;
+	inputs.private_investment = 300.f;
+	inputs.producer_debt = 400.f;
+	auto const balance = credit::make_balance_sheet(inputs);
+	REQUIRE(balance.cash_reserves == Approx(1'000'000.f));
+	REQUIRE(balance.government_bonds == Approx(200.f));
+	REQUIRE(balance.investment_loans == Approx(300.f));
+	REQUIRE(balance.producer_loans == Approx(400.f));
+	REQUIRE(balance.total_assets == Approx(1'000'900.f));
 }
 
 TEST_CASE("a bank in poor health lends less", "[economy][credit]") {
@@ -116,6 +130,74 @@ TEST_CASE("deployed capital services the bank instead of sitting idle", "[econom
 	REQUIRE(result.private_interest_due
 		== Approx(365'000.f * result.policy_annual_rate / 365.f));
 	REQUIRE(result.private_interest_due <= deployed.private_investment);
+}
+
+TEST_CASE("financial circulation pays realized yield and slowly returns idle capital",
+		"[economy][credit][circulation]") {
+	credit::circulation_inputs inputs;
+	inputs.enabled = true;
+	inputs.has_claimants = true;
+	inputs.banking_reserves = 1'000'000.f;
+	inputs.private_investment = 500'000.f;
+	inputs.realized_bank_interest = 100.f;
+	inputs.credit_demand = 1'000.f;
+	inputs.private_construction_spending = 500.f;
+
+	auto const result = credit::calculate_circulation(inputs);
+	REQUIRE(result.bank_profit_dividend == Approx(50.f));
+	REQUIRE(result.bank_idle_withdrawal > 0.f);
+	REQUIRE(result.investment_idle_withdrawal > 0.f);
+	REQUIRE(result.bank_total() <= inputs.banking_reserves);
+	REQUIRE(result.investment_idle_withdrawal <= inputs.private_investment);
+	REQUIRE(result.total() == Approx(result.bank_total()
+		+ result.investment_idle_withdrawal));
+}
+
+TEST_CASE("active credit and construction needs protect liquidity buffers",
+		"[economy][credit][circulation]") {
+	credit::circulation_inputs inputs;
+	inputs.enabled = true;
+	inputs.has_claimants = true;
+	inputs.banking_reserves = 1'000'000.f;
+	inputs.private_investment = 500'000.f;
+	inputs.realized_bank_interest = 100.f;
+	inputs.credit_demand = 20'000.f;
+	inputs.private_construction_spending = 10'000.f;
+
+	auto const result = credit::calculate_circulation(inputs);
+	// Profit can be paid, but principal stays available for observed demand.
+	REQUIRE(result.bank_profit_dividend == Approx(50.f));
+	REQUIRE(result.bank_idle_withdrawal == Approx(0.f));
+	REQUIRE(result.investment_idle_withdrawal == Approx(0.f));
+}
+
+TEST_CASE("financial circulation is a legacy no-op and requires a claimant",
+		"[economy][credit][circulation]") {
+	credit::circulation_inputs inputs;
+	inputs.banking_reserves = 1'000'000.f;
+	inputs.private_investment = 500'000.f;
+	inputs.realized_bank_interest = 100.f;
+	REQUIRE(credit::calculate_circulation(inputs).total() == Approx(0.f));
+
+	inputs.enabled = true;
+	REQUIRE(credit::calculate_circulation(inputs).total() == Approx(0.f));
+	inputs.has_claimants = true;
+	REQUIRE(credit::calculate_circulation(inputs).total() > 0.f);
+}
+
+TEST_CASE("broken circulation inputs remain finite and nonnegative",
+		"[economy][credit][circulation]") {
+	credit::circulation_inputs inputs;
+	inputs.enabled = true;
+	inputs.has_claimants = true;
+	inputs.banking_reserves = std::numeric_limits<float>::quiet_NaN();
+	inputs.private_investment = -5.f;
+	inputs.realized_bank_interest = std::numeric_limits<float>::infinity();
+	inputs.credit_demand = -10.f;
+	inputs.private_construction_spending = std::numeric_limits<float>::quiet_NaN();
+	auto const result = credit::calculate_circulation(inputs);
+	REQUIRE(std::isfinite(result.total()));
+	REQUIRE(result.total() >= 0.f);
 }
 
 TEST_CASE("credit settlement moves money without creating it", "[economy][credit]") {
@@ -189,13 +271,13 @@ TEST_CASE("producer financing is a legacy no-op", "[economy][credit]") {
 	REQUIRE(result.unfunded == Approx(5'000.f));
 }
 
-TEST_CASE("government debt crowds producers out of credit too", "[economy][credit]") {
+TEST_CASE("government debt prices producer credit without double-counting reserves", "[economy][credit]") {
 	auto indebted = healthy_market();
 	indebted.government_debt = 700'000.f;
 	auto const crowded = credit::finance_producers(credit::calculate(indebted), 1'000'000.f);
 	auto const free = credit::finance_producers(credit::calculate(healthy_market()), 1'000'000.f);
-	REQUIRE(crowded.extended < free.extended);
-	REQUIRE(crowded.unfunded > free.unfunded);
+	REQUIRE(crowded.extended == Approx(free.extended));
+	REQUIRE(crowded.unfunded == Approx(free.unfunded));
 }
 
 TEST_CASE("producer debt raises the price of all new credit", "[economy][credit]") {
@@ -205,9 +287,9 @@ TEST_CASE("producer debt raises the price of all new credit", "[economy][credit]
 
 	auto const free = credit::calculate(clear);
 	auto const stressed = credit::calculate(encumbered);
-	REQUIRE(stressed.utilization == Approx(0.8f));
+	REQUIRE(stressed.utilization == Approx(800'000.f / 1'800'000.f));
 	REQUIRE(stressed.policy_annual_rate > free.policy_annual_rate);
-	REQUIRE(stressed.lending_capacity < free.lending_capacity);
+	REQUIRE(stressed.lending_capacity == Approx(free.lending_capacity));
 }
 
 TEST_CASE("producer financing sanitizes a broken deficit", "[economy][credit]") {
@@ -240,6 +322,25 @@ TEST_CASE("employment availability stays bounded on broken input", "[economy][cr
 	REQUIRE(credit::employment_availability(1'000'000.f, 1.f)
 		== Approx(1.f - credit::maximum_daily_employment_contraction));
 	REQUIRE(credit::employment_availability(-5.f, 100.f) == Approx(1.f));
+}
+
+TEST_CASE("credit contraction is confined to distressed provinces",
+		"[economy][credit][employment][integration]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	auto const distressed = state->world.create_province();
+	auto const healthy = state->world.create_province();
+	state->credit_daily_flows.reset(state->world.nation_size(),
+		state->world.province_size());
+	state->credit_daily_flows.record_producer_province(distressed, 0.95f);
+
+	REQUIRE(credit::producer_employment_scale(*state, distressed)
+		== Approx(0.95f));
+	REQUIRE(credit::producer_employment_scale(*state, healthy)
+		== Approx(1.f));
+	state->force_age_of_transformation_ruleset = false;
+	REQUIRE(credit::producer_employment_scale(*state, distressed)
+		== Approx(1.f));
 }
 
 TEST_CASE("a debt with no principal is nothing to service", "[economy][credit]") {
@@ -315,15 +416,15 @@ TEST_CASE("servicing a debt only moves money, never creates it", "[economy][cred
 	REQUIRE(serviced.closing_debt >= 0.f);
 }
 
-TEST_CASE("producer debt records the whole deficit without counting it twice",
+TEST_CASE("producer debt records only settled bank advances",
 		"[economy][credit]") {
-	REQUIRE(credit::producer_debt_after_shortfall(0.f, 475'000.f)
+	REQUIRE(credit::producer_debt_after_extension(0.f, 475'000.f)
 		== Approx(475'000.f));
-	// The same negative till is seen on the next day, so it must not be added
-	// again merely because the bank could not fund it.
-	REQUIRE(credit::producer_debt_after_shortfall(475'000.f, 475'000.f)
+	// An unfunded shortfall creates no bank asset.
+	REQUIRE(credit::producer_debt_after_extension(475'000.f, 0.f)
 		== Approx(475'000.f));
-	REQUIRE(credit::producer_debt_after_shortfall(475'000.f, 590'000.f)
+	// A later cash advance adds exactly its settled amount to the claim.
+	REQUIRE(credit::producer_debt_after_extension(475'000.f, 115'000.f)
 		== Approx(590'000.f));
 }
 

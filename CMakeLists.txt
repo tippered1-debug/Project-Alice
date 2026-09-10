@@ -63,6 +63,8 @@ list(APPEND ALICE_CORE_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/gui/production.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/province_factories.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/factory_details.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
+	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
 )
 set_source_files_properties(src/lunasvg/plutovg-blend.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(src/lunasvg/plutovg-canvas.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
@@ -97,9 +99,17 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY
 	"${PROJECT_SOURCE_DIR}/src/economy/banking_stability.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/credit_market.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/monetary_system.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/price_level.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/market_clearing.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/commodity_logistics.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/investment_ranking.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/market_access.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/foreign_exchange.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/cargo_transit.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/human_development.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/land_ownership.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/industry_ownership.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/world_trade_capacity.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_pops.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_trade_routes.cpp"
@@ -243,6 +253,7 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/culture/culture.cpp"
 	"${PROJECT_SOURCE_DIR}/src/culture/politics.cpp"
 	"${PROJECT_SOURCE_DIR}/src/culture/transformation_politics.cpp"
+	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
 	"${PROJECT_SOURCE_DIR}/src/culture/rebels.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/demographics.cpp"
 	${ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY}

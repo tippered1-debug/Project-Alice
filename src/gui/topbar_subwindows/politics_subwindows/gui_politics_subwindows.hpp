@@ -4,6 +4,10 @@
 #include "system_state_forward.hpp"
 #include "text.hpp"
 #include "gui_element_types.hpp"
+#include "transformation_politics.hpp"
+
+#include <string>
+#include <string_view>
 
 namespace ui {
 
@@ -18,6 +22,12 @@ void produce_decision_substitutions(sys::state& state, text::substitution_map& m
 void reform_rules_description(sys::state& state, text::columnar_layout& contents, uint32_t rules);
 void reform_description(sys::state& state, text::columnar_layout& contents, dcon::issue_option_id ref);
 void reform_description(sys::state& state, text::columnar_layout& contents, dcon::reform_option_id ref);
+std::string_view transformation_bill_stage_key(
+	politics::transformation::legislation_stage stage) noexcept;
+std::string transformation_bill_row_text(sys::state& state,
+	politics::transformation::legislation_state const& bill);
+void transformation_bill_progress_description(sys::state& state,
+	text::columnar_layout& contents, dcon::nation_id nation);
 
 class reforms_window : public window_element_base {
 public:

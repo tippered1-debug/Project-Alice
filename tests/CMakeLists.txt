@@ -34,6 +34,8 @@ add_executable(tests_project "${PROJECT_SOURCE_DIR}/tests/test_main.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/production.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/province_factories.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/factory_details.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
+	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
 	"${PROJECT_SOURCE_DIR}/src/alice.rc")
 
 

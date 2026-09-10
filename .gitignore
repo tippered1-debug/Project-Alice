@@ -395,3 +395,7 @@ FodyWeavers.xsd
 
 # Local release packages
 /dist/
+
+# Local runtime and debugging artifacts
+screenlog.0
+--help.hpp

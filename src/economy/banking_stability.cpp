@@ -55,9 +55,10 @@ breakdown calculate(inputs raw_inputs) {
 
 	auto const debt = result.sanitized.outstanding_debt;
 	result.credit_headroom = remaining_share(debt, result.sanitized.legacy_credit_limit);
-	// national_bank stores both outstanding loans and funds still available for
-	// lending, so debt encumbers that stock without being subtracted from it.
-	result.reserve_coverage = remaining_share(debt, result.sanitized.banking_reserves);
+	// This is cash coverage of a sovereign draw, not a claim that gets deducted
+	// from reserves a second time by the credit market.
+	result.reserve_coverage = buffer_ratio(
+		result.sanitized.banking_reserves, debt);
 	result.private_capital_buffer = buffer_ratio(result.sanitized.private_investment, debt);
 
 	if(result.sanitized.base_daily_interest_due <= epsilon) {

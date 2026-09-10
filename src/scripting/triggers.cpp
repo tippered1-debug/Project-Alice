@@ -1418,8 +1418,25 @@ TRIGGER_FUNCTION(tf_primary_culture_pop) {
 	return compare_values_eq(tval[0], ws.world.nation_get_primary_culture(nations::owner_of_pop(ws, to_pop(primary_slot))),
 			trigger::payload(tval[1]).cul_id);
 }
+// nation_get_accepted_cultures indexes a bit vector row by the culture's index,
+// and dcon indices are value - 1, so a null culture selects row -1 and reads the
+// memory in front of the array. That is an out-of-bounds read: it returns
+// whatever happens to be there, which makes runs irreproducible, and when the
+// address is far enough out it is a bus error. A province with no pops has no
+// dominant culture, so this is reachable from ordinary event evaluation.
+inline bool culture_is_on_accepted_list(sys::state const& ws, dcon::nation_id n, dcon::culture_id c) {
+	if(!n || !c)
+		return false;
+	return ws.world.nation_get_accepted_cultures(n, c);
+}
+
 TRIGGER_FUNCTION(tf_accepted_culture) {
-	auto is_accepted = ws.world.nation_get_accepted_cultures(to_nation(primary_slot), trigger::payload(tval[1]).cul_id);
+	auto const culture = trigger::payload(tval[1]).cul_id;
+	auto is_accepted = ve::apply(
+			[&ws, culture](dcon::nation_id n) {
+				return culture_is_on_accepted_list(ws, n, culture);
+			},
+			to_nation(primary_slot));
 	return compare_to_true(tval[0], is_accepted);
 }
 TRIGGER_FUNCTION(tf_culture_pop) {
@@ -3017,7 +3034,7 @@ template<typename N, typename C>
 auto internal_tf_culture_accepted(sys::state& ws, N nids, C cids) {
 	return ve::apply(
 		[&ws](dcon::nation_id n, dcon::culture_id c) {
-			return ws.world.nation_get_accepted_cultures(n, c);
+			return culture_is_on_accepted_list(ws, n, c);
 		}, nids, cids);
 }
 
@@ -3093,10 +3110,7 @@ TRIGGER_FUNCTION(tf_is_accepted_culture_pop) {
 	auto owner = nations::owner_of_pop(ws, to_pop(primary_slot));
 	auto is_accepted = ve::apply(
 			[&ws](dcon::nation_id n, dcon::culture_id c) {
-				if(n)
-					return ws.world.nation_get_accepted_cultures(n, c);
-				else
-					return false;
+				return culture_is_on_accepted_list(ws, n, c);
 			},
 			owner, ws.world.pop_get_culture(to_pop(primary_slot)));
 	return compare_to_true(tval[0], is_accepted);
@@ -3105,10 +3119,7 @@ TRIGGER_FUNCTION(tf_is_accepted_culture_province) {
 	auto owner = ws.world.province_get_nation_from_province_ownership(to_prov(primary_slot));
 	auto is_accepted = ve::apply(
 			[&ws](dcon::nation_id n, dcon::culture_id c) {
-				if(n)
-					return ws.world.nation_get_accepted_cultures(n, c);
-				else
-					return false;
+				return culture_is_on_accepted_list(ws, n, c);
 			},
 			owner, ws.world.province_get_dominant_culture(to_prov(primary_slot)));
 	return compare_to_true(tval[0], is_accepted);
@@ -3117,10 +3128,7 @@ TRIGGER_FUNCTION(tf_is_accepted_culture_state) {
 	auto owner = ws.world.state_instance_get_nation_from_state_ownership(to_state(primary_slot));
 	auto is_accepted = ve::apply(
 			[&ws](dcon::nation_id n, dcon::culture_id c) {
-				if(n)
-					return ws.world.nation_get_accepted_cultures(n, c);
-				else
-					return false;
+				return culture_is_on_accepted_list(ws, n, c);
 			},
 			owner, ws.world.state_instance_get_dominant_culture(to_state(primary_slot)));
 	return compare_to_true(tval[0], is_accepted);

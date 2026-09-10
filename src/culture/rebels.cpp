@@ -299,8 +299,14 @@ void suppress_movement(sys::state& state, dcon::nation_id n, dcon::movement_id m
 		return;
 	}
 
-	auto const execution = nations::policy_execution::average_effective_policy(
-		state, n, nations::policy_execution::policy_kind::crime_suppression);
+	// Issue movements are a political implementation problem; only generic
+	// crime/anti-state movements should consume the crime-suppression budget.
+	// Using one policy for both made every reform movement look like a policing
+	// failure and hid the cabinet's ability to implement concessions.
+	auto const policy = state.world.movement_get_associated_issue_option(m)
+		? nations::policy_execution::policy_kind::reform_implementation
+		: nations::policy_execution::policy_kind::crime_suppression;
+	auto const execution = nations::policy_execution::average_effective_policy(state, n, policy);
 	state.world.movement_get_transient_radicalism(m) +=
 		state.defines.suppression_radicalisation_hit * (1.f + 1.5f * (1.f - execution));
 	std::vector<dcon::pop_id> members;

@@ -2446,17 +2446,18 @@ float get_estimated_con_change(sys::state& state, dcon::nation_id n) {
 
 float get_estimated_literacy_change(sys::state& state, dcon::pop_id ids) {
 	auto pop_budget = economy::pops::prepare_pop_budget(state, ids);
-	
-	auto shift_literacy = ve::select(
-		pop_budget.education.satisfied_with_money_ratio + pop_budget.education.satisfied_for_free_ratio > 0.9f,
-		pop_demographics::pop_u16_scaling,
-		ve::select(
-			pop_budget.education.satisfied_with_money_ratio + pop_budget.education.satisfied_for_free_ratio < 0.7f,
-			-pop_demographics::pop_u16_scaling,
-			0.f
-		)
-	);
-	return shift_literacy;
+	auto const education_access = std::clamp(
+		pop_budget.education.satisfied_with_money_ratio
+			+ pop_budget.education.satisfied_for_free_ratio,
+		0.f, 1.f);
+	auto const literacy = std::clamp(pop_demographics::get_literacy(state, ids), 0.f, 1.f);
+	// The old 70/90% thresholds made almost every developing country sit in a
+	// dead zone for decades. Education now yields continuous progress, with
+	// diminishing returns as universal literacy approaches.
+	// POP literacy is updated on a staggered monthly cadence, hence the scale:
+	// full access is roughly one percentage point per year at low literacy.
+	return 120.f * education_access * (1.f - literacy)
+		* pop_demographics::pop_u16_scaling;
 }
 
 float get_estimated_literacy_change(sys::state& state, dcon::nation_id n) {

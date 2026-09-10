@@ -9,8 +9,9 @@ namespace national_budget {
 
 float estimate_pop_payouts_by_income_type(sys::state& state, dcon::nation_id n, culture::income_type in);
 
-// Budget sliders describe a daily policy, so their monetary base must be a
-// sustainable daily flow rather than the entire accumulated treasury.
+// Budget sliders describe a daily policy, so their monetary base is recurring
+// income plus a gradual drawdown of cash above the fiscal reserve, never the
+// entire accumulated treasury at once.
 float sustainable_daily_budget(float treasury, float expected_daily_income) noexcept;
 float estimate_sustainable_daily_budget(sys::state& state, dcon::nation_id n, float treasury);
 

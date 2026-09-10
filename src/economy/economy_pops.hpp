@@ -35,8 +35,10 @@ void update_consumption(
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_housing,
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_everyday,
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_luxury,
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_private,
+	// Keep this order aligned with the literacy update: state-funded education,
+	// then household-funded education.
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_public,
+	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_private,
 	ve::vectorizable_buffer<float, dcon::pop_id>& demand_life,
 	ve::vectorizable_buffer<float, dcon::pop_id>& demand_housing,
 	ve::vectorizable_buffer<float, dcon::pop_id>& demand_everyday,

@@ -1779,6 +1779,7 @@ object {
 	property{
 		name{ industry_market_value }
 		type{ float }
+		tag{ save }
 	}
 	property{
 		name{ land_market_turnover }
@@ -1787,6 +1788,7 @@ object {
 	property{
 		name{ land_market_value }
 		type{ float }
+		tag{ save }
 	}
 	property{
 		name{ land_market_bids }
@@ -4888,6 +4890,16 @@ relationship{
 	}
 	property {
 		name{ stabilization_volume }
+		type{ array{commodity_id}{float} }
+		tag{ save }
+	}
+	property {
+		name{ cargo_in_transit_0 }
+		type{ array{commodity_id}{float} }
+		tag{ save }
+	}
+	property {
+		name{ cargo_in_transit_1 }
 		type{ array{commodity_id}{float} }
 		tag{ save }
 	}

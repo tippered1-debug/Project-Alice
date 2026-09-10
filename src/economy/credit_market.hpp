@@ -19,17 +19,25 @@ struct inputs {
 	bool enabled = false;
 	// max(0.01, (loan_interest modifier + 1) * define:LOAN_BASE_INTEREST).
 	float base_annual_rate = 0.f;
-	// national_bank holds both outstanding loans and funds still free to lend.
+	// national_bank is liquid cash. Outstanding claims are listed separately.
 	float banking_reserves = 0.f;
 	float government_debt = 0.f;
 	float private_investment = 0.f;
-	// Outstanding producer loan book. It is a committed bank asset even when
-	// only part of the original negative till received live cash.
+	// Outstanding producer loan book: cash the bank actually advanced, plus
+	// capitalized interest, less principal repaid or written off.
 	float producer_debt = 0.f;
 	// Bounded [0, 1], one being healthy. Supplied by banking_stability.
 	float credit_health = 1.f;
 	// Private construction that the investment pool cannot fund today.
 	float private_credit_shortfall = 0.f;
+};
+
+struct balance_sheet {
+	float cash_reserves = 0.f;
+	float government_bonds = 0.f;
+	float investment_loans = 0.f;
+	float producer_loans = 0.f;
+	float total_assets = 0.f;
 };
 
 struct market {
@@ -46,6 +54,7 @@ struct market {
 	// Reserves the bank may still deploy today.
 	float lending_capacity = 0.f;
 	// Actually extended to the private investment pool today.
+	float private_credit_requested = 0.f;
 	float private_credit_extended = 0.f;
 	// Paid by the pool back to the bank today.
 	float private_interest_due = 0.f;
@@ -58,9 +67,8 @@ inline constexpr float reserve_requirement = 0.20f;
 inline constexpr float maximum_daily_lending_share = 0.05f;
 // How sharply the rate rises as loanable funds are exhausted.
 inline constexpr float rate_sensitivity = 3.0f;
-// Utilization above this point carries no additional price signal; the credit
-// limit, not the rate, is what stops borrowing there.
-inline constexpr float utilization_cap = 2.0f;
+// Claims cannot exceed total assets in the explicit asset statement.
+inline constexpr float utilization_cap = 1.0f;
 // Matches the premium banking_stability used to apply on its own, so enabling
 // this module extends that hook instead of stacking a second one on top of it.
 inline constexpr float maximum_risk_premium = 0.50f;
@@ -74,26 +82,78 @@ inline constexpr float maximum_rate_multiplier = 8.0f;
 struct daily_flows {
 	std::vector<float> extended;
 	std::vector<float> interest;
+	std::vector<float> private_requested;
+	std::vector<float> private_construction_spent;
 	// Producer till financing, recorded by settle_producer_credit.
 	std::vector<float> producer_extended;
 	std::vector<float> producer_unfunded;
 	// Employment multiplier derived from the unfunded share, so a firm that
 	// could not finance its losses actually has to shrink.
 	std::vector<float> producer_availability;
+	// Provincial targeting keeps a distressed industrial district from shrinking
+	// every healthy factory in the same country.
+	std::vector<float> producer_availability_by_province;
 	// Debt service settled today, for observability.
 	std::vector<float> producer_interest_paid;
 	std::vector<float> producer_principal_repaid;
 	// Producer debt written off because the secured industry disappeared or
 	// the outstanding claim exceeded the province's realizable value.
 	std::vector<float> producer_writeoff;
+	// Existing bank and investment-pool cash returned to the POPs that supplied
+	// it. These are withdrawals/dividends, never newly created income.
+	std::vector<float> bank_distribution;
+	std::vector<float> investment_distribution;
 
-	void reset(uint32_t nation_count);
+	void reset(uint32_t nation_count, uint32_t province_count);
 	void record(dcon::nation_id nation, float extended_amount, float interest_amount);
+	void record_private_spending(dcon::nation_id nation, float amount);
 	void record_producer(dcon::nation_id nation, float extended_amount, float unfunded_amount,
 		float availability);
+	void record_producer_province(dcon::province_id province, float availability);
 	void record_debt_service(dcon::nation_id nation, float interest, float principal);
 	void record_writeoff(dcon::nation_id nation, float amount);
 };
+
+// Banks and investment funds need a way to return mature or unused capital to
+// their claimants. Otherwise both accounts are permanent one-way sinks even
+// after every useful project has been financed.
+struct circulation_inputs {
+	bool enabled = false;
+	bool has_claimants = false;
+	float banking_reserves = 0.f;
+	float private_investment = 0.f;
+	// Cash interest actually received today, not an imputed return on the stock.
+	float realized_bank_interest = 0.f;
+	float credit_demand = 0.f;
+	float private_construction_spending = 0.f;
+};
+
+struct circulation {
+	float bank_profit_dividend = 0.f;
+	float bank_idle_withdrawal = 0.f;
+	float investment_idle_withdrawal = 0.f;
+
+	[[nodiscard]] float bank_total() const {
+		return bank_profit_dividend + bank_idle_withdrawal;
+	}
+	[[nodiscard]] float total() const {
+		return bank_total() + investment_idle_withdrawal;
+	}
+};
+
+// Banks retain half of realized interest and distribute half. Principal is
+// returned only when it exceeds a 90-day demand buffer, and then over three
+// years. The slow release avoids turning a temporary lull into a bank run.
+inline constexpr float realized_interest_distribution_share = 0.50f;
+inline constexpr float capital_demand_reserve_days = 90.f;
+inline constexpr float idle_capital_release_days = 1095.f;
+
+[[nodiscard]] circulation calculate_circulation(circulation_inputs raw_inputs);
+
+// Settles the pure result against the two national accounts and records the
+// exact cash available for distribution to POP claimants.
+[[nodiscard]] circulation settle_circulation(sys::state& state,
+	dcon::nation_id nation, bool has_claimants);
 
 // Producers keep their own tills and, in the base game, may overdraw them
 // without any limit: a firm pays wages and buys inputs from a balance that
@@ -133,10 +193,10 @@ struct debt_service {
 [[nodiscard]] debt_service service_debt(float outstanding_debt, float available_cash,
 	float annual_rate);
 
-// A negative till is observed repeatedly until it recovers. Keep the loan
-// book at least as large as that till without counting the same deficit twice.
-[[nodiscard]] float producer_debt_after_shortfall(float outstanding_debt,
-	float shortfall);
+// Only settled bank cash creates a bank claim. The unfunded part of a negative
+// producer till remains a separately reported operating deficit.
+[[nodiscard]] float producer_debt_after_extension(float outstanding_debt,
+	float extended);
 
 [[nodiscard]] bool producer_debt_is_unrecoverable(float outstanding_debt,
 	float industry_value, bool has_industry, bool valuation_ready);
@@ -160,9 +220,11 @@ inline constexpr float producer_bankruptcy_debt_to_value = 3.0f;
 
 // Employment multiplier for a nation's producers, for the current day. Exactly
 // one unless Alice: Age of Transformation is enabled.
-[[nodiscard]] float producer_employment_scale(sys::state const& state, dcon::nation_id nation);
+[[nodiscard]] float producer_employment_scale(sys::state const& state,
+	dcon::province_id province);
 
 [[nodiscard]] market calculate(inputs raw_inputs);
+[[nodiscard]] balance_sheet make_balance_sheet(inputs raw_inputs);
 
 // Project-state adapter. Returns a disabled, exactly-legacy market unless
 // Alice: Age of Transformation is enabled.

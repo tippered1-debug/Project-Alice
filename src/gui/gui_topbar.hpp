@@ -20,6 +20,8 @@
 #include "economy.hpp"
 #include "national_budget.hpp"
 #include "gamerule.hpp"
+#include "credit_market.hpp"
+#include "price_level.hpp"
 #include "military.hpp"
 
 #include <algorithm>
@@ -361,6 +363,16 @@ public:
 
 class topbar_treasury_text : public multiline_text_element_base {
 public:
+	void on_create(sys::state& state) noexcept override {
+		// The vanilla GUI definition gives this label a very small hit box and,
+		// depending on the installed interface files, marks its font as black.
+		// Keep the accounting summary readable on top of the dark sparkline.
+		base_data.size.x = std::max<int16_t>(base_data.size.x, 86);
+		base_data.size.y = std::max<int16_t>(base_data.size.y, 14);
+		multiline_text_element_base::on_create(state);
+		black_text = false;
+	}
+
 	void on_update(sys::state& state) noexcept override {
 		auto n = retrieve<dcon::nation_id>(state, parent);
 		auto const tax = economy::explain_tax_income(state, n);
@@ -381,7 +393,7 @@ public:
 		// Arial12 in the vanilla topbar is a light font.  Forcing black here made
 		// the number effectively invisible against the dark Budget panel.
 		text::layout_parameters{ 0, 0, int16_t(base_data.size.x), int16_t(base_data.size.y), base_data.data.text.font_handle, 0, text::alignment::center,
-			black_text ? text::text_color::black : text::text_color::white, false });
+			text::text_color::white, false });
 		auto box = text::open_layout_box(layout, 0);
 
 		// A loaded scenario may not have player_data_cache yet.  The previous
@@ -457,6 +469,63 @@ public:
 			text::close_layout_box(contents, box);
 		}
 		text::add_line_break_to_layout(state, contents);
+
+		if(gamerule::age_of_transformation_enabled(state)) {
+			// Put the macro indicators beside the cash-flow explanation: a nominal
+			// surplus is not meaningful without the price level and credit stress
+			// that produced it.
+			auto const prices = economy::price_level::evaluate_nation(
+				state, nation_id);
+			auto const credit = economy::credit::evaluate_nation(
+				state, nation_id);
+			auto const nominal_gdp = economy::gdp::value_nation(
+				state, nation_id);
+			auto const real_gdp = prices.cpi > 0.000001f
+				? nominal_gdp / prices.cpi : nominal_gdp;
+			float producer_debt = 0.f;
+			for(auto ownership : state.world.nation_get_province_ownership(nation_id))
+				producer_debt += std::max(0.f,
+					state.world.province_get_producer_debt(
+						ownership.get_province()));
+			auto producer_unfunded = 0.f;
+			auto producer_availability = 1.f;
+			auto const index = std::size_t(nation_id.index());
+			if(index < state.credit_daily_flows.producer_unfunded.size())
+				producer_unfunded =
+					state.credit_daily_flows.producer_unfunded[index];
+			if(index < state.credit_daily_flows.producer_availability.size())
+				producer_availability =
+					state.credit_daily_flows.producer_availability[index];
+
+			text::add_line(state, contents, "alice_aot_economy_header");
+			text::add_line(state, contents, "alice_aot_nominal_gdp",
+				text::variable_type::x, text::fp_currency{ nominal_gdp });
+			text::add_line(state, contents, "alice_aot_real_gdp",
+				text::variable_type::x, text::fp_currency{ real_gdp });
+			text::add_line(state, contents, "alice_aot_consumer_price_index",
+				text::variable_type::x, text::fp_two_places{ prices.cpi });
+			text::add_line(state, contents, "alice_aot_daily_inflation",
+				text::variable_type::x,
+				text::fp_percentage_two_places{ prices.daily_inflation });
+			text::add_line(state, contents, "alice_aot_credit_rate",
+				text::variable_type::x,
+				text::fp_percentage_two_places{ credit.policy_annual_rate });
+			text::add_line(state, contents, "alice_aot_credit_utilization",
+				text::variable_type::x,
+				text::fp_percentage_two_places{ credit.utilization });
+			text::add_line(state, contents, "alice_aot_lending_capacity",
+				text::variable_type::x,
+				text::fp_currency{ credit.lending_capacity });
+			text::add_line(state, contents, "alice_aot_producer_debt",
+				text::variable_type::x, text::fp_currency{ producer_debt });
+			text::add_line(state, contents, "alice_aot_unfunded_credit",
+				text::variable_type::x,
+				text::fp_currency{ producer_unfunded });
+			text::add_line(state, contents, "alice_aot_credit_employment",
+				text::variable_type::x,
+				text::fp_percentage_two_places{ producer_availability });
+			text::add_line_break_to_layout(state, contents);
+		}
 
 		/*
 		// SCHOMBERT: A good portion of this is wrong because it is showing maximum values for some of these expense categories
@@ -2226,6 +2295,7 @@ private:
 	std::vector<topbar_commodity_xport_icon*> export_icons;
 	std::vector<topbar_commodity_amount_icon*> produced_icons;
 	simple_text_element_base* atpeacetext = nullptr;
+	topbar_treasury_text* treasury_text = nullptr;
 
 	army_management_window* army_mgmt_win = nullptr;
 
@@ -2247,6 +2317,11 @@ public:
 		add_child_to_front(std::move(dpi_win));
 
 		state.ui_state.topbar_window = this;
+		if(treasury_text) {
+			// Some vanilla interface packs declare the sparkline after the funds
+			// label.  Explicitly keep the useful numbers above that decoration.
+			move_child_to_front(treasury_text);
+		}
 
 		auto new_win = make_element_by_type<army_management_window>(state,
 				state.ui_state.defs_by_name.find(state.lookup_key("army_management_window"))->second.definition);
@@ -2376,7 +2451,9 @@ public:
 		} else if(name == "alice_budget_warning") {
 			return make_element_by_type<topbar_budget_warning>(state, id);
 		} else if(name == "budget_funds") {
-			return make_element_by_type<topbar_treasury_text>(state, id);
+			auto ptr = make_element_by_type<topbar_treasury_text>(state, id);
+			treasury_text = ptr.get();
+			return ptr;
 		} else if(name == "topbar_tech_progress") {
 			return make_element_by_type<nation_technology_research_progress>(state, id);
 		} else if(name == "tech_current_research") {

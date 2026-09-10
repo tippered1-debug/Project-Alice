@@ -131,10 +131,18 @@ float nation_factory_input_multiplier(sys::state const& state, dcon::factory_typ
 float nation_factory_output_multiplier(sys::state const& state, dcon::factory_type_id fac_type, dcon::nation_id n);
 
 void update_employment(sys::state& state, bool ignore_reality, float presim_employment_mult = 1.0f);
+// Artisan plans are stored per good, but all plans draw from the same POP.
+// Keep their sum within the province's actual artisan workforce.
+void cap_artisan_employment(sys::state& state);
 void update_rgo_profit(sys::state& state);
 
 void update_artisan_production(sys::state& state);
+float effective_artisan_output_amount(sys::state const& state, dcon::commodity_id commodity);
 void update_production_consumption(sys::state& state);
+float factory_min_input_actually_available(sys::state const& state,
+	dcon::market_id market, dcon::factory_type_id factory_type);
+float factory_min_input_expected_to_be_available(sys::state const& state,
+	dcon::market_id market, dcon::factory_type_id factory_type);
 
 float factory_input_multiplier(sys::state const& state, dcon::factory_id fac, dcon::nation_id n, dcon::province_id p, dcon::state_instance_id s);
 float factory_throughput_multiplier(sys::state const& state, dcon::factory_id fac, dcon::nation_id n, dcon::province_id p, dcon::state_instance_id s, float size);

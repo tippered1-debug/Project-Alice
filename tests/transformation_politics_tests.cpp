@@ -1,5 +1,7 @@
 #include "culture/transformation_politics.hpp"
+#include "culture/transformation_laws.hpp"
 #include "demographics.hpp"
+#include "serialization.hpp"
 #include "system_state.hpp"
 
 #include "catch2/catch.hpp"
@@ -7,8 +9,79 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <string_view>
 
 namespace transformation = politics::transformation;
+namespace laws = politics::transformation::laws;
+
+TEST_CASE("civil pressure requires either a mass movement or a real uprising",
+	"[politics][transformation][concession]") {
+	transformation::concession_pressure_inputs quiet;
+	quiet.enabled = true;
+	quiet.matching_movement_population = 0.01f;
+	quiet.matching_movement_radicalism = 1.0f;
+	auto const weak = transformation::calculate_concession_pressure(quiet);
+	REQUIRE(weak.total < 0.50f);
+
+	transformation::concession_pressure_inputs movement;
+	movement.enabled = true;
+	movement.matching_movement_population = 0.10f;
+	movement.matching_movement_radicalism = 0.80f;
+	auto const mass = transformation::calculate_concession_pressure(movement);
+	REQUIRE(mass.movement_pressure > 0.50f);
+	REQUIRE(mass.total == Approx(mass.movement_pressure));
+
+	transformation::concession_pressure_inputs uprising;
+	uprising.enabled = true;
+	uprising.rebel_population = 0.15f;
+	uprising.rebel_occupation = 0.10f;
+	auto const revolt = transformation::calculate_concession_pressure(uprising);
+	REQUIRE(revolt.rebellion_pressure > 0.50f);
+	REQUIRE(revolt.total == Approx(revolt.rebellion_pressure));
+}
+
+TEST_CASE("civil pressure calculation is bounded on malformed inputs",
+	"[politics][transformation][concession]") {
+	transformation::concession_pressure_inputs inputs;
+	inputs.enabled = true;
+	inputs.matching_movement_population = std::numeric_limits<float>::infinity();
+	inputs.matching_movement_radicalism = std::numeric_limits<float>::quiet_NaN();
+	inputs.rebel_population = -4.0f;
+	inputs.rebel_occupation = 90.0f;
+	auto const result = transformation::calculate_concession_pressure(inputs);
+	REQUIRE(std::isfinite(result.total));
+	REQUIRE(result.total >= 0.0f);
+	REQUIRE(result.total <= 1.0f);
+}
+
+TEST_CASE("property institutions require explicit laws rather than voting or welfare proxies",
+	"[politics][transformation][laws]") {
+	auto state = std::make_unique<sys::state>();
+	auto const nation = state->world.create_nation();
+	state->world.nation_set_combined_issue_rules(nation,
+		issue_rule::all_voting | issue_rule::allow_foreign_investment);
+	auto initial = laws::for_nation(*state, nation);
+	REQUIRE(initial.estates == laws::estate_regime::unrestricted);
+	REQUIRE(initial.tenants == laws::tenant_regime::free_contract);
+	REQUIRE(initial.worker_ownership == laws::worker_ownership_regime::none);
+	REQUIRE(initial.foreign_capital == laws::foreign_capital_regime::permitted);
+	REQUIRE(initial.profit_tax == laws::profit_tax_regime::none);
+	REQUIRE(initial.land_tax == laws::land_tax_regime::none);
+	REQUIRE(laws::annual_profit_tax_rate(laws::profit_tax_regime::standard)
+		== Approx(0.15f));
+	REQUIRE(laws::annual_land_tax_rate(laws::land_tax_regime::high)
+		== Approx(0.30f));
+
+	auto const issue = state->world.create_issue();
+	state->world.nation_resize_issues(state->world.issue_size());
+	auto const option = state->world.create_issue_option();
+	state->world.issue_option_set_parent_issue(option, issue);
+	state->world.issue_option_set_name(option,
+		state->add_key_utf8(std::string_view{"alice_tenants_right_to_buy"}));
+	state->world.nation_set_issues(nation, issue, option);
+	auto selected = laws::for_nation(*state, nation);
+	REQUIRE(selected.tenants == laws::tenant_regime::right_to_buy);
+}
 
 TEST_CASE("transformation interest-group affinities are bounded distributions", "[politics][transformation]") {
 	for(uint8_t raw_role = uint8_t(transformation::population_role::landowner);
@@ -24,8 +97,6 @@ TEST_CASE("transformation interest-group affinities are bounded distributions", 
 			total += value;
 		}
 		REQUIRE(total == Approx(1.0f));
-		REQUIRE(transformation::default_property_proxy(role) >= 0.0f);
-		REQUIRE(transformation::default_property_proxy(role) <= 1.0f);
 	}
 }
 
@@ -420,6 +491,71 @@ TEST_CASE("flagship politics turns reform clicks into a visible bill", "[politic
 	REQUIRE(transformation::can_withdraw_bill(*state, nation));
 	transformation::withdraw_bill(*state, nation);
 	REQUIRE(transformation::active_bill(*state, nation) == nullptr);
+}
+
+TEST_CASE("an incumbent reelection records the actual winning vote share",
+	"[politics][transformation][election]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	auto const nation = state->world.create_nation();
+	auto const party = state->world.create_political_party();
+	state->world.nation_set_ruling_party(nation, party);
+	state->transformation_government_state.resize(state->world.nation_size());
+	state->transformation_government_state[nation.index()].groups =
+		transformation::group_bit(transformation::interest_group_id::industrialists);
+	state->transformation_government_state[nation.index()].confidence.fill(0.5f);
+
+	transformation::record_ruling_party_change(
+		*state, nation, party, party, 0.62f);
+	REQUIRE(state->transformation_government_state[nation.index()].party_mandate
+		== Approx(0.62f));
+}
+
+TEST_CASE("electoral mandate survives the versioned save extension",
+	"[politics][transformation][election][serialization]") {
+	auto state = std::make_unique<sys::state>();
+	state->world.create_nation();
+	state->transformation_government_state.resize(state->world.nation_size());
+	auto& government = state->transformation_government_state.front();
+	government.groups = transformation::group_bit(
+		transformation::interest_group_id::industrialists);
+	government.established_on = 123;
+	government.confidence.fill(0.55f);
+	government.party_mandate = 0.61f;
+
+	std::vector<uint8_t> bytes(sys::sizeof_save_section(*state));
+	auto const* end = sys::write_save_section(bytes.data(), *state);
+	REQUIRE(end == bytes.data() + bytes.size());
+
+	// Normal save loading starts from its scenario, so the DCON entity sizes
+	// already exist when handwritten extensions are read.
+	auto loaded = std::make_unique<sys::state>();
+	loaded->world.create_nation();
+	sys::read_save_section(bytes.data(), end, *loaded);
+	REQUIRE(loaded->transformation_government_state.size() == 1);
+	REQUIRE(loaded->transformation_government_state.front().party_mandate
+		== Approx(0.61f));
+	REQUIRE(loaded->transformation_government_state.front().established_on == 123);
+}
+
+TEST_CASE("flagship politics can queue a military or economic reform bill",
+	"[politics][transformation][legislation][reform]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	state->local_player_nation = state->world.create_nation();
+	state->cheat_data.always_allow_reforms = true;
+	auto const reform = state->world.create_reform();
+	state->world.nation_resize_reforms(state->world.reform_size());
+	auto const option = state->world.create_reform_option();
+	state->world.reform_option_set_parent_reform(option, reform);
+	state->world.nation_set_reforms(state->local_player_nation, reform, dcon::reform_option_id{});
+
+	transformation::propose_bill(*state, state->local_player_nation, option);
+	auto const* bill = transformation::active_bill(*state, state->local_player_nation);
+	REQUIRE(bill != nullptr);
+	REQUIRE(bill->target == transformation::legislation_target::reform);
+	REQUIRE(bill->reform == option);
+	REQUIRE(bill->stage == transformation::legislation_stage::negotiation);
 }
 
 TEST_CASE("wealth-backed groups can outweigh equal popular reform support",

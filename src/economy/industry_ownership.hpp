@@ -102,6 +102,9 @@ struct market_config {
 	float foreign_investment_target = 0.f;
 	float foreign_investment_rate = 0.f;
 	float annual_profit_tax_rate = 0.f;
+	// Realized operating profit is the tax base. Asset value remains a
+	// valuation input for ownership transfers and is never taxed as "profit".
+	float monthly_taxable_profit = 0.f;
 };
 
 struct group_finance {

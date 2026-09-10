@@ -4,6 +4,7 @@
 #include "demographics.hpp"
 #include "modifiers.hpp"
 #include "politics.hpp"
+#include "culture/transformation_politics.hpp"
 #include "system_state.hpp"
 #include "container_types.hpp"
 #include "ve_scalar_extensions.hpp"
@@ -4405,6 +4406,7 @@ void enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_i
 
 	culture::update_nation_issue_rules(state, source);
 	sys::update_single_nation_modifiers(state, source);
+	politics::transformation::record_reform_outcome(state, source, i);
 
 	state.world.nation_set_last_issue_or_reform_change(source, state.current_date);
 }

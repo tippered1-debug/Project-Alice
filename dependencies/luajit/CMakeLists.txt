@@ -31,13 +31,17 @@ else()
 		GIT_TAG origin/v2.1
 		GIT_SHALLOW FALSE
 		GIT_PROGRESS TRUE
+		# Do not fetch and reinstall LuaJIT on every incremental Alice build.
+		# Changing the checkout configuration still refreshes the external
+		# project when CMake regenerates it.
+		UPDATE_DISCONNECTED TRUE
 
 		CONFIGURE_COMMAND ""
 		BUILD_COMMAND ${LUAJIT_BUILD_ENV} make
 
 		BUILD_IN_SOURCE TRUE
 		BUILD_BYPRODUCTS
-			${LUAJIT_SOURCE_DIR}/luajit.h
+			${LUAJIT_SOURCE_DIR}/src/luajit.h
 			${LUAJIT_BUILD_LIBRARY}
 			${LUAJIT_INSTALLED_LIBRARY}
 		INSTALL_COMMAND
@@ -46,7 +50,7 @@ else()
 				-DLUAJIT_INSTALL_DIR=<INSTALL_DIR>
 				-P ${CMAKE_CURRENT_SOURCE_DIR}/fix_luajit_install_name.cmake
 	)
-	add_library(lib_luajit INTERFACE ${LUAJIT_SOURCE_DIR}/luajit.h)
+	add_library(lib_luajit INTERFACE ${LUAJIT_SOURCE_DIR}/src/luajit.h)
 	add_dependencies(lib_luajit luajit)
 	target_link_libraries(lib_luajit INTERFACE ${LUAJIT_INSTALLED_LIBRARY})
 	if(APPLE)

@@ -253,7 +253,8 @@ void update_consumption(sys::state& state) {
 					break;
 				}
 				auto amount =  costs.commodity_amounts[i] / build_time;
-				economy::register_demand(state, mid, cid, amount * demand_scale);
+				economy::register_demand(state, mid, cid, amount * demand_scale,
+					economy::market_clearing::demand_class::construction);
 			}
 			auto labor_demand = state.world.province_get_labor_demand(pid, economy::labor_constants::construction_labor);
 			assert(labor_demand + demand_scale * economy::labor_constants::labor_per_construction_unit >= 0.f);
@@ -301,7 +302,8 @@ void update_consumption(sys::state& state) {
 						break;
 					}
 					auto amount = max_port_expansion_speed * costs.commodity_amounts[i] / build_time;
-					economy::register_demand(state, mid, cid, amount * scale);
+					economy::register_demand(state, mid, cid, amount * scale,
+						economy::market_clearing::demand_class::construction);
 				}
 			}
 		});
@@ -349,7 +351,8 @@ void update_profit_and_refund(sys::state& state) {
 			auto profit = output * actually_sold * cost_of_output - private_size * cost_of_input * actually_bought;
 
 			auto current_money = state.world.province_get_advanced_province_building_private_savings(pid, i);
-			state.world.province_set_advanced_province_building_private_savings(pid, i, current_money + profit);
+			state.world.province_set_advanced_province_building_private_savings(pid, i,
+				std::max(0.f, current_money + profit));
 		}
 
 		// expand ports
@@ -386,7 +389,8 @@ void update_profit_and_refund(sys::state& state) {
 					if(!cid) {
 						break;
 					}
-					auto probability = state.world.market_get_actual_probability_to_buy(mid, cid);
+					auto probability = economy::market_clearing::fill(state, mid, cid,
+						economy::market_clearing::demand_class::construction);
 					// we promised to buy - we spend money and throw away excess items
 					// otherwise we generated demand and then haven't fulfilled our promise
 					cost += max_port_expansion_speed * costs.commodity_amounts[i] / build_time * scale * economy::price(state, mid, cid) * probability;
@@ -396,7 +400,8 @@ void update_profit_and_refund(sys::state& state) {
 				}
 
 				auto current_money = state.world.province_get_advanced_province_building_private_savings(pid, id);
-				state.world.province_set_advanced_province_building_private_savings(pid, id, current_money - cost);
+				state.world.province_set_advanced_province_building_private_savings(pid, id,
+					std::max(0.f, current_money - cost));
 
 				auto current_max_size = state.world.province_get_advanced_province_building_max_private_size(pid, id);
 				state.world.province_set_advanced_province_building_max_private_size(
@@ -474,7 +479,8 @@ void update_profit_and_refund(sys::state& state) {
 				if(!cid) {
 					break;
 				}
-				auto sat = state.world.market_get_actual_probability_to_buy(mid, cid);
+				auto sat = economy::market_clearing::fill(state, mid, cid,
+					economy::market_clearing::demand_class::construction);
 				actually_bought = std::min(actually_bought, sat);
 				auto amount =  costs.commodity_amounts[i] / build_time;
 				spendings += amount * economy::price(state, mid, cid) * demand_scale * sat;
@@ -493,7 +499,8 @@ void update_profit_and_refund(sys::state& state) {
 			);
 
 			auto current_money = state.world.province_get_advanced_province_building_private_savings(pid, id);
-			state.world.province_set_advanced_province_building_private_savings(pid, id, current_money - spendings);
+			state.world.province_set_advanced_province_building_private_savings(pid, id,
+				std::max(0.f, current_money - spendings));
 		}
 	});
 }
@@ -670,7 +677,13 @@ void update_production(sys::state& state) {
 
 			auto current_public_size = state.world.province_get_advanced_province_building_national_size(pids, bid);
 			auto current_public_supply = state.world.province_get_service_supply_public(pids, def.output);
-			state.world.province_set_service_supply_public(pids, def.output, current_public_supply + current_public_size * output);
+			// Public primary schools are not restricted to dense commercial cities.
+			// A modest rural-access floor lets education budgets matter in agrarian
+			// countries while urbanization still provides the stronger multiplier.
+			auto public_output = ve::max(0.15f, local_education_efficiency)
+				* tmod * nmod * input_satisfaction * def.output_amount;
+			state.world.province_set_service_supply_public(pids, def.output,
+				current_public_supply + current_public_size * public_output);
 		});
 
 		// TODO:

@@ -7,6 +7,7 @@
 #include "nations.hpp"
 #include "province_templates.hpp"
 #include "system_state.hpp"
+#include "transformation_laws.hpp"
 
 #include <array>
 #include <cmath>
@@ -441,39 +442,32 @@ market_config configuration_for(sys::state const& state,
 	config.enabled = gamerule::age_of_transformation_enabled(state);
 	auto const nation =
 		state.world.province_get_nation_from_province_ownership(province);
-	auto const rules = nation
-		? state.world.nation_get_combined_issue_rules(nation) : 0u;
-	auto const allows_private_building =
-		(rules & issue_rule::pop_build_factory) != 0;
-	auto const allows_state_building =
-		(rules & issue_rule::build_factory) != 0;
-	config.foreign_investment_allowed =
-		(rules & issue_rule::allow_foreign_investment) != 0;
-	auto const social_protection = nation
-		? std::clamp(
-			state.world.nation_get_modifier_values(nation,
-				sys::national_mod_offsets::unemployment_benefit)
-			+ state.world.nation_get_modifier_values(nation,
-				sys::national_mod_offsets::pension_level), 0.f, 1.f)
-		: 0.f;
-	config.tenant_protection = social_protection;
-	if(social_protection >= 0.5f) {
-		config.tenant_regime = tenant_law::secure_tenure;
-	} else if(social_protection > 0.f) {
+	auto const laws = politics::transformation::laws::for_nation(state, nation);
+	config.foreign_investment_allowed = laws.foreign_capital
+		== politics::transformation::laws::foreign_capital_regime::permitted;
+	switch(laws.tenants) {
+	case politics::transformation::laws::tenant_regime::regulated_rent:
 		config.tenant_regime = tenant_law::regulated_rent;
-	}
-	config.annual_land_tax_rate = nation
-		? 0.05f * nations::tax_efficiency(state, nation)
-			* float(state.world.nation_get_rich_tax(nation)) / 100.f
-		: 0.f;
-	if((rules & issue_rule::all_voting) != 0) {
-		config.estate_regime = estate_law::concentration_limit;
+		config.tenant_protection = 0.35f;
+		break;
+	case politics::transformation::laws::tenant_regime::secure_tenure:
+		config.tenant_regime = tenant_law::secure_tenure;
+		config.tenant_protection = 0.65f;
+		break;
+	case politics::transformation::laws::tenant_regime::right_to_buy:
 		config.tenant_regime = tenant_law::right_to_buy;
-		config.large_estate_limit = 0.35f;
+		config.tenant_protection = 0.80f;
 		config.right_to_buy_rate = 0.001f;
 		config.reform_compensation_rate = 0.75f;
-		config.tenant_protection =
-			std::max(config.tenant_protection, 0.75f);
+		break;
+	case politics::transformation::laws::tenant_regime::free_contract:
+		break;
+	}
+	config.annual_land_tax_rate =
+		politics::transformation::laws::annual_land_tax_rate(laws.land_tax);
+	if(laws.estates == politics::transformation::laws::estate_regime::concentration_limit) {
+		config.estate_regime = estate_law::concentration_limit;
+		config.large_estate_limit = 0.35f;
 	}
 	config.implementation_efficiency = nation
 		? std::clamp(0.25f + 0.75f * nations::tax_efficiency(state, nation),
@@ -483,10 +477,10 @@ market_config configuration_for(sys::state const& state,
 		? 0.02f * finite_nonnegative(
 			state.world.nation_get_stockpiles(nation, economy::money))
 		: 0.f;
-	config.nationalization_rate =
-		allows_state_building && !allows_private_building ? 0.002f : 0.f;
-	config.privatization_rate =
-		allows_private_building && !allows_state_building ? 0.001f : 0.f;
+	config.nationalization_rate = laws.industry
+		== politics::transformation::laws::industry_regime::nationalizing ? 0.002f : 0.f;
+	config.privatization_rate = laws.industry
+		== politics::transformation::laws::industry_regime::privatizing ? 0.001f : 0.f;
 	return config;
 }
 

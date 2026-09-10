@@ -8,7 +8,7 @@ namespace {
 
 		test_tag16() = default;
 		explicit test_tag16(uint16_t v) : value(v) {}
-		int32_t index() const { return int32_t(value); }
+		int32_t index() const { return int32_t(value) - 1; }
 	};
 
 	struct test_tag32 {
@@ -28,7 +28,7 @@ namespace {
 
 		test_zero_is_null_index_tag() = default;
 		explicit test_zero_is_null_index_tag(uint16_t v) : value(v) {}
-		int32_t index() const { return value == 0 ? 0 : int32_t(value) - 1; }
+		int32_t index() const { return int32_t(value) - 1; }
 	};
 
 	struct test_zero_is_null_source_tag {
@@ -38,7 +38,7 @@ namespace {
 
 		test_zero_is_null_source_tag() = default;
 		explicit test_zero_is_null_source_tag(uint16_t v) : value(v) {}
-		int32_t index() const { return int32_t(value); }
+		int32_t index() const { return int32_t(value) - 1; }
 	};
 }
 
@@ -129,9 +129,9 @@ TEST_CASE("ve scalar tagged vectors apply reduce and bitfields", "[ve]") {
 	test_tag16 tag_data[4] = { test_tag16(0), test_tag16(2), test_tag16(3), test_tag16(4) };
 	auto tags = ve::load(ve::contiguous_tags<int32_t>(0), tag_data);
 
-	REQUIRE(tags[0].index() == 0);
-	REQUIRE(tags[1].index() == 2);
-	REQUIRE(tags[3].index() == 4);
+	REQUIRE(tags[0].value == 0);
+	REQUIRE(tags[1].value == 2);
+	REQUIRE(tags[3].value == 4);
 	REQUIRE(ve::is_invalid(ve::tagged_vector<test_tag16>())[0]);
 
 	auto sum = ve::apply([](float a, int32_t b) { return a + float(b); }, ve::fp_vector(1.f, 2.f, 3.f, 4.f), ve::int_vector(4, 3, 2, 1));

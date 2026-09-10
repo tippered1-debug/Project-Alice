@@ -2094,8 +2094,23 @@ alice_gamerule_age_of_transformation_desc;Enables the opt-in political economy r
 alice_gamerule_age_of_transformation_opt_disabled;Legacy-compatible rules
 alice_gamerule_age_of_transformation_opt_enabled;Age of Transformation
 alice_aot_legitimacy;Transformation legitimacy: $x$ / 100
+alice_aot_electoral_reach;Electoral reach of the population: $x$
 alice_aot_coalition;Governing coalition: $x$
 alice_aot_coalition_power;Coalition political power: $x$
+alice_aot_government_stability;Government stability: $x$
+alice_aot_party_mandate;Ruling party mandate: $x$
+alice_aot_government_header;Government situation
+alice_aot_cabinet_outlook;Cabinet outlook: $x$
+alice_aot_cabinet_reason;Why: $x$
+alice_aot_cabinet_confidence_header;Cabinet confidence
+alice_aot_cabinet_outlook_stable;Stable
+alice_aot_cabinet_outlook_contested;Contested
+alice_aot_cabinet_outlook_fragile;Fragile
+alice_aot_cabinet_reason_secure;Working majority and credible mandate
+alice_aot_cabinet_reason_no_majority;No working majority in political power
+alice_aot_cabinet_reason_low_confidence;Cabinet members are losing confidence
+alice_aot_cabinet_reason_low_party_mandate;The ruling party lacks a strong electoral mandate
+alice_aot_cabinet_reason_low_legitimacy;The mandate is too weak
 alice_aot_no_coalition;No viable coalition
 alice_aot_group_landed_elites;Landed elites
 alice_aot_group_industrialists;Industrialists
@@ -2105,15 +2120,46 @@ alice_aot_group_rural_communities;Rural communities
 alice_aot_group_state_services;State services
 alice_aot_reform_header;Age of Transformation political balance (50% required)
 alice_aot_reform_popular;Popular support: $x$
+alice_aot_reform_electoral;Electoral support: $x$
 alice_aot_reform_power;Political-power support: $x$
 alice_aot_reform_coalition;Governing-coalition support: $x$
 alice_aot_reform_execution;Expected implementation: $x$
+alice_aot_concession_pressure;Civil-pressure leverage: $x$
+alice_aot_concession_available;Emergency concession available: civil pressure can carry this bill through negotiation.
+alice_aot_concession_unavailable;Emergency concession requires at least 50% civil-pressure leverage from a matching movement or active rebellion.
+alice_aot_bill_header;Active bill
+alice_aot_bill_summary;Active bill: $x$
+alice_aot_bill_stage;Stage: $x$
+alice_aot_bill_stage_negotiation;Negotiation
+alice_aot_bill_stage_voting;Parliamentary vote
+alice_aot_bill_stage_implementation;Implementation
+alice_aot_bill_mandate;Mandate: $x$
+alice_aot_bill_execution;Execution readiness: $x$
+alice_aot_bill_days;Days in stage: $days$
+alice_aot_bill_compromise;Negotiated concessions: $x$
+alice_aot_bill_party_support;Sponsor party support: $x$
+alice_aot_bill_withdraw_hint;Click this active bill again to withdraw it (confidence cost).
+alice_aot_bill_sponsor;Sponsoring party: $x$
+alice_aot_bill_other_active;Another bill is active: $x$
+alice_aot_bill_row_status;$X$ — $Y$, day $DAYS$
+alice_aot_bill_stage_progress;Stage progress: day $DAYS$; minimum $X$, deadline $Y$
+alice_aot_bill_gate_mandate;Projected vote: $X$ yes (requires $Y$)
+alice_aot_bill_gate_coalition;Coalition backing: $X$ (requires $Y$)
+alice_aot_bill_gate_execution;Implementation readiness: $X$ (requires $Y$)
+alice_aot_bill_status_waiting;The minimum debate period has not finished yet.
+alice_aot_bill_status_ready;All conditions are met; the bill will advance on the next daily update.
+alice_aot_bill_status_blocked;One or more conditions are not met. The bill will fail at this stage's deadline unless they improve.
+alice_aot_bill_group_positions;Political-group positions (support · political power)
+alice_aot_bill_group_position;$X$: $Y$ · $VAL$
+alice_aot_disabled_hint;Advanced legislation is off. Enable Alice: Age of Transformation in the new-game rules to use negotiation, votes and implementation.
 alice_aot_movement_header;Age of Transformation radicalism pressure
 alice_aot_movement_power;Political-power backing: $x$
 alice_aot_movement_coalition;Opposition to the coalition: $x$
 alice_aot_movement_legitimacy;Net legitimacy pressure: $x$
 alice_aot_movement_hardship;Economic hardship: $x$
 alice_aot_movement_implementation;Implementation gap: $x$
+alice_aot_movement_regional_control;Regional control gap: $x$
+alice_aot_movement_regional_execution;Regional execution gap: $x$
 alice_aot_movement_total;Total radicalism adjustment: $x$
 alice_land_panel_title;LAND & TENURE
 alice_land_monthly_market;Monthly land market
@@ -2161,6 +2207,15 @@ alice_land_profile_demographic;Local class pattern
 alice_land_profile_persian;Persian estates
 alice_land_profile_russian;Communal and estate tenure
 alice_land_profile_ottoman;Ottoman state tenure
+alice_industry_profile_unassigned;Private industry
+alice_industry_profile_liberal_private;Liberal private industry
+alice_industry_profile_state_led;State-led industry
+alice_industry_profile_foreign_concession;Foreign concessions
+alice_industry_profile_junker_industrial;Landed industrialists
+alice_industry_profile_cooperative;Cooperative and municipal industry
+alice_industry_law_open_market;Open ownership market
+alice_industry_law_nationalizing;Nationalization
+alice_industry_law_privatizing;Privatization
 alice_land_profile_american;Family farms
 alice_land_profile_latifundia;Latifundia
 alice_land_law_estate_unrestricted;Estates: free
@@ -2173,3 +2228,17 @@ alice_land_reform_execution;Transferred
 alice_land_compensation;Comp.
 alice_land_resistance;Resistance
 alice_land_reform_tooltip;Estate ceilings force holdings above the legal limit onto the reform market. A right-to-buy transfers an additional share to cultivating households each month. Execution is reduced by weak administration, elite resistance and an insufficient compensation budget.
+alice_aot_government_compact;Legitimacy $X$ · Stability $Y$ · Coalition $VAL$
+alice_aot_bill_compact;$X$ · $Y$ day $DAYS$ · progress $VAL$
+alice_aot_no_active_bill;No active bill
+alice_aot_economy_header;AGE OF TRANSFORMATION — ECONOMY
+alice_aot_nominal_gdp;Nominal GDP: $x$
+alice_aot_real_gdp;Consumer-price-deflated GDP: $x$
+alice_aot_consumer_price_index;Consumer price index: $x$
+alice_aot_daily_inflation;Daily inflation: $x$
+alice_aot_credit_rate;Annual credit rate: $x$
+alice_aot_credit_utilization;Bank asset utilization: $x$
+alice_aot_lending_capacity;Daily lending capacity: $x$
+alice_aot_producer_debt;Producer debt: $x$
+alice_aot_unfunded_credit;Unfunded producer loss today: $x$
+alice_aot_credit_employment;Credit-constrained employment scale: $x$

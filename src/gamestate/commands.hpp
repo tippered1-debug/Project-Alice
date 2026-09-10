@@ -128,6 +128,7 @@ enum class command_type : uint8_t {
 		change_naval_unit_type = 116,
 		toggle_supply_depot = 117,
 		set_army_supply_priority = 118,
+		withdraw_transformation_bill = 119,
 
 
 		// network
@@ -733,6 +734,7 @@ constexpr enum_array<command_type, command_handler> command_type_handlers = {
 	{ command_type::change_naval_unit_type, command_handler{ sizeof(command::change_naval_unit_type_data), sizeof(command::change_naval_unit_type_data) + (max_ship_count * sizeof(dcon::ship_id)), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::toggle_supply_depot, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::set_army_supply_priority, command_handler{ sizeof(command::army_supply_priority_data), sizeof(command::army_supply_priority_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
+	{ command_type::withdraw_transformation_bill, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::take_province, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::grant_province, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::ask_for_free_trade_agreement, command_handler{ sizeof(command::diplo_action_data), sizeof(command::diplo_action_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
@@ -935,6 +937,8 @@ bool can_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_op
 
 void enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i);
 bool can_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i);
+void withdraw_transformation_bill(sys::state& state, dcon::nation_id source);
+bool can_withdraw_transformation_bill(sys::state& state, dcon::nation_id source);
 
 void become_interested_in_crisis(sys::state& state, dcon::nation_id source);
 bool can_become_interested_in_crisis(sys::state& state, dcon::nation_id source);

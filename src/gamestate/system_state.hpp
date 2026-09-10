@@ -33,6 +33,8 @@
 #include "military_supply.hpp"
 #include "credit_market.hpp"
 #include "monetary_system.hpp"
+#include "price_level.hpp"
+#include "market_clearing.hpp"
 #include "transformation_politics.hpp"
 
 namespace game_scene {
@@ -803,6 +805,14 @@ struct alignas(64) state {
 	// of the save format while remaining identical across a resumed campaign.
 	economy::monetary::account monetary_account;
 
+	// Derived local consumer prices and real-wage denominators. The opening and
+	// closing CPI samples belong to one economy tick, so no history is serialized.
+	economy::price_level::account price_level_account;
+
+	// Aggregated daily bids and auction fills by economic purpose. Rebuilt from
+	// demand every tick and deliberately excluded from saves/checksums.
+	economy::market_clearing::account market_clearing_account;
+
 	// Credit settled today, per nation. Reset at the start of every economy day
 	// and read by observability; never serialized.
 	economy::credit::daily_flows credit_daily_flows;
@@ -913,7 +923,9 @@ struct alignas(64) state {
 	sys::date current_date = sys::date{0};
 	sys::date ui_date = sys::date{0};
 	uint32_t game_seed = 0; // do *not* alter this value, ever
-	float inflation = 0.999f; // to compensate for some of money generation which will happen anyway
+	// Legacy nominal-balance multiplier. Actual transformation inflation lives
+	// in price_level_account and is measured from consumer prices.
+	float inflation = economy::monetary::legacy_inflation;
 	std::vector<player_data> player_data_cache;
 	player_data* find_player_data_cache(dcon::nation_id n) {
 		for(auto& c : player_data_cache) {

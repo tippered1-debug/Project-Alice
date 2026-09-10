@@ -39,15 +39,15 @@ float budget_fraction(sys::state const& state, dcon::nation_id nation, policy_ki
 
 } // namespace
 
-weights weights_for(policy_kind policy) {
+workload workload_for(policy_kind policy) {
 	switch(policy) {
-	case policy_kind::crime_suppression: return {0.25f, 0.35f, 0.15f, 0.15f, 0.10f};
-	case policy_kind::education: return {0.20f, 0.20f, 0.25f, 0.20f, 0.15f};
-	case policy_kind::social_benefits: return {0.20f, 0.25f, 0.30f, 0.15f, 0.10f};
-	case policy_kind::reform_implementation: return {0.20f, 0.20f, 0.15f, 0.15f, 0.30f};
-	case policy_kind::mobilization_logistics: return {0.20f, 0.30f, 0.25f, 0.15f, 0.10f};
+	case policy_kind::crime_suppression: return {0.50f, 0.70f, 0.35f};
+	case policy_kind::education: return {0.75f, 0.80f, 0.20f};
+	case policy_kind::social_benefits: return {1.00f, 0.65f, 0.15f};
+	case policy_kind::reform_implementation: return {0.40f, 0.50f, 1.00f};
+	case policy_kind::mobilization_logistics: return {0.80f, 0.60f, 0.50f};
 	}
-	return {};
+	return {1.f, 1.f, 0.f};
 }
 
 breakdown calculate(policy_kind policy, inputs raw_inputs) {
@@ -63,15 +63,23 @@ breakdown calculate(policy_kind policy, inputs raw_inputs) {
 	result.factors.funding = unit(raw_inputs.funding);
 	result.factors.bureaucratic_labor = unit(raw_inputs.bureaucratic_labor);
 	result.factors.political_compliance = unit(raw_inputs.political_compliance);
-	result.factor_weights = weights_for(policy);
+	result.required_work = workload_for(policy);
+	result.compliance_workload_multiplier = 1.f
+		+ result.required_work.resistance_labor
+			* (1.f - result.factors.political_compliance);
+	result.cash_coverage = unit(result.factors.funding
+		/ std::max(0.0001f, result.required_work.funding_required));
+	result.staff_coverage = unit(
+		result.factors.bureaucratic_labor * result.factors.national_administration
+		/ (std::max(0.0001f, result.required_work.labor_required)
+			* result.compliance_workload_multiplier));
+	result.territorial_coverage = result.factors.local_control;
 
 	using item = std::pair<capacity_factor, float>;
-	std::array<item, 5> factors{{
-		{capacity_factor::national_administration, result.factors.national_administration},
-		{capacity_factor::local_control, result.factors.local_control},
-		{capacity_factor::funding, result.factors.funding},
-		{capacity_factor::bureaucratic_labor, result.factors.bureaucratic_labor},
-		{capacity_factor::political_compliance, result.factors.political_compliance},
+	std::array<item, 3> factors{{
+		{capacity_factor::local_control, result.territorial_coverage},
+		{capacity_factor::funding, result.cash_coverage},
+		{capacity_factor::bureaucratic_labor, result.staff_coverage},
 	}};
 	result.bottleneck = factors.front().first;
 	result.bottleneck_value = factors.front().second;
@@ -82,16 +90,9 @@ breakdown calculate(policy_kind policy, inputs raw_inputs) {
 		}
 	}
 
-	result.weighted_capacity = unit(
-		result.factors.national_administration * result.factor_weights.national_administration
-		+ result.factors.local_control * result.factor_weights.local_control
-		+ result.factors.funding * result.factor_weights.funding
-		+ result.factors.bureaucratic_labor * result.factor_weights.bureaucratic_labor
-		+ result.factors.political_compliance * result.factor_weights.political_compliance);
-	// The weighted mean represents substitutable capacity; the bounded
-	// bottleneck term prevents money alone from replacing territorial control.
-	result.effective_execution = unit(
-		result.weighted_capacity * (0.65f + 0.35f * result.bottleneck_value));
+	// Cash, staffed offices and territorial access are complementary coverages.
+	// A surplus in one cannot replace a missing claimant payment or caseworker.
+	result.effective_execution = result.bottleneck_value;
 	return result;
 }
 
@@ -126,6 +127,11 @@ breakdown effective_policy(sys::state const& state, dcon::nation_id nation,
 		&& state.transformation_politics_cache[index].enabled) {
 		auto const* political_result = &state.transformation_politics_cache[index];
 		derived.political_compliance = 0.25f + 0.75f * unit(political_result->legitimacy.total / 100.f);
+		// A legitimate government can still fail to execute policy when its own
+		// cabinet is falling apart. Keep the legacy-compatible fallback for
+		// freshly-created synthetic states with no established cabinet.
+		if(political_result->government.groups != 0)
+			derived.political_compliance *= 0.70f + 0.30f * unit(political_result->government.stability);
 	}
 	return calculate(policy, derived);
 }

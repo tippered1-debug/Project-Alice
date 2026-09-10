@@ -13,11 +13,28 @@ namespace economy {
 
 namespace national_budget {
 
+namespace {
+
+// A treasury is a buffer, not a one-way money sink. Preserve roughly a quarter
+// of recurring revenue as an operating reserve and release only the excess over
+// a full year. This is deliberately slow enough to avoid turning yesterday's
+// accumulated cash into a one-day demand shock.
+constexpr float fiscal_reserve_days = 90.f;
+constexpr float fiscal_surplus_release_days = 365.f;
+
+}
+
 float sustainable_daily_budget(float treasury, float expected_daily_income) noexcept {
-	if(!std::isfinite(treasury) || treasury <= 0.f || !std::isfinite(expected_daily_income)) {
+	if(!std::isfinite(treasury) || treasury <= 0.f
+			|| !std::isfinite(expected_daily_income)) {
 		return 0.f;
 	}
-	return std::min(treasury, std::max(0.f, expected_daily_income));
+	auto const recurring_income = std::max(0.f, expected_daily_income);
+	auto const reserve_target = recurring_income * fiscal_reserve_days;
+	auto const accumulated_surplus = std::max(0.f, treasury - reserve_target);
+	auto const released_surplus = accumulated_surplus
+		/ fiscal_surplus_release_days;
+	return std::min(treasury, recurring_income + released_surplus);
 }
 
 float estimate_sustainable_daily_budget(sys::state& state, dcon::nation_id n, float treasury) {
