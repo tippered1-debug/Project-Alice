@@ -5,11 +5,18 @@
 namespace nations {
 
 // returns whether a culture is on the accepted list OR is the primary culture
+//
+// The culture must be checked as well as the nation. The accepted-cultures bit
+// vector is indexed by the culture's index, dcon indices are value - 1, so a
+// null culture selects row -1 and reads the memory in front of the array. That
+// is an out-of-bounds read: it yields whatever happens to be there, which makes
+// runs irreproducible, and can fault outright. Provinces without pops have no
+// dominant culture, so a null culture reaches here in ordinary play.
 template<typename T, typename U>
 auto nation_accepts_culture(sys::state const& state, T ids, U cul_ids) {
 	auto is_accepted = ve::apply(
 			[&state](dcon::nation_id n, dcon::culture_id c) {
-				if(n)
+				if(n && c)
 					return state.world.nation_get_accepted_cultures(n, c);
 				else
 					return false;

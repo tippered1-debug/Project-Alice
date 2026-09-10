@@ -23,15 +23,40 @@ float unit(float value) {
 
 } // namespace
 
-void daily_flows::reset(uint32_t nation_count) {
+void daily_flows::reset(uint32_t nation_count, uint32_t province_count) {
 	extended.assign(std::size_t(nation_count), 0.f);
 	interest.assign(std::size_t(nation_count), 0.f);
+	private_requested.assign(std::size_t(nation_count), 0.f);
+	private_construction_spent.assign(std::size_t(nation_count), 0.f);
 	producer_extended.assign(std::size_t(nation_count), 0.f);
 	producer_unfunded.assign(std::size_t(nation_count), 0.f);
 	producer_availability.assign(std::size_t(nation_count), 1.f);
+	producer_availability_by_province.assign(std::size_t(province_count), 1.f);
 	producer_interest_paid.assign(std::size_t(nation_count), 0.f);
 	producer_principal_repaid.assign(std::size_t(nation_count), 0.f);
 	producer_writeoff.assign(std::size_t(nation_count), 0.f);
+	bank_distribution.assign(std::size_t(nation_count), 0.f);
+	investment_distribution.assign(std::size_t(nation_count), 0.f);
+}
+
+void daily_flows::record_private_spending(dcon::nation_id nation, float amount) {
+	if(!nation)
+		return;
+	auto const index = std::size_t(nation.index());
+	if(index >= private_construction_spent.size())
+		return;
+	private_construction_spent[index] = nonnegative(amount);
+}
+
+void daily_flows::record_producer_province(dcon::province_id province,
+		float availability) {
+	if(!province)
+		return;
+	auto const index = std::size_t(province.index());
+	if(index >= producer_availability_by_province.size())
+		return;
+	producer_availability_by_province[index] = std::isfinite(availability)
+		? std::clamp(availability, 0.f, 1.f) : 1.f;
 }
 
 void daily_flows::record_debt_service(dcon::nation_id nation, float interest, float principal) {
@@ -91,8 +116,9 @@ debt_service service_debt(float outstanding_debt, float available_cash, float an
 	return result;
 }
 
-float producer_debt_after_shortfall(float outstanding_debt, float shortfall) {
-	return std::max(nonnegative(outstanding_debt), nonnegative(shortfall));
+float producer_debt_after_extension(float outstanding_debt, float extended) {
+	auto const updated = nonnegative(outstanding_debt) + nonnegative(extended);
+	return std::isfinite(updated) ? updated : nonnegative(outstanding_debt);
 }
 
 bool producer_debt_is_unrecoverable(float outstanding_debt, float industry_value,
@@ -112,13 +138,15 @@ float employment_availability(float unfunded, float requested) {
 	return 1.f - maximum_daily_employment_contraction * stress;
 }
 
-float producer_employment_scale(sys::state const& state, dcon::nation_id nation) {
-	if(!gamerule::age_of_transformation_enabled(state) || !nation)
+float producer_employment_scale(sys::state const& state,
+		dcon::province_id province) {
+	if(!gamerule::age_of_transformation_enabled(state) || !province)
 		return 1.f;
-	auto const index = std::size_t(nation.index());
-	if(index >= state.credit_daily_flows.producer_availability.size())
+	auto const index = std::size_t(province.index());
+	if(index >= state.credit_daily_flows.producer_availability_by_province.size())
 		return 1.f;
-	auto const value = state.credit_daily_flows.producer_availability[index];
+	auto const value =
+		state.credit_daily_flows.producer_availability_by_province[index];
 	return std::isfinite(value) ? std::clamp(value, 0.f, 1.f) : 1.f;
 }
 
@@ -132,6 +160,17 @@ void daily_flows::record(dcon::nation_id nation, float extended_amount, float in
 	interest[index] = nonnegative(interest_amount);
 }
 
+balance_sheet make_balance_sheet(inputs raw_inputs) {
+	balance_sheet result;
+	result.cash_reserves = nonnegative(raw_inputs.banking_reserves);
+	result.government_bonds = nonnegative(raw_inputs.government_debt);
+	result.investment_loans = nonnegative(raw_inputs.private_investment);
+	result.producer_loans = nonnegative(raw_inputs.producer_debt);
+	result.total_assets = result.cash_reserves + result.government_bonds
+		+ result.investment_loans + result.producer_loans;
+	return result;
+}
+
 market calculate(inputs raw_inputs) {
 	market result;
 	result.policy_annual_rate = nonnegative(raw_inputs.base_annual_rate);
@@ -140,22 +179,17 @@ market calculate(inputs raw_inputs) {
 
 	result.enabled = true;
 	auto const base_rate = nonnegative(raw_inputs.base_annual_rate);
-	auto const reserves = nonnegative(raw_inputs.banking_reserves);
-	auto const government_debt = nonnegative(raw_inputs.government_debt);
-	auto const private_investment = nonnegative(raw_inputs.private_investment);
-	auto const producer_debt = nonnegative(raw_inputs.producer_debt);
+	auto const balance = make_balance_sheet(raw_inputs);
+	auto const reserves = balance.cash_reserves;
+	auto const government_debt = balance.government_bonds;
+	auto const private_investment = balance.investment_loans;
+	auto const producer_debt = balance.producer_loans;
 	auto const health = unit(raw_inputs.credit_health);
 	auto const shortfall = nonnegative(raw_inputs.private_credit_shortfall);
 
 	auto const committed = government_debt + private_investment + producer_debt;
-	if(reserves > epsilon) {
-		result.utilization = committed / reserves;
-		if(!std::isfinite(result.utilization))
-			result.utilization = utilization_cap;
-	} else {
-		// No reserves at all: any commitment is total exhaustion.
-		result.utilization = committed > epsilon ? utilization_cap : 0.f;
-	}
+	result.utilization = balance.total_assets > epsilon
+		? unit(committed / balance.total_assets) : 0.f;
 	result.government_share = committed > epsilon ? unit(government_debt / committed) : 0.f;
 
 	// Scarcity of loanable funds is the price signal. Risk is the second term,
@@ -169,13 +203,11 @@ market calculate(inputs raw_inputs) {
 		maximum_rate_multiplier, scarcity_multiplier * risk_multiplier);
 	result.policy_annual_rate = base_rate * result.interest_cost_multiplier;
 
-	// Lending capacity. Government and producer debt encumber the stock: money
-	// already committed to either borrower cannot be lent to a new factory as
-	// well. This is the quantity-side counterpart to the utilization price.
-	auto const lendable = reserves * (1.f - reserve_requirement);
-	auto const free_reserves = std::max(0.f,
-		lendable - government_debt - producer_debt);
-	result.lending_capacity = free_reserves * maximum_daily_lending_share * health;
+	// The cash left the reserve account when each existing loan was originated.
+	// Subtracting the claim here a second time would double-count lending.
+	auto const lendable_cash = reserves * (1.f - reserve_requirement);
+	result.lending_capacity = lendable_cash * maximum_daily_lending_share * health;
+	result.private_credit_requested = shortfall;
 	result.private_credit_extended = std::min(result.lending_capacity, shortfall);
 
 	// The pool services what it holds. This is what stops the bank from being a
@@ -198,6 +230,45 @@ producer_financing finance_producers(market const& priced, float shortfall) {
 	result.extended = std::min(nonnegative(priced.lending_capacity), result.requested);
 	result.unfunded = result.requested - result.extended;
 	result.interest = result.extended * nonnegative(priced.policy_annual_rate) / 365.f;
+	return result;
+}
+
+circulation calculate_circulation(circulation_inputs raw_inputs) {
+	circulation result;
+	if(!raw_inputs.enabled || !raw_inputs.has_claimants)
+		return result;
+
+	auto const reserves = nonnegative(raw_inputs.banking_reserves);
+	auto const pool = nonnegative(raw_inputs.private_investment);
+	auto const realized_interest = nonnegative(raw_inputs.realized_bank_interest);
+	auto const credit_demand = nonnegative(raw_inputs.credit_demand);
+	auto const construction_spending =
+		nonnegative(raw_inputs.private_construction_spending);
+
+	// Only realized cash yield is a dividend. Keeping half in the bank pays for
+	// losses and grows its capacity; distributing half stops that yield from
+	// becoming a permanent demand sink.
+	result.bank_profit_dividend = std::min(reserves,
+		realized_interest * realized_interest_distribution_share);
+	auto const bank_after_profit = reserves - result.bank_profit_dividend;
+
+	// Retain both the statutory liquidity share and enough cash to cover ninety
+	// days of today's observed credit demand. Only the excess is an idle deposit,
+	// and even that is returned slowly.
+	auto const bank_floor = std::max(
+		bank_after_profit * reserve_requirement,
+		credit_demand * capital_demand_reserve_days);
+	auto const idle_bank = std::max(0.f, bank_after_profit - bank_floor);
+	result.bank_idle_withdrawal = std::min(bank_after_profit,
+		idle_bank / idle_capital_release_days);
+
+	// A construction fund keeps the same ninety-day operating buffer. When
+	// there are no projects, capital is redeemed over three years rather than
+	// confiscated or immediately dumped into consumption.
+	auto const pool_floor = construction_spending * capital_demand_reserve_days;
+	auto const idle_pool = std::max(0.f, pool - pool_floor);
+	result.investment_idle_withdrawal = std::min(pool,
+		idle_pool / idle_capital_release_days);
 	return result;
 }
 
@@ -244,6 +315,53 @@ void settle_nation(sys::state& state, dcon::nation_id nation, market const& resu
 	state.world.nation_set_national_bank(nation, reserves);
 	state.world.nation_set_private_investment(nation, pool);
 	state.credit_daily_flows.record(nation, extended, interest);
+	auto const index = std::size_t(nation.index());
+	if(index < state.credit_daily_flows.private_requested.size()) {
+		state.credit_daily_flows.private_requested[index] =
+			nonnegative(result.private_credit_requested);
+	}
+}
+
+circulation settle_circulation(sys::state& state, dcon::nation_id nation,
+		bool has_claimants) {
+	circulation_inputs inputs;
+	inputs.enabled = gamerule::age_of_transformation_enabled(state);
+	inputs.has_claimants = has_claimants;
+	if(!nation || !state.world.nation_is_valid(nation))
+		return calculate_circulation(inputs);
+
+	inputs.banking_reserves = state.world.nation_get_national_bank(nation);
+	inputs.private_investment = state.world.nation_get_private_investment(nation);
+	auto const index = std::size_t(nation.index());
+	if(index < state.credit_daily_flows.interest.size())
+		inputs.realized_bank_interest += state.credit_daily_flows.interest[index];
+	if(index < state.credit_daily_flows.producer_interest_paid.size())
+		inputs.realized_bank_interest +=
+			state.credit_daily_flows.producer_interest_paid[index];
+	if(index < state.credit_daily_flows.private_requested.size())
+		inputs.credit_demand += state.credit_daily_flows.private_requested[index];
+	if(index < state.credit_daily_flows.producer_extended.size())
+		inputs.credit_demand += state.credit_daily_flows.producer_extended[index];
+	if(index < state.credit_daily_flows.producer_unfunded.size())
+		inputs.credit_demand += state.credit_daily_flows.producer_unfunded[index];
+	if(index < state.credit_daily_flows.private_construction_spent.size())
+		inputs.private_construction_spending =
+			state.credit_daily_flows.private_construction_spent[index];
+
+	auto const result = calculate_circulation(inputs);
+	auto const bank_paid = std::min(nonnegative(inputs.banking_reserves),
+		nonnegative(result.bank_total()));
+	auto const investment_paid = std::min(nonnegative(inputs.private_investment),
+		nonnegative(result.investment_idle_withdrawal));
+	state.world.nation_set_national_bank(nation,
+		nonnegative(inputs.banking_reserves) - bank_paid);
+	state.world.nation_set_private_investment(nation,
+		nonnegative(inputs.private_investment) - investment_paid);
+	if(index < state.credit_daily_flows.bank_distribution.size())
+		state.credit_daily_flows.bank_distribution[index] = bank_paid;
+	if(index < state.credit_daily_flows.investment_distribution.size())
+		state.credit_daily_flows.investment_distribution[index] = investment_paid;
+	return result;
 }
 
 void service_producer_debt(sys::state& state) {
@@ -264,24 +382,35 @@ void service_producer_debt(sys::state& state) {
 			if(debt <= epsilon)
 				continue;
 
-			// The market value is deliberately lagged, so do not treat the first
-			// zero observation as a bankruptcy before the first profit has been
-			// recorded. Once a valuation exists, however, a loss-making industry
-			// has value zero and an outstanding claim is exactly a bad loan.
+			// A producer loan can finance either factories or the RGO till. Its
+			// collateral therefore includes both industrial capital and land. Using
+			// factory value alone made every farm/mine loan look unsecured: it was
+			// written off, recreated as new debt and hit employment again each day.
 			auto const industry_value = nonnegative(
 				state.world.province_get_industry_market_value(province));
-			auto const smoothed_profit = state.world.province_get_smoothed_factory_profit(province);
-				auto const has_factories = state.world.province_get_factory_location(province).begin()
+			auto const land_value = nonnegative(
+				state.world.province_get_land_market_value(province));
+			auto const collateral_value = industry_value + land_value;
+			auto const smoothed_factory_profit =
+				state.world.province_get_smoothed_factory_profit(province);
+			auto const smoothed_land_rent =
+				state.world.province_get_smoothed_land_rent(province);
+			auto const has_factories =
+				state.world.province_get_factory_location(province).begin()
 					!= state.world.province_get_factory_location(province).end();
-			auto const valuation_ready = industry_value > epsilon
-				|| (std::isfinite(smoothed_profit) && std::abs(smoothed_profit) > epsilon);
-			if(producer_debt_is_unrecoverable(debt, industry_value, has_factories,
+			auto const has_rgo = nonnegative(
+				state.world.province_get_rgo_base_size(province)) > epsilon;
+			auto const has_production = has_factories || has_rgo;
+			auto const valuation_ready = collateral_value > epsilon
+				|| (std::isfinite(smoothed_factory_profit)
+					&& std::abs(smoothed_factory_profit) > epsilon)
+				|| (std::isfinite(smoothed_land_rent)
+					&& std::abs(smoothed_land_rent) > epsilon);
+			if(producer_debt_is_unrecoverable(debt, collateral_value,
+				has_production,
 				valuation_ready)) {
-				// The bank already advanced the cash when the debt was originated.
-				// Losing the claim therefore shows up as a loss of reserves, not as
-				// newly created money. A negative till remains an accounting claim
-				// against the failed producer until the normal factory cleanup.
-				reserves = std::max(0.f, reserves - debt);
+				// The cash left when the loan was originated. A write-off removes the
+				// claim from assets; charging cash again would record the loss twice.
 				state.world.province_set_producer_debt(province, 0.f);
 				state.credit_daily_flows.record_writeoff(nation, debt);
 				continue;
@@ -324,6 +453,11 @@ void settle_producer_credit(sys::state& state) {
 	// the pro-rata split cannot depend on scheduling.
 	for(auto nation : state.world.in_nation) {
 		auto shortfall = 0.f;
+		struct province_credit_need {
+			dcon::province_id province;
+			float gross_shortfall = 0.f;
+		};
+		std::vector<province_credit_need> province_shortfalls;
 		for(auto ownership : state.world.nation_get_province_ownership(nation)) {
 			auto const province = ownership.get_province();
 			auto const rgo = state.world.province_get_rgo_bank(province);
@@ -334,19 +468,11 @@ void settle_producer_credit(sys::state& state) {
 			if(std::isfinite(factory) && factory < 0.f)
 				province_shortfall -= factory;
 			shortfall += province_shortfall;
-			// The whole negative till is the producer's liability. Bank
-			// financing below only decides how much of it gets live cash;
-			// the unfunded remainder must not remain an interest-free shadow
-			// balance outside the loan book.
+			// A negative till is demand for working capital. It becomes a bank
+			// asset only to the extent that cash is actually transferred below;
+			// the remainder stays observable as an unfunded operating deficit.
 			if(province_shortfall > epsilon) {
-				// The same negative till is observed again tomorrow. Only the
-				// portion not already represented in the book is new borrowing.
-				auto const outstanding = nonnegative(
-					state.world.province_get_producer_debt(province));
-				auto const updated = producer_debt_after_shortfall(
-					outstanding, province_shortfall);
-				if(updated > outstanding + epsilon)
-					state.world.province_set_producer_debt(province, updated);
+				province_shortfalls.push_back({province, province_shortfall});
 			}
 		}
 		if(shortfall <= epsilon) {
@@ -358,12 +484,20 @@ void settle_producer_credit(sys::state& state) {
 		auto const financing = finance_producers(priced, shortfall);
 		auto reserves = nonnegative(state.world.nation_get_national_bank(nation));
 		auto const extended = std::min(financing.extended, reserves);
+		auto const funded_share = shortfall > epsilon
+			? std::clamp(extended / shortfall, 0.f, 1.f) : 0.f;
 		if(extended > epsilon) {
 			// Top the tills up in proportion to how short each one is, so the
-			// distribution does not depend on province order beyond rounding.
+			// distribution does not depend on province order beyond rounding. The
+			// matching cash transfer creates an equally sized claim on each borrower.
 			auto const share = extended / shortfall;
-			for(auto ownership : state.world.nation_get_province_ownership(nation)) {
-				auto const province = ownership.get_province();
+			for(auto const& need : province_shortfalls) {
+				auto const province = need.province;
+				auto const province_extended = need.gross_shortfall * share;
+				auto const outstanding = nonnegative(
+					state.world.province_get_producer_debt(province));
+				state.world.province_set_producer_debt(province,
+					producer_debt_after_extension(outstanding, province_extended));
 				auto const rgo = state.world.province_get_rgo_bank(province);
 				if(std::isfinite(rgo) && rgo < 0.f) {
 					state.world.province_set_rgo_bank(province, rgo - rgo * share);
@@ -377,6 +511,16 @@ void settle_producer_credit(sys::state& state) {
 			// Interest on the drawing is paid out of the same reserves the loan
 			// came from, so the bank's stock reflects a priced loan book.
 			state.world.nation_set_national_bank(nation, reserves);
+		}
+		for(auto const& need : province_shortfalls) {
+			// This is a multiplier on today's newly calculated employment target,
+			// not a destructive compounding write to factory capacity. Keeping it
+			// active while the till remains negative prevents immediate rehiring on
+			// working capital that still has not been financed.
+			auto const province_unfunded =
+				need.gross_shortfall * (1.f - funded_share);
+			state.credit_daily_flows.record_producer_province(need.province,
+				employment_availability(province_unfunded, need.gross_shortfall));
 		}
 		auto const unfunded = shortfall - extended;
 		state.credit_daily_flows.record_producer(nation, extended, unfunded,
@@ -394,11 +538,8 @@ void on_province_owner_changed(sys::state& state, dcon::province_id province,
 	if(debt <= epsilon)
 		return;
 
-	// Ownership transfer is a secured-credit event. The old bank cannot follow
-	// its collateral across a sovereign border, so the claim is realized as a
-	// bad loan instead of becoming an invisible liability of the new owner.
-	auto const reserves = nonnegative(state.world.nation_get_national_bank(old_owner));
-	state.world.nation_set_national_bank(old_owner, std::max(0.f, reserves - debt));
+	// Ownership transfer is a secured-credit event. Cash was already paid when
+	// the loan originated, so realizing the loss removes the claim only.
 	state.world.province_set_producer_debt(province, 0.f);
 	state.credit_daily_flows.record_writeoff(old_owner, debt);
 }

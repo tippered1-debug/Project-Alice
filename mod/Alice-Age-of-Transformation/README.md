@@ -15,11 +15,31 @@ The engine-side vertical slice provides:
 - bounded simulation diagnostics and invariant checks;
 - national interest-group aggregates and normalized political power;
 - deterministic governing coalitions and explainable legitimacy;
-- policy execution derived from existing administration and local control;
-- bounded banking health and a capped sovereign credit-risk premium;
-- route capacity, congestion-sensitive transport cost and soft expansion limits;
+- explicit property, tenant, collective-bargaining and profit-tax institutions;
+- policy execution limited by cash, staffed casework and local control;
+- a bank asset statement separating reserves from outstanding claims;
+- purpose-classified call-auction clearing instead of one fill rate for every buyer;
+- commodity-specific storage targets, cargo weight and spoilage;
+- provincial market access and distinct land/sea freight bottlenecks;
+- serialized cargo in transit, foreign-payment settlement and merchant trade credit;
+- risk-adjusted private and public-value investment rankings;
+- fiscal reserves with gradual recycling of persistent treasury surpluses;
+- an expanded treasury tooltip for GDP, CPI, credit, producer debt and credit-constrained employment;
 - deterministic crisis-stage, escalation, settlement and war-risk diagnostics;
 - compatibility fallback to classic rules whenever the game rule is disabled.
+
+If no scenario `.bin` or Victoria 2 data is installed, run the self-contained
+model lab instead:
+
+```sh
+Alice --synthetic-lab --days 365 --snapshot-every 30 \
+  --report-jsonl alice-lab-year.jsonl
+```
+
+This covers economy telemetry and Transformation politics in a deterministic
+micro-world, including legitimacy, coalition power, cabinet stability,
+confidence and government changes. Full map, military, event and AI integration
+still requires a real scenario.
 
 For an existing scenario, a one-year headless smoke run can be started with:
 

@@ -341,7 +341,8 @@ void populate_land_unit_construction_demand(
 		auto can_purchase_budget = std::min(budget_limit, budget) / (local_price + 0.001f);
 		auto can_purchase_construction = std::min(required - current, required / construction_time);
 		auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-		auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+		auto satisfaction = market_clearing::fill(state, details.market, cid,
+			market_clearing::demand_class::construction);
 		budget = std::max(0.f, budget - can_purchase * local_price * satisfaction);
 		register_construction_demand(state, details.market, cid, can_purchase);
 	}
@@ -412,7 +413,8 @@ void populate_naval_unit_construction_demand(
 		auto can_purchase_budget = std::min(budget_limit, budget) / (local_price + 0.001f);
 		auto can_purchase_construction = std::min(required - current, required / details.construction_time);
 		auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-		auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+		auto satisfaction = market_clearing::fill(state, details.market, cid,
+			market_clearing::demand_class::construction);
 		budget = std::max(0.f, budget - can_purchase * local_price * satisfaction);
 		register_construction_demand(state, details.market, cid, can_purchase);
 	}
@@ -517,7 +519,8 @@ void populate_province_building_construction_demand(
 		auto can_purchase_budget = std::min(budget_limit, budget) / (local_price + 0.001f);
 		auto can_purchase_construction = std::min(required - current, required / details.construction_time);
 		auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-		auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+		auto satisfaction = market_clearing::fill(state, details.market, cid,
+			market_clearing::demand_class::construction);
 		budget = std::max(0.f, budget - can_purchase * local_price * satisfaction);
 		register_construction_demand(state, details.market, cid, can_purchase);
 	}
@@ -726,7 +729,8 @@ void populate_state_construction_demand(
 		auto can_purchase_budget = std::min(budget_limit, budget) / (local_price + 0.001f);
 		auto can_purchase_construction = std::min(required - current, required / details.construction_time);
 		auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-		auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+		auto satisfaction = market_clearing::fill(state, details.market, cid,
+			market_clearing::demand_class::construction);
 		budget = std::max(0.f, budget - can_purchase * local_price * satisfaction);
 		register_construction_demand(state, details.market, cid, can_purchase);
 	}
@@ -910,7 +914,8 @@ void populate_explanation_province_construction(
 			auto can_purchase_budget = std::min(budget_limit_per_project, dedicated_budget) / (local_price + 0.001f);
 			auto can_purchase_construction = std::min(required - current, required / details.construction_time);
 			auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-			auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+			auto satisfaction = market_clearing::fill(state, details.market, cid,
+				market_clearing::demand_class::construction);
 			auto cost = std::min(dedicated_budget, can_purchase * satisfaction * local_price);
 			dedicated_budget -= cost;
 			estimated_spendings += cost;
@@ -948,7 +953,8 @@ void populate_explanation_state_construction(
 			auto can_purchase_budget = std::min(budget_limit_per_project, dedicated_budget) / (local_price + 0.001f);
 			auto can_purchase_construction = std::min(required - current, required / details.construction_time);
 			auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-			auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+			auto satisfaction = market_clearing::fill(state, details.market, cid,
+				market_clearing::demand_class::construction);
 			auto cost = std::min(dedicated_budget, can_purchase * satisfaction * local_price);
 			dedicated_budget -= cost;
 			estimated_spendings += cost;
@@ -987,7 +993,8 @@ void populate_explanation_land_construction(
 			auto can_purchase_budget = actual_budget / (local_price + 0.001f);
 			auto can_purchase_construction = std::min(required - current, required / details.construction_time);
 			auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-			auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+			auto satisfaction = market_clearing::fill(state, details.market, cid,
+				market_clearing::demand_class::construction);
 			auto cost = std::min(dedicated_budget, can_purchase * satisfaction * local_price);
 			dedicated_budget -= cost;
 			estimated_spendings += cost;
@@ -1028,7 +1035,8 @@ void populate_explanation_naval_construction(
 			auto can_purchase_budget = actual_budget / (local_price + 0.001f);
 			auto can_purchase_construction = std::min(required - current, required / details.construction_time);
 			auto can_purchase = std::min(can_purchase_budget, can_purchase_construction);
-			auto satisfaction = state.world.market_get_actual_probability_to_buy(details.market, cid);
+			auto satisfaction = market_clearing::fill(state, details.market, cid,
+				market_clearing::demand_class::construction);
 			auto cost = std::min(dedicated_budget, can_purchase * satisfaction * local_price);
 			dedicated_budget -= cost;
 			estimated_spendings += cost;
@@ -1235,7 +1243,8 @@ void refund_construction_demand(sys::state& state, dcon::nation_id n, float tota
 			dcon::commodity_id c{ dcon::commodity_id::value_base_t(i) };
 			auto& nat_demand = state.world.market_get_construction_demand(market, c);
 			auto com_price = price(state, market, c);
-			auto d_sat = state.world.market_get_actual_probability_to_buy(market, c);
+			auto d_sat = market_clearing::fill(state, market, c,
+				market_clearing::demand_class::construction);
 			refund_amount +=
 				nat_demand
 				* (1.0f - d_sat)
@@ -1371,7 +1380,8 @@ void emulate_construction_demand(sys::state& state, dcon::nation_id n) {
 				for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
 					if(light_ship_def.build_cost.commodity_type[i]) {
 						auto daily_amount = light_ship_def.build_cost.commodity_amounts[i] / light_ship_def.build_time;
-						register_demand(state, market, light_ship_def.build_cost.commodity_type[i], daily_amount * pairs_to_build);
+						register_demand(state, market, light_ship_def.build_cost.commodity_type[i],
+							daily_amount * pairs_to_build, market_clearing::demand_class::construction);
 						auto& current = state.world.market_get_stockpile(market, light_ship_def.build_cost.commodity_type[i]);
 						state.world.market_set_stockpile(market, light_ship_def.build_cost.commodity_type[i], current + daily_amount * pairs_to_build * 0.05f);
 					} else {
@@ -1385,7 +1395,8 @@ void emulate_construction_demand(sys::state& state, dcon::nation_id n) {
 				for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
 					if(transport_def.build_cost.commodity_type[i]) {
 						auto daily_amount = transport_def.build_cost.commodity_amounts[i] / transport_def.build_time;
-						register_demand(state, market, transport_def.build_cost.commodity_type[i], daily_amount * pairs_to_build);
+						register_demand(state, market, transport_def.build_cost.commodity_type[i],
+							daily_amount * pairs_to_build, market_clearing::demand_class::construction);
 						auto& current = state.world.market_get_stockpile(market, transport_def.build_cost.commodity_type[i]);
 						state.world.market_set_stockpile(market, transport_def.build_cost.commodity_type[i], current + daily_amount * pairs_to_build * 0.05f);
 					} else {
@@ -1400,7 +1411,8 @@ void emulate_construction_demand(sys::state& state, dcon::nation_id n) {
 			for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
 				if(infantry_def.build_cost.commodity_type[i]) {
 					auto daily_amount = infantry_def.build_cost.commodity_amounts[i] / infantry_def.build_time;
-					register_demand(state, market, infantry_def.build_cost.commodity_type[i], daily_amount * pairs_to_build);
+					register_demand(state, market, infantry_def.build_cost.commodity_type[i],
+						daily_amount * pairs_to_build, market_clearing::demand_class::construction);
 					auto& current = state.world.market_get_stockpile(market, infantry_def.build_cost.commodity_type[i]);
 					state.world.market_set_stockpile(market, infantry_def.build_cost.commodity_type[i], current + daily_amount * pairs_to_build * 0.05f);
 				} else {
@@ -1414,7 +1426,8 @@ void emulate_construction_demand(sys::state& state, dcon::nation_id n) {
 			for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
 				if(artillery_def.build_cost.commodity_type[i]) {
 					auto daily_amount = artillery_def.build_cost.commodity_amounts[i] / artillery_def.build_time;
-					register_demand(state, market, artillery_def.build_cost.commodity_type[i], daily_amount * pairs_to_build);
+					register_demand(state, market, artillery_def.build_cost.commodity_type[i],
+						daily_amount * pairs_to_build, market_clearing::demand_class::construction);
 					auto& current = state.world.market_get_stockpile(market, artillery_def.build_cost.commodity_type[i]);
 					state.world.market_set_stockpile(market, artillery_def.build_cost.commodity_type[i], current + daily_amount * pairs_to_build * 0.05f);
 				} else {
@@ -1478,7 +1491,8 @@ void emulate_construction_demand(sys::state& state, dcon::nation_id n) {
 					register_demand(
 						state,
 						market,
-						build_cost.commodity_type[i], amount / build_time * num_of_factory_sets
+						build_cost.commodity_type[i], amount / build_time * num_of_factory_sets,
+						market_clearing::demand_class::construction
 					);
 					auto& current = state.world.market_get_stockpile(market, build_cost.commodity_type[i]);
 					state.world.market_set_stockpile(market, build_cost.commodity_type[i], current + amount / build_time * num_of_factory_sets / 100.f);

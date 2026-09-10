@@ -2120,6 +2120,8 @@ bool can_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_op
 	}
 	if(source == state.local_player_nation && state.cheat_data.always_allow_reforms)
 		return true;
+	if(gamerule::age_of_transformation_enabled(state))
+		return politics::transformation::can_propose_bill(state, source, r);
 
 	bool is_military = state.world.reform_get_reform_type(state.world.reform_option_get_parent_reform(r)) ==
 		uint8_t(culture::issue_category::military);
@@ -2129,7 +2131,10 @@ bool can_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_op
 		return politics::can_enact_economic_reform(state, source, r);
 }
 void execute_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_option_id r) {
-	nations::enact_reform(state, source, r);
+	if(gamerule::age_of_transformation_enabled(state))
+		politics::transformation::propose_bill(state, source, r);
+	else
+		nations::enact_reform(state, source, r);
 	event::update_future_events(state);
 }
 
@@ -2146,6 +2151,8 @@ bool can_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_opti
 	}
 	if(source == state.local_player_nation && state.cheat_data.always_allow_reforms)
 		return true;
+	if(gamerule::age_of_transformation_enabled(state))
+		return politics::transformation::can_propose_bill(state, source, i);
 
 	auto type = state.world.issue_get_issue_type(state.world.issue_option_get_parent_issue(i));
 	if(type == uint8_t(culture::issue_type::political))
@@ -2156,8 +2163,25 @@ bool can_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_opti
 		return false;
 }
 void execute_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i) {
-	nations::enact_issue(state, source, i);
+	if(gamerule::age_of_transformation_enabled(state))
+		politics::transformation::propose_bill(state, source, i);
+	else
+		nations::enact_issue(state, source, i);
 	event::update_future_events(state);
+}
+
+void withdraw_transformation_bill(sys::state& state, dcon::nation_id source) {
+	command_data p{ command_type::withdraw_transformation_bill, state.local_player_id };
+	add_to_command_queue(state, p);
+}
+
+bool can_withdraw_transformation_bill(sys::state& state, dcon::nation_id source) {
+	return state.current_scene.game_in_progress
+		&& politics::transformation::can_withdraw_bill(state, source);
+}
+
+void execute_withdraw_transformation_bill(sys::state& state, dcon::nation_id source) {
+	politics::transformation::withdraw_bill(state, source);
 }
 
 void become_interested_in_crisis(sys::state& state, dcon::nation_id source) {
@@ -6686,6 +6710,9 @@ bool can_perform_command(sys::state& state, command_data& c) {
 		return can_enact_issue(state, source, data.r);
 	}
 
+	case command_type::withdraw_transformation_bill:
+		return can_withdraw_transformation_bill(state, source);
+
 	case command_type::change_reform_option:
 	{
 		auto& data = c.get_payload<command::reform_selection_data>();
@@ -7461,6 +7488,9 @@ void execute_command(sys::state& state, command_data& c) {
 		execute_enact_issue(state, source_nation, data.r);
 		break;
 	}
+	case command_type::withdraw_transformation_bill:
+		execute_withdraw_transformation_bill(state, source_nation);
+		break;
 	case command_type::change_reform_option:
 	{
 		auto& data = c.get_payload<reform_selection_data>();

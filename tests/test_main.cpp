@@ -21,6 +21,12 @@
 #define NATIVE_SEP "/"
 #endif
 
+native_string testing_scenario_file() {
+	if(auto const* requested = std::getenv("ALICE_TEST_SCENARIO");
+		requested && requested[0] != '\0')
+		return simple_fs::utf8_to_native(requested);
+	return NATIVE("tests_scenario.bin");
+}
 
 std::unique_ptr<sys::state> load_testing_scenario_file(sys::network_mode_type mode = sys::network_mode_type::single_player) {
 	std::unique_ptr<sys::state> game_state = std::make_unique<sys::state>(); // too big for the stack
@@ -29,7 +35,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file(sys::network_mode_type mo
 	game_state->user_settings.autosaves = sys::autosave_frequency::yearly;
 
 	add_root(game_state->common_fs, NATIVE("."));        // for the moment this lets us find the shader files
-	if(!sys::try_read_scenario_file(*game_state, NATIVE("tests_scenario.bin"))) {
+	if(!sys::try_read_scenario_file(*game_state, testing_scenario_file())) {
 		std::abort();
 	} else {
 		INFO("Scenario loaded");
@@ -50,7 +56,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 	game_state->user_settings.autosaves = sys::autosave_frequency::yearly;
 
 	add_root(game_state->common_fs, NATIVE("."));        // for the moment this lets us find the shader files
-	if(!sys::try_read_scenario_and_save_file(*game_state, NATIVE("tests_scenario.bin"))) {
+	if(!sys::try_read_scenario_and_save_file(*game_state, testing_scenario_file())) {
 		// scenario making functions
 		parsers::error_handler err("");
 		game_state->load_scenario_data(err, sys::year_month_day{ 1836, 1, 1 });
@@ -58,17 +64,17 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 		INFO("Wrote new scenario");
 		std::abort();
 	} else {
-		if(!selected_nation) {
-			auto observer_nation = game_state->world.national_identity_get_nation_from_identity_holder(game_state->national_definitions.rebel_id);
-			network::create_mp_player(*game_state, sys::player_name{ 'P', 'l' ,'a', 'y', 'e', 'r' }, sys::player_password_raw{ }, true, false, observer_nation);
-			game_state->local_player_nation = observer_nation;
-		} else {
-			network::create_mp_player(*game_state, sys::player_name{ 'P', 'l' ,'a', 'y', 'e', 'r' }, sys::player_password_raw{ },true , false, selected_nation);
-			game_state->local_player_nation = selected_nation;
-		}
-		game_state->fill_unsaved_data();
 		INFO("Scenario loaded");
 	}
+	if(!selected_nation) {
+		auto observer_nation = game_state->world.national_identity_get_nation_from_identity_holder(game_state->national_definitions.rebel_id);
+		network::create_mp_player(*game_state, sys::player_name{ 'P', 'l' ,'a', 'y', 'e', 'r' }, sys::player_password_raw{ }, true, false, observer_nation);
+		game_state->local_player_nation = observer_nation;
+	} else {
+		network::create_mp_player(*game_state, sys::player_name{ 'P', 'l', 'a', 'y', 'e', 'r' }, sys::player_password_raw{ },true , false, selected_nation);
+		game_state->local_player_nation = selected_nation;
+	}
+	game_state->fill_unsaved_data();
 
 
 
@@ -89,9 +95,17 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "economy_growth_stability_tests.cpp"
 #include "land_ownership_tests.cpp"
 #include "industry_ownership_tests.cpp"
+#include "labor_relations_tests.cpp"
 #include "banking_stability_tests.cpp"
 #include "credit_market_tests.cpp"
 #include "monetary_system_tests.cpp"
+#include "price_level_tests.cpp"
+#include "market_clearing_tests.cpp"
+#include "commodity_logistics_tests.cpp"
+#include "investment_ranking_tests.cpp"
+#include "market_access_tests.cpp"
+#include "foreign_exchange_tests.cpp"
+#include "cargo_transit_tests.cpp"
 #include "human_development_tests.cpp"
 #include "world_trade_capacity_tests.cpp"
 #include "simulation_runner_tests.cpp"

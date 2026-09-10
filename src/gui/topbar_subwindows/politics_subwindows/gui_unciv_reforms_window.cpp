@@ -8,6 +8,8 @@
 #include "system_state.hpp"
 #include "gui_listbox_templates.hpp"
 #include "gui_templates.hpp"
+#include "gamerule.hpp"
+#include "transformation_politics.hpp"
 
 namespace ui {
 
@@ -43,6 +45,27 @@ void reform_description(sys::state& state, text::columnar_layout& contents, dcon
 
 	text::add_line(state, contents, "reform_research_cost", text::variable_type::cost, int64_t(cost + 0.99f));
 	text::add_line_break_to_layout(state, contents);
+	if(gamerule::age_of_transformation_enabled(state)) {
+		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation)) {
+			text::add_line(state, contents, "alice_aot_bill_header");
+			if(bill->target == politics::transformation::legislation_target::reform
+				&& bill->reform == ref) {
+				if(bill->stage != politics::transformation::legislation_stage::implementation)
+					text::add_line(state, contents, "alice_aot_bill_withdraw_hint");
+				text::add_line(state, contents, "alice_aot_bill_stage",
+					text::variable_type::x,
+					text::produce_simple_string(state, transformation_bill_stage_key(bill->stage)));
+				transformation_bill_progress_description(
+					state, contents, state.local_player_nation);
+			} else {
+				text::add_line(state, contents, "alice_aot_bill_other_active",
+					text::variable_type::x,
+					bill->target == politics::transformation::legislation_target::reform
+						? text::get_name_as_string(state, dcon::fatten(state.world, bill->reform))
+						: text::get_name_as_string(state, dcon::fatten(state.world, bill->option)));
+			}
+		}
+	}
 
 	auto mod_id = reform.get_modifier();
 	if(bool(mod_id)) {
@@ -97,6 +120,22 @@ public:
 	}
 };
 
+class unciv_reforms_option_name : public simple_text_element_base {
+public:
+	void on_update(sys::state& state) noexcept override {
+		auto const content = retrieve<dcon::reform_option_id>(state, parent);
+		auto const* bill = politics::transformation::active_bill(
+			state, state.local_player_nation);
+		if(bill && bill->target == politics::transformation::legislation_target::reform
+			&& bill->reform == content) {
+			set_text(state, transformation_bill_row_text(state, *bill));
+		} else {
+			set_text(state, text::get_name_as_string(
+				state, dcon::fatten(state.world, content)));
+		}
+	}
+};
+
 class unciv_reforms_reform_button : public button_element_base {
 public:
 	sound::audio_instance& get_click_sound(sys::state& state) noexcept override {
@@ -105,7 +144,13 @@ public:
 
 	void button_action(sys::state& state) noexcept override {
 		auto content = retrieve<dcon::reform_option_id>(state, parent);
-		command::enact_reform(state, state.local_player_nation, content);
+		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation);
+			bill && bill->target == politics::transformation::legislation_target::reform
+			&& bill->reform == content) {
+			command::withdraw_transformation_bill(state, state.local_player_nation);
+		} else {
+			command::enact_reform(state, state.local_player_nation, content);
+		}
 	}
 
 	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
@@ -114,7 +159,13 @@ public:
 
 	void on_update(sys::state& state) noexcept override {
 		auto content = retrieve<dcon::reform_option_id>(state, parent);
-		disabled = !command::can_enact_reform(state, state.local_player_nation, content);
+		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation);
+			bill && bill->target == politics::transformation::legislation_target::reform
+			&& bill->reform == content) {
+			disabled = !command::can_withdraw_transformation_bill(state, state.local_player_nation);
+		} else {
+			disabled = !command::can_enact_reform(state, state.local_player_nation, content);
+		}
 	}
 
 	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
@@ -129,7 +180,7 @@ class unciv_reforms_option : public listbox_row_element_base<dcon::reform_option
 public:
 	std::unique_ptr<element_base> make_child(sys::state& state, std::string_view name, dcon::gui_def_id id) noexcept override {
 		if(name == "reform_name") {
-			return make_element_by_type<generic_name_text<dcon::reform_option_id>>(state, id);
+			return make_element_by_type<unciv_reforms_option_name>(state, id);
 		} else if(name == "selected") {
 			auto ptr = make_element_by_type<image_element_base>(state, id);
 			selected_icon = ptr.get();

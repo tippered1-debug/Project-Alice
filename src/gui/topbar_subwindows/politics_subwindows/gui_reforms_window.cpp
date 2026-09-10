@@ -12,6 +12,94 @@
 
 namespace ui {
 
+std::string_view transformation_bill_stage_key(
+	politics::transformation::legislation_stage stage) noexcept {
+	switch(stage) {
+	case politics::transformation::legislation_stage::voting:
+		return "alice_aot_bill_stage_voting";
+	case politics::transformation::legislation_stage::implementation:
+		return "alice_aot_bill_stage_implementation";
+	case politics::transformation::legislation_stage::none:
+	case politics::transformation::legislation_stage::negotiation:
+	default:
+		return "alice_aot_bill_stage_negotiation";
+	}
+}
+
+std::string transformation_bill_row_text(sys::state& state,
+	politics::transformation::legislation_state const& bill) {
+	auto const name = bill.target == politics::transformation::legislation_target::reform
+		? text::get_name_as_string(state, dcon::fatten(state.world, bill.reform))
+		: text::get_name_as_string(state, dcon::fatten(state.world, bill.option));
+	auto const stage_name = text::produce_simple_string(
+		state, transformation_bill_stage_key(bill.stage));
+	text::substitution_map sub;
+	text::add_to_substitution_map(sub, text::variable_type::x,
+		text::substitution{std::string_view{name}});
+	text::add_to_substitution_map(sub, text::variable_type::y,
+		text::substitution{std::string_view{stage_name}});
+	text::add_to_substitution_map(sub, text::variable_type::days, int64_t(bill.stage_days));
+	return text::resolve_string_substitution(state, "alice_aot_bill_row_status", sub);
+}
+
+void transformation_bill_progress_description(sys::state& state,
+	text::columnar_layout& contents, dcon::nation_id nation) {
+	auto const* bill = politics::transformation::active_bill(state, nation);
+	if(!bill)
+		return;
+	auto const progress = politics::transformation::bill_progress_for(state, nation);
+	text::add_line(state, contents, "alice_aot_bill_stage_progress",
+		text::variable_type::days, int64_t(bill->stage_days),
+		text::variable_type::x, int64_t(progress.minimum_stage_days),
+		text::variable_type::y, int64_t(progress.maximum_stage_days));
+	text::add_line_with_condition(state, contents, "alice_aot_bill_gate_mandate",
+		progress.mandate_ready,
+		text::variable_type::x, text::fp_percentage{bill->mandate},
+		text::variable_type::y, text::fp_percentage{progress.required_mandate});
+	if(progress.required_coalition_support > 0.0f) {
+		text::add_line_with_condition(state, contents, "alice_aot_bill_gate_coalition",
+			progress.coalition_ready,
+			text::variable_type::x, text::fp_percentage{progress.effective_coalition_support},
+			text::variable_type::y, text::fp_percentage{progress.required_coalition_support});
+	}
+	if(progress.required_execution > 0.0f) {
+		text::add_line_with_condition(state, contents, "alice_aot_bill_gate_execution",
+			progress.execution_ready,
+			text::variable_type::x, text::fp_percentage{bill->execution},
+			text::variable_type::y, text::fp_percentage{progress.required_execution});
+	}
+	auto const gates_ready = progress.mandate_ready && progress.coalition_ready
+		&& progress.execution_ready;
+	text::add_line(state, contents,
+		!progress.time_ready ? "alice_aot_bill_status_waiting"
+			: gates_ready ? "alice_aot_bill_status_ready"
+			: "alice_aot_bill_status_blocked");
+
+	auto const* political = politics::transformation::cached_nation_result(state, nation);
+	if(!political || !political->enabled)
+		return;
+	auto const support = bill->target == politics::transformation::legislation_target::reform
+		? politics::transformation::evaluate_reform_support(state, nation, bill->reform)
+		: politics::transformation::evaluate_issue_support(state, nation, bill->option);
+	static constexpr std::array<std::string_view,
+		politics::transformation::interest_group_count> group_keys{{
+		"alice_aot_group_landed_elites",
+		"alice_aot_group_industrialists",
+		"alice_aot_group_intelligentsia",
+		"alice_aot_group_organized_labor",
+		"alice_aot_group_rural_communities",
+		"alice_aot_group_state_services",
+	}};
+	text::add_line(state, contents, "alice_aot_bill_group_positions");
+	for(std::size_t index = 0; index < group_keys.size(); ++index) {
+		text::add_line(state, contents, "alice_aot_bill_group_position",
+			text::variable_type::x, text::produce_simple_string(state, group_keys[index]),
+			text::variable_type::y, text::fp_percentage{support.group_support[index]},
+			text::variable_type::val,
+			text::fp_percentage{political->interest_groups.groups[index].political_power_share});
+	}
+}
+
 void reform_rules_description(sys::state& state, text::columnar_layout& contents, uint32_t rules) {
 	if((rules & (issue_rule::primary_culture_voting | issue_rule::culture_voting | issue_rule::culture_voting | issue_rule::all_voting | issue_rule::largest_share | issue_rule::dhont | issue_rule::sainte_laque | issue_rule::same_as_ruling_party | issue_rule::rich_only | issue_rule::state_vote | issue_rule::population_vote)) !=
 			0) {
@@ -134,12 +222,49 @@ void reform_description(sys::state& state, text::columnar_layout& contents, dcon
 		text::add_line(state, contents, "alice_aot_reform_header");
 		text::add_line(state, contents, "alice_aot_reform_popular",
 			text::variable_type::x, text::fp_percentage{political.popular_support});
+		text::add_line(state, contents, "alice_aot_reform_electoral",
+			text::variable_type::x, text::fp_percentage{political.electoral_support});
 		text::add_line(state, contents, "alice_aot_reform_power",
 			text::variable_type::x, text::fp_percentage{political.political_power_support});
 		text::add_line(state, contents, "alice_aot_reform_coalition",
 			text::variable_type::x, text::fp_percentage{political.coalition_support});
 		text::add_line(state, contents, "alice_aot_reform_execution",
 			text::variable_type::x, text::fp_percentage{execution});
+		auto const concession = politics::transformation::concession_pressure_for(
+			state, state.local_player_nation, ref);
+		text::add_line(state, contents, "alice_aot_concession_pressure",
+			text::variable_type::x, text::fp_percentage{concession.total});
+		text::add_line(state, contents,
+			concession.total >= 0.50f
+				? "alice_aot_concession_available"
+				: "alice_aot_concession_unavailable");
+		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation)) {
+			text::add_line(state, contents, "alice_aot_bill_header");
+			if(bill->option == ref) {
+				if(bill->stage != politics::transformation::legislation_stage::implementation)
+					text::add_line(state, contents, "alice_aot_bill_withdraw_hint");
+				text::add_line(state, contents, "alice_aot_bill_stage",
+					text::variable_type::x,
+					text::produce_simple_string(state, transformation_bill_stage_key(bill->stage)));
+				text::add_line(state, contents, "alice_aot_bill_compromise",
+					text::variable_type::x, text::fp_percentage{bill->compromise});
+				text::add_line(state, contents, "alice_aot_bill_party_support",
+					text::variable_type::x, text::fp_percentage{bill->party_support});
+				text::add_line(state, contents, "alice_aot_concession_pressure",
+					text::variable_type::x, text::fp_percentage{concession.total});
+				if(bill->sponsor) {
+					text::add_line(state, contents, "alice_aot_bill_sponsor",
+						text::variable_type::x,
+						text::get_name_as_string(state, dcon::fatten(state.world, bill->sponsor)));
+				}
+				transformation_bill_progress_description(
+					state, contents, state.local_player_nation);
+			} else {
+				text::add_line(state, contents, "alice_aot_bill_other_active",
+					text::variable_type::x,
+					text::get_name_as_string(state, dcon::fatten(state.world, bill->option)));
+			}
+		}
 	}
 
 	auto mod_id = reform.get_modifier();
@@ -276,12 +401,22 @@ public:
 
 	void button_action(sys::state& state) noexcept override {
 		auto content = retrieve<dcon::issue_option_id>(state, parent);
-		command::enact_issue(state, state.local_player_nation, content);
+		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation);
+			bill && bill->option == content) {
+			command::withdraw_transformation_bill(state, state.local_player_nation);
+		} else {
+			command::enact_issue(state, state.local_player_nation, content);
+		}
 	}
 
 	void on_update(sys::state& state) noexcept override {
 		auto content = retrieve<dcon::issue_option_id>(state, parent);
-		disabled = !command::can_enact_issue(state, state.local_player_nation, content);
+		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation);
+			bill && bill->option == content) {
+			disabled = !command::can_withdraw_transformation_bill(state, state.local_player_nation);
+		} else {
+			disabled = !command::can_enact_issue(state, state.local_player_nation, content);
+		}
 	}
 
 	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
@@ -294,13 +429,29 @@ public:
 	}
 };
 
+class reforms_option_name : public simple_text_element_base {
+public:
+	void on_update(sys::state& state) noexcept override {
+		auto const content = retrieve<dcon::issue_option_id>(state, parent);
+		auto const* bill = politics::transformation::active_bill(
+			state, state.local_player_nation);
+		if(bill && bill->target == politics::transformation::legislation_target::issue
+			&& bill->option == content) {
+			set_text(state, transformation_bill_row_text(state, *bill));
+		} else {
+			set_text(state, text::get_name_as_string(
+				state, dcon::fatten(state.world, content)));
+		}
+	}
+};
+
 class reforms_option : public listbox_row_element_base<dcon::issue_option_id> {
 	image_element_base* selected_icon = nullptr;
 
 public:
 	std::unique_ptr<element_base> make_child(sys::state& state, std::string_view name, dcon::gui_def_id id) noexcept override {
 		if(name == "reform_name") {
-			return make_element_by_type<generic_name_text<dcon::issue_option_id>>(state, id);
+			return make_element_by_type<reforms_option_name>(state, id);
 		} else if(name == "selected") {
 			auto ptr = make_element_by_type<image_element_base>(state, id);
 			selected_icon = ptr.get();

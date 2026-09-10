@@ -4,6 +4,8 @@
 #include "parsers_declarations.hpp"
 #include "simulation_runner.hpp"
 
+#include <oneapi/tbb/global_control.h>
+
 #include <cerrno>
 #include <cstdlib>
 #include <fstream>
@@ -242,6 +244,15 @@ int main(int argc, char* argv[]) {
 	check_scenario_folder();
 
 	bool headless = false;
+	// Reproducible regression runs. The economy's parallel phases reduce floats
+	// in whatever order the scheduler hands out work, so repeated runs of the
+	// same seed diverge. Pinning the scheduler to one worker removes that source
+	// entirely, at the cost of speed.
+	bool single_thread = false;
+	// Per-phase money accounting for diagnosing where the supply changes. It
+	// measures every stock at every phase boundary, so it is far too slow for
+	// normal play and is only useful on short bounded runs.
+	bool money_audit = false;
 	int headless_speed = 1;
 	uint64_t headless_days = 0;
 	bool headless_days_were_requested = false;
@@ -250,6 +261,9 @@ int main(int argc, char* argv[]) {
 	bool seed_was_requested = false;
 	bool fail_on_invariant = true;
 	bool force_age_of_transformation = false;
+	bool force_flat_map = false;
+	bool synthetic_lab = false;
+	sys::simulation::synthetic_lab_result synthetic_lab_state{};
 	std::string report_jsonl_path;
 	std::string load_save_name;
 	std::string save_at_end_name;
@@ -267,6 +281,10 @@ int main(int argc, char* argv[]) {
 		// Check if a scenario file was provided. If so, ignore the --mod args as they are redundant in that case.
 		for(int i = 1; i < argc; ++i) {
 			auto const argument = native_string(argv[i]);
+			if(argument == NATIVE("--synthetic-lab")) {
+				synthetic_lab = true;
+				continue;
+			}
 			auto const consumes_value =
 				argument == NATIVE("--mod")
 				|| argument == NATIVE("-name")
@@ -293,7 +311,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// No scenario file was provided, but mod(s) might have been. Try finding the corresponding scenario file if mods were indeed specified. 			
-		if(selected_scenario_file.empty()) {
+		if(selected_scenario_file.empty() && !synthetic_lab) {
 			for(int i = 0; i < argc; ++i) {
 				if(strstr(argv[i], "--mod") != NULL) {
 					//Beginning of seemingly unnecessary code
@@ -358,6 +376,9 @@ int main(int argc, char* argv[]) {
 				// Keep parsing: -test selects the scenario but bounded-run options
 				// such as --days, --seed and --report-jsonl may follow it.
 				continue;
+			} else if(native_string(argv[i]) == NATIVE("--flat-map")) {
+				force_flat_map = true;
+				continue;
 			} else if(native_string(argv[i]) == NATIVE("-host")) {
 				network::save_host_settings(game_state);
 				network::load_host_settings(game_state);
@@ -403,8 +424,19 @@ int main(int argc, char* argv[]) {
 				game_state.network_state.as_v6 = true;
 			} else if(native_string(argv[i]) == NATIVE("-v4")) {
 				game_state.network_state.as_v6 = false;
+			} else if(native_string(argv[i]) == NATIVE("--single-thread")) {
+				single_thread = true;
+			} else if(native_string(argv[i]) == NATIVE("--money-audit")) {
+				money_audit = true;
 			} else if(native_string(argv[i]) == NATIVE("-headless")) {
 				headless = true;
+			} else if(native_string(argv[i]) == NATIVE("--synthetic-lab")) {
+				synthetic_lab = true;
+				headless = true;
+				if(!headless_days_were_requested) {
+					headless_days = 365;
+					headless_days_were_requested = true;
+				}
 			} else if(native_string(argv[i]) == NATIVE("--days") || native_string(argv[i]) == NATIVE("-days")) {
 				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], headless_days))
 					window::emit_error_message("Usage: --days <non-negative integer>\n", true);
@@ -444,7 +476,7 @@ int main(int argc, char* argv[]) {
 		// prevent the normal scenario selection flow. This is especially
 		// important for macOS .app launches, where the bundle supplies ruleset
 		// flags but the user's scenario still lives in Alice's data directory.
-		if(selected_scenario_file.empty()) {
+		if(selected_scenario_file.empty() && !synthetic_lab) {
 			find_scenario_file();
 			if(selected_scenario_file.empty()) {
 				window::emit_error_message(
@@ -457,6 +489,10 @@ int main(int argc, char* argv[]) {
 	if(!save_at_end_name.empty() && !headless_days_were_requested) {
 		window::emit_error_message("--save-at-end requires --days <count>.\n", true);
 	}
+	if(synthetic_lab && (!load_save_name.empty() || !save_at_end_name.empty())) {
+		window::emit_error_message(
+			"--synthetic-lab does not use scenario or checkpoint save files.\n", true);
+	}
 	if(save_at_end_name.find('/') != std::string::npos
 		|| save_at_end_name.find('\\') != std::string::npos) {
 		window::emit_error_message("--save-at-end accepts a save basename, not a path.\n", true);
@@ -468,7 +504,12 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	if(sys::try_read_scenario_and_save_file(game_state, selected_scenario_file)) {
+	if(synthetic_lab) {
+		synthetic_lab_state = sys::simulation::initialize_synthetic_lab(game_state);
+		game_state.local_player_nation = synthetic_lab_state.nation;
+		window::emit_error_message(
+			"Using the built-in synthetic simulation lab; no scenario .bin is required.\n", false);
+	} else if(sys::try_read_scenario_and_save_file(game_state, selected_scenario_file)) {
 		auto msg = "Running scenario file " + simple_fs::native_to_utf8(selected_scenario_file) + "\n";
 		window::emit_error_message(msg, false);
 		game_state.loaded_scenario_file = NATIVE(selected_scenario_file);
@@ -496,10 +537,29 @@ int main(int argc, char* argv[]) {
 		window::emit_error_message("Scenario file could not be read.", true);
 	}
 
-	network::init(game_state);
+	if(!synthetic_lab) {
+		network::init(game_state);
+		game_state.load_user_settings();
+		if(force_flat_map) {
+			game_state.user_settings.map_is_globe = sys::projection_mode::rectangle;
+			game_state.save_user_settings();
+			window::emit_error_message("Flat map projection enabled for this session.\n", false);
+		}
+		ui::populate_definitions_map(game_state);
+	}
 
-	game_state.load_user_settings();
-	ui::populate_definitions_map(game_state);
+	// Held for the whole run: destroying it restores the default worker count.
+	std::unique_ptr<oneapi::tbb::global_control> serial_scheduler;
+	if(single_thread) {
+		serial_scheduler = std::make_unique<oneapi::tbb::global_control>(
+			oneapi::tbb::global_control::max_allowed_parallelism, 1);
+		window::emit_error_message("Scheduler pinned to a single worker.\n", false);
+	}
+
+	if(money_audit) {
+		game_state.money_audit.enabled = true;
+		window::emit_error_message("Per-phase money audit enabled.\n", false);
+	}
 
 	if(headless) {
 		window::emit_error_message("Starting in headless mode.\n", false);
@@ -510,7 +570,8 @@ int main(int argc, char* argv[]) {
 			game_state.game_seed = uint32_t(requested_seed);
 		game_state.actual_game_speed = headless_speed;
 		game_state.ui_pause.store(false, std::memory_order::release);
-		game_scene::switch_scene(game_state, game_scene::scene_id::in_game_basic);
+		if(!synthetic_lab)
+			game_scene::switch_scene(game_state, game_scene::scene_id::in_game_basic);
 		game_state.local_player_nation = dcon::nation_id{};
 		if(!headless_days_were_requested) {
 			game_state.game_loop();
@@ -520,7 +581,8 @@ int main(int argc, char* argv[]) {
 				report.open(report_jsonl_path, std::ios::out | std::ios::trunc);
 				if(!report) {
 					window::emit_error_message("Could not open JSONL report: " + report_jsonl_path + "\n", false);
-					network::finish(game_state, true);
+					if(!synthetic_lab)
+						network::finish(game_state, true);
 					return EXIT_FAILURE;
 				}
 			}
@@ -529,12 +591,15 @@ int main(int argc, char* argv[]) {
 			options.snapshot_cadence = snapshot_cadence;
 			options.fail_on_invariant = fail_on_invariant;
 			options.tracked_nation = report_nation;
-			auto result = sys::simulation::run_ticks(game_state, options, [&](std::string_view line) {
+			auto sink = [&](std::string_view line) {
 				if(report)
 					report.write(line.data(), std::streamsize(line.size()));
 				else
 					std::cout.write(line.data(), std::streamsize(line.size()));
-			});
+			};
+			auto result = synthetic_lab
+				? sys::simulation::run_synthetic_lab(game_state, synthetic_lab_state, options, sink)
+				: sys::simulation::run_ticks(game_state, options, sink);
 			if(report)
 				report.flush();
 			if(result.completed && !save_at_end_name.empty()) {
@@ -557,7 +622,8 @@ int main(int argc, char* argv[]) {
 					+ std::to_string(result.last_validation.violations.total()) + " invariant violation(s).\n",
 				false);
 			if(!result.completed) {
-				network::finish(game_state, true);
+				if(!synthetic_lab)
+					network::finish(game_state, true);
 				return EXIT_FAILURE;
 			}
 		}
@@ -585,7 +651,8 @@ int main(int argc, char* argv[]) {
 		map_labels_update.join();
 	}
 
-	network::finish(game_state, true);
+	if(!synthetic_lab)
+		network::finish(game_state, true);
 
 	return EXIT_SUCCESS;
 }

@@ -147,6 +147,9 @@ struct governing_coalition_state {
 	interest_group_mask groups = 0;
 	int32_t established_on = 0;
 	std::array<float, interest_group_count> confidence{};
+	// Negative means that no election result has been observed yet. Otherwise
+	// this is the winning party's actual vote/seat share from the last election.
+	float party_mandate = -1.0f;
 };
 
 enum class legislation_stage : uint8_t {
@@ -156,12 +159,19 @@ enum class legislation_stage : uint8_t {
 	implementation = 3,
 };
 
+enum class legislation_target : uint8_t {
+	issue = 0,
+	reform = 1,
+};
+
 // One active bill per nation keeps the first implementation vertical slice
 // legible: the player can see what is being negotiated, why it is delayed, and
 // what still has to happen before the law reaches the country.
 struct legislation_state {
 	bool active = false;
+	legislation_target target = legislation_target::issue;
 	dcon::issue_option_id option{};
+	dcon::reform_option_id reform{};
 	dcon::political_party_id sponsor{};
 	legislation_stage stage = legislation_stage::none;
 	int32_t proposed_on = 0;
@@ -170,12 +180,36 @@ struct legislation_state {
 	float mandate = 0.0f;
 	float execution = 0.0f;
 	float coalition_support = 0.0f;
+	// Position of the sponsoring/ruling party on this issue. A party that has
+	// no explicit position contributes a neutral 50%, not a hidden veto.
+	float party_support = 0.5f;
+};
+
+// Read-only presentation of the active bill's current gate. Keeping this in
+// the simulation layer prevents the UI from explaining different thresholds
+// than advance_legislation() actually applies.
+struct legislation_progress {
+	bool active = false;
+	uint16_t minimum_stage_days = 0;
+	uint16_t maximum_stage_days = 0;
+	float required_mandate = 0.0f;
+	float required_coalition_support = 0.0f;
+	float required_execution = 0.0f;
+	float effective_coalition_support = 0.0f;
+	float concession_pressure = 0.0f;
+	bool time_ready = false;
+	bool mandate_ready = false;
+	bool coalition_ready = false;
+	bool execution_ready = false;
 };
 
 struct government_snapshot {
 	interest_group_mask groups = 0;
 	int32_t established_on = 0;
 	float stability = 0.0f;
+	// Electoral mandate of the current ruling party, separate from the
+	// interest-group coalition that keeps the cabinet in office.
+	float party_mandate = 0.0f;
 	// Confidence is deliberately exposed to the UI: the player needs to see
 	// which members of the cabinet are its weak link, not just one opaque score.
 	std::array<float, interest_group_count> confidence{};
@@ -245,11 +279,28 @@ struct movement_pressure_breakdown {
 	float total_adjustment = 0.0f;
 };
 
+// Civil conflict gives a government a second, costly route to reform. This is
+// deliberately separate from ordinary support: a concession made under street
+// pressure is not the same thing as a parliamentary mandate.
+struct concession_pressure_inputs {
+	bool enabled = false;
+	float matching_movement_population = 0.0f;
+	float matching_movement_radicalism = 0.0f;
+	float rebel_population = 0.0f;
+	float rebel_occupation = 0.0f;
+};
+
+struct concession_pressure_result {
+	bool enabled = false;
+	float movement_pressure = 0.0f;
+	float rebellion_pressure = 0.0f;
+	float total = 0.0f;
+};
+
 // Pure functions. They are deterministic for the same ordered samples and
 // config, sanitize non-finite input, and expose every quantity used by the
 // coalition and legitimacy calculations.
 std::array<float, interest_group_count> affinity_for_role(population_role role);
-float default_property_proxy(population_role role);
 interest_group_snapshot aggregate_interest_groups(
 	std::vector<population_sample> const& samples,
 	ruleset_config const& config);
@@ -283,10 +334,16 @@ nation_result evaluate_nation(
 	interest_group_mask previous_coalition = 0);
 issue_support_result evaluate_issue_support(sys::state& state,
 	dcon::nation_id nation, dcon::issue_option_id option);
+issue_support_result evaluate_reform_support(sys::state& state,
+	dcon::nation_id nation, dcon::reform_option_id option);
 movement_pressure_breakdown calculate_movement_pressure(
 	movement_pressure_inputs inputs);
 movement_pressure_breakdown movement_pressure_for(sys::state& state,
 	dcon::movement_id movement);
+concession_pressure_result calculate_concession_pressure(
+	concession_pressure_inputs inputs);
+concession_pressure_result concession_pressure_for(sys::state& state,
+	dcon::nation_id nation, dcon::issue_option_id option);
 
 // Apply the political aftershock of an enacted issue to the incumbent
 // cabinet. This is intentionally a small, bounded state transition: groups
@@ -294,12 +351,24 @@ movement_pressure_breakdown movement_pressure_for(sys::state& state,
 // narrow power bloc against the electorate weakens the coalition.
 void record_reform_outcome(sys::state& state,
 	dcon::nation_id nation, dcon::issue_option_id option);
+void record_reform_outcome(sys::state& state,
+	dcon::nation_id nation, dcon::reform_option_id option);
+void record_ruling_party_change(sys::state& state, dcon::nation_id nation,
+	dcon::political_party_id old_party, dcon::political_party_id new_party,
+	float election_mandate = -1.0f);
 
 legislation_state const* active_bill(sys::state const& state, dcon::nation_id nation);
+legislation_progress bill_progress_for(sys::state& state, dcon::nation_id nation);
 bool can_propose_bill(sys::state& state,
 	dcon::nation_id nation, dcon::issue_option_id option);
 void propose_bill(sys::state& state,
 	dcon::nation_id nation, dcon::issue_option_id option);
+bool can_propose_bill(sys::state& state,
+	dcon::nation_id nation, dcon::reform_option_id option);
+void propose_bill(sys::state& state,
+	dcon::nation_id nation, dcon::reform_option_id option);
+bool can_withdraw_bill(sys::state& state, dcon::nation_id nation);
+void withdraw_bill(sys::state& state, dcon::nation_id nation);
 void advance_legislation(sys::state& state);
 
 // Derived runtime cache. It is reconstructed from POP/economy state plus the

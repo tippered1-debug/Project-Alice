@@ -89,15 +89,19 @@ struct account {
 	balance last_balance{};
 };
 
-// The blanket decay applied to POP savings and market cash. It is not a
-// monetary policy, it is a legacy constant, and it stays exactly where it was
-// for every game: this module never changed a balance and no longer pretends
-// the constant is something it could replace.
+// The blanket decay applied to POP savings and market cash in classic games.
+// It is not a monetary policy. The transformation ruleset uses a factor of one
+// and measures inflation from consumer prices instead.
 inline constexpr float legacy_inflation = 0.999f;
 
 [[nodiscard]] balance calculate(balance_inputs raw_inputs);
 
 [[nodiscard]] stocks measure(sys::state const& state);
+
+// Compatibility repair for saves produced by the former unbounded labor
+// feedback loop. Returns the redenomination factor (1 when no repair was
+// needed) and scales every serialized money stock by the same amount.
+[[nodiscard]] double repair_runaway_nominal_stocks(sys::state& state);
 
 // Called at the start of economy::daily_update.
 void begin_day(sys::state& state);

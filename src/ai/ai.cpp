@@ -311,6 +311,11 @@ void take_reforms(sys::state& state) {
 				float best_score = -1.f;
 				auto const population = std::max(1.f,
 					state.world.nation_get_demographics(n, demographics::total));
+				float cabinet_fragility = 0.0f;
+				if(auto const* political = politics::transformation::cached_nation_result(state, n);
+					political && political->enabled && political->government.groups != 0) {
+					cabinet_fragility = 1.0f - std::clamp(political->government.stability, 0.0f, 1.0f);
+				}
 				auto const execution = nations::policy_execution::average_effective_policy(
 					state, n, nations::policy_execution::policy_kind::reform_implementation);
 				state.world.for_each_issue_option([&](dcon::issue_option_id option) {
@@ -326,8 +331,13 @@ void take_reforms(sys::state& state) {
 					auto const score =
 						(0.35f * support.political_power_support
 							+ 0.25f * support.coalition_support
-							+ 0.20f * support.popular_support
-							+ 0.20f * std::clamp(movement_share, 0.f, 1.f))
+							+ 0.15f * support.electoral_support
+							+ 0.15f * support.popular_support
+							+ 0.20f * std::clamp(movement_share, 0.f, 1.f)
+							// In a confidence crisis, prefer a settlement that keeps
+							// the incumbent coalition together instead of chasing
+							// whichever movement is loudest.
+							+ 0.10f * cabinet_fragility * support.coalition_support)
 						* (0.60f + 0.40f * execution);
 					if(score > best_score
 						|| (score == best_score && (!best_issue || option.index() < best_issue.index()))) {
@@ -336,7 +346,7 @@ void take_reforms(sys::state& state) {
 					}
 				});
 				if(best_issue)
-					nations::enact_issue(state, n, best_issue);
+					politics::transformation::propose_bill(state, n, best_issue);
 				continue;
 			}
 			// Enact social policies to deter Jacobin rebels from overruning the country
@@ -399,7 +409,10 @@ void take_reforms(sys::state& state) {
 			}
 
 			if(cheap_r && cheap_cost <= n.get_research_points()) {
-				nations::enact_reform(state, n, cheap_r);
+				if(gamerule::age_of_transformation_enabled(state))
+					politics::transformation::propose_bill(state, n, cheap_r);
+				else
+					nations::enact_reform(state, n, cheap_r);
 			}
 		}
 	}

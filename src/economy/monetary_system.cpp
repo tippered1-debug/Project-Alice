@@ -2,6 +2,7 @@
 
 #include "advanced_province_buildings.hpp"
 #include "money.hpp"
+#include "gamerule.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -92,7 +93,62 @@ stocks measure(sys::state const& state) {
 	return result;
 }
 
+double repair_runaway_nominal_stocks(sys::state& state) {
+	auto const current = measure(state);
+	double population = 0.0;
+	state.world.for_each_pop([&](dcon::pop_id pop) {
+		auto const size = state.world.pop_get_size(pop);
+		if(std::isfinite(size) && size > 0.f)
+			population += double(size);
+	});
+	if(population <= 0.0 || current.gross() / population <= 1'000'000.0)
+		return 1.0;
+
+	// Preserve every relative position while bringing the unit of account back
+	// near the commodity-price scale. The trigger is intentionally six orders
+	// of magnitude above the target, outside any ordinary rich campaign.
+	auto const factor = std::clamp(population * 100.0 / current.gross(), 1.0e-18, 1.0);
+	auto const scale = float(factor);
+	state.world.for_each_pop([&](dcon::pop_id pop) {
+		state.world.pop_set_savings(pop, state.world.pop_get_savings(pop) * scale);
+	});
+	state.world.for_each_market([&](dcon::market_id market) {
+		state.world.market_set_stockpile(market, economy::money,
+			state.world.market_get_stockpile(market, economy::money) * scale);
+	});
+	state.world.for_each_nation([&](dcon::nation_id nation) {
+		state.world.nation_set_stockpiles(nation, economy::money,
+			state.world.nation_get_stockpiles(nation, economy::money) * scale);
+		state.world.nation_set_national_bank(nation,
+			state.world.nation_get_national_bank(nation) * scale);
+		state.world.nation_set_private_investment(nation,
+			state.world.nation_get_private_investment(nation) * scale);
+		state.world.nation_set_local_loan(nation,
+			state.world.nation_get_local_loan(nation) * scale);
+	});
+	state.world.for_each_province([&](dcon::province_id province) {
+		state.world.province_set_rgo_bank(province,
+			state.world.province_get_rgo_bank(province) * scale);
+		state.world.province_set_factory_bank(province,
+			state.world.province_get_factory_bank(province) * scale);
+		state.world.province_set_artisan_bank(province,
+			state.world.province_get_artisan_bank(province) * scale);
+		state.world.province_set_producer_debt(province,
+			state.world.province_get_producer_debt(province) * scale);
+		for(int32_t building = 0; building < advanced_province_buildings::list::total; ++building) {
+			state.world.province_set_advanced_province_building_private_savings(province, building,
+				state.world.province_get_advanced_province_building_private_savings(province, building) * scale);
+		}
+	});
+	return factor;
+}
+
 void begin_day(sys::state& state) {
+	// Classic retains its historical blanket decay. The transformation ruleset
+	// obtains inflation from goods prices and must not destroy nominal balances
+	// a second time through an unrelated constant.
+	state.inflation = gamerule::age_of_transformation_enabled(state)
+		? 1.0f : legacy_inflation;
 	state.monetary_account.gold_emission_today = 0.0;
 	if(state.money_audit.enabled) {
 		state.money_audit.phases.clear();
@@ -129,12 +185,15 @@ void update(sys::state& state) {
 	ledger.previous_total = ledger.last_balance.observed_total;
 	ledger.has_previous = true;
 
-	// The legacy blanket decay, unchanged in every mode. This module reports
-	// the books; it does not touch them.
-	state.inflation = legacy_inflation;
+	// Classic keeps the legacy blanket decay. Transformation reports price
+	// inflation separately and leaves nominal balances intact here.
+	state.inflation = gamerule::age_of_transformation_enabled(state)
+		? 1.0f : legacy_inflation;
 }
 
 void initialize(sys::state& state) {
+	state.inflation = gamerule::age_of_transformation_enabled(state)
+		? 1.0f : legacy_inflation;
 	auto& ledger = state.monetary_account;
 	ledger.gold_emission_today = 0.0;
 	ledger.current = measure(state);

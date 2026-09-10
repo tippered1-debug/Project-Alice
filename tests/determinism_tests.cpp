@@ -161,6 +161,26 @@ TEST_CASE("synthetic_lab_is_deterministic", "[determinism][synthetic-lab]") {
 	REQUIRE(lines_1 == lines_2);
 }
 
+TEST_CASE("loaded scenario remains equal through its first ticks",
+		"[determinism][scenario-fixture][short]") {
+	auto game_state_1 = load_testing_scenario_file_with_save(
+		sys::network_mode_type::host);
+	auto game_state_2 = load_testing_scenario_file_with_save(
+		sys::network_mode_type::host);
+	game_state_1->force_age_of_transformation_ruleset = true;
+	game_state_2->force_age_of_transformation_ruleset = true;
+	game_state_1->current_scene.game_in_progress = true;
+	game_state_2->current_scene.game_in_progress = true;
+	game_state_1->game_seed = test_game_seed;
+	game_state_2->game_seed = test_game_seed;
+	compare_game_states(*game_state_1, *game_state_2);
+	for(int tick = 0; tick < 10; ++tick) {
+		game_state_1->single_game_tick();
+		game_state_2->single_game_tick();
+		compare_game_states(*game_state_1, *game_state_2);
+	}
+}
+
 void do_sim_game_test(const native_string& savefile = native_string{ }) {
 	std::unique_ptr<sys::state> game_state_1;
 	std::unique_ptr<sys::state> game_state_2;

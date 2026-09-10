@@ -1,6 +1,7 @@
 #include "nations/policy_execution.hpp"
 #include "demographics.hpp"
 #include "system_state.hpp"
+#include "transformation_politics.hpp"
 
 namespace execution = nations::policy_execution;
 
@@ -32,7 +33,7 @@ TEST_CASE("policy execution sanitizes inputs and reports a stable bottleneck", "
 	REQUIRE(result.effective_execution <= 1.f);
 }
 
-TEST_CASE("policy domains expose different priorities", "[politics][capacity]") {
+TEST_CASE("policy resources are complementary rather than substitutable", "[politics][capacity]") {
 	execution::inputs inputs;
 	inputs.enabled = true;
 	inputs.national_administration = 1.f;
@@ -42,7 +43,10 @@ TEST_CASE("policy domains expose different priorities", "[politics][capacity]") 
 	inputs.political_compliance = 1.f;
 	auto crime = execution::calculate(execution::policy_kind::crime_suppression, inputs);
 	auto benefits = execution::calculate(execution::policy_kind::social_benefits, inputs);
-	REQUIRE(benefits.effective_execution < crime.effective_execution);
+	REQUIRE(crime.effective_execution == Approx(0.f));
+	REQUIRE(benefits.effective_execution == Approx(0.f));
+	REQUIRE(crime.bottleneck == execution::capacity_factor::funding);
+	REQUIRE(benefits.bottleneck == execution::capacity_factor::funding);
 }
 
 TEST_CASE("state-backed policy execution joins administration control labor funding and legitimacy",
@@ -77,6 +81,16 @@ TEST_CASE("state-backed policy execution joins administration control labor fund
 	REQUIRE(result.bottleneck == execution::capacity_factor::local_control);
 	REQUIRE(result.effective_execution > 0.f);
 	REQUIRE(result.effective_execution < 1.f);
+
+	// Cabinet cohesion is now a real execution input once a government exists;
+	// a legitimate but collapsing cabinet should implement less policy.
+	auto& political = state->transformation_politics_cache[nation.index()];
+	political.government.groups = politics::transformation::group_bit(
+		politics::transformation::interest_group_id::industrialists);
+	political.government.stability = 0.0f;
+	auto const fragile = execution::effective_policy(
+		*state, nation, province, execution::policy_kind::crime_suppression);
+	REQUIRE(fragile.factors.political_compliance < result.factors.political_compliance);
 }
 
 TEST_CASE("national policy execution is population weighted and stays bounded",

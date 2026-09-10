@@ -6,6 +6,7 @@
 #include "money.hpp"
 #include "nations.hpp"
 #include "system_state.hpp"
+#include "transformation_laws.hpp"
 
 #include <algorithm>
 #include <vector>
@@ -214,18 +215,17 @@ market_config configuration_for(sys::state const& state, dcon::province_id provi
 	market_config config;
 	config.enabled = gamerule::age_of_transformation_enabled(state);
 	auto const nation = state.world.province_get_nation_from_province_ownership(province);
-	auto const rules = nation ? state.world.nation_get_combined_issue_rules(nation) : 0u;
-	auto const allows_private_building = (rules & issue_rule::pop_build_factory) != 0;
-	auto const allows_state_building = (rules & issue_rule::build_factory) != 0;
-	config.foreign_investment_allowed = (rules & issue_rule::allow_foreign_investment) != 0;
+	auto const laws = politics::transformation::laws::for_nation(state, nation);
+	config.foreign_investment_allowed = laws.foreign_capital
+		== politics::transformation::laws::foreign_capital_regime::permitted;
 
 	// The same legal signals that drive the land reform ladder drive this one,
 	// so a player reads one political position rather than two.
-	if(allows_state_building && !allows_private_building) {
+	if(laws.industry == politics::transformation::laws::industry_regime::nationalizing) {
 		config.regime = ownership_law::nationalizing;
 		config.nationalization_rate = 0.002f;
 		config.compensation_rate = 0.5f;
-	} else if(allows_private_building && !allows_state_building) {
+	} else if(laws.industry == politics::transformation::laws::industry_regime::privatizing) {
 		config.regime = ownership_law::privatizing;
 		config.privatization_rate = 0.001f;
 	}
@@ -233,16 +233,15 @@ market_config configuration_for(sys::state const& state, dcon::province_id provi
 		config.foreign_investment_rate = 0.002f;
 	else
 		config.foreign_divestment_rate = 0.002f;
-	if((rules & issue_rule::all_voting) != 0) {
-		// Industrial democracy arrives with the franchise, on the same footing
-		// as the right to buy in the land ladder.
+	if(laws.worker_ownership
+		== politics::transformation::laws::worker_ownership_regime::buyout_right) {
 		config.worker_buyout_rate = 0.0008f;
 		config.compensation_rate = std::max(config.compensation_rate, 0.75f);
 	}
-	config.annual_profit_tax_rate = nation
-		? 0.05f * nations::tax_efficiency(state, nation)
-			* float(state.world.nation_get_rich_tax(nation)) / 100.f
-		: 0.f;
+	config.annual_profit_tax_rate =
+		politics::transformation::laws::annual_profit_tax_rate(laws.profit_tax);
+	config.monthly_taxable_profit = finite_nonnegative(
+		state.world.province_get_smoothed_factory_profit(province)) * 30.f;
 	config.implementation_efficiency = nation
 		? std::clamp(0.25f + 0.75f * nations::tax_efficiency(state, nation), 0.25f, 1.f)
 		: 0.25f;
@@ -408,12 +407,33 @@ market_result clear_market(distribution current,
 	result.bids = bids;
 	result.asks = asks;
 
-	// The profit tax falls on the private owners of industry.
-	if(config.annual_profit_tax_rate > 0.f && value > 0.f) {
-		auto const monthly = value * unit(config.annual_profit_tax_rate) / 12.f;
-		auto const private_share = holdings[index(owner_group::capitalists)]
-			+ holdings[index(owner_group::landed_elites)];
-		result.profit_tax = monthly * private_share;
+	// Collect profit tax from the domestic private owners who received the
+	// underlying earnings. The former implementation taxed capitalized asset
+	// value and credited the treasury without debiting a counterparty.
+	if(config.annual_profit_tax_rate > 0.f && config.monthly_taxable_profit > 0.f) {
+		auto const private_groups = std::array{
+			index(owner_group::capitalists),
+			index(owner_group::landed_elites),
+			index(owner_group::workers)};
+		float private_share = 0.f;
+		for(auto const group : private_groups)
+			private_share += holdings[group];
+		if(private_share > epsilon) {
+			auto const assessment = finite_nonnegative(config.monthly_taxable_profit)
+				* unit(config.annual_profit_tax_rate);
+			for(auto const group : private_groups) {
+				auto const due = assessment * holdings[group] / private_share;
+				// Purchases and taxes share one cash budget. Sale proceeds may fund
+				// the assessment, but money already committed to a purchase cannot
+				// be spent again on tax in the same monthly clearing.
+				auto const cash_after_market = std::max(0.f,
+					finite_nonnegative(finances[group].liquid_savings) + cash[group]);
+				auto const collected = std::min(
+					due, cash_after_market);
+				cash[group] -= collected;
+				result.profit_tax += collected;
+			}
+		}
 	}
 
 	for(auto& holding : holdings)

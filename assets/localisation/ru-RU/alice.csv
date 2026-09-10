@@ -1441,8 +1441,23 @@ alice_gamerule_age_of_transformation_desc;Включает опциональн�
 alice_gamerule_age_of_transformation_opt_disabled;Совместимые классические правила
 alice_gamerule_age_of_transformation_opt_enabled;Эпоха преобразований
 alice_aot_legitimacy;Легитимность преобразований: $x$ / 100
+alice_aot_electoral_reach;Электоральный охват населения: $x$
 alice_aot_coalition;Правящая коалиция: $x$
 alice_aot_coalition_power;Политическая сила коалиции: $x$
+alice_aot_government_stability;Устойчивость правительства: $x$
+alice_aot_party_mandate;Мандат правящей партии: $x$
+alice_aot_government_header;СОСТОЯНИЕ ПРАВИТЕЛЬСТВА
+alice_aot_cabinet_outlook;Статус кабинета: $x$
+alice_aot_cabinet_reason;Причина: $x$
+alice_aot_cabinet_confidence_header;Доверие членов кабинета
+alice_aot_cabinet_outlook_stable;Устойчивый
+alice_aot_cabinet_outlook_contested;Спорный
+alice_aot_cabinet_outlook_fragile;Хрупкий
+alice_aot_cabinet_reason_secure;Есть рабочее большинство и убедительный мандат
+alice_aot_cabinet_reason_no_majority;Нет рабочего большинства по политической силе
+alice_aot_cabinet_reason_low_confidence;Члены кабинета теряют доверие
+alice_aot_cabinet_reason_low_party_mandate;У правящей партии слабый электоральный мандат
+alice_aot_cabinet_reason_low_legitimacy;Мандат правительства слишком слаб
 alice_aot_no_coalition;Дееспособная коалиция не сформирована
 alice_aot_group_landed_elites;Земельные элиты
 alice_aot_group_industrialists;Промышленники
@@ -1452,15 +1467,46 @@ alice_aot_group_rural_communities;Сельские сообщества
 alice_aot_group_state_services;Государственные служащие
 alice_aot_reform_header;Политический баланс «Эпохи преобразований» (требуется 50%)
 alice_aot_reform_popular;Народная поддержка: $x$
+alice_aot_reform_electoral;Электоральная поддержка: $x$
 alice_aot_reform_power;Поддержка политической силы: $x$
 alice_aot_reform_coalition;Поддержка правящей коалиции: $x$
 alice_aot_reform_execution;Ожидаемое исполнение: $x$
+alice_aot_concession_pressure;Давление для уступки: $x$
+alice_aot_concession_available;Экстренная уступка доступна: общественное давление может провести закон через переговоры.
+alice_aot_concession_unavailable;Для экстренной уступки требуется не менее 50% давления от соответствующего движения или действующего восстания.
+alice_aot_bill_header;Активный законопроект
+alice_aot_bill_summary;Активный законопроект: $x$
+alice_aot_bill_stage;Этап: $x$
+alice_aot_bill_stage_negotiation;Переговоры
+alice_aot_bill_stage_voting;Парламентское голосование
+alice_aot_bill_stage_implementation;Внедрение
+alice_aot_bill_mandate;Мандат: $x$
+alice_aot_bill_execution;Готовность к исполнению: $x$
+alice_aot_bill_days;Дней на этапе: $days$
+alice_aot_bill_compromise;Согласованные уступки: $x$
+alice_aot_bill_party_support;Поддержка партии-инициатора: $x$
+alice_aot_bill_withdraw_hint;Нажмите на этот законопроект ещё раз, чтобы отозвать его (с потерей доверия).
+alice_aot_bill_sponsor;Партия-инициатор: $x$
+alice_aot_bill_other_active;Уже обсуждается другой законопроект: $x$
+alice_aot_bill_row_status;$X$ — $Y$, день $DAYS$
+alice_aot_bill_stage_progress;Ход этапа: день $DAYS$; минимум $X$, крайний срок $Y$
+alice_aot_bill_gate_mandate;Прогноз голосования: $X$ «за» (нужно $Y$)
+alice_aot_bill_gate_coalition;Поддержка коалиции: $X$ (нужно $Y$)
+alice_aot_bill_gate_execution;Готовность к внедрению: $X$ (нужно $Y$)
+alice_aot_bill_status_waiting;Минимальный срок обсуждения ещё не истёк.
+alice_aot_bill_status_ready;Все условия выполнены: законопроект перейдёт дальше при следующем суточном обновлении.
+alice_aot_bill_status_blocked;Одно или несколько условий не выполнены. Если они не улучшатся, законопроект провалится в конце этапа.
+alice_aot_bill_group_positions;Позиции политических групп (поддержка · политическая сила)
+alice_aot_bill_group_position;$X$: $Y$ · $VAL$
+alice_aot_disabled_hint;Расширенное законодательство выключено. Включите «Alice: Эпоха преобразований» в правилах новой игры, чтобы использовать переговоры, голосования и внедрение.
 alice_aot_movement_header;Давление на радикализм в «Эпохе преобразований»
 alice_aot_movement_power;Поддержка политической силы: $x$
 alice_aot_movement_coalition;Противостояние правящей коалиции: $x$
 alice_aot_movement_legitimacy;Чистое давление легитимности: $x$
 alice_aot_movement_hardship;Экономические трудности: $x$
 alice_aot_movement_implementation;Разрыв исполнения: $x$
+alice_aot_movement_regional_control;Разрыв регионального контроля: $x$
+alice_aot_movement_regional_execution;Разрыв регионального исполнения: $x$
 alice_aot_movement_total;Итоговая поправка радикализма: $x$
 alice_land_panel_title;ЗЕМЛЯ И ВЛАДЕНИЕ
 alice_land_monthly_market;Ежемесячный рынок земли
@@ -1508,6 +1554,15 @@ alice_land_profile_demographic;Местная классовая структу�
 alice_land_profile_persian;Персидские поместья
 alice_land_profile_russian;Общинно-помещичье владение
 alice_land_profile_ottoman;Османское государственное владение
+alice_industry_profile_unassigned;Частная промышленность
+alice_industry_profile_liberal_private;Либеральная частная промышленность
+alice_industry_profile_state_led;Государственная промышленность
+alice_industry_profile_foreign_concession;Иностранные концессии
+alice_industry_profile_junker_industrial;Помещики-промышленники
+alice_industry_profile_cooperative;Кооперативная и муниципальная промышленность
+alice_industry_law_open_market;Свободный рынок собственности
+alice_industry_law_nationalizing;Национализация
+alice_industry_law_privatizing;Приватизация
 alice_land_profile_american;Семейные фермы
 alice_land_profile_latifundia;Латифундии
 alice_land_law_estate_unrestricted;Поместья: свободно
@@ -1520,3 +1575,17 @@ alice_land_reform_execution;Передано
 alice_land_compensation;Компенс.
 alice_land_resistance;Сопротивление
 alice_land_reform_tooltip;Предел поместий принудительно выводит на рынок владения сверх установленной нормы. Право на выкуп ежемесячно передаёт дополнительную долю земли обрабатывающим её семьям. Исполнение замедляют слабая администрация, сопротивление элит и нехватка средств на компенсации.
+alice_aot_government_compact;Легитимность $X$ · Стабильность $Y$ · Коалиция $VAL$
+alice_aot_bill_compact;$X$ · $Y$, день $DAYS$ · прогресс $VAL$
+alice_aot_no_active_bill;Нет активного законопроекта
+alice_aot_economy_header;ЭПОХА ПРЕОБРАЗОВАНИЙ — ЭКОНОМИКА
+alice_aot_nominal_gdp;Номинальный ВВП: $x$
+alice_aot_real_gdp;ВВП с поправкой на ИПЦ: $x$
+alice_aot_consumer_price_index;Индекс потребительских цен: $x$
+alice_aot_daily_inflation;Инфляция за день: $x$
+alice_aot_credit_rate;Годовая кредитная ставка: $x$
+alice_aot_credit_utilization;Загрузка активов банков: $x$
+alice_aot_lending_capacity;Дневной кредитный ресурс: $x$
+alice_aot_producer_debt;Долг производителей: $x$
+alice_aot_unfunded_credit;Непокрытый убыток производителей сегодня: $x$
+alice_aot_credit_employment;Масштаб занятости с учётом кредита: $x$

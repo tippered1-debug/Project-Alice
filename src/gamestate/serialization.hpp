@@ -190,7 +190,13 @@ inline uint8_t const* deserialize(uint8_t const* ptr_in, ankerl::unordered_dense
 	return ptr_in + sizeof(uint32_t) + sizeof(vec.values()[0]) * length;
 }
 
-constexpr inline uint32_t save_file_version = 45;
+// Version 46 changed the handwritten scenario/save sections. Version 47 added
+// per-commodity directional cargo-in-transit arrays to each trade route.
+// Version 48 persists the monthly land and industry collateral valuations used
+// by producer-credit bankruptcy. Keep older files out of the deserializer: the
+// legacy readers do not have enough bounds information to reject these layout
+// mismatches safely.
+constexpr inline uint32_t save_file_version = 48;
 constexpr inline uint32_t scenario_file_version = 139 + save_file_version;
 
 struct scenario_header {

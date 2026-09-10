@@ -189,6 +189,8 @@ TEST_CASE("an inactive housing market is demographically neutral",
 	state->world.province_set_demographics(province, demographics::total, 1000.f);
 	state->world.province_set_advanced_province_building_max_private_size(
 		province, advanced_province_buildings::list::local_cities_and_towns, 1000.f);
+	state->world.province_set_advanced_province_building_private_size(
+		province, advanced_province_buildings::list::local_cities_and_towns, 1000.f);
 	state->world.province_set_service_satisfaction(
 		province, services::list::urban_housing, 0.f);
 	state->world.province_set_service_demand_forbidden_public_supply(
@@ -224,6 +226,8 @@ TEST_CASE("overcrowding reaches monthly POP growth while classic growth is uncha
 	advanced_province_buildings::initialize_size_of_dcon_arrays(*state);
 	state->world.province_set_demographics(province, demographics::total, 1000.f);
 	state->world.province_set_advanced_province_building_max_private_size(
+		province, advanced_province_buildings::list::local_cities_and_towns, 1000.f);
+	state->world.province_set_advanced_province_building_private_size(
 		province, advanced_province_buildings::list::local_cities_and_towns, 1000.f);
 	state->world.province_set_service_satisfaction(
 		province, services::list::urban_housing, 0.f);

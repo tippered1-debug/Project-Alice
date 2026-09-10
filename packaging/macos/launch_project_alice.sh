@@ -55,16 +55,10 @@ for argument in "$@"; do
 done
 
 if [[ "$has_scenario_selector" == false ]]; then
-	scenario_dir="$HOME/.local/share/Alice/scenarios"
-	scenarios=("$scenario_dir"/*.bin(N.om))
-	if (( ${#scenarios} == 0 )); then
-		# Generate the initial scenario without opening a temporary GUI session.
-		"$alice_binary" -test --days 0 --age-of-transformation
-		scenarios=("$scenario_dir"/*.bin(N.om))
-	fi
-	if (( ${#scenarios} > 0 )); then
-		args=("${scenarios[1]:t}" "${args[@]}")
-	fi
+	# Let the binary validate the cached development scenario and regenerate it
+	# when the format version has changed. Passing the newest arbitrary .bin here
+	# used to make an older release binary crash while reading a newer scenario.
+	args=("-test" "${args[@]}")
 fi
 
 exec "$alice_binary" "${args[@]}" --age-of-transformation

@@ -12,6 +12,7 @@
 #include "economy/economy_stats.hpp"
 #include "economy/human_development.hpp"
 #include "economy/industry_ownership.hpp"
+#include "economy/market_clearing.hpp"
 #include "economy/monetary_system.hpp"
 #include "economy/price.hpp"
 #include "economy/world_trade_capacity.hpp"
@@ -20,6 +21,7 @@
 #include "military/military.hpp"
 #include "nations/diplomatic_crisis_dynamics.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -167,7 +169,12 @@ struct aggregate_snapshot {
 	uint64_t cabinet_member_count = 0;
 	uint64_t trade_route_count = 0;
 
+	// Endogenous consumer-price inflation. The legacy balance-decay factor is
+	// retained separately so reports cannot confuse the two again.
 	double inflation = 0.0;
+	double legacy_money_decay = 1.0;
+	double consumer_price_index = 1.0;
+	double consumer_demand_pressure = 0.0;
 	double population = 0.0;
 	double pop_savings = 0.0;
 	// Population-weighted shares. Divide each by population to obtain the
@@ -179,10 +186,26 @@ struct aggregate_snapshot {
 	double commodity_price_sum = 0.0;
 	double commodity_supply = 0.0;
 	double commodity_demand = 0.0;
+	double machine_parts_supply = 0.0;
+	double machine_parts_demand = 0.0;
+	double machine_parts_import = 0.0;
 	double labor_price_sum = 0.0;
+	double real_labor_price_sum = 0.0;
 	double labor_supply = 0.0;
 	double labor_demand = 0.0;
 	double employed_labor = 0.0;
+	std::array<double, economy::labor::total> labor_price_by_type{};
+	std::array<double, economy::labor::total> labor_demand_by_type{};
+	double maximum_labor_price = 0.0;
+	double maximum_labor_demand = 0.0;
+	int32_t maximum_labor_price_type = -1;
+	int32_t maximum_labor_demand_type = -1;
+	double private_school_size = 0.0;
+	double public_school_size = 0.0;
+	double maximum_private_school_size = 0.0;
+	double maximum_public_school_size = 0.0;
+	double factory_size = 0.0;
+	double rgo_target_employment = 0.0;
 	double army_supply_reserve_sum = 0.0;
 	double minimum_army_supply_reserve = 0.0;
 	double depot_stockpile = 0.0;
@@ -257,6 +280,17 @@ struct aggregate_snapshot {
 	double trade_effective_capacity = 0.0;
 	double trade_congestion_sum = 0.0;
 	double maximum_trade_congestion = 0.0;
+	double trade_requested_cargo = 0.0;
+	double trade_delivered_cargo = 0.0;
+	double trade_cargo_in_transit = 0.0;
+	double trade_land_capacity_demand = 0.0;
+	double trade_sea_capacity_demand = 0.0;
+	double minimum_foreign_settlement = 1.0;
+	double maximum_exchange_rate_multiplier = 1.0;
+	double market_quantity_traded = 0.0;
+	double market_unfilled_life_needs = 0.0;
+	double market_unfilled_intermediate = 0.0;
+	double market_unfilled_luxury_needs = 0.0;
 	nations::diplomatic_crisis_dynamics::escalation_stage crisis_stage =
 		nations::diplomatic_crisis_dynamics::escalation_stage::inactive;
 	double crisis_temperature = 0.0;
@@ -284,6 +318,17 @@ struct aggregate_snapshot {
 	double tracked_nation_monthly_army_attrition = 0.0;
 	double tracked_nation_daily_internal_migration = 0.0;
 	double tracked_nation_daily_external_migration = 0.0;
+	double tracked_nation_literacy = 0.0;
+	double tracked_nation_estimated_literacy_change = 0.0;
+	double tracked_nation_education_access = 0.0;
+	double tracked_nation_machine_parts_supply = 0.0;
+	double tracked_nation_machine_parts_demand = 0.0;
+	double tracked_nation_machine_parts_import = 0.0;
+	double tracked_nation_machine_parts_buy_probability = 0.0;
+	double tracked_nation_consumer_price_index = 1.0;
+	double tracked_nation_inflation = 0.0;
+	double tracked_nation_real_wage_sum = 0.0;
+	uint64_t tracked_nation_market_count = 0;
 	double tracked_nation_legitimacy = 0.0;
 	double tracked_nation_coalition_power = 0.0;
 	double tracked_nation_government_stability = 0.0;
@@ -366,9 +411,19 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	// repeated runs and save/load continuations share the same comparison key.
 	result.save_checksum = state.get_save_checksum();
 
-	if(detail::observe_nonnegative(result.observed_violations, invariant_field::inflation, -1, -1,
-			state.inflation)) {
-		result.inflation = state.inflation;
+	result.legacy_money_decay = std::isfinite(state.inflation)
+		? double(state.inflation) : 1.0;
+	if(state.price_level_account.world.enabled) {
+		auto const& prices = state.price_level_account.world;
+		if(detail::observe_nonnegative(result.observed_violations,
+				invariant_field::inflation, -1, 0, prices.cpi))
+			result.consumer_price_index = prices.cpi;
+		if(detail::observe_finite(result.observed_violations,
+				invariant_field::inflation, -1, 1, prices.daily_inflation))
+			result.inflation = prices.daily_inflation;
+		if(detail::observe_finite(result.observed_violations,
+				invariant_field::inflation, -1, 2, prices.demand_pressure))
+			result.consumer_demand_pressure = prices.demand_pressure;
 	}
 
 	{
@@ -523,10 +578,20 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 
 	if(tracked_nation && state.world.nation_is_valid(tracked_nation)) {
 		result.tracked_nation_index = int32_t(tracked_nation.index());
+		auto const national_prices = economy::price_level::evaluate_nation(state, tracked_nation);
+		if(national_prices.enabled) {
+			result.tracked_nation_consumer_price_index = national_prices.cpi;
+			result.tracked_nation_inflation = national_prices.daily_inflation;
+		}
 		for(auto province : state.world.nation_get_province_ownership(tracked_nation)) {
 			auto const province_id = province.get_province();
 			for(auto membership : state.world.province_get_pop_location(province_id)) {
-				result.tracked_nation_population += double(state.world.pop_get_size(membership.get_pop()));
+				auto const pop = membership.get_pop();
+				auto const size = double(state.world.pop_get_size(pop));
+				result.tracked_nation_population += size;
+				result.tracked_nation_literacy += size * double(pop_demographics::get_literacy(state, pop));
+				result.tracked_nation_education_access += size
+					* double(economy::human_development::evaluate_pop(state, pop).factors.education_access);
 			}
 			result.tracked_nation_daily_internal_migration +=
 				double(state.world.province_get_daily_net_migration(province_id));
@@ -537,8 +602,40 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			double(nations::get_monthly_pop_increase_of_nation(state, tracked_nation));
 		result.tracked_nation_monthly_army_attrition =
 			double(military::estimated_monthly_army_pop_attrition_loss(state, tracked_nation));
+		if(result.tracked_nation_population > 0.0) {
+			result.tracked_nation_literacy /= result.tracked_nation_population;
+			result.tracked_nation_education_access /= result.tracked_nation_population;
+		}
+		result.tracked_nation_estimated_literacy_change =
+			double(demographics::get_estimated_literacy_change(state, tracked_nation));
+
+		dcon::commodity_id machine_parts{};
+		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+			if(state.to_string_view(state.world.commodity_get_name(commodity)) == "machine_parts")
+				machine_parts = commodity;
+		});
+		if(machine_parts) {
+			state.world.nation_for_each_state_ownership(tracked_nation, [&](auto ownership) {
+				auto const local_state = state.world.state_ownership_get_state(ownership);
+				auto const market = state.world.state_instance_get_market_from_local_market(local_state);
+				++result.tracked_nation_market_count;
+				result.tracked_nation_machine_parts_supply += state.world.market_get_supply(market, machine_parts);
+				result.tracked_nation_machine_parts_demand += state.world.market_get_demand(market, machine_parts);
+				result.tracked_nation_machine_parts_import += state.world.market_get_import(market, machine_parts);
+				result.tracked_nation_machine_parts_buy_probability +=
+					state.world.market_get_actual_probability_to_buy(market, machine_parts);
+			});
+			if(result.tracked_nation_market_count > 0)
+				result.tracked_nation_machine_parts_buy_probability /=
+					double(result.tracked_nation_market_count);
+		}
 	}
 
+	dcon::commodity_id observed_machine_parts{};
+	state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+		if(state.to_string_view(state.world.commodity_get_name(commodity)) == "machine_parts")
+			observed_machine_parts = commodity;
+	});
 	state.world.for_each_market([&](dcon::market_id market) {
 		++result.market_count;
 		auto const gdp = state.world.market_get_gdp(market);
@@ -566,6 +663,33 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			if(detail::observe_nonnegative(result.observed_violations, invariant_field::commodity_demand,
 					entity, subindex, demand)) {
 				result.commodity_demand += double(demand);
+			}
+			if(commodity == observed_machine_parts) {
+				result.machine_parts_supply += double(supply);
+				result.machine_parts_demand += double(demand);
+				result.machine_parts_import += double(state.world.market_get_import(market, commodity));
+			}
+			if(state.market_clearing_account.enabled) {
+				auto const ledger_index = size_t(market.index())
+					* size_t(state.market_clearing_account.commodity_count)
+					+ size_t(commodity.index());
+				if(ledger_index < state.market_clearing_account.quantity_traded.size()) {
+					result.market_quantity_traded +=
+						double(state.market_clearing_account.quantity_traded[ledger_index]);
+					auto add_unfilled = [&](economy::market_clearing::demand_class category,
+							double& target) {
+						auto const category_index = size_t(category);
+						auto const requested = state.market_clearing_account.demand[category_index][ledger_index];
+						auto const fill = state.market_clearing_account.fill[category_index][ledger_index];
+						target += double(std::max(0.0f, requested * (1.0f - std::clamp(fill, 0.0f, 1.0f))));
+					};
+					add_unfilled(economy::market_clearing::demand_class::life_needs,
+						result.market_unfilled_life_needs);
+					add_unfilled(economy::market_clearing::demand_class::intermediate,
+						result.market_unfilled_intermediate);
+					add_unfilled(economy::market_clearing::demand_class::luxury_needs,
+						result.market_unfilled_luxury_needs);
+				}
 			}
 		});
 	});
@@ -621,6 +745,18 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			if(detail::observe_nonnegative(result.observed_violations, invariant_field::labor_price,
 					entity, labor_type, price, economy::price_properties::labor::max)) {
 				result.labor_price_sum += double(price);
+				auto const real_price = economy::price_level::real_wage(
+					state, province, labor_type);
+				result.real_labor_price_sum += double(real_price);
+				if(result.tracked_nation_index >= 0
+						&& state.world.province_get_nation_from_province_ownership(province)
+						== tracked_nation)
+					result.tracked_nation_real_wage_sum += double(real_price);
+				result.labor_price_by_type[size_t(labor_type)] += double(price);
+				if(double(price) > result.maximum_labor_price) {
+					result.maximum_labor_price = double(price);
+					result.maximum_labor_price_type = labor_type;
+				}
 			}
 			if(detail::observe_nonnegative(result.observed_violations, invariant_field::labor_supply,
 					entity, labor_type, supply)) {
@@ -632,12 +768,40 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			if(detail::observe_nonnegative(result.observed_violations, invariant_field::labor_demand,
 					entity, labor_type, demand)) {
 				result.labor_demand += double(demand);
+				result.labor_demand_by_type[size_t(labor_type)] += double(demand);
+				if(double(demand) > result.maximum_labor_demand) {
+					result.maximum_labor_demand = double(demand);
+					result.maximum_labor_demand_type = labor_type;
+				}
 			}
 			detail::observe_nonnegative(result.observed_violations, invariant_field::labor_demand_satisfaction,
 				entity, labor_type, demand_satisfaction, 1.0f);
 			detail::observe_nonnegative(result.observed_violations, invariant_field::labor_supply_sold,
 				entity, labor_type, supply_sold, 1.0f);
 		}
+
+		auto const private_school = double(state.world.province_get_advanced_province_building_private_size(
+			province, advanced_province_buildings::list::schools_and_universities));
+		auto const public_school = double(state.world.province_get_advanced_province_building_national_size(
+			province, advanced_province_buildings::list::schools_and_universities));
+		if(std::isfinite(private_school) && private_school >= 0.0) {
+			result.private_school_size += private_school;
+			result.maximum_private_school_size = std::max(result.maximum_private_school_size, private_school);
+		}
+		if(std::isfinite(public_school) && public_school >= 0.0) {
+			result.public_school_size += public_school;
+			result.maximum_public_school_size = std::max(result.maximum_public_school_size, public_school);
+		}
+		for(auto factory_location : state.world.province_get_factory_location(province)) {
+			auto const size = double(factory_location.get_factory().get_size());
+			if(std::isfinite(size) && size >= 0.0)
+				result.factory_size += size;
+		}
+		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+			auto const target = double(state.world.province_get_rgo_target_employment(province, commodity));
+			if(std::isfinite(target) && target >= 0.0)
+				result.rgo_target_employment += target;
+		});
 
 		{
 			auto const debt = double(state.world.province_get_producer_debt(province));
@@ -778,6 +942,22 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		}
 	}
 
+	auto const shipment_allocation = economy::world_trade::clear_trade_shipments(state);
+	state.world.for_each_market([&](dcon::market_id market) {
+		result.trade_land_capacity_demand += double(shipment_allocation.requested_capacity(
+			market, economy::world_trade::transport_mode::land));
+		result.trade_sea_capacity_demand += double(shipment_allocation.requested_capacity(
+			market, economy::world_trade::transport_mode::sea));
+	});
+	if(shipment_allocation.enabled) {
+		state.world.for_each_nation([&](dcon::nation_id nation) {
+			result.minimum_foreign_settlement = std::min(result.minimum_foreign_settlement,
+				double(shipment_allocation.import_settlement(nation)));
+			result.maximum_exchange_rate_multiplier = std::max(
+				result.maximum_exchange_rate_multiplier,
+				double(shipment_allocation.exchange_rate_multiplier(nation)));
+		});
+	}
 	state.world.for_each_trade_route([&](dcon::trade_route_id route) {
 		++result.trade_route_count;
 		auto const trade = economy::world_trade::evaluate_route_capacity(state, route);
@@ -796,6 +976,14 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			result.maximum_trade_congestion = std::max(
 				result.maximum_trade_congestion, double(trade.congestion));
 		}
+		result.trade_requested_cargo += double(shipment_allocation.requested(route));
+		result.trade_delivered_cargo += double(shipment_allocation.actual(route));
+		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+			result.trade_cargo_in_transit += double(std::max(0.0f,
+				state.world.trade_route_get_cargo_in_transit_0(route, commodity)));
+			result.trade_cargo_in_transit += double(std::max(0.0f,
+				state.world.trade_route_get_cargo_in_transit_1(route, commodity)));
+		});
 	});
 
 	auto const crisis = nations::diplomatic_crisis_dynamics::evaluate_current_crisis(state);
@@ -830,7 +1018,13 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		}
 	};
 
-	validate_aggregate(snapshot.inflation);
+	if(!std::isfinite(snapshot.inflation) || !std::isfinite(snapshot.consumer_demand_pressure)) {
+		++report.violations.nonfinite;
+		detail::remember_first(report.violations, invariant_field::inflation,
+			-1, -1, float(snapshot.inflation));
+	}
+	validate_aggregate(snapshot.legacy_money_decay);
+	validate_aggregate(snapshot.consumer_price_index);
 	validate_aggregate(snapshot.population);
 	validate_aggregate(snapshot.pop_savings);
 	validate_aggregate(snapshot.population_weighted_life_needs);
@@ -841,6 +1035,7 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.commodity_supply);
 	validate_aggregate(snapshot.commodity_demand);
 	validate_aggregate(snapshot.labor_price_sum);
+	validate_aggregate(snapshot.real_labor_price_sum);
 	validate_aggregate(snapshot.labor_supply);
 	validate_aggregate(snapshot.labor_demand);
 	validate_aggregate(snapshot.employed_labor);
@@ -919,6 +1114,17 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.trade_effective_capacity);
 	validate_aggregate(snapshot.trade_congestion_sum);
 	validate_aggregate(snapshot.maximum_trade_congestion);
+	validate_aggregate(snapshot.trade_requested_cargo);
+	validate_aggregate(snapshot.trade_delivered_cargo);
+	validate_aggregate(snapshot.trade_cargo_in_transit);
+	validate_aggregate(snapshot.trade_land_capacity_demand);
+	validate_aggregate(snapshot.trade_sea_capacity_demand);
+	validate_aggregate(snapshot.minimum_foreign_settlement);
+	validate_aggregate(snapshot.maximum_exchange_rate_multiplier);
+	validate_aggregate(snapshot.market_quantity_traded);
+	validate_aggregate(snapshot.market_unfilled_life_needs);
+	validate_aggregate(snapshot.market_unfilled_intermediate);
+	validate_aggregate(snapshot.market_unfilled_luxury_needs);
 	validate_aggregate(snapshot.crisis_temperature);
 	validate_aggregate(snapshot.crisis_escalation_pressure);
 	validate_aggregate(snapshot.crisis_settlement_pressure);
@@ -947,6 +1153,13 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.tracked_nation_coalition_power);
 	validate_aggregate(snapshot.tracked_nation_government_stability);
 	validate_aggregate(snapshot.tracked_nation_minimum_cabinet_confidence);
+	validate_aggregate(snapshot.tracked_nation_consumer_price_index);
+	validate_aggregate(snapshot.tracked_nation_real_wage_sum);
+	if(!std::isfinite(snapshot.tracked_nation_inflation)) {
+		++report.violations.nonfinite;
+		detail::remember_first(report.violations, invariant_field::inflation,
+			snapshot.tracked_nation_index, -1, float(snapshot.tracked_nation_inflation));
+	}
 
 	report.valid = report.violations.ok();
 	return report;
@@ -995,13 +1208,19 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"armies\":" << snapshot.army_count
 		<< ",\"depots\":" << snapshot.depot_count << "}"
 		<< ",\"economy\":{\"inflation\":" << snapshot.inflation
+		<< ",\"legacy_money_decay\":" << snapshot.legacy_money_decay
+		<< ",\"consumer_price_index\":" << snapshot.consumer_price_index
+		<< ",\"consumer_demand_pressure\":" << snapshot.consumer_demand_pressure
 		<< ",\"population\":" << snapshot.population
 		<< ",\"pop_savings\":" << snapshot.pop_savings
 		<< ",\"market_gdp\":" << snapshot.market_gdp
 		<< ",\"factory_profit\":" << snapshot.factory_profit
 		<< ",\"commodity_price_sum\":" << snapshot.commodity_price_sum
 		<< ",\"commodity_supply\":" << snapshot.commodity_supply
-		<< ",\"commodity_demand\":" << snapshot.commodity_demand << "}"
+		<< ",\"commodity_demand\":" << snapshot.commodity_demand
+		<< ",\"machine_parts_supply\":" << snapshot.machine_parts_supply
+		<< ",\"machine_parts_demand\":" << snapshot.machine_parts_demand
+		<< ",\"machine_parts_import\":" << snapshot.machine_parts_import << "}"
 		<< ",\"demography\":{\"baseline_natural_growth\":"
 		<< snapshot.baseline_natural_growth
 		<< ",\"starvation_loss\":" << snapshot.starvation_loss
@@ -1027,6 +1246,16 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"monthly_army_attrition\":" << snapshot.tracked_nation_monthly_army_attrition
 		<< ",\"daily_internal_migration\":" << snapshot.tracked_nation_daily_internal_migration
 		<< ",\"daily_external_migration\":" << snapshot.tracked_nation_daily_external_migration
+		<< ",\"literacy\":" << snapshot.tracked_nation_literacy
+		<< ",\"estimated_literacy_change\":" << snapshot.tracked_nation_estimated_literacy_change
+		<< ",\"education_access\":" << snapshot.tracked_nation_education_access
+		<< ",\"machine_parts_supply\":" << snapshot.tracked_nation_machine_parts_supply
+		<< ",\"machine_parts_demand\":" << snapshot.tracked_nation_machine_parts_demand
+		<< ",\"machine_parts_import\":" << snapshot.tracked_nation_machine_parts_import
+		<< ",\"machine_parts_buy_probability\":" << snapshot.tracked_nation_machine_parts_buy_probability
+		<< ",\"consumer_price_index\":" << snapshot.tracked_nation_consumer_price_index
+		<< ",\"inflation\":" << snapshot.tracked_nation_inflation
+		<< ",\"real_wage_sum\":" << snapshot.tracked_nation_real_wage_sum
 		<< ",\"legitimacy\":" << snapshot.tracked_nation_legitimacy
 		<< ",\"coalition_power\":" << snapshot.tracked_nation_coalition_power
 		<< ",\"government_stability\":" << snapshot.tracked_nation_government_stability
@@ -1086,9 +1315,30 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"gross_total\":" << snapshot.money_gross_total
 		<< ",\"net_to_gross\":" << snapshot.money_net_to_gross << "}"
 		<< ",\"labor\":{\"price_sum\":" << snapshot.labor_price_sum
+		<< ",\"real_price_sum\":" << snapshot.real_labor_price_sum
 		<< ",\"supply\":" << snapshot.labor_supply
 		<< ",\"demand\":" << snapshot.labor_demand
-		<< ",\"employed\":" << snapshot.employed_labor << "}"
+		<< ",\"employed\":" << snapshot.employed_labor
+		<< ",\"price_by_type\":[";
+	for(size_t index = 0; index < snapshot.labor_price_by_type.size(); ++index) {
+		if(index != 0) out << ',';
+		out << snapshot.labor_price_by_type[index];
+	}
+	out << "],\"demand_by_type\":[";
+	for(size_t index = 0; index < snapshot.labor_demand_by_type.size(); ++index) {
+		if(index != 0) out << ',';
+		out << snapshot.labor_demand_by_type[index];
+	}
+	out << "],\"maximum_price\":" << snapshot.maximum_labor_price
+		<< ",\"maximum_price_type\":" << snapshot.maximum_labor_price_type
+		<< ",\"maximum_demand\":" << snapshot.maximum_labor_demand
+		<< ",\"maximum_demand_type\":" << snapshot.maximum_labor_demand_type << "}"
+		<< ",\"production_scale\":{\"private_school_size\":" << snapshot.private_school_size
+		<< ",\"public_school_size\":" << snapshot.public_school_size
+		<< ",\"maximum_private_school_size\":" << snapshot.maximum_private_school_size
+		<< ",\"maximum_public_school_size\":" << snapshot.maximum_public_school_size
+		<< ",\"factory_size\":" << snapshot.factory_size
+		<< ",\"rgo_target_employment\":" << snapshot.rgo_target_employment << "}"
 		<< ",\"logistics\":{\"army_supply_reserve_sum\":" << snapshot.army_supply_reserve_sum
 		<< ",\"minimum_army_supply_reserve\":" << snapshot.minimum_army_supply_reserve
 		<< ",\"depot_stockpile\":" << snapshot.depot_stockpile << "}"
@@ -1109,7 +1359,19 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"trade\":{\"cargo\":" << snapshot.trade_route_cargo
 		<< ",\"effective_capacity\":" << snapshot.trade_effective_capacity
 		<< ",\"congestion_sum\":" << snapshot.trade_congestion_sum
-		<< ",\"maximum_congestion\":" << snapshot.maximum_trade_congestion << "}"
+		<< ",\"maximum_congestion\":" << snapshot.maximum_trade_congestion
+		<< ",\"requested_cargo\":" << snapshot.trade_requested_cargo
+		<< ",\"delivered_cargo\":" << snapshot.trade_delivered_cargo
+		<< ",\"cargo_in_transit\":" << snapshot.trade_cargo_in_transit
+		<< ",\"land_capacity_demand\":" << snapshot.trade_land_capacity_demand
+		<< ",\"sea_capacity_demand\":" << snapshot.trade_sea_capacity_demand
+		<< ",\"minimum_foreign_settlement\":" << snapshot.minimum_foreign_settlement
+		<< ",\"maximum_exchange_rate_multiplier\":"
+		<< snapshot.maximum_exchange_rate_multiplier << "}"
+		<< ",\"market_clearing\":{\"quantity_traded\":" << snapshot.market_quantity_traded
+		<< ",\"unfilled_life_needs\":" << snapshot.market_unfilled_life_needs
+		<< ",\"unfilled_intermediate\":" << snapshot.market_unfilled_intermediate
+		<< ",\"unfilled_luxury_needs\":" << snapshot.market_unfilled_luxury_needs << "}"
 		<< ",\"crisis\":{\"stage\":\""
 		<< nations::diplomatic_crisis_dynamics::stage_name(snapshot.crisis_stage)
 		<< "\",\"normalized_temperature\":" << snapshot.crisis_temperature
@@ -1300,6 +1562,16 @@ struct synthetic_lab_result {
 		state.world.market_set_everyday_needs_costs(market, type, 0.5f);
 		state.world.market_set_luxury_needs_costs(market, type, 0.1f);
 	}
+	state.world.market_set_life_needs_weights(market, staple, 1.0f);
+	state.world.market_set_everyday_needs_weights(market, staple, 1.0f);
+	state.world.market_set_aggregated_demand_history(market, staple, 900'000.0f);
+	state.world.market_set_aggregated_supply_history(market, staple, 1'000'000.0f);
+	state.world.state_instance_set_demographics(state_instance, demographics::total,
+		1'000'000.0f);
+	state.world.state_instance_set_demographics(state_instance,
+		demographics::to_key(state, workers), 800'000.0f);
+	state.world.state_instance_set_demographics(state_instance,
+		demographics::to_key(state, owners), 200'000.0f);
 	state.world.market_set_gdp(market, 1'000'000.0f);
 
 	state.world.province_resize_labor_price(economy::labor::total);
@@ -1308,6 +1580,7 @@ struct synthetic_lab_result {
 	state.world.province_resize_labor_demand_satisfaction(economy::labor::total);
 	state.world.province_resize_labor_supply_sold(economy::labor::total);
 	state.world.province_resize_pop_labor_distribution(economy::pop_labor::total);
+	state.world.province_resize_rgo_target_employment(state.world.commodity_size());
 	services::initialize_size_of_dcon_arrays(state);
 	advanced_province_buildings::initialize_size_of_dcon_arrays(state);
 	state.world.province_set_labor_price(province, economy::labor::no_education, 1.0f);
@@ -1329,6 +1602,7 @@ struct synthetic_lab_result {
 	// same way a loaded save does. Without it the first observed day would be
 	// reported as if the entire supply had appeared from nowhere.
 	economy::monetary::initialize(state);
+	economy::price_level::initialize(state);
 
 	return synthetic_lab_result{nation, province, market};
 }
@@ -1425,9 +1699,19 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		auto const worker_pop = dcon::pop_id{dcon::pop_id::value_base_t(0)};
 		auto const owner_pop = dcon::pop_id{dcon::pop_id::value_base_t(1)};
 		auto const staple = dcon::commodity_id{dcon::commodity_id::value_base_t(1)};
+		economy::price_level::begin_day(target);
 
 		target.world.market_set_demand(lab.market, staple, demand);
 		target.world.market_set_supply(lab.market, staple, supply);
+		target.world.market_set_aggregated_demand_history(lab.market, staple, demand);
+		target.world.market_set_aggregated_supply_history(lab.market, staple, supply);
+		auto price = target.world.market_get_price(lab.market, staple);
+		price += economy::price_properties::commodity::change<float>(price, supply, demand);
+		price = std::clamp(price, economy::price_properties::commodity::min,
+			economy::price_properties::commodity::maximum(
+				target.world.commodity_get_cost(staple)));
+		target.world.market_set_price(lab.market, staple, price);
+		economy::price_level::update(target);
 		target.world.market_set_gdp(lab.market, demand * employment_ratio);
 		target.world.province_set_labor_demand(
 			lab.province, economy::labor::no_education, 800'000.0f * employment_ratio);

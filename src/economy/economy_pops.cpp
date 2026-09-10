@@ -10,11 +10,13 @@
 #include "economy_pops_constants.hpp"
 #include "policy_execution.hpp"
 #include "advanced_province_buildings.hpp"
+#include "credit_market.hpp"
 #include "gamerule.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 namespace economy {
 namespace pops {
@@ -140,19 +142,31 @@ VALUE investment_rate(const sys::state& state, POPS ids) {
 	auto markets = state.world.state_instance_get_market_from_local_market(states);
 	auto nations = state.world.state_instance_get_nation_from_state_ownership(states);
 	auto pop_type = state.world.pop_get_poptype(ids);
-	auto nation_rules = state.world.nation_get_combined_issue_rules(nations);
-	auto allows_investment_mask = (nation_rules & can_invest) != 0;
-	auto nation_allows_investment = allows_investment_mask;
+	auto nation_allows_investment = ve::apply([&](dcon::nation_id nation) {
+		return nation && (state.world.nation_get_combined_issue_rules(nation)
+			& can_invest) != 0;
+	}, nations);
 
 	auto capitalists_mask = pop_type == state.culture_definitions.capitalists;
 	auto middle_class_investors_mask = pop_type == state.culture_definitions.artisans || pop_type == state.culture_definitions.secondary_factory_worker;
 	auto farmers_mask = pop_type == state.culture_definitions.farmers;
 	auto landowners_mask = pop_type == state.culture_definitions.aristocrat;
 
-	auto invest_ratio_capitalists = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::capitalist_reinvestment);
-	auto invest_ratio_landowners = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::aristocrat_reinvestment);
-	auto invest_ratio_middle_class = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::middle_class_reinvestment);
-	auto invest_ratio_farmers = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::farmers_reinvestment);
+	auto modifier = [&](dcon::nation_id nation, dcon::national_modifier_value offset) {
+		return nation ? state.world.nation_get_modifier_values(nation, offset) : 0.0f;
+	};
+	auto invest_ratio_capitalists = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::capitalist_reinvestment);
+	}, nations);
+	auto invest_ratio_landowners = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::aristocrat_reinvestment);
+	}, nations);
+	auto invest_ratio_middle_class = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::middle_class_reinvestment);
+	}, nations);
+	auto invest_ratio_farmers = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::farmers_reinvestment);
+	}, nations);
 
 	auto investment_ratio =
 		adaptive_ve::select<BOOL_VALUE, VALUE>(
@@ -198,10 +212,21 @@ VALUE bank_saving_rate(const sys::state& state, POPS ids) {
 	auto farmers_mask = pop_type == state.culture_definitions.farmers;
 	auto landowners_mask = pop_type == state.culture_definitions.aristocrat;
 
-	auto bank_saving_ratio_capitalists = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::capitalist_savings);
-	auto bank_saving_ratio_landowners = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::aristocrat_savings);
-	auto bank_saving_ratio_middle_class = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::middle_class_savings);
-	auto bank_saving_ratio_farmers = state.world.nation_get_modifier_values(nations, sys::national_mod_offsets::farmers_savings);
+	auto modifier = [&](dcon::nation_id nation, dcon::national_modifier_value offset) {
+		return nation ? state.world.nation_get_modifier_values(nation, offset) : 0.0f;
+	};
+	auto bank_saving_ratio_capitalists = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::capitalist_savings);
+	}, nations);
+	auto bank_saving_ratio_landowners = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::aristocrat_savings);
+	}, nations);
+	auto bank_saving_ratio_middle_class = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::middle_class_savings);
+	}, nations);
+	auto bank_saving_ratio_farmers = ve::apply([&](dcon::nation_id nation) {
+		return modifier(nation, sys::national_mod_offsets::farmers_savings);
+	}, nations);
 
 	auto bank_saving_ratio =
 		adaptive_ve::select<BOOL_VALUE, VALUE>(
@@ -258,17 +283,17 @@ auto prepare_pop_budget_templated(
 
 	VALUE life_costs = ve::apply(
 		[&](dcon::market_id m, dcon::pop_type_id pt) {
-			return state.world.market_get_life_needs_costs(m, pt);
+			return m && pt ? state.world.market_get_life_needs_costs(m, pt) : 0.0f;
 		}, markets, pop_type
 	);
 	VALUE everyday_costs = ve::apply(
 		[&](dcon::market_id m, dcon::pop_type_id pt) {
-			return state.world.market_get_everyday_needs_costs(m, pt);
+			return m && pt ? state.world.market_get_everyday_needs_costs(m, pt) : 0.0f;
 		}, markets, pop_type
 	);
 	VALUE luxury_costs = ve::apply(
 		[&](dcon::market_id m, dcon::pop_type_id pt) {
-			return state.world.market_get_luxury_needs_costs(m, pt);
+			return m && pt ? state.world.market_get_luxury_needs_costs(m, pt) : 0.0f;
 		}, markets, pop_type
 	);
 
@@ -591,8 +616,8 @@ void update_consumption(
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_housing,
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_everyday,
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_luxury,
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_private,
 	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_public,
+	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_private,
 	ve::vectorizable_buffer<float, dcon::pop_id>& demand_life,
 	ve::vectorizable_buffer<float, dcon::pop_id>& demand_housing,
 	ve::vectorizable_buffer<float, dcon::pop_id>& demand_everyday,
@@ -635,8 +660,8 @@ void update_consumption(
 		buffer_housing.set(ids, data.housing.satisfied_with_money_ratio);
 		buffer_everyday.set(ids, data.everyday_needs.satisfied_with_money_ratio);
 		buffer_luxury.set(ids, data.luxury_needs.satisfied_with_money_ratio);
-		buffer_education_private.set(ids, data.education.satisfied_with_money_ratio);
 		buffer_education_public.set(ids, data.education.satisfied_for_free_ratio);
+		buffer_education_private.set(ids, data.education.satisfied_with_money_ratio);
 
 		subsistence_ratio.set(ids, data.life_needs.satisfied_for_free_ratio);
 
@@ -808,9 +833,12 @@ void update_consumption(
 					* state.defines.alice_lx_needs_scale
 					* invention_factor;
 
-				register_demand(state, ids, cid, demand_life);
-				register_demand(state, ids, cid, demand_everyday);
-				register_demand(state, ids, cid, demand_luxury);
+				register_demand(state, ids, cid, demand_life,
+					market_clearing::demand_class::life_needs);
+				register_demand(state, ids, cid, demand_everyday,
+					market_clearing::demand_class::everyday_needs);
+				register_demand(state, ids, cid, demand_luxury,
+					market_clearing::demand_class::luxury_needs);
 			}
 		}
 	});
@@ -1608,7 +1636,83 @@ money_from_nation estimate_income_from_nation(sys::state const& state, dcon::pop
 
 inline constexpr float investment_divident_rate = 0.001f;
 
+namespace {
+
+struct financial_claimant {
+	dcon::pop_id pop;
+	float weight = 0.f;
+};
+
+// Deposits and fund subscriptions are aggregate national accounts in the save
+// format, so individual historical account balances are unavailable. Current
+// contribution propensity is the least arbitrary ownership proxy: the same
+// POP types, national modifiers and rules that send cash into these accounts
+// determine how withdrawals are divided back out.
+void distribute_circulating_capital(sys::state& state) {
+	if(!gamerule::age_of_transformation_enabled(state))
+		return;
+
+	std::vector<std::vector<financial_claimant>> claimants(
+		std::size_t(state.world.nation_size()));
+	std::vector<double> total_weight(std::size_t(state.world.nation_size()), 0.0);
+	state.world.for_each_pop([&](dcon::pop_id pop) {
+		auto const province = state.world.pop_get_province_from_pop_location(pop);
+		auto const nation = state.world.province_get_nation_from_province_ownership(province);
+		if(!nation || !state.world.nation_is_valid(nation))
+			return;
+		auto const propensity = std::max(0.f,
+			investment_rate<float>(state, pop)) + std::max(0.f,
+			bank_saving_rate<float>(state, pop));
+		auto const size = state.world.pop_get_size(pop);
+		auto const weight = std::isfinite(size) && std::isfinite(propensity)
+			? std::max(0.f, size) * propensity : 0.f;
+		if(weight <= 0.f || !std::isfinite(weight))
+			return;
+		auto const index = std::size_t(nation.index());
+		claimants[index].push_back({pop, weight});
+		total_weight[index] += double(weight);
+	});
+
+	for(auto nation : state.world.in_nation) {
+		auto const index = std::size_t(nation.id.index());
+		auto const has_claimants = index < total_weight.size()
+			&& total_weight[index] > 0.0 && std::isfinite(total_weight[index]);
+		credit::settle_circulation(state, nation.id, has_claimants);
+		if(!has_claimants)
+			continue;
+		auto payout = 0.f;
+		if(index < state.credit_daily_flows.bank_distribution.size())
+			payout += state.credit_daily_flows.bank_distribution[index];
+		if(index < state.credit_daily_flows.investment_distribution.size())
+			payout += state.credit_daily_flows.investment_distribution[index];
+		if(!(payout > 0.f) || !std::isfinite(payout))
+			continue;
+
+		auto remaining = payout;
+		auto remaining_weight = total_weight[index];
+		auto& recipients = claimants[index];
+		for(std::size_t claimant_index = 0;
+				claimant_index < recipients.size(); ++claimant_index) {
+			auto const& claimant = recipients[claimant_index];
+			auto const last = claimant_index + 1 == recipients.size();
+			auto const amount = last || remaining_weight <= 0.0
+				? remaining
+				: std::min(remaining, float(double(remaining)
+					* double(claimant.weight) / remaining_weight));
+			auto const savings = state.world.pop_get_savings(claimant.pop);
+			state.world.pop_set_savings(claimant.pop,
+				(std::isfinite(savings) ? std::max(0.f, savings) : 0.f) + amount);
+			remaining = std::max(0.f, remaining - amount);
+			remaining_weight = std::max(0.0,
+				remaining_weight - double(claimant.weight));
+		}
+	}
+}
+
+} // namespace
+
 void update_income_national_subsidy(sys::state& state){
+	distribute_circulating_capital(state);
 	auto capitalists_key = demographics::to_key(state, state.culture_definitions.capitalists);
 	auto aristocracy_key = demographics::to_key(state, state.culture_definitions.aristocrat);
 
@@ -1724,7 +1828,11 @@ void update_income_national_subsidy(sys::state& state){
 
 		acc_m = acc_m + ve::select(lx_types == int32_t(culture::income_type::military), m_spending * adj_pop_of_type * lx_costs * payouts_spending_multiplier, 0.0f);
 
-		auto not_military = !((ln_types == int32_t(culture::income_type::military)) & (en_types == int32_t(culture::income_type::military)) & (lx_types == int32_t(culture::income_type::military)));
+		// Match income_by_source(): a POP supported by any military income
+		// category is not also treated as an unemployment-benefit claimant.
+		auto not_military = !((ln_types == int32_t(culture::income_type::military))
+			| (en_types == int32_t(culture::income_type::military))
+			| (lx_types == int32_t(culture::income_type::military)));
 		auto employment = pop_demographics::get_employment(state, ids);
 		acc_u = acc_u + ve::select(
 			not_military,
@@ -2468,7 +2576,8 @@ float estimate_pop_spending_life(sys::state const& state, dcon::pop_id pop, dcon
 	auto demand = pops::estimate_pop_demand_internal_life(
 		state, cid, pop, budget, mul, weight, invention_factor
 	);
-	auto actually_bought = state.world.market_get_actual_probability_to_buy(market, cid);
+	auto actually_bought = market_clearing::fill(state, market, cid,
+		market_clearing::demand_class::life_needs);
 	auto cost = economy::price(state, market, cid);
 	return demand * actually_bought * cost;
 }
@@ -2496,7 +2605,8 @@ float estimate_pop_spending_everyday(sys::state const& state, dcon::pop_id pop, 
 	auto demand = pops::estimate_pop_demand_internal_everyday(
 		state, cid, pop, budget, mul, weight, invention_factor
 	);
-	auto actually_bought = state.world.market_get_actual_probability_to_buy(market, cid);
+	auto actually_bought = market_clearing::fill(state, market, cid,
+		market_clearing::demand_class::everyday_needs);
 	auto cost = economy::price(state, market, cid);
 	return demand * actually_bought * cost;
 }
@@ -2524,7 +2634,8 @@ float estimate_pop_spending_luxury(sys::state const& state, dcon::pop_id pop, dc
 	auto demand = pops::estimate_pop_demand_internal_luxury(
 		state, cid, pop, budget, mul, weight, invention_factor
 	);
-	auto actually_bought = state.world.market_get_actual_probability_to_buy(market, cid);
+	auto actually_bought = market_clearing::fill(state, market, cid,
+		market_clearing::demand_class::luxury_needs);
 	auto cost = economy::price(state, market, cid);
 	return demand * actually_bought * cost;
 }

@@ -1,8 +1,11 @@
-TEST_CASE("Daily policy budget uses income instead of accumulated treasury", "[economy][budget][stability]") {
+TEST_CASE("Daily policy budget preserves reserves and releases only old surplus",
+		"[economy][budget][stability]") {
 	using economy::national_budget::sustainable_daily_budget;
 	CHECK(sustainable_daily_budget(418.f, 49.7f) == Approx(49.7f));
 	CHECK(sustainable_daily_budget(20.f, 49.7f) == Approx(20.f));
-	CHECK(sustainable_daily_budget(418.f, -5.f) == Approx(0.f));
+	CHECK(sustainable_daily_budget(418.f, -5.f) == Approx(418.f / 365.f));
+	CHECK(sustainable_daily_budget(10'000.f, 10.f)
+		== Approx(10.f + (10'000.f - 900.f) / 365.f));
 	CHECK(sustainable_daily_budget(-1.f, 49.7f) == Approx(0.f));
 	CHECK(sustainable_daily_budget(
 		std::numeric_limits<float>::infinity(), 49.7f) == Approx(0.f));

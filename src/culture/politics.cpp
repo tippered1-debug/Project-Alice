@@ -129,9 +129,10 @@ bool can_enact_political_reform(sys::state& state, dcon::nation_id nation, dcon:
 		if(gamerule::age_of_transformation_enabled(state)) {
 			auto const support = transformation::evaluate_issue_support(state, nation, issue_option);
 			auto const political_score =
-				0.45f * support.political_power_support
-				+ 0.35f * support.coalition_support
-				+ 0.20f * support.popular_support;
+				0.40f * support.political_power_support
+				+ 0.30f * support.coalition_support
+				+ 0.15f * support.electoral_support
+				+ 0.15f * support.popular_support;
 			return political_score >= 0.50f;
 		}
 
@@ -211,9 +212,10 @@ bool can_enact_social_reform(sys::state& state, dcon::nation_id n, dcon::issue_o
 		if(gamerule::age_of_transformation_enabled(state)) {
 			auto const support = transformation::evaluate_issue_support(state, n, o);
 			auto const political_score =
-				0.45f * support.political_power_support
-				+ 0.35f * support.coalition_support
-				+ 0.20f * support.popular_support;
+				0.40f * support.political_power_support
+				+ 0.30f * support.coalition_support
+				+ 0.15f * support.electoral_support
+				+ 0.15f * support.popular_support;
 			return political_score >= 0.50f;
 		}
 
@@ -351,7 +353,9 @@ bool political_party_is_active(sys::state& state, dcon::nation_id n, dcon::polit
 	return b;
 }
 
-void set_ruling_party(sys::state& state, dcon::nation_id n, dcon::political_party_id p) {
+void set_ruling_party(sys::state& state, dcon::nation_id n, dcon::political_party_id p,
+		float election_mandate) {
+	auto const old_party = state.world.nation_get_ruling_party(n);
 	state.world.nation_set_ruling_party(n, p);
 	for(auto pi : state.culture_definitions.party_issues) {
 		state.world.nation_set_issues(n, pi, state.world.political_party_get_party_issues(p, pi));
@@ -366,6 +370,8 @@ void set_ruling_party(sys::state& state, dcon::nation_id n, dcon::political_part
 			}
 		}
 	}
+	transformation::record_ruling_party_change(
+		state, n, old_party, p, election_mandate);
 }
 
 void force_ruling_party_ideology(sys::state& state, dcon::nation_id n, dcon::ideology_id id) {
@@ -495,7 +501,7 @@ void change_government_type(sys::state& state, dcon::nation_id n, dcon::governme
 	}
 }
 
-float pop_vote_weight(sys::state& state, dcon::pop_id p, dcon::nation_id n) {
+float pop_vote_weight(sys::state const& state, dcon::pop_id p, dcon::nation_id n) {
 	/*
 	When a pop's "votes" in any form, the weight of that vote is the product of the size of the pop and the national modifier for
 	voting for their strata (this could easily result in a strata having no votes). If the nation has primary culture voting set
@@ -947,10 +953,12 @@ void update_elections(sys::state& state) {
 						}
 					}
 
-					set_ruling_party(state, n, party_votes[winner_b].par);
+					auto const winning_share = total > 0.f
+						? std::clamp(winner_amount_b / total, 0.f, 1.f) : 0.f;
+					set_ruling_party(state, n, party_votes[winner_b].par, winning_share);
 
 					notification::post(state, notification::message{
-						[rp = party_votes[winner_b].par, frac = winner_amount_b / total](sys::state& state, text::layout_base& contents) {
+						[rp = party_votes[winner_b].par, frac = winning_share](sys::state& state, text::layout_base& contents) {
 							text::add_line(state, contents, "msg_election_end_2", text::variable_type::x, state.world.political_party_get_name(rp), text::variable_type::y, text::fp_percentage{frac});
 						},
 						"msg_election_end_title",
@@ -961,7 +969,10 @@ void update_elections(sys::state& state) {
 				} else {
 					uint32_t winner = 0;
 					float winner_amount = party_votes[0].vote;
-					float total = 0.0f;
+					// Include the first party in the denominator. Starting from
+					// zero while iterating at index one made the reported mandate
+					// too large and divided by zero in a one-party election.
+					float total = party_votes[0].vote;
 					for(uint32_t i = 1; i < party_votes.size(); ++i) {
 						total += party_votes[i].vote;
 						if(party_votes[i].vote > winner_amount) {
@@ -970,10 +981,12 @@ void update_elections(sys::state& state) {
 						}
 					}
 
-					set_ruling_party(state, n, party_votes[winner].par);
+					auto const winning_share = total > 0.f
+						? std::clamp(winner_amount / total, 0.f, 1.f) : 0.f;
+					set_ruling_party(state, n, party_votes[winner].par, winning_share);
 
 					notification::post(state, notification::message{
-						[rp = party_votes[winner].par, frac = winner_amount / total](sys::state& state, text::layout_base& contents) {
+						[rp = party_votes[winner].par, frac = winning_share](sys::state& state, text::layout_base& contents) {
 							text::add_line(state, contents, "msg_election_end_1", text::variable_type::x, state.world.political_party_get_name(rp), text::variable_type::y, text::fp_percentage{frac});
 						},
 						"msg_election_end_title",

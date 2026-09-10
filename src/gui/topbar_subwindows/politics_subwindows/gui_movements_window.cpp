@@ -87,6 +87,10 @@ public:
 			text::variable_type::x, text::fp_one_place{pressure.hardship_pressure});
 		text::add_line(state, contents, "alice_aot_movement_implementation",
 			text::variable_type::x, text::fp_one_place{pressure.implementation_pressure});
+		text::add_line(state, contents, "alice_aot_movement_regional_control",
+			text::variable_type::x, text::fp_one_place{pressure.regional_control_pressure});
+		text::add_line(state, contents, "alice_aot_movement_regional_execution",
+			text::variable_type::x, text::fp_one_place{pressure.regional_implementation_pressure});
 		text::add_line(state, contents, "alice_aot_movement_total",
 			text::variable_type::x, text::fp_one_place{pressure.total_adjustment});
 	}

@@ -66,12 +66,14 @@ public:
 } // namespace window
 #else
 struct GLFWwindow;
+struct GLFWcursor;
 
 namespace window {
 class window_data_impl {
 public:
 	win32_text_services text_services;
 	GLFWwindow* window = nullptr;
+	GLFWcursor* cursors[8] = {};
 
 	int32_t creation_x_size = 600;
 	int32_t creation_y_size = 400;

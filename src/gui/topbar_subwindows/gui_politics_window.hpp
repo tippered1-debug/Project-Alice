@@ -7,6 +7,7 @@
 #include "gui_common_elements.hpp"
 #include "gui_element_types.hpp"
 #include "gui_graphics.hpp"
+#include "gui_listbox_templates.hpp"
 #include "gui_politics_subwindows.hpp"
 #include "nations.hpp"
 #include "politics.hpp"
@@ -414,59 +415,183 @@ public:
 };
 
 class nation_government_description_text : public generic_multiline_text<dcon::nation_id> {
+	static constexpr std::array<std::string_view, politics::transformation::interest_group_count> group_keys{{
+		"alice_aot_group_landed_elites",
+		"alice_aot_group_industrialists",
+		"alice_aot_group_intelligentsia",
+		"alice_aot_group_organized_labor",
+		"alice_aot_group_rural_communities",
+		"alice_aot_group_state_services",
+	}};
+
+	static std::string_view bill_stage_key(politics::transformation::legislation_stage stage) noexcept {
+		return transformation_bill_stage_key(stage);
+	}
+
+	static std::string bill_name(sys::state& state,
+		politics::transformation::legislation_state const& bill) {
+		return bill.target == politics::transformation::legislation_target::reform
+			? text::get_name_as_string(state, dcon::fatten(state.world, bill.reform))
+			: text::get_name_as_string(state, dcon::fatten(state.world, bill.option));
+	}
+
 public:
 	void populate_layout(sys::state& state, text::endless_layout& contents, dcon::nation_id nation_id) noexcept override {
-		if(politics::can_appoint_ruling_party(state, nation_id)) {
+		// This GUI field is only three lines high in the vanilla interface. Keep
+		// the operational state visible here and move the full diagnosis to hover.
+		{
 			auto box = text::open_layout_box(contents);
-			text::localised_format_box(state, contents, box, std::string_view("can_appoint_ruling_party"));
+			if(politics::can_appoint_ruling_party(state, nation_id))
+				text::localised_format_box(state, contents, box, std::string_view("can_appoint_ruling_party"));
+			if(politics::can_appoint_ruling_party(state, nation_id))
+				text::add_to_layout_box(state, contents, box, std::string_view(" · "));
+			if(!politics::has_elections(state, nation_id)) {
+				text::localised_format_box(state, contents, box, std::string_view("term_for_life"));
+			} else if(politics::is_election_ongoing(state, nation_id)) {
+				text::localised_format_box(state, contents, box, std::string_view("election_info_in_gov"));
+			} else {
+				text::localised_format_box(state, contents, box, std::string_view("next_election"));
+				text::add_to_layout_box(state, contents, box, std::string_view(": "));
+				text::add_to_layout_box(state, contents, box,
+					text::date_to_string(state, politics::next_election_date(state, nation_id)));
+			}
 			text::close_layout_box(contents, box);
 		}
-		if(!politics::has_elections(state, nation_id)) {
+
+		auto const* transformation = politics::transformation::cached_nation_result(state, nation_id);
+		if(!transformation || !transformation->enabled) {
+			text::add_line(state, contents, "alice_aot_disabled_hint");
+			return;
+		}
+
+		{
+			text::substitution_map sub;
+			text::add_to_substitution_map(sub, text::variable_type::x,
+				text::fp_one_place{transformation->legitimacy.total});
+			text::add_to_substitution_map(sub, text::variable_type::y,
+				text::fp_percentage{transformation->government.stability});
+			text::add_to_substitution_map(sub, text::variable_type::val,
+				text::fp_percentage{transformation->coalition.power_share});
 			auto box = text::open_layout_box(contents);
-			text::localised_format_box(state, contents, box, std::string_view("term_for_life"));
+			text::localised_format_box(state, contents, box, "alice_aot_government_compact", sub);
 			text::close_layout_box(contents, box);
-		} else if(politics::is_election_ongoing(state, nation_id)) {
+		}
+
+		if(auto const* bill = politics::transformation::active_bill(state, nation_id)) {
+			text::substitution_map sub;
+			auto const name = bill_name(state, *bill);
+			auto const stage = text::produce_simple_string(state, bill_stage_key(bill->stage));
+			text::add_to_substitution_map(sub, text::variable_type::x, std::string_view{name});
+			text::add_to_substitution_map(sub, text::variable_type::y, std::string_view{stage});
+			text::add_to_substitution_map(sub, text::variable_type::days,
+				int64_t(bill->stage_days));
+			text::add_to_substitution_map(sub, text::variable_type::val,
+				text::fp_percentage{
+					bill->stage == politics::transformation::legislation_stage::implementation
+						? bill->execution : bill->mandate});
 			auto box = text::open_layout_box(contents);
-			text::localised_format_box(state, contents, box, std::string_view("election_info_in_gov"));
+			text::localised_format_box(state, contents, box, "alice_aot_bill_compact", sub);
 			text::close_layout_box(contents, box);
 		} else {
-			auto box = text::open_layout_box(contents);
-			auto election_start_date = politics::next_election_date(state, nation_id);
-			text::localised_format_box(state, contents, box, std::string_view("next_election"));
-			text::add_to_layout_box(state, contents, box, std::string(":"), text::text_color::black);
-			text::add_space_to_layout_box(state, contents, box);
-			text::add_to_layout_box(state, contents, box, text::date_to_string(state, election_start_date), black_text ? text::text_color::black : text::text_color::white);
-			text::close_layout_box(contents, box);
+			text::add_line(state, contents, "alice_aot_no_active_bill");
+		}
+	}
+
+	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
+		return gamerule::age_of_transformation_enabled(state)
+			? tooltip_behavior::variable_tooltip : tooltip_behavior::no_tooltip;
+	}
+
+	void update_tooltip(sys::state& state, int32_t, int32_t,
+		text::columnar_layout& contents) noexcept override {
+		auto const nation_id = retrieve<dcon::nation_id>(state, parent);
+		auto const* transformation = politics::transformation::cached_nation_result(state, nation_id);
+		if(!transformation || !transformation->enabled)
+			return;
+
+		text::add_line(state, contents, "alice_aot_government_header");
+		text::add_line(state, contents, "alice_aot_legitimacy", text::variable_type::x,
+			text::format_float(transformation->legitimacy.total, 1));
+		if(transformation->interest_groups.represented_population > 0.0f) {
+			auto const electorate_share = std::clamp(
+				transformation->interest_groups.electorate_population
+					/ transformation->interest_groups.represented_population, 0.0f, 1.0f);
+			text::add_line(state, contents, "alice_aot_electoral_reach", text::variable_type::x,
+				text::format_percentage(electorate_share, 1));
 		}
 
-		if(auto const* transformation = politics::transformation::cached_nation_result(state, nation_id);
-			transformation && transformation->enabled) {
-			text::add_line(state, contents, "alice_aot_legitimacy", text::variable_type::x,
-				text::format_float(transformation->legitimacy.total, 1));
+		std::string coalition;
+		for(std::size_t index = 0; index < group_keys.size(); ++index) {
+			auto const id = politics::transformation::interest_group_id(index);
+			if((transformation->coalition.groups & politics::transformation::group_bit(id)) == 0)
+				continue;
+			if(!coalition.empty()) coalition += ", ";
+			coalition += text::produce_simple_string(state, group_keys[index]);
+		}
+		if(coalition.empty()) coalition = text::produce_simple_string(state, "alice_aot_no_coalition");
+		text::add_line(state, contents, "alice_aot_coalition", text::variable_type::x, coalition);
+		text::add_line(state, contents, "alice_aot_coalition_power", text::variable_type::x,
+			text::format_percentage(transformation->coalition.power_share, 1));
+		text::add_line(state, contents, "alice_aot_government_stability", text::variable_type::x,
+			text::format_percentage(transformation->government.stability, 1));
+		text::add_line(state, contents, "alice_aot_party_mandate", text::variable_type::x,
+			text::format_percentage(transformation->government.party_mandate, 1));
 
-			std::string coalition;
-			static constexpr std::array<std::string_view, politics::transformation::interest_group_count>
-				group_keys{{
-					"alice_aot_group_landed_elites",
-					"alice_aot_group_industrialists",
-					"alice_aot_group_intelligentsia",
-					"alice_aot_group_organized_labor",
-					"alice_aot_group_rural_communities",
-					"alice_aot_group_state_services",
-				}};
-			for(std::size_t index = 0; index < group_keys.size(); ++index) {
-				auto const id = politics::transformation::interest_group_id(index);
-				if((transformation->coalition.groups & politics::transformation::group_bit(id)) == 0)
-					continue;
-				if(!coalition.empty())
-					coalition += ", ";
-				coalition += text::produce_simple_string(state, group_keys[index]);
-			}
-			if(coalition.empty())
-				coalition = text::produce_simple_string(state, "alice_aot_no_coalition");
-			text::add_line(state, contents, "alice_aot_coalition", text::variable_type::x, coalition);
-			text::add_line(state, contents, "alice_aot_coalition_power", text::variable_type::x,
-				text::format_percentage(transformation->coalition.power_share, 1));
+		if(auto const* bill = politics::transformation::active_bill(state, nation_id)) {
+			text::add_line_break_to_layout(state, contents);
+			text::add_line(state, contents, "alice_aot_bill_summary", text::variable_type::x,
+				bill_name(state, *bill));
+			text::add_line(state, contents, "alice_aot_bill_stage", text::variable_type::x,
+				text::produce_simple_string(state, bill_stage_key(bill->stage)));
+			text::add_line(state, contents, "alice_aot_bill_party_support", text::variable_type::x,
+				text::format_percentage(bill->party_support, 1));
+			transformation_bill_progress_description(state, contents, nation_id);
+		}
+
+		std::string_view outlook = "alice_aot_cabinet_outlook_stable";
+		std::string_view reason = "alice_aot_cabinet_reason_secure";
+		if(!transformation->coalition.has_working_majority) {
+			outlook = "alice_aot_cabinet_outlook_fragile";
+			reason = "alice_aot_cabinet_reason_no_majority";
+		} else if(transformation->government.stability < 0.45f) {
+			outlook = "alice_aot_cabinet_outlook_fragile";
+			reason = "alice_aot_cabinet_reason_low_confidence";
+		} else if(transformation->government.party_mandate < 0.25f) {
+			outlook = "alice_aot_cabinet_outlook_fragile";
+			reason = "alice_aot_cabinet_reason_low_party_mandate";
+		} else if(transformation->legitimacy.total < 35.0f) {
+			outlook = "alice_aot_cabinet_outlook_fragile";
+			reason = "alice_aot_cabinet_reason_low_legitimacy";
+		} else if(transformation->government.stability < 0.62f
+			|| transformation->government.party_mandate < 0.45f
+			|| transformation->legitimacy.total < 55.0f) {
+			outlook = "alice_aot_cabinet_outlook_contested";
+			reason = transformation->government.stability < 0.62f
+				? "alice_aot_cabinet_reason_low_confidence"
+				: transformation->government.party_mandate < 0.45f
+					? "alice_aot_cabinet_reason_low_party_mandate"
+					: "alice_aot_cabinet_reason_low_legitimacy";
+		}
+		text::add_line_break_to_layout(state, contents);
+		text::add_line(state, contents, "alice_aot_cabinet_outlook", text::variable_type::x,
+			text::produce_simple_string(state, outlook));
+		text::add_line(state, contents, "alice_aot_cabinet_reason", text::variable_type::x,
+			text::produce_simple_string(state, reason));
+		text::add_line(state, contents, "alice_aot_cabinet_confidence_header");
+		for(std::size_t index = 0; index < group_keys.size(); ++index) {
+			auto const id = politics::transformation::interest_group_id(index);
+			if((transformation->government.groups & politics::transformation::group_bit(id)) == 0)
+				continue;
+			auto box = text::open_layout_box(contents);
+			text::add_to_layout_box(state, contents, box, std::string_view("• "));
+			text::add_to_layout_box(state, contents, box,
+				text::produce_simple_string(state, group_keys[index]));
+			text::add_to_layout_box(state, contents, box, std::string_view(": "));
+			auto const confidence = transformation->government.confidence[index];
+			text::add_to_layout_box(state, contents, box, text::format_percentage(confidence, 0),
+				confidence < 0.45f ? text::text_color::red
+					: confidence < 0.62f ? text::text_color::yellow : text::text_color::green);
+			text::close_layout_box(contents, box);
 		}
 	}
 };

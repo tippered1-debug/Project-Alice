@@ -175,7 +175,18 @@ TEST_CASE("the ledger never moves a balance", "[economy][money][integration]") {
 	REQUIRE(fixture.state->world.pop_get_savings(fixture.pop) == Approx(1'000.f));
 	REQUIRE(fixture.state->world.nation_get_national_bank(fixture.nation) == Approx(9'000.f));
 	REQUIRE(fixture.state->world.province_get_rgo_bank(fixture.province) == Approx(500.f));
-	// The legacy constant is handed back untouched, in every mode.
+	// Transformation prices inflation through the goods market instead of
+	// destroying a fixed share of every nominal balance.
+	REQUIRE(fixture.state->inflation == Approx(1.0f));
+}
+
+TEST_CASE("classic money decay remains exactly legacy compatible",
+		"[economy][money][integration]") {
+	monetary_fixture fixture;
+	fixture.set_ruleset(false);
+	monetary::initialize(*fixture.state);
+	monetary::begin_day(*fixture.state);
+	monetary::update(*fixture.state);
 	REQUIRE(fixture.state->inflation == Approx(monetary::legacy_inflation));
 }
 
