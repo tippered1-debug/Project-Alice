@@ -2126,6 +2126,17 @@ object{
 	storage_type{ erasable }
 	size{ 30000 }
 	tag{ save }
+
+	property{
+		name{ type }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ distance }
+		type{ float }
+		tag{ save }
+	}
 }
 
 relationship{
@@ -2265,27 +2276,40 @@ relationship{
 }
 
 relationship{
-	name{ infrastructure_edge_nodes }
+	name{ infrastructure_edge_from }
 	storage_type{ compactable }
 	size{ 30000 }
 	tag{ save }
 
 	link{
+		object{ infrastructure_edge }
+		name{ infrastructure_edge }
+		type{ unique }
+	}
+	link{
 		object{ infrastructure_node }
-		name{ nodes }
+		name{ node }
 		type{ many }
 		index_storage{ array }
-		multiple{ 2 }
 	}
-	property{
-		name{ type }
-		type{ uint8_t }
-		tag{ save }
+}
+
+relationship{
+	name{ infrastructure_edge_to }
+	storage_type{ compactable }
+	size{ 30000 }
+	tag{ save }
+
+	link{
+		object{ infrastructure_edge }
+		name{ infrastructure_edge }
+		type{ unique }
 	}
-	property{
-		name{ distance }
-		type{ float }
-		tag{ save }
+	link{
+		object{ infrastructure_node }
+		name{ node }
+		type{ many }
+		index_storage{ array }
 	}
 }
 

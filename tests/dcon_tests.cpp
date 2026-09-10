@@ -73,3 +73,27 @@ TEST_CASE("reb_setting", "[dcon]") {
     }
 }
 
+TEST_CASE("infrastructure_edge_connects_two_nodes", "[dcon][foundation]") {
+	std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
+
+	auto const first_node = state->world.create_infrastructure_node();
+	auto const second_node = state->world.create_infrastructure_node();
+	auto const edge = state->world.create_infrastructure_edge();
+	state->world.infrastructure_edge_set_type(edge, uint8_t(3));
+	state->world.infrastructure_edge_set_distance(edge, 12.5f);
+	auto const edge_from = state->world.force_create_infrastructure_edge_from(edge, first_node);
+	auto const edge_to = state->world.force_create_infrastructure_edge_to(edge, second_node);
+
+	REQUIRE(state->world.infrastructure_edge_from_get_infrastructure_edge(edge_from) == edge);
+	REQUIRE(state->world.infrastructure_edge_to_get_infrastructure_edge(edge_to) == edge);
+	REQUIRE(state->world.infrastructure_edge_get_node_from_infrastructure_edge_from(edge) == first_node);
+	REQUIRE(state->world.infrastructure_edge_get_node_from_infrastructure_edge_to(edge) == second_node);
+	auto const from_reverse = state->world.infrastructure_node_get_infrastructure_edge_from_as_node(first_node);
+	auto const to_reverse = state->world.infrastructure_node_get_infrastructure_edge_to_as_node(second_node);
+	REQUIRE(from_reverse.begin() != from_reverse.end());
+	REQUIRE(to_reverse.begin() != to_reverse.end());
+	REQUIRE(state->world.infrastructure_edge_from_get_infrastructure_edge(*from_reverse.begin()) == edge);
+	REQUIRE(state->world.infrastructure_edge_to_get_infrastructure_edge(*to_reverse.begin()) == edge);
+	REQUIRE(state->world.infrastructure_edge_get_type(edge) == uint8_t(3));
+	REQUIRE(state->world.infrastructure_edge_get_distance(edge) == 12.5f);
+}
