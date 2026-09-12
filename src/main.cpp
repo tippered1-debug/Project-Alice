@@ -9,6 +9,10 @@
 #include "world/site.cpp"
 #include "world/infrastructure.cpp"
 #include "world/legacy_bridge.cpp"
+#include "economy/physical/deposits.cpp"
+#include "economy/physical/inventory.cpp"
+#include "economy/physical/shipments.cpp"
+#include "economy/physical/legacy_market_bridge.cpp"
 #include "dcon_oos_reporter_generated.cpp"
 #ifndef INCREMENTAL
 #include "ui_state.cpp"

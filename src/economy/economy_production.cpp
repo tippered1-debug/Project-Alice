@@ -10,6 +10,8 @@
 #include "construction.hpp"
 #include "price.hpp"
 #include "world/legacy_bridge.hpp"
+#include "economy/physical/legacy_market_bridge.hpp"
+#include "economy/physical/shipments.hpp"
 
 #include "province_templates.hpp"
 #include "advanced_province_buildings.hpp"
@@ -1905,7 +1907,9 @@ void update_rgo_production(sys::state& state) {
 	// can't do in parallel over provinces
 	// therefore do it in parallel over markets. Cannot do it over commodities because register_domestic_supply writes to market_gdp
 
-	concurrency::parallel_for(uint32_t(0), state.world.market_size(), [&](uint32_t k) {
+	if(::economy::physical::legacy_market_bridge::physical_path_enabled(state)) {
+		::economy::physical::shipments::process_rgo_output(state);
+	} else concurrency::parallel_for(uint32_t(0), state.world.market_size(), [&](uint32_t k) {
 		dcon::market_id local_market{ dcon::market_id::value_base_t(k) };
 		if(!state.world.market_is_valid(local_market)) {
 			return;

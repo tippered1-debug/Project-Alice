@@ -5041,6 +5041,52 @@ object{
 	}
 }
 
+object{
+	name{ resource_deposit }
+	storage_type{ erasable }
+	size{ 20000 }
+	tag{ save }
+	property{
+		name{ commodity }
+		type{ commodity_id }
+		tag{ save }
+	}
+}
+
+object{
+	name{ physical_stock }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{
+		name{ quantity }
+		type{ float }
+		tag{ save }
+	}
+}
+
+object{
+	name{ shipment }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{
+		name{ commodity }
+		type{ commodity_id }
+		tag{ save }
+	}
+	property{
+		name{ remaining_quantity }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ remaining_days }
+		type{ uint32_t }
+		tag{ save }
+	}
+}
+
 relationship {
 	name{ local_market }
 	storage_type{ compactable }
@@ -5420,6 +5466,48 @@ relationship{
 		type{ many }
 		index_storage{ array }
 	}
+}
+
+relationship{
+	name{ resource_deposit_site }
+	tag{ save }
+	link{ object{ resource_deposit } name{ resource_deposit } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ physical_stock_site }
+	tag{ save }
+	link{ object{ physical_stock } name{ physical_stock } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ physical_stock_commodity }
+	tag{ save }
+	link{ object{ physical_stock } name{ physical_stock } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ shipment_origin }
+	tag{ save }
+	link{ object{ shipment } name{ shipment } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ shipment_destination }
+	tag{ save }
+	link{ object{ shipment } name{ shipment } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ market_hub_site }
+	tag{ save }
+	link{ object{ market } name{ market } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
 }
 
 relationship{

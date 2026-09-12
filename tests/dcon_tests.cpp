@@ -3,6 +3,9 @@
 #include "container_types.hpp"
 #include "system_state.hpp"
 #include "serialization.hpp"
+#include "economy/physical/deposits.hpp"
+#include "economy/physical/inventory.hpp"
+#include "economy/physical/shipments.hpp"
 
 TEST_CASE("dl_setting", "[dcon]") {
     std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
@@ -119,4 +122,50 @@ TEST_CASE("factory_site_bootstrap_is_deterministic", "[world][foundation]") {
 	::world::legacy_bridge::bootstrap_factory_sites(*state);
 	REQUIRE(state->world.site_size() == site_count);
 	REQUIRE(state->world.factory_get_site_from_factory_site(factory) == site);
+}
+
+TEST_CASE("physical_inventory_dispatch_and_arrival_conserve_stock", "[economy][physical]") {
+	std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
+	auto first_province = state->world.create_province();
+	auto second_province = state->world.create_province();
+	state->world.province_set_mid_point_b(first_province, glm::vec3{ 1.0f, 0.0f, 0.0f });
+	state->world.province_set_mid_point_b(second_province, glm::vec3{ 1.0f, 0.0f, 0.0f });
+	auto first_site = state->world.create_site();
+	auto second_site = state->world.create_site();
+	state->world.force_create_site_location(first_site, first_province);
+	state->world.force_create_site_location(second_site, second_province);
+	auto commodity = state->world.create_commodity();
+
+	REQUIRE(::economy::physical::inventory::add(*state, first_site, commodity, 10.0f) == 10.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 10.0f);
+	auto shipment = ::economy::physical::shipments::dispatch(*state, first_site, second_site, commodity, 6.0f);
+	REQUIRE(shipment);
+	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 4.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) == 0.0f);
+	state->world.shipment_set_remaining_days(shipment, 2);
+	::economy::physical::shipments::advance(*state);
+	REQUIRE(state->world.shipment_is_valid(shipment));
+	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) == 0.0f);
+	::economy::physical::shipments::advance(*state);
+	REQUIRE(!state->world.shipment_is_valid(shipment));
+	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 4.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) > 0.0f);
+}
+
+TEST_CASE("physical_rgo_bootstrap_is_idempotent", "[economy][physical]") {
+	std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
+	auto province = state->world.create_province();
+	auto commodity = state->world.create_commodity();
+	state->world.province_resize_rgo_size(state->world.commodity_size());
+	state->world.commodity_set_rgo_amount(commodity, 1.0f);
+	state->world.province_set_rgo_size(province, commodity, 1.0f);
+
+	::economy::physical::deposits::bootstrap(*state);
+	auto site = ::economy::physical::deposits::extraction_site_for(*state, province, commodity);
+	REQUIRE(site);
+	REQUIRE(state->world.resource_deposit_size() == 1);
+	REQUIRE(state->world.site_get_province_from_site_location(site) == province);
+	::economy::physical::deposits::bootstrap(*state);
+	REQUIRE(state->world.resource_deposit_size() == 1);
+	REQUIRE(::economy::physical::deposits::extraction_site_for(*state, province, commodity) == site);
 }
