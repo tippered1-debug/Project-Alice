@@ -94,6 +94,29 @@ TEST_CASE("infrastructure_edge_connects_two_nodes", "[dcon][foundation]") {
 	REQUIRE(to_reverse.begin() != to_reverse.end());
 	REQUIRE(state->world.infrastructure_edge_from_get_infrastructure_edge(*from_reverse.begin()) == edge);
 	REQUIRE(state->world.infrastructure_edge_to_get_infrastructure_edge(*to_reverse.begin()) == edge);
+	auto incident = ::world::infrastructure::incident_edges(*state, first_node);
+	REQUIRE(incident.size() == 1);
+	REQUIRE(incident.front() == edge);
 	REQUIRE(state->world.infrastructure_edge_get_type(edge) == uint8_t(3));
 	REQUIRE(state->world.infrastructure_edge_get_distance(edge) == 12.5f);
+}
+
+TEST_CASE("factory_site_bootstrap_is_deterministic", "[world][foundation]") {
+	std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
+	auto province = state->world.create_province();
+	state->world.province_set_mid_point(province, glm::vec2{ 12.0f, 34.0f });
+	auto factory = state->world.create_factory();
+	state->world.force_create_factory_location(factory, province);
+
+	::world::legacy_bridge::bootstrap_factory_sites(*state);
+	auto site = state->world.factory_get_site_from_factory_site(factory);
+	REQUIRE(site);
+	REQUIRE(::world::site::site_for_factory(*state, factory) == site);
+	REQUIRE(::world::site::province_for_site(*state, site) == province);
+	REQUIRE(::world::spatial::site_position(*state, site) == glm::vec2{ 12.0f, 34.0f });
+
+	auto site_count = state->world.site_size();
+	::world::legacy_bridge::bootstrap_factory_sites(*state);
+	REQUIRE(state->world.site_size() == site_count);
+	REQUIRE(state->world.factory_get_site_from_factory_site(factory) == site);
 }

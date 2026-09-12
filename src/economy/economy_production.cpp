@@ -9,6 +9,7 @@
 #include "demographics.hpp"
 #include "construction.hpp"
 #include "price.hpp"
+#include "world/legacy_bridge.hpp"
 
 #include "province_templates.hpp"
 #include "advanced_province_buildings.hpp"
@@ -866,7 +867,7 @@ input_multipliers_explanation explain_input_multiplier(sys::state const& state, 
 	input_multipliers_explanation result{ };
 
 	auto fac = fatten(state.world, f);
-	auto p = fac.get_province_from_factory_location();
+	auto p = fatten(state.world, ::world::legacy_bridge::province_for_factory(state, fac.id));
 	auto s = p.get_state_membership();
 	auto m = s.get_market_from_local_market();
 	auto n = p.get_nation_from_province_ownership();
@@ -970,7 +971,7 @@ throughput_multipliers_explanation explain_throughput_multiplier(sys::state cons
 
 	auto fac = fatten(state.world, f);
 	auto factory_type = state.world.factory_get_building_type(f);
-	auto p = fac.get_province_from_factory_location();
+	auto p = fatten(state.world, ::world::legacy_bridge::province_for_factory(state, fac.id));
 	auto s = p.get_state_membership();
 	auto m = s.get_market_from_local_market();
 	auto n = p.get_nation_from_province_ownership();
@@ -1040,7 +1041,7 @@ output_multipliers_explanation explain_output_multiplier(sys::state const& state
 
 	auto fac = fatten(state.world, f);
 	auto factory_type = state.world.factory_get_building_type(f);
-	auto p = fac.get_province_from_factory_location();
+	auto p = fatten(state.world, ::world::legacy_bridge::province_for_factory(state, fac.id));
 	auto s = p.get_state_membership();
 	auto m = s.get_market_from_local_market();
 	auto n = p.get_nation_from_province_ownership();
@@ -1087,7 +1088,7 @@ float factory_throughput_additional_multiplier(sys::state const& state, dcon::fa
 }
 
 float get_total_wage(const sys::state& state, dcon::factory_id f) {
-	auto labor_market = state.world.factory_get_province_from_factory_location(f);
+	auto labor_market = ::world::legacy_bridge::province_for_factory(state, f);
 	return state.world.province_get_labor_price(labor_market, labor::no_education)
 		* state.world.province_get_labor_demand_satisfaction(labor_market, labor::no_education)
 		* state.world.factory_get_unqualified_employment(f)
@@ -1101,7 +1102,7 @@ float get_total_wage(const sys::state& state, dcon::factory_id f) {
 		* state.world.factory_get_secondary_employment(f);
 }
 float get_total_target_wage(const sys::state& state, dcon::factory_id f) {
-	auto labor_market = state.world.factory_get_province_from_factory_location(f);
+	auto labor_market = ::world::legacy_bridge::province_for_factory(state, f);
 	return state.world.province_get_labor_price(labor_market, labor::no_education)
 		* state.world.factory_get_unqualified_employment(f)
 		+
@@ -1113,7 +1114,7 @@ float get_total_target_wage(const sys::state& state, dcon::factory_id f) {
 }
 
 profit_explanation explain_last_factory_profit(sys::state const& state, dcon::factory_id f) {
-	auto location = state.world.factory_get_province_from_factory_location(f);
+	auto location = ::world::legacy_bridge::province_for_factory(state, f);
 	auto nation = state.world.province_get_nation_from_province_ownership(location);
 	auto zone = state.world.province_get_state_membership(location);
 	auto market = state.world.state_instance_get_market_from_local_market(zone);
@@ -1207,7 +1208,7 @@ factory_update_data imitate_single_factory_consumption(
 ) {
 	auto fac = fatten(state.world, f);
 	auto fac_type = fac.get_building_type();
-	auto p = fac.get_province_from_factory_location();
+	auto p = fatten(state.world, ::world::legacy_bridge::province_for_factory(state, fac.id));
 	auto s = p.get_state_membership();
 	auto m = s.get_market_from_local_market();
 	auto n = p.get_nation_from_province_ownership();
@@ -1239,7 +1240,7 @@ factory_update_data imitate_single_factory_consumption(
 		input_multiplier, throughput_multiplier, output_multiplier,
 		employment,
 		output_multiplier_from_workers_with_high_education(
-			state, fac_type.get_output(), fac.get_province_from_factory_location(), fac.get_secondary_employment()
+		state, fac_type.get_output(), ::world::legacy_bridge::province_for_factory(state, fac.id), fac.get_secondary_employment()
 		), max_employment
 	);
 
@@ -1673,7 +1674,7 @@ void update_single_factory_consumption(
 	auto max_employment = state.world.factory_get_size(fac);
 
 	auto employment_units = consume_labor(
-		state, fac.get_province_from_factory_location(),
+		state, ::world::legacy_bridge::province_for_factory(state, fac.id),
 		fac.get_unqualified_employment(), fac.get_primary_employment(), fac.get_secondary_employment(),
 		float(fac_type.get_base_workforce())
 	) * std::max(0.f, mobilization_impact);
@@ -1686,7 +1687,7 @@ void update_single_factory_consumption(
 		input_multiplier, throughput_multiplier, output_multiplier,
 		employment_units,
 		output_multiplier_from_workers_with_high_education(
-			state, fac_type.get_output(), fac.get_province_from_factory_location(), fac.get_secondary_employment()
+			state, fac_type.get_output(), ::world::legacy_bridge::province_for_factory(state, fac.id), fac.get_secondary_employment()
 		), max_employment, economy_reason::factory
 	);
 
@@ -1741,7 +1742,7 @@ uint32_t repair_corrupted_factory_sizes(sys::state& state) {
 	uint32_t repaired = 0;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		auto const type = state.world.factory_get_building_type(factory);
-		auto const province = state.world.factory_get_province_from_factory_location(factory);
+		auto const province = ::world::legacy_bridge::province_for_factory(state, factory);
 		// Scenario construction calls fill_unsaved_data before every parsed
 		// factory relationship is guaranteed to be complete. The save-repair
 		// pass must ignore those temporary objects rather than indexing the null
@@ -1808,7 +1809,7 @@ void update_factories_production(
 ) {
 	// could be done in parallel over markets???
 	state.world.for_each_factory([&](auto factory) {
-		auto province = state.world.factory_get_province_from_factory_location(factory);
+		auto province = ::world::legacy_bridge::province_for_factory(state, factory);
 		auto local_state = state.world.province_get_state_membership(province);
 		auto local_market = state.world.state_instance_get_market_from_local_market(local_state);
 		auto production = state.world.factory_get_output(factory);
@@ -2733,7 +2734,7 @@ float estimate_factory_consumption(sys::state& state, dcon::commodity_id c, dcon
 	auto fac_type = fac.get_building_type();
 	auto& direct_inputs = fac_type.get_inputs();
 	auto result = 0.f;
-	auto states = state.world.province_get_state_membership(fac.get_province_from_factory_location());
+	auto states = state.world.province_get_state_membership(::world::legacy_bridge::province_for_factory(state, fac.id));
 	auto markets = state.world.state_instance_get_market_from_local_market(states);
 	auto data = imitate_single_factory_consumption(state, f);
 	for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
@@ -3165,7 +3166,7 @@ detailed_explanation explain_everything(sys::state const& state, dcon::factory_i
 
 	auto fac = fatten(state.world, f);
 	auto fac_type = fac.get_building_type();
-	auto p = fac.get_province_from_factory_location();
+	auto p = fatten(state.world, ::world::legacy_bridge::province_for_factory(state, fac.id));
 	auto s = p.get_state_membership();
 	auto m = s.get_market_from_local_market();
 	auto n = p.get_nation_from_province_ownership();

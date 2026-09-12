@@ -5,6 +5,10 @@
 #include "common_types.cpp"
 #include "lua_alice_api.cpp"
 #include "system_state.cpp"
+#include "world/spatial.cpp"
+#include "world/site.cpp"
+#include "world/infrastructure.cpp"
+#include "world/legacy_bridge.cpp"
 #include "dcon_oos_reporter_generated.cpp"
 #ifndef INCREMENTAL
 #include "ui_state.cpp"

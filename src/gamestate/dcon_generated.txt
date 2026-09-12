@@ -2091,6 +2091,12 @@ object{
 	storage_type{ erasable }
 	size{ 10000 }
 	tag{ save }
+
+	property{
+		name{ position }
+		type{ glm::vec2 }
+		tag{ save }
+	}
 }
 
 object{
@@ -2098,6 +2104,12 @@ object{
 	storage_type{ erasable }
 	size{ 20000 }
 	tag{ save }
+
+	property{
+		name{ position }
+		type{ glm::vec2 }
+		tag{ save }
+	}
 }
 
 object{
@@ -2119,6 +2131,12 @@ object{
 	storage_type{ erasable }
 	size{ 20000 }
 	tag{ save }
+
+	property{
+		name{ position }
+		type{ glm::vec2 }
+		tag{ save }
+	}
 }
 
 object{
@@ -5384,6 +5402,23 @@ relationship{
 		name{province}
 		type{many}
 		index_storage{array}
+	}
+}
+
+relationship{
+	name{ factory_site }
+	tag{ save }
+
+	link{
+		object{ factory }
+		name{ factory }
+		type{ unique }
+	}
+	link{
+		object{ site }
+		name{ site }
+		type{ many }
+		index_storage{ array }
 	}
 }
 
