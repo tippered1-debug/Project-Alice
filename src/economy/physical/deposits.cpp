@@ -46,7 +46,7 @@ void bootstrap(sys::state& state) {
 	});
 
 	state.world.for_each_market([&](dcon::market_id market) {
-		if(state.world.market_get_market_hub_site(market))
+		if(state.world.market_get_site_from_market_hub_site(market))
 			return;
 		auto zone = state.world.market_get_zone_from_local_market(market);
 		auto province = state.world.state_instance_get_capital(zone);

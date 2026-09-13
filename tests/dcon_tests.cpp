@@ -6,6 +6,8 @@
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/physical/legacy_market_bridge.hpp"
+#include <limits>
 
 TEST_CASE("dl_setting", "[dcon]") {
     std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
@@ -136,6 +138,9 @@ TEST_CASE("physical_inventory_dispatch_and_arrival_conserve_stock", "[economy][p
 	state->world.force_create_site_location(second_site, second_province);
 	auto commodity = state->world.create_commodity();
 
+	auto canonical = ::economy::physical::inventory::ensure(*state, first_site, commodity);
+	REQUIRE(::economy::physical::inventory::ensure(*state, first_site, commodity) == canonical);
+	REQUIRE(state->world.physical_stock_size() == 1);
 	REQUIRE(::economy::physical::inventory::add(*state, first_site, commodity, 10.0f) == 10.0f);
 	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 10.0f);
 	auto shipment = ::economy::physical::shipments::dispatch(*state, first_site, second_site, commodity, 6.0f);
@@ -143,13 +148,30 @@ TEST_CASE("physical_inventory_dispatch_and_arrival_conserve_stock", "[economy][p
 	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 4.0f);
 	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) == 0.0f);
 	state->world.shipment_set_remaining_days(shipment, 2);
+	constexpr float initial_quantity = 10.0f;
+	constexpr float origin_quantity = 4.0f;
+	auto spoilage = economy::logistics::profile_for(*state, commodity).daily_spoilage;
 	::economy::physical::shipments::advance(*state);
 	REQUIRE(state->world.shipment_is_valid(shipment));
 	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) == 0.0f);
+	auto in_transit = state->world.shipment_get_remaining_quantity(shipment);
+	auto spoiled = 6.0f - in_transit;
+	REQUIRE(in_transit == Approx(6.0f * (1.0f - spoilage)).epsilon(0.00001));
+	REQUIRE(origin_quantity + in_transit + spoiled == Approx(initial_quantity).epsilon(0.00001));
 	::economy::physical::shipments::advance(*state);
 	REQUIRE(!state->world.shipment_is_valid(shipment));
 	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 4.0f);
-	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) > 0.0f);
+	auto destination_quantity = ::economy::physical::inventory::quantity(*state, second_site, commodity);
+	spoiled = 6.0f - destination_quantity;
+	REQUIRE(destination_quantity == Approx(6.0f * (1.0f - spoilage) * (1.0f - spoilage)).epsilon(0.00001));
+	REQUIRE(origin_quantity + destination_quantity + spoiled == Approx(initial_quantity).epsilon(0.00001));
+}
+
+TEST_CASE("physical_compatibility_travel_days_use_land_speed", "[economy][physical]") {
+	REQUIRE(::economy::physical::shipments::compatibility_travel_days(0.0f) == 1);
+	REQUIRE(::economy::physical::shipments::compatibility_travel_days(150.0f) == 1);
+	REQUIRE(::economy::physical::shipments::compatibility_travel_days(150.1f) == 2);
+	REQUIRE(::economy::physical::shipments::compatibility_travel_days(std::numeric_limits<float>::quiet_NaN()) == 1);
 }
 
 TEST_CASE("physical_rgo_bootstrap_is_idempotent", "[economy][physical]") {
@@ -168,4 +190,79 @@ TEST_CASE("physical_rgo_bootstrap_is_idempotent", "[economy][physical]") {
 	::economy::physical::deposits::bootstrap(*state);
 	REQUIRE(state->world.resource_deposit_size() == 1);
 	REQUIRE(::economy::physical::deposits::extraction_site_for(*state, province, commodity) == site);
+}
+
+TEST_CASE("physical_rgo_arrives_once_at_legacy_market", "[economy][physical][integration]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	state->world.create_province(); // Keep the test province non-null for hub bootstrap.
+	state->world.create_site(); // Keep both bootstrap endpoints non-null in this minimal fixture.
+	auto province = state->world.create_province();
+	auto capital = state->world.create_province();
+	state->world.province_set_mid_point_b(province, glm::vec3{1.0f, 0.0f, 0.0f});
+	state->world.province_set_mid_point_b(capital, glm::vec3{0.0f, 1.0f, 0.0f});
+	auto zone = state->world.create_state_instance();
+	state->world.create_market(); // Keep the fixture market relation non-null.
+	auto market = state->world.create_market();
+	auto commodity = state->world.create_commodity();
+	state->world.state_instance_set_capital(zone, capital);
+	state->world.state_instance_set_market_from_local_market(zone, market);
+	state->world.market_set_zone_from_local_market(market, zone);
+	state->world.province_set_state_membership(province, zone);
+	state->world.province_resize_rgo_size(state->world.commodity_size());
+	state->world.province_resize_rgo_output(state->world.commodity_size());
+	state->world.market_resize_supply(state->world.commodity_size());
+	state->world.market_resize_stockpile(state->world.commodity_size());
+	state->world.commodity_set_rgo_amount(commodity, 1.0f);
+	state->world.province_set_rgo_size(province, commodity, 1.0f);
+	state->world.province_set_rgo_output(province, commodity, 5.0f);
+	REQUIRE(state->world.province_get_state_membership(province) == zone);
+	REQUIRE(state->world.state_instance_get_market_from_local_market(zone) == market);
+	REQUIRE(state->world.province_get_rgo_output(province, commodity) == 5.0f);
+	REQUIRE(!state->world.commodity_get_is_local(commodity));
+	REQUIRE(!state->world.commodity_get_money_rgo(commodity));
+
+	::economy::physical::deposits::bootstrap(*state);
+	REQUIRE(::economy::physical::deposits::extraction_site_for(*state, province, commodity));
+	::economy::physical::shipments::process_rgo_output(*state);
+	REQUIRE(state->world.shipment_size() == 1);
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
+	REQUIRE(state->world.market_get_supply(market, commodity) == Approx(0.0f));
+
+	while(state->world.shipment_size() != 0)
+		::economy::physical::shipments::advance(*state);
+	::economy::physical::legacy_market_bridge::handoff_arrived_stock(*state);
+	REQUIRE(state->world.shipment_size() == 0);
+	auto expected = 5.0f * (1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage);
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(expected).epsilon(0.00001));
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(expected).epsilon(0.00001));
+}
+
+TEST_CASE("local_rgo_keeps_legacy_supply_in_physical_mode", "[economy][physical][integration]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	state->world.create_province();
+	auto province = state->world.create_province();
+	auto zone = state->world.create_state_instance();
+	state->world.create_market();
+	auto market = state->world.create_market();
+	auto commodity = state->world.create_commodity();
+	state->world.state_instance_set_capital(zone, province);
+	state->world.state_instance_set_market_from_local_market(zone, market);
+	state->world.market_set_zone_from_local_market(market, zone);
+	state->world.province_set_state_membership(province, zone);
+	state->world.province_resize_rgo_size(state->world.commodity_size());
+	state->world.province_resize_rgo_output(state->world.commodity_size());
+	state->world.market_resize_supply(state->world.commodity_size());
+	state->world.market_resize_stockpile(state->world.commodity_size());
+	state->world.commodity_set_rgo_amount(commodity, 1.0f);
+	state->world.commodity_set_is_local(commodity, true);
+	state->world.province_set_rgo_size(province, commodity, 1.0f);
+	state->world.province_set_rgo_output(province, commodity, 3.0f);
+
+	::economy::physical::deposits::bootstrap(*state);
+	::economy::physical::shipments::process_rgo_output(*state);
+	REQUIRE(state->world.market_get_supply(market, commodity) == Approx(3.0f));
+	REQUIRE(state->world.shipment_size() == 0);
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
 }

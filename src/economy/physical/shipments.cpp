@@ -6,11 +6,18 @@
 #include "province.hpp"
 #include "economy_production.hpp"
 #include "commodity_logistics.hpp"
+#include "economy_stats.hpp"
 
 #include <algorithm>
 #include <cmath>
 
 namespace economy::physical::shipments {
+
+uint32_t compatibility_travel_days(float distance) noexcept {
+	if(!std::isfinite(distance) || distance <= 0.0f)
+		return 1;
+	return uint32_t(std::max(1.0f, std::ceil(distance / compatibility_distance_units_per_day)));
+}
 
 dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_id destination,
 	dcon::commodity_id commodity, float amount) {
@@ -25,7 +32,7 @@ dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_i
 	auto from = state.world.site_get_province_from_site_location(origin);
 	auto to = state.world.site_get_province_from_site_location(destination);
 	auto distance = (from && to) ? province::direct_distance(state, from, to) : 0.0f;
-	state.world.shipment_set_remaining_days(shipment, uint32_t(std::max(1.0f, std::ceil(distance))));
+	state.world.shipment_set_remaining_days(shipment, compatibility_travel_days(distance));
 	state.world.force_create_shipment_origin(shipment, origin);
 	state.world.force_create_shipment_destination(shipment, destination);
 	return shipment;
@@ -59,12 +66,15 @@ void process_rgo_output(sys::state& state) {
 			return;
 		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
 			if(state.world.commodity_get_rgo_amount(commodity) <= 0.0f
-				|| state.world.commodity_get_money_rgo(commodity)
-				|| state.world.commodity_get_is_local(commodity))
+				|| state.world.commodity_get_money_rgo(commodity))
 				return;
 			auto output = state.world.province_get_rgo_output(province, commodity);
 			if(output <= 0.0f)
 				return;
+			if(state.world.commodity_get_is_local(commodity)) {
+				register_domestic_supply(state, market, commodity, output, economy_reason::rgo);
+				return;
+			}
 			auto extraction = deposits::extraction_site_for(state, province, commodity);
 			if(!extraction)
 				return;
