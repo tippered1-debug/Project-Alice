@@ -8,6 +8,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
+#include "actors/organizations/organizations.hpp"
 #include "economy/relations/relations.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "governance/governance.hpp"
@@ -287,6 +288,55 @@ TEST_CASE("actors_ownership_bootstrap_is_canonical", "[actors][ownership]") {
 	::actors::ownership::bootstrap(*state);
 	REQUIRE(state->world.asset_size() == 2);
 	REQUIRE(::actors::ownership::asset_for_factory(*state, factory) == asset);
+}
+
+TEST_CASE("economic_organizations_have_explicit_operations_and_ownership", "[actors][organizations]") {
+	auto state = std::make_unique<sys::state>();
+	REQUIRE_FALSE(::actors::organizations::create_organization(*state, ::actors::ownership::actor_kind::person));
+	REQUIRE_FALSE(::actors::organizations::create_organization(*state, ::actors::ownership::actor_kind::state_entity));
+	auto company_a = ::actors::organizations::create_company(*state);
+	auto company_b = ::actors::organizations::create_organization(*state, ::actors::ownership::actor_kind::fund);
+	REQUIRE(company_a); REQUIRE(company_b); REQUIRE(company_a != company_b);
+	auto actor_a = ::actors::organizations::actor_for_organization(*state, company_a);
+	auto actor_b = ::actors::organizations::actor_for_organization(*state, company_b);
+	REQUIRE(actor_a); REQUIRE(actor_b); REQUIRE(actor_a != actor_b);
+	REQUIRE(::actors::organizations::organization_for_actor(*state, actor_a) == company_a);
+	REQUIRE(::actors::organizations::equity_asset_for_organization(*state, company_a));
+	REQUIRE(::actors::organizations::equity_asset_for_organization(*state, company_b));
+	auto factory_a = state->world.create_factory();
+	auto factory_b = state->world.create_factory();
+	REQUIRE(::actors::organizations::bind_factory_operator(*state, company_a, factory_a));
+	REQUIRE(::actors::organizations::bind_factory_operator(*state, company_a, factory_a));
+	REQUIRE_FALSE(::actors::organizations::bind_factory_operator(*state, company_b, factory_a));
+	REQUIRE(::actors::organizations::bind_factory_operator(*state, company_a, factory_b));
+	REQUIRE(::actors::organizations::operator_organization_for_factory(*state, factory_a) == company_a);
+	REQUIRE(::actors::organizations::operator_actor_for_factory(*state, factory_a) == actor_a);
+	REQUIRE(::actors::organizations::factories_operated_by(*state, company_a).size() == 2);
+	auto deposit_a = state->world.create_resource_deposit();
+	auto deposit_b = state->world.create_resource_deposit();
+	REQUIRE(::actors::organizations::bind_deposit_operator(*state, company_a, deposit_a));
+	REQUIRE(::actors::organizations::bind_deposit_operator(*state, company_a, deposit_a));
+	REQUIRE_FALSE(::actors::organizations::bind_deposit_operator(*state, company_b, deposit_a));
+	REQUIRE(::actors::organizations::bind_deposit_operator(*state, company_a, deposit_b));
+	REQUIRE(::actors::organizations::operator_organization_for_deposit(*state, deposit_a) == company_a);
+	REQUIRE(::actors::organizations::operator_actor_for_deposit(*state, deposit_a) == actor_a);
+	REQUIRE(::actors::organizations::deposits_operated_by(*state, company_a).size() == 2);
+	auto person = ::persons::create_person(*state, sys::date{1});
+	auto person_actor = ::persons::actor_for_person(*state, person);
+	auto factory_asset = state->world.create_asset();
+	state->world.force_create_factory_asset(factory_a, factory_asset);
+	REQUIRE(::actors::ownership::create_stake(*state, person_actor, factory_asset, 1.0f, 1.0f, 1.0f));
+	REQUIRE(::actors::organizations::operator_actor_for_factory(*state, factory_a) == actor_a);
+	REQUIRE(state->world.ownership_stake_get_economic_actor_from_ownership_stake_owner(
+		dcon::ownership_stake_id{dcon::ownership_stake_id::value_base_t(0)}) == person_actor);
+	auto commodity = state->world.create_commodity();
+	auto account = ::economy::accounts::open_account(*state, actor_a, commodity);
+	REQUIRE(account);
+	auto obligation = ::economy::relations::create_obligation(*state, actor_a, actor_b, 25.0f, commodity, {}, {}, 0.0f, {});
+	REQUIRE(obligation);
+	auto site = state->world.create_site();
+	REQUIRE(::economy::physical::inventory::add(*state, site, commodity, 4.0f, actor_a) == Approx(4.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, actor_a) == Approx(4.0f));
 }
 
 TEST_CASE("physical_stock_identity_includes_owner", "[actors][ownership][economy][physical]") {

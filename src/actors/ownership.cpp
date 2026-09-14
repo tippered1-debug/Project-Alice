@@ -1,4 +1,5 @@
 #include "ownership.hpp"
+#include "actors/organizations/organizations.hpp"
 #include "system_state.hpp"
 
 #include <cmath>
@@ -75,29 +76,31 @@ dcon::ownership_stake_id create_stake(sys::state& state, dcon::economic_actor_id
 
 void bootstrap(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(asset_for_factory(state, factory)) return;
-		auto organization = dcon::organization_id{};
-		// Legacy factories have no concrete organization yet; create a placeholder company.
-		auto actor = state.world.create_economic_actor();
-		state.world.economic_actor_set_kind(actor, uint8_t(actor_kind::company));
-		state.world.economic_actor_set_is_legacy_placeholder(actor, 1);
-		organization = state.world.create_organization();
-		state.world.organization_set_kind(organization, uint8_t(actor_kind::company));
-		state.world.force_create_organization_actor(organization, actor);
-		state.world.force_create_organization_factory_operator(organization, factory);
-		auto equity = state.world.create_asset();
-		state.world.force_create_organization_equity_asset(organization, equity);
-		auto asset = state.world.create_asset();
-		state.world.force_create_factory_asset(factory, asset);
-		create_stake(state, actor, asset, 1.0f, 1.0f, 1.0f);
+		auto organization = organizations::operator_organization_for_factory(state, factory);
+		if(!organization) {
+			organization = organizations::create_company(state);
+			if(organization) {
+				state.world.economic_actor_set_is_legacy_placeholder(organizations::actor_for_organization(state, organization), 1);
+				organizations::bind_factory_operator(state, organization, factory);
+			}
+		}
+		if(!asset_for_factory(state, factory) && organization) {
+			auto asset = state.world.create_asset();
+			state.world.force_create_factory_asset(factory, asset);
+			create_stake(state, organizations::actor_for_organization(state, organization), asset, 1.0f, 1.0f, 1.0f);
+		}
 	});
 	state.world.for_each_resource_deposit([&](dcon::resource_deposit_id deposit) {
-		if(state.world.resource_deposit_get_organization_from_resource_deposit_operator(deposit)) return;
-		auto organization = state.world.create_organization();
-		state.world.organization_set_kind(organization, uint8_t(actor_kind::company));
-		auto actor = ensure_placeholder_organization(state, organization);
-		state.world.force_create_resource_deposit_operator(deposit, organization);
-		(void)actor;
+		auto organization = organizations::operator_organization_for_deposit(state, deposit);
+		if(!organization) {
+			organization = organizations::create_company(state);
+			if(organization) {
+				state.world.economic_actor_set_is_legacy_placeholder(organizations::actor_for_organization(state, organization), 1);
+				organizations::bind_deposit_operator(state, organization, deposit);
+			}
+		} else {
+			ensure_placeholder_organization(state, organization);
+		}
 	});
 }
 
