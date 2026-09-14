@@ -16,6 +16,11 @@ struct availability {
 availability evaluate(sys::state const&, dcon::site_id, dcon::economic_actor_id,
 	economy::commodity_set const&, dcon::market_id, float input_scale);
 
+bool procure(sys::state&, dcon::site_id, dcon::economic_actor_id,
+	economy::commodity_set const&, dcon::market_id, float input_scale);
+
+bool ordinary_physical_input(sys::state const&, dcon::commodity_id) noexcept;
+
 bool consume(sys::state&, dcon::site_id, dcon::economic_actor_id,
 	economy::commodity_set const&, float input_scale, float ratio);
 

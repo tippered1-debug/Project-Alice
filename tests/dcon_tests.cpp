@@ -385,6 +385,44 @@ TEST_CASE("physical_factory_inputs_leave_local_and_missing_structure_on_legacy_p
 	REQUIRE_FALSE(::economy::physical::factory_inputs::consume(*state, {}, {}, inputs, 1.0f, 1.0f));
 }
 
+TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "[economy][physical][factory][integration]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	auto province = state->world.create_province();
+	auto destination = state->world.create_site();
+	state->world.force_create_site_location(destination, province);
+	auto hub = state->world.create_site();
+	state->world.force_create_site_location(hub, province);
+	auto market = state->world.create_market();
+	state->world.force_create_market_hub_site(market, hub);
+	auto owner = state->world.create_economic_actor();
+	auto commodity = state->world.create_commodity();
+	state->world.market_resize_stockpile(state->world.commodity_size());
+	state->world.market_resize_actual_probability_to_buy(state->world.commodity_size());
+	state->world.commodity_set_is_local(commodity, false);
+	state->world.commodity_set_money_rgo(commodity, false);
+	state->world.market_set_stockpile(market, commodity, 4.0f);
+	state->world.market_set_actual_probability_to_buy(market, commodity, 1.0f);
+	economy::commodity_set inputs{};
+	inputs.commodity_type[0] = commodity;
+	inputs.commodity_amounts[0] = 4.0f;
+
+	REQUIRE(::economy::physical::factory_inputs::procure(*state, destination, owner, inputs, market, 1.0f));
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, owner) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner) == Approx(0.0f));
+	REQUIRE(state->world.shipment_size() == 1);
+	state->world.for_each_shipment([&](dcon::shipment_id shipment) {
+		state->world.shipment_set_remaining_days(shipment, 1);
+	});
+	::economy::physical::shipments::advance(*state);
+	REQUIRE(state->world.shipment_size() == 0);
+	auto surviving = 4.0f * (1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage);
+	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner) == Approx(surviving));
+	REQUIRE(::economy::physical::factory_inputs::consume(*state, destination, owner, inputs, 1.0f, surviving / 4.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner) == Approx(0.0f));
+}
+
 TEST_CASE("local_rgo_keeps_legacy_supply_in_physical_mode", "[economy][physical][integration]") {
 	auto state = std::make_unique<sys::state>();
 	state->force_age_of_transformation_ruleset = true;

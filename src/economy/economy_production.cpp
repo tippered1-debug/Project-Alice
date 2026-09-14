@@ -369,13 +369,15 @@ void save_inputs_to_buffers(
 	std::vector<ve::vectorizable_buffer<float, dcon::province_id>>& buffer_consumed,
 	SET const& inputs,
 	VALUE scale,
-	VALUE min_available
+	VALUE min_available,
+	bool skip_physical_consumption = false
 ) {
 	for(uint32_t i = 0; i < SET::set_size; ++i) {
 		if(inputs.commodity_type[i]) {
 			auto b_index = inputs.commodity_type[i].index();
 			buffer_demanded[b_index].set(provs, buffer_demanded[b_index].get(provs) + scale * inputs.commodity_amounts[i]);
-			buffer_consumed[b_index].set(provs, buffer_consumed[b_index].get(provs) + scale * inputs.commodity_amounts[i] * min_available);
+			if(!skip_physical_consumption || !::economy::physical::factory_inputs::ordinary_physical_input(state, inputs.commodity_type[i]))
+				buffer_consumed[b_index].set(provs, buffer_consumed[b_index].get(provs) + scale * inputs.commodity_amounts[i] * min_available);
 		} else {
 			break;
 		}
@@ -663,7 +665,8 @@ consumption_data consume(
 	float input_multiplier, float throughput_multiplier, float output_multiplier,
 	float employment_units, float output_multiplier_from_workers_with_high_education,
 	float max_employment,
-	economy_reason reason
+	economy_reason reason,
+	bool skip_physical_consumption
 ) {
 	assert(input_multiplier >= 0.f);
 	assert(throughput_multiplier >= 0.f);
@@ -677,7 +680,7 @@ consumption_data consume(
 		* production_units;
 	assert(input_scale >= 0.f);
 
-	save_inputs_to_buffers(state, province, buffer_demanded, buffer_consumed, inputs, input_scale, additional_data.direct_inputs_data.min_available);
+	save_inputs_to_buffers(state, province, buffer_demanded, buffer_consumed, inputs, input_scale, additional_data.direct_inputs_data.min_available, skip_physical_consumption);
 
 	consumption_data result = {
 		.direct_inputs_cost = additional_data.direct_inputs_cost_per_production_unit_availability_adjusted
@@ -1686,10 +1689,14 @@ void update_single_factory_consumption(
 	) * std::max(0.f, mobilization_impact);
 	auto physical_input_site = ::world::site::site_for_factory(state, fac.id);
 	auto physical_input_owner = actors::organizations::operator_actor_for_factory(state, fac.id);
+	auto physical_inputs_ready = ::economy::physical::legacy_market_bridge::physical_path_enabled(state)
+		&& ::economy::physical::factory_inputs::procure(
+			state, physical_input_site, physical_input_owner, direct_inputs, m,
+			input_multiplier * employment_units * throughput_multiplier);
 	auto physical_inputs = ::economy::physical::factory_inputs::evaluate(
 		state, physical_input_site, physical_input_owner, direct_inputs, m,
 		input_multiplier * employment_units * throughput_multiplier);
-	if(::economy::physical::legacy_market_bridge::physical_path_enabled(state) && physical_inputs.active)
+	if(physical_inputs_ready && physical_inputs.active)
 		base_data.direct_inputs_data.min_available = std::min(
 			physical_inputs.legacy_ratio, physical_inputs.physical_ratio);
 	auto total_employment = fac.get_unqualified_employment() + fac.get_primary_employment() + fac.get_secondary_employment();
@@ -1702,9 +1709,9 @@ void update_single_factory_consumption(
 		employment_units,
 		output_multiplier_from_workers_with_high_education(
 			state, fac_type.get_output(), ::world::legacy_bridge::province_for_factory(state, fac.id), fac.get_secondary_employment()
-		), max_employment, economy_reason::factory
+		), max_employment, economy_reason::factory, physical_inputs_ready && physical_inputs.active
 	);
-	if(::economy::physical::legacy_market_bridge::physical_path_enabled(state) && physical_inputs.active)
+	if(physical_inputs_ready && physical_inputs.active)
 		::economy::physical::factory_inputs::consume(
 			state, physical_input_site, physical_input_owner, direct_inputs,
 			data.direct_inputs_scale, base_data.direct_inputs_data.min_available);
