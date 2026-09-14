@@ -10,6 +10,7 @@
 #include "actors/ownership.hpp"
 #include "economy/relations/relations.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "governance/governance.hpp"
 #include <limits>
 
 TEST_CASE("dl_setting", "[dcon]") {
@@ -440,4 +441,28 @@ TEST_CASE("obligation_payment_settles_cash_and_debt_atomically", "[economy][acco
 	REQUIRE(::economy::accounts::balance(*state, debtor_account) == Approx(0.0f));
 	REQUIRE(::economy::relations::total_due(*state, obligation) == Approx(0.0f));
 	REQUIRE(state->world.obligation_get_status(obligation) == uint8_t(::economy::relations::obligation_status::paid));
+}
+
+TEST_CASE("governance_institutions_and_authority_are_concrete", "[governance]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto government = ::governance::create_institution(*state, nation, ::governance::institution_kind::central_government);
+	auto ministry = ::governance::create_institution(*state, nation, ::governance::institution_kind::ministry);
+	auto office = ::governance::create_office(*state, ministry, ::governance::office_kind::finance_minister);
+	REQUIRE(::governance::nation_of(*state, government) == nation);
+	REQUIRE(::governance::actor_for_institution(*state, government));
+	REQUIRE(::governance::institution_for_office(*state, office) == ministry);
+	REQUIRE(::governance::set_parent(*state, ministry, government));
+	REQUIRE_FALSE(::governance::set_parent(*state, government, government));
+	REQUIRE_FALSE(::governance::set_parent(*state, government, ministry));
+	REQUIRE(::governance::parent_of(*state, ministry) == government);
+	REQUIRE(::governance::children_of(*state, government).size() == 1);
+	auto grant = ::governance::grant_authority_to_institution(*state, ministry, ::governance::authority_kind::levy_tax, nation);
+	REQUIRE(grant);
+	REQUIRE(::governance::grant_authority_to_institution(*state, ministry, ::governance::authority_kind::levy_tax, nation) == grant);
+	REQUIRE(::governance::has_authority(*state, ministry, ::governance::authority_kind::levy_tax, nation));
+	REQUIRE_FALSE(::governance::has_authority(*state, government, ::governance::authority_kind::levy_tax, nation));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::appoint, nation));
+	REQUIRE(::governance::revoke_authority(*state, grant));
+	REQUIRE_FALSE(::governance::has_authority(*state, ministry, ::governance::authority_kind::levy_tax, nation));
 }

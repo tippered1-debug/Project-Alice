@@ -40,6 +40,7 @@
 #include "world/legacy_bridge.hpp"
 #include "economy/physical/deposits.hpp"
 #include "actors/ownership.hpp"
+#include "governance/governance.hpp"
 
 namespace sys {
 
@@ -4169,6 +4170,7 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 	::world::legacy_bridge::bootstrap_factory_sites(*this);
 	::economy::physical::deposits::bootstrap(*this);
 	::actors::ownership::bootstrap(*this);
+	::governance::bootstrap(*this);
 
 	//copy current day's data to the alt store
 

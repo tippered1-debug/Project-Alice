@@ -5071,6 +5071,30 @@ object{
 }
 
 object{
+	name{ institution }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ office }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ authority_grant }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+}
+
+object{
 	name{ asset }
 	storage_type{ erasable }
 	size{ 50000 }
@@ -5577,6 +5601,69 @@ relationship{
 	tag{ save }
 	link{ object{ organization } name{ organization } type{ unique } }
 	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ institution_actor }
+	tag{ save }
+	link{ object{ institution } name{ institution } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ institution_nation }
+	tag{ save }
+	link{ object{ institution } name{ institution } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ institution_parent }
+	tag{ save }
+	link{ object{ institution } name{ child } type{ unique } }
+	link{ object{ institution } name{ parent } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ office_institution }
+	tag{ save }
+	link{ object{ office } name{ office } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ authority_grant_institution_holder }
+	tag{ save }
+	link{ object{ authority_grant } name{ authority_grant } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ authority_grant_office_holder }
+	tag{ save }
+	link{ object{ authority_grant } name{ authority_grant } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ authority_grant_nation_scope }
+	tag{ save }
+	link{ object{ authority_grant } name{ authority_grant } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ authority_grant_territorial_scope }
+	tag{ save }
+	link{ object{ authority_grant } name{ authority_grant } type{ unique } }
+	link{ object{ territorial_unit } name{ territorial_unit } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ local_government_institution }
+	tag{ save }
+	link{ object{ local_government } name{ local_government } type{ unique } }
+	link{ object{ institution } name{ institution } type{ unique } }
 }
 
 relationship{
