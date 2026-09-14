@@ -11,6 +11,7 @@
 #include "economy/relations/relations.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "governance/governance.hpp"
+#include "persons/persons.hpp"
 #include <limits>
 
 TEST_CASE("dl_setting", "[dcon]") {
@@ -491,4 +492,54 @@ TEST_CASE("governance_institutions_and_authority_are_concrete", "[governance]") 
 	REQUIRE(::governance::bind_local_government(*state, local_government, government));
 	REQUIRE(::governance::bind_local_government(*state, local_government, government));
 	REQUIRE_FALSE(::governance::bind_local_government(*state, local_government, ministry));
+}
+
+TEST_CASE("persons_occupy_offices_and_retain_assets_after_death", "[persons][governance]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto institution = ::governance::create_institution(*state, nation, ::governance::institution_kind::ministry);
+	auto office = ::governance::create_office(*state, institution, ::governance::office_kind::finance_minister);
+	auto second_office = ::governance::create_office(*state, institution, ::governance::office_kind::agency_director);
+	auto person = ::persons::create_person(*state, sys::date{1});
+	auto other_person = ::persons::create_person(*state, sys::date{2});
+	auto actor = ::persons::actor_for_person(*state, person);
+	REQUIRE(actor);
+	REQUIRE(state->world.economic_actor_get_kind(actor) == uint8_t(actors::ownership::actor_kind::person));
+	REQUIRE(actor != ::persons::actor_for_person(*state, other_person));
+	auto commodity = state->world.create_commodity();
+	auto account = ::economy::accounts::open_account(*state, actor, commodity);
+	REQUIRE(account);
+	auto asset = state->world.create_asset();
+	REQUIRE(::actors::ownership::create_stake(*state, actor, asset, 1.0f, 1.0f, 1.0f));
+	REQUIRE(::persons::appoint_person(*state, person, office, sys::date{10}));
+	auto same_tenure = ::persons::appoint_person(*state, person, office, sys::date{11});
+	REQUIRE(same_tenure == ::persons::active_tenure_for(*state, office));
+	REQUIRE_FALSE(::persons::appoint_person(*state, other_person, office, sys::date{12}));
+	REQUIRE(::persons::occupant_of(*state, office) == person);
+	REQUIRE(::persons::appoint_person(*state, person, second_office, sys::date{10}));
+	REQUIRE(::persons::active_offices_of(*state, person).size() == 2);
+	auto office_grant = ::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::levy_tax, nation);
+	REQUIRE(office_grant);
+	REQUIRE(::persons::person_has_authority(*state, person, ::governance::authority_kind::levy_tax, nation));
+	REQUIRE(::governance::grant_authority_to_institution(*state, institution, ::governance::authority_kind::regulate, nation));
+	REQUIRE_FALSE(::persons::person_has_authority(*state, person, ::governance::authority_kind::regulate, nation));
+	REQUIRE(::persons::remove_from_office(*state, office, sys::date{20}));
+	REQUIRE_FALSE(::persons::occupant_of(*state, office));
+	REQUIRE_FALSE(::persons::person_has_authority(*state, person, ::governance::authority_kind::levy_tax, nation));
+	REQUIRE(state->world.office_tenure_size() == 2);
+	REQUIRE(::persons::appoint_person(*state, other_person, office, sys::date{21}));
+	REQUIRE(::persons::mark_dead(*state, person, sys::date{30}));
+	REQUIRE_FALSE(state->world.person_get_alive(person));
+	REQUIRE(state->world.person_get_death_date(person) == sys::date{30});
+	REQUIRE_FALSE(::persons::appoint_person(*state, person, office, sys::date{31}));
+	REQUIRE_FALSE(::persons::occupant_of(*state, second_office));
+	REQUIRE(::persons::active_offices_of(*state, person).empty());
+	REQUIRE(state->world.office_tenure_size() == 3);
+	REQUIRE(::persons::actor_for_person(*state, person) == actor);
+	REQUIRE(::economy::accounts::owner_of(*state, account) == actor);
+	bool ownership_survived = false;
+	state->world.economic_actor_for_each_ownership_stake_owner_as_economic_actor(actor, [&](dcon::ownership_stake_owner_id relation) {
+		ownership_survived = ownership_survived || bool(state->world.ownership_stake_owner_get_ownership_stake(relation));
+	});
+	REQUIRE(ownership_survived);
 }

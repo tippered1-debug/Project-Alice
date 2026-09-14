@@ -5079,6 +5079,26 @@ object{
 }
 
 object{
+	name{ person }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ birth_date } type{ sys::date } tag{ save } }
+	property{ name{ death_date } type{ sys::date } tag{ save } }
+	property{ name{ alive } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ office_tenure }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ started_on } type{ sys::date } tag{ save } }
+	property{ name{ ended_on } type{ sys::date } tag{ save } }
+	property{ name{ active } type{ uint8_t } tag{ save } }
+}
+
+object{
 	name{ office }
 	storage_type{ erasable }
 	size{ 50000 }
@@ -5608,6 +5628,27 @@ relationship{
 	tag{ save }
 	link{ object{ institution } name{ institution } type{ unique } }
 	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ person_actor }
+	tag{ save }
+	link{ object{ person } name{ person } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ office_tenure_person }
+	tag{ save }
+	link{ object{ office_tenure } name{ tenure } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ office_tenure_office }
+	tag{ save }
+	link{ object{ office_tenure } name{ tenure } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
 }
 
 relationship{

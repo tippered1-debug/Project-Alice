@@ -17,6 +17,7 @@
 #include "economy/relations/relations.cpp"
 #include "economy/accounts/accounts.cpp"
 #include "governance/governance.cpp"
+#include "persons/persons.cpp"
 #include "dcon_oos_reporter_generated.cpp"
 #ifndef INCREMENTAL
 #include "ui_state.cpp"
