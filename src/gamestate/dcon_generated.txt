@@ -5103,8 +5103,9 @@ object{
 	storage_type{ erasable }
 	size{ 100000 }
 	tag{ save }
-	property{ name{ principal } type{ float } tag{ save } }
-	property{ name{ outstanding } type{ float } tag{ save } }
+	property{ name{ original_principal } type{ float } tag{ save } }
+	property{ name{ principal_outstanding } type{ float } tag{ save } }
+	property{ name{ accrued_interest } type{ float } tag{ save } }
 	property{ name{ settlement_commodity } type{ commodity_id } tag{ save } }
 	property{ name{ creation_date } type{ sys::date } tag{ save } }
 	property{ name{ due_date } type{ sys::date } tag{ save } }

@@ -358,8 +358,10 @@ TEST_CASE("transactions_and_obligations_preserve_concrete_relations", "[economy]
 	REQUIRE(state->world.obligation_get_economic_actor_from_obligation_debtor(obligation) == payer);
 	REQUIRE(state->world.obligation_get_economic_actor_from_obligation_creditor(obligation) == payee);
 	REQUIRE(::economy::relations::repay_obligation(*state, obligation, 25.0f) == 25.0f);
-	REQUIRE(state->world.obligation_get_outstanding(obligation) == Approx(75.0f));
+	REQUIRE(::economy::relations::total_due(*state, obligation) == Approx(75.0f));
 	REQUIRE(::economy::relations::repay_obligation(*state, obligation, 1000.0f) == Approx(75.0f));
+	REQUIRE(state->world.obligation_get_principal_outstanding(obligation) == Approx(0.0f));
+	REQUIRE(state->world.obligation_get_accrued_interest(obligation) == Approx(0.0f));
 	REQUIRE(state->world.obligation_get_status(obligation) == uint8_t(::economy::relations::obligation_status::paid));
 }
 
@@ -375,6 +377,16 @@ TEST_CASE("obligation_interest_is_deterministic_and_cycles_are_supported", "[eco
 	auto ca = ::economy::relations::create_obligation(*state, c, a, 20.0f, commodity, sys::date{}, sys::date{}, 0.0f, {});
 	REQUIRE(ab); REQUIRE(ba); REQUIRE(bc); REQUIRE(ca);
 	REQUIRE(::economy::relations::accrue_interest(*state, ab, 10) == Approx(1.0f).epsilon(0.00001));
-	REQUIRE(state->world.obligation_get_outstanding(ab) == Approx(101.0f).epsilon(0.00001));
-	REQUIRE(::economy::relations::outstanding_between(*state, a, b, commodity) == Approx(101.0f));
+	REQUIRE(state->world.obligation_get_principal_outstanding(ab) == Approx(100.0f));
+	REQUIRE(state->world.obligation_get_accrued_interest(ab) == Approx(1.0f).epsilon(0.00001));
+	REQUIRE(::economy::relations::total_due(*state, ab) == Approx(101.0f).epsilon(0.00001));
+	REQUIRE(::economy::relations::accrue_interest(*state, ab, 10) == Approx(1.0f).epsilon(0.00001));
+	REQUIRE(state->world.obligation_get_accrued_interest(ab) == Approx(2.0f).epsilon(0.00001));
+	REQUIRE(::economy::relations::repay_obligation(*state, ab, 1.5f) == Approx(1.5f));
+	REQUIRE(state->world.obligation_get_accrued_interest(ab) == Approx(0.5f));
+	REQUIRE(state->world.obligation_get_principal_outstanding(ab) == Approx(100.0f));
+	REQUIRE(::economy::relations::repay_obligation(*state, ab, 10.5f) == Approx(10.5f));
+	REQUIRE(state->world.obligation_get_accrued_interest(ab) == Approx(0.0f));
+	REQUIRE(state->world.obligation_get_principal_outstanding(ab) == Approx(90.0f));
+	REQUIRE(::economy::relations::outstanding_between(*state, a, b, commodity) == Approx(90.0f));
 }

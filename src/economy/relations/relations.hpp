@@ -18,6 +18,7 @@ dcon::obligation_id create_obligation(sys::state&, dcon::economic_actor_id debto
 	dcon::economic_actor_id creditor, float principal, dcon::commodity_id settlement,
 	sys::date creation_date, sys::date due_date, float annual_interest_rate, obligation_kind kind);
 float accrue_interest(sys::state&, dcon::obligation_id, uint32_t days);
+float total_due(sys::state const&, dcon::obligation_id);
 float repay_obligation(sys::state&, dcon::obligation_id, float amount);
 bool write_off(sys::state&, dcon::obligation_id);
 float outstanding_between(sys::state const&, dcon::economic_actor_id debtor,
