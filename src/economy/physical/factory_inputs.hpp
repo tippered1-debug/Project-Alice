@@ -1,0 +1,22 @@
+#pragma once
+
+#include "container_types_dcon.hpp"
+#include "dcon_generated.hpp"
+
+namespace sys { class state; }
+
+namespace economy::physical::factory_inputs {
+
+struct availability {
+	bool active = false;
+	float legacy_ratio = 1.0f;
+	float physical_ratio = 1.0f;
+};
+
+availability evaluate(sys::state const&, dcon::site_id, dcon::economic_actor_id,
+	economy::commodity_set const&, dcon::market_id, float input_scale);
+
+bool consume(sys::state&, dcon::site_id, dcon::economic_actor_id,
+	economy::commodity_set const&, float input_scale, float ratio);
+
+} // namespace economy::physical::factory_inputs

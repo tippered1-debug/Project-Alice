@@ -13,6 +13,9 @@
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/factory_output.hpp"
+#include "economy/physical/factory_inputs.hpp"
+#include "world/site.hpp"
+#include "actors/organizations/organizations.hpp"
 
 #include "province_templates.hpp"
 #include "advanced_province_buildings.hpp"
@@ -1681,6 +1684,14 @@ void update_single_factory_consumption(
 		fac.get_unqualified_employment(), fac.get_primary_employment(), fac.get_secondary_employment(),
 		float(fac_type.get_base_workforce())
 	) * std::max(0.f, mobilization_impact);
+	auto physical_input_site = ::world::site::site_for_factory(state, fac.id);
+	auto physical_input_owner = actors::organizations::operator_actor_for_factory(state, fac.id);
+	auto physical_inputs = ::economy::physical::factory_inputs::evaluate(
+		state, physical_input_site, physical_input_owner, direct_inputs, m,
+		input_multiplier * employment_units * throughput_multiplier);
+	if(::economy::physical::legacy_market_bridge::physical_path_enabled(state) && physical_inputs.active)
+		base_data.direct_inputs_data.min_available = std::min(
+			physical_inputs.legacy_ratio, physical_inputs.physical_ratio);
 	auto total_employment = fac.get_unqualified_employment() + fac.get_primary_employment() + fac.get_secondary_employment();
 
 	auto data = consume(
@@ -1693,6 +1704,10 @@ void update_single_factory_consumption(
 			state, fac_type.get_output(), ::world::legacy_bridge::province_for_factory(state, fac.id), fac.get_secondary_employment()
 		), max_employment, economy_reason::factory
 	);
+	if(::economy::physical::legacy_market_bridge::physical_path_enabled(state) && physical_inputs.active)
+		::economy::physical::factory_inputs::consume(
+			state, physical_input_site, physical_input_owner, direct_inputs,
+			data.direct_inputs_scale, base_data.direct_inputs_data.min_available);
 
 	auto current_size = state.world.factory_get_size(f);
 	auto ftid = state.world.factory_get_building_type(f);

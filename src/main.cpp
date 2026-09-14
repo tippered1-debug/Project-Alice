@@ -16,6 +16,7 @@
 #include "economy/physical/shipments.cpp"
 #include "economy/physical/legacy_market_bridge.cpp"
 #include "economy/physical/factory_output.cpp"
+#include "economy/physical/factory_inputs.cpp"
 #include "economy/relations/relations.cpp"
 #include "economy/accounts/accounts.cpp"
 #include "governance/governance.cpp"

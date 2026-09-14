@@ -7,6 +7,7 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/factory_output.hpp"
+#include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
@@ -310,6 +311,78 @@ TEST_CASE("physical_factory_output_uses_operator_owned_shipment_and_handoff", "[
 		::economy::physical::shipments::process_arrivals(*state);
 	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, operator_actor) == Approx(0.0f));
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(produced * std::pow(1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage, float(travel_days))).epsilon(0.00001));
+}
+
+TEST_CASE("physical_factory_inputs_use_operator_stock_and_bottleneck_ratio", "[economy][physical][factory]") {
+	auto state = std::make_unique<sys::state>();
+	auto site = state->world.create_site();
+	auto owner = state->world.create_economic_actor();
+	auto asset_owner = state->world.create_economic_actor();
+	auto first = state->world.create_commodity();
+	auto second = state->world.create_commodity();
+	state->world.commodity_set_is_local(first, false);
+	state->world.commodity_set_money_rgo(first, false);
+	state->world.commodity_set_is_local(second, false);
+	state->world.commodity_set_money_rgo(second, false);
+	economy::commodity_set inputs{};
+	inputs.commodity_type[0] = first;
+	inputs.commodity_amounts[0] = 2.0f;
+	inputs.commodity_type[1] = second;
+	inputs.commodity_amounts[1] = 4.0f;
+	REQUIRE(::economy::physical::inventory::add(*state, site, first, 2.0f, owner) == Approx(2.0f));
+	REQUIRE(::economy::physical::inventory::add(*state, site, second, 1.0f, owner) == Approx(1.0f));
+	// The second input is the bottleneck: 1 / 4 = 0.25, so production is capped at 25%.
+	auto availability = ::economy::physical::factory_inputs::evaluate(*state, site, owner, inputs, {}, 1.0f);
+	REQUIRE(availability.active);
+	REQUIRE(availability.physical_ratio == Approx(0.25f));
+	REQUIRE(::economy::physical::factory_inputs::consume(*state, site, owner, inputs, 1.0f, availability.physical_ratio));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, first, owner) == Approx(1.5f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, second, owner) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, first, asset_owner) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, second, asset_owner) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::remove(*state, site, second, 1.0f, owner) == Approx(0.0f));
+}
+
+TEST_CASE("physical_factory_inputs_full_and_half_supply_consume_once", "[economy][physical][factory]") {
+	auto state = std::make_unique<sys::state>();
+	auto site = state->world.create_site();
+	auto owner = state->world.create_economic_actor();
+	auto commodity = state->world.create_commodity();
+	state->world.commodity_set_is_local(commodity, false);
+	state->world.commodity_set_money_rgo(commodity, false);
+	economy::commodity_set inputs{};
+	inputs.commodity_type[0] = commodity;
+	inputs.commodity_amounts[0] = 2.0f;
+	REQUIRE(::economy::physical::inventory::add(*state, site, commodity, 2.0f, owner) == Approx(2.0f));
+	auto full = ::economy::physical::factory_inputs::evaluate(*state, site, owner, inputs, {}, 1.0f);
+	REQUIRE(full.physical_ratio == Approx(1.0f));
+	REQUIRE(::economy::physical::factory_inputs::consume(*state, site, owner, inputs, 1.0f, 1.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, owner) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::add(*state, site, commodity, 1.0f, owner) == Approx(1.0f));
+	auto half = ::economy::physical::factory_inputs::evaluate(*state, site, owner, inputs, {}, 1.0f);
+	REQUIRE(half.physical_ratio == Approx(0.5f));
+	REQUIRE(::economy::physical::factory_inputs::consume(*state, site, owner, inputs, 1.0f, half.physical_ratio));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, owner) == Approx(0.0f));
+}
+
+TEST_CASE("physical_factory_inputs_leave_local_and_missing_structure_on_legacy_path", "[economy][physical][factory]") {
+	auto state = std::make_unique<sys::state>();
+	auto commodity = state->world.create_commodity();
+	state->world.commodity_set_is_local(commodity, true);
+	state->world.commodity_set_money_rgo(commodity, false);
+	economy::commodity_set inputs{};
+	inputs.commodity_type[0] = commodity;
+	inputs.commodity_amounts[0] = 1.0f;
+	auto local = ::economy::physical::factory_inputs::evaluate(*state, {}, {}, inputs, {}, 1.0f);
+	REQUIRE_FALSE(local.active);
+	REQUIRE(local.physical_ratio == Approx(1.0f));
+	auto ordinary = state->world.create_commodity();
+	state->world.commodity_set_is_local(ordinary, false);
+	state->world.commodity_set_money_rgo(ordinary, false);
+	inputs.commodity_type[0] = ordinary;
+	auto missing = ::economy::physical::factory_inputs::evaluate(*state, {}, {}, inputs, {}, 1.0f);
+	REQUIRE_FALSE(missing.active);
+	REQUIRE_FALSE(::economy::physical::factory_inputs::consume(*state, {}, {}, inputs, 1.0f, 1.0f));
 }
 
 TEST_CASE("local_rgo_keeps_legacy_supply_in_physical_mode", "[economy][physical][integration]") {
