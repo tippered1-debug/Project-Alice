@@ -8,6 +8,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
+#include "economy/relations/relations.hpp"
 #include <limits>
 
 TEST_CASE("dl_setting", "[dcon]") {
@@ -336,4 +337,44 @@ TEST_CASE("owner_preservation_through_shipment_arrival", "[actors][ownership][ec
 	while(state->world.shipment_is_valid(shipment)) ::economy::physical::shipments::advance(*state);
 	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner_a) > 0.0f);
 	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner_b) == 0.0f);
+}
+
+TEST_CASE("transactions_and_obligations_preserve_concrete_relations", "[economy][relations]") {
+	auto state = std::make_unique<sys::state>();
+	auto payer = state->world.create_economic_actor();
+	auto payee = state->world.create_economic_actor();
+	auto commodity = state->world.create_commodity();
+	auto transaction = ::economy::relations::record_transaction(*state, payer, payee, 12.5f, commodity,
+		::economy::relations::transaction_kind::transfer, sys::date{});
+	REQUIRE(transaction);
+	REQUIRE(state->world.transaction_get_economic_actor_from_transaction_payer(transaction) == payer);
+	REQUIRE(state->world.transaction_get_economic_actor_from_transaction_payee(transaction) == payee);
+	REQUIRE(state->world.transaction_get_amount(transaction) == 12.5f);
+	REQUIRE(state->world.transaction_get_settlement_commodity(transaction) == commodity);
+	REQUIRE_FALSE(::economy::relations::record_transaction(*state, payer, payee, -1.0f, commodity, {}, sys::date{}));
+	REQUIRE_FALSE(::economy::relations::record_transaction(*state, payer, payee, std::numeric_limits<float>::quiet_NaN(), commodity, {}, sys::date{}));
+	auto obligation = ::economy::relations::create_obligation(*state, payer, payee, 100.0f, commodity, sys::date{}, sys::date{}, 0.10f, ::economy::relations::obligation_kind::loan);
+	REQUIRE(obligation);
+	REQUIRE(state->world.obligation_get_economic_actor_from_obligation_debtor(obligation) == payer);
+	REQUIRE(state->world.obligation_get_economic_actor_from_obligation_creditor(obligation) == payee);
+	REQUIRE(::economy::relations::repay_obligation(*state, obligation, 25.0f) == 25.0f);
+	REQUIRE(state->world.obligation_get_outstanding(obligation) == Approx(75.0f));
+	REQUIRE(::economy::relations::repay_obligation(*state, obligation, 1000.0f) == Approx(75.0f));
+	REQUIRE(state->world.obligation_get_status(obligation) == uint8_t(::economy::relations::obligation_status::paid));
+}
+
+TEST_CASE("obligation_interest_is_deterministic_and_cycles_are_supported", "[economy][relations]") {
+	auto state = std::make_unique<sys::state>();
+	auto a = state->world.create_economic_actor();
+	auto b = state->world.create_economic_actor();
+	auto c = state->world.create_economic_actor();
+	auto commodity = state->world.create_commodity();
+	auto ab = ::economy::relations::create_obligation(*state, a, b, 100.0f, commodity, sys::date{}, sys::date{}, 0.365f, {});
+	auto ba = ::economy::relations::create_obligation(*state, b, a, 40.0f, commodity, sys::date{}, sys::date{}, 0.0f, {});
+	auto bc = ::economy::relations::create_obligation(*state, b, c, 30.0f, commodity, sys::date{}, sys::date{}, 0.0f, {});
+	auto ca = ::economy::relations::create_obligation(*state, c, a, 20.0f, commodity, sys::date{}, sys::date{}, 0.0f, {});
+	REQUIRE(ab); REQUIRE(ba); REQUIRE(bc); REQUIRE(ca);
+	REQUIRE(::economy::relations::accrue_interest(*state, ab, 10) == Approx(1.0f).epsilon(0.00001));
+	REQUIRE(state->world.obligation_get_outstanding(ab) == Approx(101.0f).epsilon(0.00001));
+	REQUIRE(::economy::relations::outstanding_between(*state, a, b, commodity) == Approx(101.0f));
 }

@@ -5088,6 +5088,32 @@ object{
 }
 
 object{
+	name{ transaction }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ amount } type{ float } tag{ save } }
+	property{ name{ settlement_commodity } type{ commodity_id } tag{ save } }
+	property{ name{ timestamp } type{ sys::date } tag{ save } }
+}
+
+object{
+	name{ obligation }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ principal } type{ float } tag{ save } }
+	property{ name{ outstanding } type{ float } tag{ save } }
+	property{ name{ settlement_commodity } type{ commodity_id } tag{ save } }
+	property{ name{ creation_date } type{ sys::date } tag{ save } }
+	property{ name{ due_date } type{ sys::date } tag{ save } }
+	property{ name{ annual_interest_rate } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+}
+
+object{
 	name{ physical_stock }
 	storage_type{ erasable }
 	size{ 50000 }
@@ -5597,6 +5623,34 @@ relationship{
 	name{ shipment_owner }
 	tag{ save }
 	link{ object{ shipment } name{ shipment } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ transaction_payer }
+	tag{ save }
+	link{ object{ transaction } name{ transaction } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ transaction_payee }
+	tag{ save }
+	link{ object{ transaction } name{ transaction } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ obligation_debtor }
+	tag{ save }
+	link{ object{ obligation } name{ obligation } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ obligation_creditor }
+	tag{ save }
+	link{ object{ obligation } name{ obligation } type{ unique } }
 	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
 }
 

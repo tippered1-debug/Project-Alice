@@ -8,6 +8,9 @@
 
 namespace economy::credit {
 
+// Legacy aggregate credit adapter. Concrete economy::relations::obligation is
+// the future source of truth; migration is intentionally deferred.
+
 // The banking stock used to be a sink: it accrued government interest and POP
 // deposits, paid out a fixed dividend trickle, and never financed anything. This
 // module turns it into a lender, and turns the loan rate into a price that
