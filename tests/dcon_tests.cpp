@@ -290,6 +290,33 @@ TEST_CASE("actors_ownership_bootstrap_is_canonical", "[actors][ownership]") {
 	REQUIRE(::actors::ownership::asset_for_factory(*state, factory) == asset);
 }
 
+TEST_CASE("factory_bootstrap_does_not_turn_existing_operator_into_owner", "[actors][ownership]") {
+	auto state = std::make_unique<sys::state>();
+	auto factory = state->world.create_factory();
+	auto real_operator = ::actors::organizations::create_company(*state);
+	REQUIRE(::actors::organizations::bind_factory_operator(*state, real_operator, factory));
+	REQUIRE(state->world.ownership_stake_size() == 0);
+	::actors::ownership::bootstrap(*state);
+	auto asset = ::actors::ownership::asset_for_factory(*state, factory);
+	REQUIRE(asset);
+	REQUIRE(state->world.ownership_stake_size() == 0);
+	REQUIRE(::actors::organizations::operator_organization_for_factory(*state, factory) == real_operator);
+	::actors::ownership::bootstrap(*state);
+	REQUIRE(::actors::ownership::asset_for_factory(*state, factory) == asset);
+	REQUIRE(state->world.ownership_stake_size() == 0);
+
+	auto legacy_factory = state->world.create_factory();
+	::actors::ownership::bootstrap(*state);
+	auto legacy_operator = ::actors::organizations::operator_organization_for_factory(*state, legacy_factory);
+	REQUIRE(legacy_operator);
+	REQUIRE(state->world.economic_actor_get_is_legacy_placeholder(
+		::actors::organizations::actor_for_organization(*state, legacy_operator)));
+	REQUIRE(::actors::ownership::asset_for_factory(*state, legacy_factory));
+	REQUIRE(state->world.ownership_stake_size() == 1);
+	::actors::ownership::bootstrap(*state);
+	REQUIRE(state->world.ownership_stake_size() == 1);
+}
+
 TEST_CASE("economic_organizations_have_explicit_operations_and_ownership", "[actors][organizations]") {
 	auto state = std::make_unique<sys::state>();
 	REQUIRE_FALSE(::actors::organizations::create_organization(*state, ::actors::ownership::actor_kind::person));

@@ -77,9 +77,11 @@ dcon::ownership_stake_id create_stake(sys::state& state, dcon::economic_actor_id
 void bootstrap(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		auto organization = organizations::operator_organization_for_factory(state, factory);
+		bool created_legacy_placeholder = false;
 		if(!organization) {
 			organization = organizations::create_company(state);
 			if(organization) {
+				created_legacy_placeholder = true;
 				state.world.economic_actor_set_is_legacy_placeholder(organizations::actor_for_organization(state, organization), 1);
 				organizations::bind_factory_operator(state, organization, factory);
 			}
@@ -87,7 +89,8 @@ void bootstrap(sys::state& state) {
 		if(!asset_for_factory(state, factory) && organization) {
 			auto asset = state.world.create_asset();
 			state.world.force_create_factory_asset(factory, asset);
-			create_stake(state, organizations::actor_for_organization(state, organization), asset, 1.0f, 1.0f, 1.0f);
+			if(created_legacy_placeholder)
+				create_stake(state, organizations::actor_for_organization(state, organization), asset, 1.0f, 1.0f, 1.0f);
 		}
 	});
 	state.world.for_each_resource_deposit([&](dcon::resource_deposit_id deposit) {
