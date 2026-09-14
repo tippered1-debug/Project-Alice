@@ -8,6 +8,8 @@ namespace sys { class state; }
 
 namespace persons {
 
+// Low-level structural occupancy primitives. Normal governance commands must
+// use governance::actions authorization APIs.
 dcon::person_id create_person(sys::state&, sys::date birth_date);
 dcon::economic_actor_id actor_for_person(sys::state const&, dcon::person_id);
 dcon::office_tenure_id appoint_person(sys::state&, dcon::person_id, dcon::office_id, sys::date);

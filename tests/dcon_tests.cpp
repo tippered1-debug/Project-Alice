@@ -12,6 +12,7 @@
 #include "economy/accounts/accounts.hpp"
 #include "governance/governance.hpp"
 #include "persons/persons.hpp"
+#include "governance/actions/actions.hpp"
 #include <limits>
 
 TEST_CASE("dl_setting", "[dcon]") {
@@ -581,4 +582,76 @@ TEST_CASE("person_occupancy_temporal_invariants_are_atomic", "[persons][governan
 	REQUIRE_FALSE(::persons::mark_dead(*state, second_person, sys::date{199}));
 	REQUIRE(state->world.person_get_alive(second_person));
 	REQUIRE(state->world.person_get_death_date(second_person) == sys::date{});
+}
+
+TEST_CASE("governance_actions_require_current_office_authority", "[governance][actions][persons]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation_a = state->world.create_nation();
+	auto nation_b = state->world.create_nation();
+	auto institution_a = ::governance::create_institution(*state, nation_a, ::governance::institution_kind::central_government);
+	auto institution_b = ::governance::create_institution(*state, nation_b, ::governance::institution_kind::central_government);
+	auto authority_office = ::governance::create_office(*state, institution_a, ::governance::office_kind::president);
+	auto target_office = ::governance::create_office(*state, institution_a, ::governance::office_kind::finance_minister);
+	auto foreign_office = ::governance::create_office(*state, institution_b, ::governance::office_kind::finance_minister);
+	auto initiator = ::persons::create_person(*state, sys::date{1});
+	auto target = ::persons::create_person(*state, sys::date{1});
+	auto foreign_target = ::persons::create_person(*state, sys::date{1});
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, initiator, target, target_office, sys::date{10}));
+	REQUIRE(state->world.institutional_action_size() == 0);
+	REQUIRE_FALSE(::persons::occupant_of(*state, target_office));
+	REQUIRE(::persons::appoint_person(*state, initiator, authority_office, sys::date{10}));
+	REQUIRE(::governance::grant_authority_to_office(*state, authority_office, ::governance::authority_kind::appoint, nation_a));
+	auto appointment = ::governance::actions::authorized_appoint(*state, initiator, target, target_office, sys::date{20});
+	REQUIRE(appointment);
+	REQUIRE(state->world.institutional_action_get_kind(appointment) == uint8_t(::governance::actions::institutional_action_kind::appointment));
+	REQUIRE(state->world.institutional_action_get_occurred_on(appointment) == sys::date{20});
+	REQUIRE(state->world.institutional_action_get_person_from_institutional_action_initiator(appointment) == initiator);
+	REQUIRE(state->world.institutional_action_get_person_from_institutional_action_target_person(appointment) == target);
+	REQUIRE(state->world.institutional_action_get_office_from_institutional_action_target_office(appointment) == target_office);
+	REQUIRE(::persons::occupant_of(*state, target_office) == target);
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, initiator, foreign_target, foreign_office, sys::date{21}));
+	REQUIRE(state->world.institutional_action_size() == 1);
+	REQUIRE_FALSE(::governance::actions::authorized_dismiss(*state, initiator, target_office, sys::date{25}));
+	REQUIRE(state->world.institutional_action_size() == 1);
+	REQUIRE(::governance::grant_authority_to_office(*state, authority_office, ::governance::authority_kind::dismiss, nation_a));
+	auto dismissal = ::governance::actions::authorized_dismiss(*state, initiator, target_office, sys::date{30});
+	REQUIRE(dismissal);
+	REQUIRE(state->world.institutional_action_get_kind(dismissal) == uint8_t(::governance::actions::institutional_action_kind::dismissal));
+	REQUIRE(state->world.institutional_action_get_occurred_on(dismissal) == sys::date{30});
+	REQUIRE(state->world.institutional_action_get_person_from_institutional_action_initiator(dismissal) == initiator);
+	REQUIRE(state->world.institutional_action_get_person_from_institutional_action_target_person(dismissal) == target);
+	REQUIRE_FALSE(::persons::occupant_of(*state, target_office));
+	REQUIRE(::persons::appoint_person(*state, foreign_target, foreign_office, sys::date{40}));
+	REQUIRE(state->world.institutional_action_size() == 2);
+	REQUIRE_FALSE(::governance::actions::authorized_dismiss(*state, initiator, foreign_office, sys::date{41}));
+	REQUIRE(state->world.institutional_action_size() == 2);
+	REQUIRE(::persons::remove_from_office(*state, authority_office, sys::date{50}));
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, initiator, target, target_office, sys::date{51}));
+	REQUIRE_FALSE(::governance::actions::authorized_dismiss(*state, initiator, foreign_office, sys::date{51}));
+	REQUIRE(state->world.institutional_action_size() == 2);
+	auto self = ::persons::create_person(*state, sys::date{1});
+	auto self_office = ::governance::create_office(*state, institution_a, ::governance::office_kind::judge_seat);
+	REQUIRE(::governance::grant_authority_to_office(*state, self_office, ::governance::authority_kind::appoint, nation_a));
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, self, self, self_office, sys::date{60}));
+	REQUIRE(state->world.institutional_action_size() == 2);
+	auto self_authority_office = ::governance::create_office(*state, institution_a, ::governance::office_kind::agency_director);
+	REQUIRE(::persons::appoint_person(*state, self, self_authority_office, sys::date{60}));
+	REQUIRE(::governance::grant_authority_to_office(*state, self_authority_office, ::governance::authority_kind::appoint, nation_a));
+	auto self_appointment = ::governance::actions::authorized_appoint(*state, self, self, self_office, sys::date{70});
+	REQUIRE(self_appointment);
+	REQUIRE(::persons::occupant_of(*state, self_office) == self);
+	auto dead_target = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::mark_dead(*state, dead_target, sys::date{80}));
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, self, dead_target, target_office, sys::date{81}));
+	REQUIRE(state->world.institutional_action_size() == 3);
+	auto unborn_target = ::persons::create_person(*state, sys::date{100});
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, self, unborn_target, target_office, sys::date{90}));
+	REQUIRE(state->world.institutional_action_size() == 3);
+	REQUIRE(::persons::appoint_person(*state, target, target_office, sys::date{100}));
+	REQUIRE_FALSE(::governance::actions::authorized_dismiss(*state, self, target_office, sys::date{99}));
+	REQUIRE(state->world.institutional_action_size() == 3);
+	REQUIRE(::persons::occupant_of(*state, target_office) == target);
+	REQUIRE(::persons::mark_dead(*state, self, sys::date{110}));
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, self, foreign_target, foreign_office, sys::date{111}));
+	REQUIRE(state->world.institutional_action_size() == 3);
 }

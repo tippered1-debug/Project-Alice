@@ -5099,6 +5099,15 @@ object{
 }
 
 object{
+	name{ institutional_action }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ occurred_on } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ office }
 	storage_type{ erasable }
 	size{ 50000 }
@@ -5648,6 +5657,27 @@ relationship{
 	name{ office_tenure_office }
 	tag{ save }
 	link{ object{ office_tenure } name{ tenure } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ institutional_action_initiator }
+	tag{ save }
+	link{ object{ institutional_action } name{ action } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ institutional_action_target_person }
+	tag{ save }
+	link{ object{ institutional_action } name{ action } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ institutional_action_target_office }
+	tag{ save }
+	link{ object{ institutional_action } name{ action } type{ unique } }
 	link{ object{ office } name{ office } type{ many } index_storage{ array } }
 }
 
