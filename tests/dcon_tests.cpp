@@ -655,3 +655,36 @@ TEST_CASE("governance_actions_require_current_office_authority", "[governance][a
 	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, self, foreign_target, foreign_office, sys::date{111}));
 	REQUIRE(state->world.institutional_action_size() == 3);
 }
+
+TEST_CASE("institutional_actions_are_vacancy_and_authority_date_aware", "[governance][actions]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto institution = ::governance::create_institution(*state, nation, ::governance::institution_kind::central_government);
+	auto authority_office = ::governance::create_office(*state, institution, ::governance::office_kind::president);
+	auto target_office = ::governance::create_office(*state, institution, ::governance::office_kind::finance_minister);
+	auto initiator = ::persons::create_person(*state, sys::date{1});
+	auto target = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::appoint_person(*state, initiator, authority_office, sys::date{100}));
+	REQUIRE(::governance::grant_authority_to_office(*state, authority_office, ::governance::authority_kind::appoint, nation));
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, initiator, target, target_office, sys::date{99}));
+	REQUIRE(state->world.institutional_action_size() == 0);
+	REQUIRE_FALSE(::persons::occupant_of(*state, target_office));
+	auto appointment = ::governance::actions::authorized_appoint(*state, initiator, target, target_office, sys::date{100});
+	REQUIRE(appointment);
+	REQUIRE(::persons::occupant_of(*state, target_office) == target);
+	REQUIRE(state->world.institutional_action_size() == 1);
+	REQUIRE_FALSE(::governance::actions::authorized_appoint(*state, initiator, target, target_office, sys::date{101}));
+	REQUIRE(state->world.institutional_action_size() == 1);
+	REQUIRE(::persons::occupant_of(*state, target_office) == target);
+	REQUIRE(::persons::remove_from_office(*state, target_office, sys::date{110}));
+	REQUIRE(::persons::appoint_person(*state, target, target_office, sys::date{1}));
+	REQUIRE(::governance::grant_authority_to_office(*state, authority_office, ::governance::authority_kind::dismiss, nation));
+	REQUIRE_FALSE(::governance::actions::authorized_dismiss(*state, initiator, target_office, sys::date{99}));
+	REQUIRE(state->world.institutional_action_size() == 1);
+	auto active = ::persons::active_tenure_for(*state, target_office);
+	REQUIRE(active);
+	REQUIRE(state->world.office_tenure_get_active(active));
+	REQUIRE(::governance::actions::authorized_dismiss(*state, initiator, target_office, sys::date{100}));
+	REQUIRE(state->world.institutional_action_size() == 2);
+	REQUIRE_FALSE(::persons::active_tenure_for(*state, target_office));
+}
