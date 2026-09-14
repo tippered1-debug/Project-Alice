@@ -78,10 +78,11 @@ void process_rgo_output(sys::state& state) {
 				register_domestic_supply(state, market, commodity, output, economy_reason::rgo);
 				return;
 			}
-			auto extraction = deposits::extraction_site_for(state, province, commodity);
+			auto deposit = deposits::deposit_for(state, province, commodity);
+			auto extraction = deposit ? state.world.resource_deposit_get_site_from_resource_deposit_site(deposit) : dcon::site_id{};
 			if(!extraction)
 				return;
-			auto owner = actors::ownership::operator_for_site(state, extraction);
+			auto owner = actors::ownership::operator_for_deposit(state, deposit);
 			inventory::add(state, extraction, commodity, output, owner);
 			dispatch(state, extraction, hub, commodity, output, owner);
 		});

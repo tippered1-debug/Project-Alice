@@ -139,30 +139,30 @@ TEST_CASE("physical_inventory_dispatch_and_arrival_conserve_stock", "[economy][p
 	state->world.force_create_site_location(second_site, second_province);
 	auto commodity = state->world.create_commodity();
 
-	auto canonical = ::economy::physical::inventory::ensure(*state, first_site, commodity);
-	REQUIRE(::economy::physical::inventory::ensure(*state, first_site, commodity) == canonical);
+	auto canonical = ::economy::physical::inventory::ensure(*state, first_site, commodity, {});
+	REQUIRE(::economy::physical::inventory::ensure(*state, first_site, commodity, {}) == canonical);
 	REQUIRE(state->world.physical_stock_size() == 1);
-	REQUIRE(::economy::physical::inventory::add(*state, first_site, commodity, 10.0f) == 10.0f);
-	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 10.0f);
-	auto shipment = ::economy::physical::shipments::dispatch(*state, first_site, second_site, commodity, 6.0f);
+	REQUIRE(::economy::physical::inventory::add(*state, first_site, commodity, 10.0f, {}) == 10.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity, {}) == 10.0f);
+	auto shipment = ::economy::physical::shipments::dispatch(*state, first_site, second_site, commodity, 6.0f, {});
 	REQUIRE(shipment);
-	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 4.0f);
-	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) == 0.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity, {}) == 4.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity, {}) == 0.0f);
 	state->world.shipment_set_remaining_days(shipment, 2);
 	constexpr float initial_quantity = 10.0f;
 	constexpr float origin_quantity = 4.0f;
 	auto spoilage = economy::logistics::profile_for(*state, commodity).daily_spoilage;
 	::economy::physical::shipments::advance(*state);
 	REQUIRE(state->world.shipment_is_valid(shipment));
-	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity) == 0.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, second_site, commodity, {}) == 0.0f);
 	auto in_transit = state->world.shipment_get_remaining_quantity(shipment);
 	auto spoiled = 6.0f - in_transit;
 	REQUIRE(in_transit == Approx(6.0f * (1.0f - spoilage)).epsilon(0.00001));
 	REQUIRE(origin_quantity + in_transit + spoiled == Approx(initial_quantity).epsilon(0.00001));
 	::economy::physical::shipments::advance(*state);
 	REQUIRE(!state->world.shipment_is_valid(shipment));
-	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity) == 4.0f);
-	auto destination_quantity = ::economy::physical::inventory::quantity(*state, second_site, commodity);
+	REQUIRE(::economy::physical::inventory::quantity(*state, first_site, commodity, {}) == 4.0f);
+	auto destination_quantity = ::economy::physical::inventory::quantity(*state, second_site, commodity, {});
 	spoiled = 6.0f - destination_quantity;
 	REQUIRE(destination_quantity == Approx(6.0f * (1.0f - spoilage) * (1.0f - spoilage)).epsilon(0.00001));
 	REQUIRE(origin_quantity + destination_quantity + spoiled == Approx(initial_quantity).epsilon(0.00001));
@@ -299,4 +299,41 @@ TEST_CASE("physical_stock_identity_includes_owner", "[actors][ownership][economy
 	REQUIRE(::economy::physical::inventory::add(*state, site, commodity, 4.0f, owner_a) == 4.0f);
 	REQUIRE(::economy::physical::inventory::remove(*state, site, commodity, 3.0f, owner_b) == 0.0f);
 	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, owner_a) == 4.0f);
+}
+
+TEST_CASE("ownership_stakes_allow_residuals_and_cross_holdings", "[actors][ownership]") {
+	auto state = std::make_unique<sys::state>();
+	auto asset = state->world.create_asset();
+	auto actor_a = state->world.create_economic_actor();
+	auto actor_b = state->world.create_economic_actor();
+	REQUIRE(::actors::ownership::create_stake(*state, actor_a, asset, 0.4f, 0.4f, 0.4f));
+	REQUIRE(::actors::ownership::create_stake(*state, actor_b, asset, 0.5f, 0.5f, 0.5f));
+	REQUIRE_FALSE(::actors::ownership::create_stake(*state, state->world.create_economic_actor(), asset, 0.2f, 0.2f, 0.2f));
+	auto org_a = state->world.create_organization();
+	auto org_b = state->world.create_organization();
+	state->world.force_create_organization_actor(org_a, actor_a);
+	state->world.force_create_organization_actor(org_b, actor_b);
+	auto equity_a = state->world.create_asset();
+	auto equity_b = state->world.create_asset();
+	state->world.force_create_organization_equity_asset(org_a, equity_a);
+	state->world.force_create_organization_equity_asset(org_b, equity_b);
+	REQUIRE(::actors::ownership::create_stake(*state, actor_a, equity_b, 1.0f, 1.0f, 1.0f));
+	REQUIRE(::actors::ownership::create_stake(*state, actor_b, equity_a, 1.0f, 1.0f, 1.0f));
+}
+
+TEST_CASE("owner_preservation_through_shipment_arrival", "[actors][ownership][economy][physical]") {
+	auto state = std::make_unique<sys::state>();
+	auto origin = state->world.create_site();
+	auto destination = state->world.create_site();
+	auto commodity = state->world.create_commodity();
+	auto owner_a = state->world.create_economic_actor();
+	auto owner_b = state->world.create_economic_actor();
+	::economy::physical::inventory::ensure(*state, origin, commodity, owner_b);
+	::economy::physical::inventory::add(*state, origin, commodity, 5.0f, owner_a);
+	auto shipment = ::economy::physical::shipments::dispatch(*state, origin, destination, commodity, 5.0f, owner_a);
+	REQUIRE(shipment);
+	REQUIRE(state->world.shipment_get_economic_actor_from_shipment_owner(shipment) == owner_a);
+	while(state->world.shipment_is_valid(shipment)) ::economy::physical::shipments::advance(*state);
+	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner_a) > 0.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner_b) == 0.0f);
 }

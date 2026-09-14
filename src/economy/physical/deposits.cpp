@@ -16,7 +16,12 @@ dcon::site_id make_site(sys::state& state, dcon::province_id province) {
 }
 
 dcon::site_id extraction_site_for(sys::state const& state, dcon::province_id province, dcon::commodity_id commodity) {
-	dcon::site_id result{};
+	auto deposit = deposit_for(state, province, commodity);
+	return deposit ? state.world.resource_deposit_get_site_from_resource_deposit_site(deposit) : dcon::site_id{};
+}
+
+dcon::resource_deposit_id deposit_for(sys::state const& state, dcon::province_id province, dcon::commodity_id commodity) {
+	dcon::resource_deposit_id result{};
 	state.world.province_for_each_site_location_as_province(province, [&](dcon::site_location_id location) {
 		if(result)
 			return;
@@ -24,7 +29,7 @@ dcon::site_id extraction_site_for(sys::state const& state, dcon::province_id pro
 		state.world.site_for_each_resource_deposit_site_as_site(site, [&](dcon::resource_deposit_site_id relation) {
 			auto deposit = state.world.resource_deposit_site_get_resource_deposit(relation);
 			if(state.world.resource_deposit_get_commodity(deposit) == commodity)
-				result = site;
+				result = deposit;
 		});
 	});
 	return result;

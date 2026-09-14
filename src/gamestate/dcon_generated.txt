@@ -5561,8 +5561,8 @@ relationship{
 relationship{
 	name{ organization_factory_operator }
 	tag{ save }
-	link{ object{ organization } name{ organization } type{ unique } }
-	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+	link{ object{ factory } name{ factory } type{ unique } }
 }
 
 relationship{
