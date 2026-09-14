@@ -12,6 +12,7 @@
 #include "world/legacy_bridge.hpp"
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/physical/factory_output.hpp"
 
 #include "province_templates.hpp"
 #include "advanced_province_buildings.hpp"
@@ -1817,7 +1818,10 @@ void update_factories_production(
 		auto production = state.world.factory_get_output(factory);
 		auto factory_type = state.world.factory_get_building_type(factory);
 		auto cid = state.world.factory_type_get_output(factory_type);
-		register_domestic_supply(state, local_market, cid, production, economy_reason::factory);
+		if(::economy::physical::legacy_market_bridge::physical_path_enabled(state))
+			::economy::physical::factory_output::materialize_and_dispatch(state, factory, production);
+		else
+			register_domestic_supply(state, local_market, cid, production, economy_reason::factory);
 	});
 }
 

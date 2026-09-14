@@ -38,6 +38,7 @@
 #include "national_budget.hpp"
 #include "policy_execution.hpp"
 #include "gamerule.hpp"
+#include "economy/physical/shipments.hpp"
 #include <vector>
 #include <algorithm>
 #include <cstdio>
@@ -4516,6 +4517,9 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	advanced_province_buildings::update_production(state);
 
 	set_profile_point(state, "apb production");
+
+	if(gamerule::age_of_transformation_enabled(state))
+		::economy::physical::shipments::process_arrivals(state);
 
 	update_factories_production(state);
 

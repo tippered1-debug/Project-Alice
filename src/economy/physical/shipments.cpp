@@ -42,7 +42,7 @@ dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_i
 
 void advance(sys::state& state) {
 	state.world.for_each_shipment([&](dcon::shipment_id shipment) {
-		auto commodity = state.world.shipment_get_commodity(shipment);
+		dcon::commodity_id commodity = state.world.shipment_get_commodity(shipment);
 		auto profile = logistics::profile_for(state, commodity);
 		auto remaining = std::max(0.0f, state.world.shipment_get_remaining_quantity(shipment));
 		remaining *= std::max(0.0f, 1.0f - profile.daily_spoilage);
@@ -51,16 +51,21 @@ void advance(sys::state& state) {
 			state.world.shipment_set_remaining_quantity(shipment, remaining);
 			return;
 		}
-		auto destination = state.world.shipment_get_site_from_shipment_destination(shipment);
-		auto owner = state.world.shipment_get_economic_actor_from_shipment_owner(shipment);
+		auto destination_relation = state.world.shipment_get_shipment_destination(shipment);
+		auto destination = state.world.shipment_destination_get_site(destination_relation);
+		auto owner_relation = state.world.shipment_get_shipment_owner(shipment);
+		auto owner = state.world.shipment_owner_get_economic_actor(owner_relation);
 		inventory::add(state, destination, commodity, remaining, owner);
 		state.world.delete_shipment(shipment);
 	});
 }
 
-void process_rgo_output(sys::state& state) {
+void process_arrivals(sys::state& state) {
 	advance(state);
 	legacy_market_bridge::handoff_arrived_stock(state);
+}
+
+void process_rgo_output(sys::state& state) {
 	state.world.for_each_province([&](dcon::province_id province) {
 		auto zone = state.world.province_get_state_membership(province);
 		auto market = state.world.state_instance_get_market_from_local_market(zone);

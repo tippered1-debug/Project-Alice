@@ -6,6 +6,7 @@
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/physical/factory_output.hpp"
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
@@ -243,6 +244,72 @@ TEST_CASE("physical_rgo_arrives_once_at_legacy_market", "[economy][physical][int
 	auto expected = 5.0f * (1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(expected).epsilon(0.00001));
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(expected).epsilon(0.00001));
+}
+
+TEST_CASE("physical_factory_output_uses_operator_owned_shipment_and_handoff", "[economy][physical][factory]") {
+	auto state = std::make_unique<sys::state>();
+	state->force_age_of_transformation_ruleset = true;
+	state->map_state.map_data.world_circumference = 10000.0f;
+	auto factory_province = state->world.create_province();
+	auto capital_province = state->world.create_province();
+	state->world.province_set_mid_point_b(factory_province, glm::vec3{1.0f, 0.0f, 0.0f});
+	state->world.province_set_mid_point_b(capital_province, glm::vec3{0.0f, 1.0f, 0.0f});
+	auto zone = state->world.create_state_instance();
+	auto market = state->world.create_market();
+	state->world.state_instance_set_capital(zone, capital_province);
+	state->world.state_instance_set_market_from_local_market(zone, market);
+	state->world.market_set_zone_from_local_market(market, zone);
+	state->world.province_set_state_membership(factory_province, zone);
+	state->world.province_set_state_membership(capital_province, zone);
+	auto commodity = state->world.create_commodity();
+	state->world.market_resize_stockpile(state->world.commodity_size());
+	state->world.market_resize_supply(state->world.commodity_size());
+	state->world.commodity_set_is_local(commodity, false);
+	state->world.commodity_set_money_rgo(commodity, false);
+	auto factory_type = state->world.create_factory_type();
+	state->world.factory_type_set_output(factory_type, commodity);
+	auto factory = state->world.create_factory();
+	state->world.factory_set_building_type(factory, factory_type);
+	state->world.force_create_factory_location(factory, factory_province);
+	::world::legacy_bridge::bootstrap_factory_sites(*state);
+	::economy::physical::deposits::bootstrap(*state);
+	auto company = ::actors::organizations::create_company(*state);
+	REQUIRE(::actors::organizations::bind_factory_operator(*state, company, factory));
+	auto operator_actor = ::actors::organizations::operator_actor_for_factory(*state, factory);
+	constexpr float produced = 12.0f;
+	REQUIRE(::economy::physical::factory_output::materialize_and_dispatch(*state, factory, produced));
+	REQUIRE(state->world.shipment_size() == 1);
+	auto factory_site = ::world::site::site_for_factory(*state, factory);
+	auto hub = ::economy::physical::deposits::market_hub_for(*state, market);
+	REQUIRE(factory_site);
+	REQUIRE(hub);
+	REQUIRE(::economy::physical::inventory::quantity(*state, factory_site, commodity, operator_actor) == Approx(0.0f));
+	dcon::shipment_id shipment{};
+	state->world.for_each_shipment([&](dcon::shipment_id candidate) { shipment = candidate; });
+	REQUIRE(shipment);
+	REQUIRE(state->world.shipment_is_valid(shipment));
+	auto origin_relation = state->world.shipment_get_shipment_origin(shipment);
+	REQUIRE(origin_relation);
+	REQUIRE(state->world.shipment_origin_is_valid(origin_relation));
+	REQUIRE(state->world.shipment_origin_get_site(origin_relation) == factory_site);
+	auto destination_relation = state->world.shipment_get_shipment_destination(shipment);
+	REQUIRE(state->world.shipment_destination_is_valid(destination_relation));
+	REQUIRE(state->world.shipment_destination_get_site(destination_relation) == hub);
+	auto owner_relation = state->world.shipment_get_shipment_owner(shipment);
+	REQUIRE(state->world.shipment_owner_is_valid(owner_relation));
+	REQUIRE(state->world.shipment_owner_get_economic_actor(owner_relation) == operator_actor);
+	REQUIRE(state->world.shipment_get_commodity(shipment) == commodity);
+	REQUIRE(state->world.shipment_get_remaining_quantity(shipment) == Approx(produced));
+	auto travel_days = state->world.shipment_get_remaining_days(shipment);
+	REQUIRE(travel_days > 1);
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
+	::economy::physical::shipments::process_arrivals(*state);
+	REQUIRE(state->world.shipment_is_valid(shipment));
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
+	while(state->world.shipment_size() != 0)
+		::economy::physical::shipments::process_arrivals(*state);
+	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, operator_actor) == Approx(0.0f));
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(produced * std::pow(1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage, float(travel_days))).epsilon(0.00001));
 }
 
 TEST_CASE("local_rgo_keeps_legacy_supply_in_physical_mode", "[economy][physical][integration]") {

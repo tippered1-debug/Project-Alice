@@ -18,8 +18,7 @@ void handoff_arrived_stock(sys::state& state) {
 		if(!hub)
 			return;
 		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-			if(state.world.commodity_get_rgo_amount(commodity) <= 0.0f
-				|| state.world.commodity_get_money_rgo(commodity)
+			if(state.world.commodity_get_money_rgo(commodity)
 				|| state.world.commodity_get_is_local(commodity))
 				return;
 			float moved_total = 0.0f;
