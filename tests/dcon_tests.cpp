@@ -7,6 +7,7 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/legacy_market_bridge.hpp"
+#include "actors/ownership.hpp"
 #include <limits>
 
 TEST_CASE("dl_setting", "[dcon]") {
@@ -265,4 +266,37 @@ TEST_CASE("local_rgo_keeps_legacy_supply_in_physical_mode", "[economy][physical]
 	REQUIRE(state->world.market_get_supply(market, commodity) == Approx(3.0f));
 	REQUIRE(state->world.shipment_size() == 0);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
+}
+
+TEST_CASE("actors_ownership_bootstrap_is_canonical", "[actors][ownership]") {
+	auto state = std::make_unique<sys::state>();
+	state->world.create_factory();
+	::actors::ownership::bootstrap(*state);
+	REQUIRE(state->world.asset_size() == 2);
+	REQUIRE(state->world.economic_actor_size() == 1);
+	REQUIRE(state->world.organization_size() == 1);
+	REQUIRE(state->world.ownership_stake_size() == 1);
+	auto factory = dcon::factory_id{dcon::factory_id::value_base_t(0)};
+	auto asset = ::actors::ownership::asset_for_factory(*state, factory);
+	REQUIRE(asset);
+	::actors::ownership::bootstrap(*state);
+	REQUIRE(state->world.asset_size() == 2);
+	REQUIRE(::actors::ownership::asset_for_factory(*state, factory) == asset);
+}
+
+TEST_CASE("physical_stock_identity_includes_owner", "[actors][ownership][economy][physical]") {
+	auto state = std::make_unique<sys::state>();
+	auto site = state->world.create_site();
+	auto commodity = state->world.create_commodity();
+	auto owner_a = state->world.create_economic_actor();
+	auto owner_b = state->world.create_economic_actor();
+	auto stock_a = ::economy::physical::inventory::ensure(*state, site, commodity, owner_a);
+	auto stock_a_again = ::economy::physical::inventory::ensure(*state, site, commodity, owner_a);
+	auto stock_b = ::economy::physical::inventory::ensure(*state, site, commodity, owner_b);
+	REQUIRE(stock_a == stock_a_again);
+	REQUIRE(stock_a != stock_b);
+	REQUIRE(state->world.physical_stock_size() == 2);
+	REQUIRE(::economy::physical::inventory::add(*state, site, commodity, 4.0f, owner_a) == 4.0f);
+	REQUIRE(::economy::physical::inventory::remove(*state, site, commodity, 3.0f, owner_b) == 0.0f);
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, owner_a) == 4.0f);
 }

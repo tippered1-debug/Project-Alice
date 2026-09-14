@@ -5054,6 +5054,40 @@ object{
 }
 
 object{
+	name{ economic_actor }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ is_legacy_placeholder } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ organization }
+	storage_type{ erasable }
+	size{ 30000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ asset }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+}
+
+object{
+	name{ ownership_stake }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ ownership_fraction } type{ float } tag{ save } }
+	property{ name{ voting_fraction } type{ float } tag{ save } }
+	property{ name{ economic_fraction } type{ float } tag{ save } }
+}
+
+object{
 	name{ physical_stock }
 	storage_type{ erasable }
 	size{ 50000 }
@@ -5501,6 +5535,69 @@ relationship{
 	tag{ save }
 	link{ object{ shipment } name{ shipment } type{ unique } }
 	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ organization_actor }
+	tag{ save }
+	link{ object{ organization } name{ organization } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ organization_equity_asset }
+	tag{ save }
+	link{ object{ organization } name{ organization } type{ unique } }
+	link{ object{ asset } name{ asset } type{ unique } }
+}
+
+relationship{
+	name{ factory_asset }
+	tag{ save }
+	link{ object{ factory } name{ factory } type{ unique } }
+	link{ object{ asset } name{ asset } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ organization_factory_operator }
+	tag{ save }
+	link{ object{ organization } name{ organization } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ resource_deposit_operator }
+	tag{ save }
+	link{ object{ resource_deposit } name{ resource_deposit } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ ownership_stake_owner }
+	tag{ save }
+	link{ object{ ownership_stake } name{ ownership_stake } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ ownership_stake_asset }
+	tag{ save }
+	link{ object{ ownership_stake } name{ ownership_stake } type{ unique } }
+	link{ object{ asset } name{ asset } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ physical_stock_owner }
+	tag{ save }
+	link{ object{ physical_stock } name{ physical_stock } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ shipment_owner }
+	tag{ save }
+	link{ object{ shipment } name{ shipment } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
 }
 
 relationship{

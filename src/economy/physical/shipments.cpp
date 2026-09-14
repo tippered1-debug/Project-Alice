@@ -7,6 +7,7 @@
 #include "economy_production.hpp"
 #include "commodity_logistics.hpp"
 #include "economy_stats.hpp"
+#include "actors/ownership.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -20,10 +21,10 @@ uint32_t compatibility_travel_days(float distance) noexcept {
 }
 
 dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_id destination,
-	dcon::commodity_id commodity, float amount) {
+	dcon::commodity_id commodity, float amount, dcon::economic_actor_id owner) {
 	if(!origin || !destination || !commodity || !std::isfinite(amount) || amount <= 0.0f)
 		return dcon::shipment_id{};
-	auto removed = inventory::remove(state, origin, commodity, amount);
+	auto removed = inventory::remove(state, origin, commodity, amount, owner);
 	if(removed <= 0.0f)
 		return dcon::shipment_id{};
 	auto shipment = state.world.create_shipment();
@@ -35,6 +36,7 @@ dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_i
 	state.world.shipment_set_remaining_days(shipment, compatibility_travel_days(distance));
 	state.world.force_create_shipment_origin(shipment, origin);
 	state.world.force_create_shipment_destination(shipment, destination);
+	if(owner) state.world.force_create_shipment_owner(shipment, owner);
 	return shipment;
 }
 
@@ -50,7 +52,8 @@ void advance(sys::state& state) {
 			return;
 		}
 		auto destination = state.world.shipment_get_site_from_shipment_destination(shipment);
-		inventory::add(state, destination, commodity, remaining);
+		auto owner = state.world.shipment_get_economic_actor_from_shipment_owner(shipment);
+		inventory::add(state, destination, commodity, remaining, owner);
 		state.world.delete_shipment(shipment);
 	});
 }
@@ -78,8 +81,9 @@ void process_rgo_output(sys::state& state) {
 			auto extraction = deposits::extraction_site_for(state, province, commodity);
 			if(!extraction)
 				return;
-			inventory::add(state, extraction, commodity, output);
-			dispatch(state, extraction, hub, commodity, output);
+			auto owner = actors::ownership::operator_for_site(state, extraction);
+			inventory::add(state, extraction, commodity, output, owner);
+			dispatch(state, extraction, hub, commodity, output, owner);
 		});
 	});
 }

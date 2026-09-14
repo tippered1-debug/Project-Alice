@@ -16,14 +16,18 @@ dcon::site_id make_site(sys::state& state, dcon::province_id province) {
 }
 
 dcon::site_id extraction_site_for(sys::state const& state, dcon::province_id province, dcon::commodity_id commodity) {
-	for(auto deposit : state.world.in_resource_deposit) {
-		if(state.world.resource_deposit_get_commodity(deposit) != commodity)
-			continue;
-		auto site = state.world.resource_deposit_get_site_from_resource_deposit_site(deposit.id);
-		if(site && state.world.site_get_province_from_site_location(site) == province)
-			return site;
-	}
-	return dcon::site_id{};
+	dcon::site_id result{};
+	state.world.province_for_each_site_location_as_province(province, [&](dcon::site_location_id location) {
+		if(result)
+			return;
+		auto site = state.world.site_location_get_site(location);
+		state.world.site_for_each_resource_deposit_site_as_site(site, [&](dcon::resource_deposit_site_id relation) {
+			auto deposit = state.world.resource_deposit_site_get_resource_deposit(relation);
+			if(state.world.resource_deposit_get_commodity(deposit) == commodity)
+				result = site;
+		});
+	});
+	return result;
 }
 
 dcon::site_id market_hub_for(sys::state const& state, dcon::market_id market) {

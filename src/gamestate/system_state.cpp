@@ -39,6 +39,7 @@
 #include "dcon_oos_reporter_generated.hpp"
 #include "world/legacy_bridge.hpp"
 #include "economy/physical/deposits.hpp"
+#include "actors/ownership.hpp"
 
 namespace sys {
 
@@ -4167,6 +4168,7 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 	ui_date = current_date;
 	::world::legacy_bridge::bootstrap_factory_sites(*this);
 	::economy::physical::deposits::bootstrap(*this);
+	::actors::ownership::bootstrap(*this);
 
 	//copy current day's data to the alt store
 
