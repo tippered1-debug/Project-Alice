@@ -15,6 +15,7 @@
 #include "economy/physical/shipments.cpp"
 #include "economy/physical/legacy_market_bridge.cpp"
 #include "economy/relations/relations.cpp"
+#include "economy/accounts/accounts.cpp"
 #include "dcon_oos_reporter_generated.cpp"
 #ifndef INCREMENTAL
 #include "ui_state.cpp"

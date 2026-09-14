@@ -9,6 +9,7 @@
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
 #include "economy/relations/relations.hpp"
+#include "economy/accounts/accounts.hpp"
 #include <limits>
 
 TEST_CASE("dl_setting", "[dcon]") {
@@ -389,4 +390,54 @@ TEST_CASE("obligation_interest_is_deterministic_and_cycles_are_supported", "[eco
 	REQUIRE(state->world.obligation_get_accrued_interest(ab) == Approx(0.0f));
 	REQUIRE(state->world.obligation_get_principal_outstanding(ab) == Approx(90.0f));
 	REQUIRE(::economy::relations::outstanding_between(*state, a, b, commodity) == Approx(90.0f));
+}
+
+TEST_CASE("monetary_accounts_transfer_atomically", "[economy][accounts]") {
+	auto state = std::make_unique<sys::state>();
+	auto actor_a = state->world.create_economic_actor();
+	auto actor_b = state->world.create_economic_actor();
+	auto usd = state->world.create_commodity();
+	auto eur = state->world.create_commodity();
+	auto source = ::economy::accounts::open_account(*state, actor_a, usd);
+	auto destination = ::economy::accounts::open_account(*state, actor_b, usd);
+	auto second_usd = ::economy::accounts::open_account(*state, actor_a, usd);
+	auto euros = ::economy::accounts::open_account(*state, actor_b, eur);
+	REQUIRE(source); REQUIRE(destination); REQUIRE(second_usd); REQUIRE(euros);
+	REQUIRE(::economy::accounts::owner_of(*state, source) == actor_a);
+	REQUIRE(::economy::accounts::settlement_of(*state, source) == usd);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, source, 100.0f));
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, destination, 7.0f));
+	auto transaction = ::economy::accounts::transfer(*state, source, destination, 25.0f,
+		::economy::relations::transaction_kind::transfer, sys::date{});
+	REQUIRE(transaction);
+	REQUIRE(::economy::accounts::balance(*state, source) == Approx(75.0f));
+	REQUIRE(::economy::accounts::balance(*state, destination) == Approx(32.0f));
+	REQUIRE(state->world.transaction_get_economic_actor_from_transaction_payer(transaction) == actor_a);
+	REQUIRE(state->world.transaction_get_economic_actor_from_transaction_payee(transaction) == actor_b);
+	REQUIRE(state->world.transaction_get_monetary_account_from_transaction_source_account(transaction) == source);
+	REQUIRE(state->world.transaction_get_monetary_account_from_transaction_destination_account(transaction) == destination);
+	REQUIRE_FALSE(::economy::accounts::transfer(*state, source, euros, 1.0f, {}, sys::date{}));
+	REQUIRE_FALSE(::economy::accounts::transfer(*state, source, source, 1.0f, {}, sys::date{}));
+	REQUIRE_FALSE(::economy::accounts::transfer(*state, source, destination, -1.0f, {}, sys::date{}));
+	REQUIRE(::economy::accounts::balance(*state, source) == Approx(75.0f));
+}
+
+TEST_CASE("obligation_payment_settles_cash_and_debt_atomically", "[economy][accounts][relations]") {
+	auto state = std::make_unique<sys::state>();
+	auto debtor = state->world.create_economic_actor();
+	auto creditor = state->world.create_economic_actor();
+	auto commodity = state->world.create_commodity();
+	auto debtor_account = ::economy::accounts::open_account(*state, debtor, commodity);
+	auto creditor_account = ::economy::accounts::open_account(*state, creditor, commodity);
+	::economy::accounts::bootstrap_set_balance(*state, debtor_account, 100.0f);
+	auto obligation = ::economy::relations::create_obligation(*state, debtor, creditor, 100.0f, commodity, {}, {}, 0.0f, {});
+	REQUIRE(obligation);
+	REQUIRE(::economy::accounts::settle_obligation_payment(*state, obligation, debtor_account, creditor_account, 60.0f, {}) != dcon::transaction_id{});
+	REQUIRE(::economy::accounts::balance(*state, debtor_account) == Approx(40.0f));
+	REQUIRE(::economy::accounts::balance(*state, creditor_account) == Approx(60.0f));
+	REQUIRE(::economy::relations::total_due(*state, obligation) == Approx(40.0f));
+	REQUIRE(::economy::accounts::settle_obligation_payment(*state, obligation, debtor_account, creditor_account, 1000.0f, {}));
+	REQUIRE(::economy::accounts::balance(*state, debtor_account) == Approx(0.0f));
+	REQUIRE(::economy::relations::total_due(*state, obligation) == Approx(0.0f));
+	REQUIRE(state->world.obligation_get_status(obligation) == uint8_t(::economy::relations::obligation_status::paid));
 }
