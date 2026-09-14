@@ -22,12 +22,18 @@ void handoff_arrived_stock(sys::state& state) {
 				|| state.world.commodity_get_money_rgo(commodity)
 				|| state.world.commodity_get_is_local(commodity))
 				return;
-			auto moved = inventory::quantity(state, hub, commodity);
-			if(moved <= 0.0f)
-				return;
-			moved = inventory::remove(state, hub, commodity, moved);
-			state.world.market_set_stockpile(market, commodity,
-				state.world.market_get_stockpile(market, commodity) + moved);
+			float moved_total = 0.0f;
+			state.world.site_for_each_physical_stock_site_as_site(hub, [&](dcon::physical_stock_site_id relation) {
+				auto stock = state.world.physical_stock_site_get_physical_stock(relation);
+				if(state.world.physical_stock_get_commodity_from_physical_stock_commodity(stock) != commodity)
+					return;
+				auto owner = state.world.physical_stock_get_economic_actor_from_physical_stock_owner(stock);
+				auto amount = inventory::quantity(state, hub, commodity, owner);
+				moved_total += inventory::remove(state, hub, commodity, amount, owner);
+			});
+			if(moved_total > 0.0f)
+				state.world.market_set_stockpile(market, commodity,
+					state.world.market_get_stockpile(market, commodity) + moved_total);
 		});
 	});
 }
