@@ -31,7 +31,7 @@ dcon::office_tenure_id active_tenure_for(sys::state const& s, dcon::office_id of
 }
 
 dcon::office_tenure_id appoint_person(sys::state& s, dcon::person_id person, dcon::office_id office, sys::date date) {
-	if(!person || !office || !s.world.person_get_alive(person)) return {};
+	if(!person || !office || !s.world.person_get_alive(person) || date < s.world.person_get_birth_date(person)) return {};
 	if(auto active = active_tenure_for(s, office)) {
 		auto occupant = s.world.office_tenure_get_person_from_office_tenure_person(active);
 		return occupant == person ? active : dcon::office_tenure_id{};
@@ -46,7 +46,7 @@ dcon::office_tenure_id appoint_person(sys::state& s, dcon::person_id person, dco
 
 bool remove_from_office(sys::state& s, dcon::office_id office, sys::date date) {
 	auto tenure = active_tenure_for(s, office);
-	if(!tenure) return false;
+	if(!tenure || date < s.world.office_tenure_get_started_on(tenure)) return false;
 	s.world.office_tenure_set_active(tenure, uint8_t(0));
 	s.world.office_tenure_set_ended_on(tenure, date);
 	return true;
@@ -84,10 +84,15 @@ bool person_has_authority(sys::state const& s, dcon::person_id person, governanc
 }
 
 bool mark_dead(sys::state& s, dcon::person_id person, sys::date date) {
-	if(!person || !s.world.person_get_alive(person)) return false;
+	if(!person || !s.world.person_get_alive(person) || date < s.world.person_get_birth_date(person)) return false;
+	auto offices = active_offices_of(s, person);
+	for(auto office : offices) {
+		auto tenure = active_tenure_for(s, office);
+		if(tenure && s.world.office_tenure_get_started_on(tenure) > date) return false;
+	}
 	s.world.person_set_alive(person, uint8_t(0));
 	s.world.person_set_death_date(person, date);
-	for(auto office : active_offices_of(s, person)) remove_from_office(s, office, date);
+	for(auto office : offices) remove_from_office(s, office, date);
 	return true;
 }
 

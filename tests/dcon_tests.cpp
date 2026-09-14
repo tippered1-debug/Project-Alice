@@ -543,3 +543,42 @@ TEST_CASE("persons_occupy_offices_and_retain_assets_after_death", "[persons][gov
 	});
 	REQUIRE(ownership_survived);
 }
+
+TEST_CASE("person_occupancy_temporal_invariants_are_atomic", "[persons][governance]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto institution = ::governance::create_institution(*state, nation, ::governance::institution_kind::ministry);
+	auto office = ::governance::create_office(*state, institution, ::governance::office_kind::finance_minister);
+	auto second_office = ::governance::create_office(*state, institution, ::governance::office_kind::agency_director);
+	auto person = ::persons::create_person(*state, sys::date{100});
+	REQUIRE_FALSE(::persons::appoint_person(*state, person, office, sys::date{99}));
+	REQUIRE(state->world.office_tenure_size() == 0);
+	auto tenure = ::persons::appoint_person(*state, person, office, sys::date{110});
+	REQUIRE(tenure);
+	REQUIRE_FALSE(::persons::remove_from_office(*state, office, sys::date{109}));
+	REQUIRE(::persons::active_tenure_for(*state, office) == tenure);
+	REQUIRE(state->world.office_tenure_get_active(tenure));
+	REQUIRE(state->world.office_tenure_get_started_on(tenure) == sys::date{110});
+	REQUIRE(state->world.office_tenure_get_ended_on(tenure) == sys::date{});
+	REQUIRE(::persons::remove_from_office(*state, office, sys::date{120}));
+	REQUIRE_FALSE(state->world.office_tenure_get_active(tenure));
+	REQUIRE(state->world.office_tenure_get_started_on(tenure) == sys::date{110});
+	REQUIRE(state->world.office_tenure_get_ended_on(tenure) == sys::date{120});
+	REQUIRE(::persons::appoint_person(*state, person, second_office, sys::date{150}));
+	REQUIRE_FALSE(::persons::mark_dead(*state, person, sys::date{140}));
+	REQUIRE(state->world.person_get_alive(person));
+	REQUIRE(state->world.person_get_death_date(person) == sys::date{});
+	REQUIRE(::persons::active_tenure_for(*state, second_office));
+	REQUIRE(state->world.office_tenure_get_active(::persons::active_tenure_for(*state, second_office)));
+	REQUIRE(state->world.office_tenure_get_ended_on(tenure) == sys::date{120});
+	REQUIRE(::persons::mark_dead(*state, person, sys::date{160}));
+	REQUIRE_FALSE(state->world.person_get_alive(person));
+	REQUIRE(state->world.person_get_death_date(person) == sys::date{160});
+	auto second_tenure = ::persons::active_tenure_for(*state, second_office);
+	REQUIRE_FALSE(second_tenure);
+	REQUIRE(state->world.office_tenure_size() == 2);
+	auto second_person = ::persons::create_person(*state, sys::date{200});
+	REQUIRE_FALSE(::persons::mark_dead(*state, second_person, sys::date{199}));
+	REQUIRE(state->world.person_get_alive(second_person));
+	REQUIRE(state->world.person_get_death_date(second_person) == sys::date{});
+}
