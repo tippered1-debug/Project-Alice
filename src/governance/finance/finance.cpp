@@ -3,6 +3,7 @@
 #include "economy/accounts/accounts.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
+#include "governance/law/law.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 
@@ -179,6 +180,10 @@ dcon::fiscal_action_id authorized_issue_public_debt(sys::state& state, dcon::per
 	auto debtor = governance::actor_for_institution(state, context.institution);
 	auto creditor = economy::accounts::owner_of(state, investor_account);
 	if(!debtor || !creditor) return {};
+	auto nation = governance::nation_of(state, context.institution);
+	auto policy = governance::law::public_debt_policy_for(state, nation, context.settlement, date);
+	if(!policy.issuance_allowed) return {};
+	if(policy.ceiling && governance::finance::national_public_debt(state, nation, context.settlement) + principal > *policy.ceiling) return {};
 	auto obligation = economy::relations::create_obligation(state, debtor, creditor, principal, context.settlement,
 		date, due_date, annual_interest_rate, obligation_kind::public_debt);
 	if(!obligation) return {};

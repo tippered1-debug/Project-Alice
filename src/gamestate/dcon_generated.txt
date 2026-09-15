@@ -5185,6 +5185,37 @@ object{
 }
 
 object{
+	name{ legal_instrument }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ enacted_on } type{ sys::date } tag{ save } }
+	property{ name{ effective_from } type{ sys::date } tag{ save } }
+	property{ name{ repealed_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ policy_rule }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ settlement } type{ commodity_id } tag{ save } }
+	property{ name{ amount } type{ float } tag{ save } }
+}
+
+object{
+	name{ legal_action }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ occurred_on } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ deposit_account }
 	storage_type{ erasable }
 	size{ 100000 }
@@ -5703,6 +5734,67 @@ relationship{
 	tag{ save }
 	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
 	link{ object{ transaction } name{ transaction } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ legal_instrument_enactor }
+	tag{ save }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_instrument_authorizing_office }
+	tag{ save }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_instrument_issuing_institution }
+	tag{ save }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_instrument_nation_jurisdiction }
+	tag{ save }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_instrument_territorial_jurisdiction }
+	tag{ save }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
+	link{ object{ territorial_unit } name{ territorial_unit } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_action_initiator }
+	tag{ save }
+	link{ object{ legal_action } name{ legal_action } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_action_authorizing_office }
+	tag{ save }
+	link{ object{ legal_action } name{ legal_action } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_action_issuing_institution }
+	tag{ save }
+	link{ object{ legal_action } name{ legal_action } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_action_instrument }
+	tag{ save }
+	link{ object{ legal_action } name{ legal_action } type{ unique } }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ legal_instrument_policy_rule }
+	tag{ save }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
+	link{ object{ policy_rule } name{ policy_rule } type{ many } index_storage{ array } }
 }
 
 relationship{

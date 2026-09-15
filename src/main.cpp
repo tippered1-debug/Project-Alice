@@ -21,6 +21,7 @@
 #include "economy/accounts/accounts.cpp"
 #include "economy/banking/banking.cpp"
 #include "governance/finance/finance.cpp"
+#include "governance/law/law.cpp"
 #include "governance/governance.cpp"
 #include "persons/persons.cpp"
 #include "governance/actions/actions.cpp"
