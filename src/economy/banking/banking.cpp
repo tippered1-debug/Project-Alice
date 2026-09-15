@@ -233,6 +233,12 @@ balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id 
 				&& state.world.obligation_get_status(loan) != uint8_t(relations::obligation_status::written_off)
 				&& relations::total_due(state, loan) > 0.0f)
 				result.loan_assets += relations::total_due(state, loan);
+			else if(loan && state.world.obligation_get_kind(loan) == uint8_t(relations::obligation_kind::public_debt)
+				&& state.world.obligation_get_settlement_commodity(loan) == settlement
+				&& state.world.obligation_get_status(loan) != uint8_t(relations::obligation_status::paid)
+				&& state.world.obligation_get_status(loan) != uint8_t(relations::obligation_status::written_off)
+				&& relations::total_due(state, loan) > 0.0f)
+				result.public_debt_assets += relations::total_due(state, loan);
 		});
 	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(bank_actor,
 		[&](dcon::obligation_debtor_id relation) {
@@ -243,7 +249,7 @@ balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id 
 				&& relations::total_due(state, obligation) > 0.0f)
 				result.other_financial_liabilities += relations::total_due(state, obligation);
 		});
-	result.total_assets = result.settlement_assets + result.loan_assets;
+	result.total_assets = result.settlement_assets + result.loan_assets + result.public_debt_assets;
 	result.total_liabilities = result.deposit_liabilities + result.other_financial_liabilities;
 	result.net_worth = result.total_assets - result.total_liabilities;
 	return result;

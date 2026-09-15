@@ -19,6 +19,7 @@ std::vector<dcon::office_id> active_offices_of(sys::state const&, dcon::person_i
 dcon::office_tenure_id active_tenure_for(sys::state const&, dcon::office_id);
 bool person_has_authority(sys::state const&, dcon::person_id, governance::authority_kind, dcon::nation_id);
 bool person_has_authority(sys::state const&, dcon::person_id, governance::authority_kind, dcon::territorial_unit_id);
+dcon::office_tenure_id authority_tenure_on_or_before(sys::state const&, dcon::person_id, governance::authority_kind, dcon::nation_id, sys::date);
 bool mark_dead(sys::state&, dcon::person_id, sys::date);
 
 } // namespace persons

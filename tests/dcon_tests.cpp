@@ -15,6 +15,7 @@
 #include "economy/relations/relations.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/banking/banking.hpp"
+#include "governance/finance/finance.hpp"
 #include "governance/governance.hpp"
 #include "persons/persons.hpp"
 #include "governance/actions/actions.hpp"
@@ -934,6 +935,58 @@ TEST_CASE("commercial_banking_balance_sheets_are_settlement_specific", "[economy
 	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, eur).loan_assets == Approx(25.0f));
 	REQUIRE(::economy::relations::write_off(*state, eur_loan));
 	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, eur).loan_assets == Approx(0.0f));
+}
+
+TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][finance]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto institution = ::governance::create_institution(*state, nation, ::governance::institution_kind::central_government);
+	auto office = ::governance::create_office(*state, institution, ::governance::office_kind::finance_minister);
+	auto person = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::appoint_person(*state, person, office, sys::date{10}));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::levy_tax, nation));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::spend_public_funds, nation));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::issue_public_debt, nation));
+	auto settlement = state->world.create_commodity();
+	auto treasury = ::governance::finance::open_treasury_account(*state, institution, settlement);
+	REQUIRE(treasury);
+	auto taxpayer = state->world.create_economic_actor();
+	auto taxpayer_account = ::economy::accounts::open_account(*state, taxpayer, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, taxpayer_account, 100.0f));
+	auto assessment = ::governance::finance::authorized_assess_tax(*state, person, taxpayer, treasury,
+		100.0f, sys::date{100}, sys::date{20});
+	REQUIRE(assessment);
+	auto tax = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(assessment);
+	REQUIRE(tax);
+	REQUIRE(::governance::finance::fiscal_position_for(*state, institution, settlement).tax_receivables == Approx(100.0f));
+	REQUIRE(::governance::finance::pay_tax(*state, tax, taxpayer_account, treasury, 100.0f, sys::date{21}));
+	REQUIRE(::economy::relations::total_due(*state, tax) == Approx(0.0f));
+	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(100.0f));
+	auto recipient = state->world.create_economic_actor();
+	auto recipient_account = ::economy::accounts::open_account(*state, recipient, settlement);
+	REQUIRE(::governance::finance::authorized_spend(*state, person, treasury, recipient_account, 40.0f, sys::date{22}));
+	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(60.0f));
+	auto investor = state->world.create_economic_actor();
+	auto investor_account = ::economy::accounts::open_account(*state, investor, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, investor_account, 50.0f));
+	auto debt_action = ::governance::finance::authorized_issue_public_debt(*state, person, treasury,
+		investor_account, 50.0f, sys::date{200}, 0.10f, sys::date{23});
+	REQUIRE(debt_action);
+	auto debt = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(debt_action);
+	REQUIRE(debt);
+	REQUIRE(::economy::relations::total_due(*state, debt) == Approx(50.0f));
+	REQUIRE(::governance::finance::fiscal_position_for(*state, institution, settlement).public_debt_outstanding == Approx(50.0f));
+	REQUIRE(::governance::finance::accrue_public_debt_interest(*state, debt, 10) == Approx(50.0f * 0.10f * 10.0f / 365.0f).epsilon(0.00001));
+	REQUIRE(::governance::finance::service_public_debt(*state, debt, treasury, investor_account, 10.0f, sys::date{24}));
+	REQUIRE(::economy::relations::total_due(*state, debt) == Approx(50.0f + 50.0f * 0.10f * 10.0f / 365.0f - 10.0f).epsilon(0.0001));
+	REQUIRE(::governance::finance::fiscal_position_for(*state, institution, settlement).treasury_cash == Approx(100.0f));
+
+	// Authority and all monetary validation happen before persisted mutations.
+	auto before_actions = state->world.fiscal_action_size();
+	auto foreign = state->world.create_commodity();
+	auto foreign_account = ::economy::accounts::open_account(*state, recipient, foreign);
+	REQUIRE_FALSE(::governance::finance::authorized_spend(*state, person, treasury, foreign_account, 1.0f, sys::date{25}));
+	REQUIRE(state->world.fiscal_action_size() == before_actions);
 }
 
 TEST_CASE("governance_institutions_and_authority_are_concrete", "[governance]") {

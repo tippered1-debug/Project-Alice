@@ -12,6 +12,7 @@ namespace economy::banking {
 struct balance_sheet {
 	float settlement_assets = 0.0f;
 	float loan_assets = 0.0f;
+	float public_debt_assets = 0.0f;
 	float total_assets = 0.0f;
 	float deposit_liabilities = 0.0f;
 	float other_financial_liabilities = 0.0f;

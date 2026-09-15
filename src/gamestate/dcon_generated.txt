@@ -5176,6 +5176,15 @@ object{
 }
 
 object{
+	name{ fiscal_action }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ occurred_on } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ deposit_account }
 	storage_type{ erasable }
 	size{ 100000 }
@@ -5645,6 +5654,55 @@ relationship{
 	tag{ save }
 	link{ object{ institution } name{ institution } type{ unique } }
 	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ institution_treasury_account }
+	tag{ save }
+	link{ object{ monetary_account } name{ monetary_account } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ fiscal_action_initiator }
+	tag{ save }
+	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ fiscal_action_authorizing_office }
+	tag{ save }
+	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ fiscal_action_treasury_institution }
+	tag{ save }
+	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ fiscal_action_treasury_account }
+	tag{ save }
+	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ fiscal_action_resulting_obligation }
+	tag{ save }
+	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
+	link{ object{ obligation } name{ obligation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ fiscal_action_resulting_transaction }
+	tag{ save }
+	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
+	link{ object{ transaction } name{ transaction } type{ many } index_storage{ array } }
 }
 
 relationship{

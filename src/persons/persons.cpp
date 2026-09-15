@@ -79,6 +79,16 @@ bool person_has_authority(sys::state const& s, dcon::person_id person, governanc
 	return has_authority_via_offices(s, person, kind, nation);
 }
 
+dcon::office_tenure_id authority_tenure_on_or_before(sys::state const& s, dcon::person_id person,
+	governance::authority_kind kind, dcon::nation_id nation, sys::date date) {
+	for(auto office : active_offices_of(s, person)) {
+		auto tenure = active_tenure_for(s, office);
+		if(tenure && s.world.office_tenure_get_started_on(tenure) <= date
+			&& governance::has_authority(s, office, kind, nation)) return tenure;
+	}
+	return {};
+}
+
 bool person_has_authority(sys::state const& s, dcon::person_id person, governance::authority_kind kind, dcon::territorial_unit_id territorial_unit) {
 	return has_authority_via_offices(s, person, kind, territorial_unit);
 }
