@@ -8,6 +8,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
+#include "market_clearing.hpp"
 #include "economy/physical/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
@@ -402,8 +403,6 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	state->world.market_resize_actual_probability_to_buy(state->world.commodity_size());
 	state->world.commodity_set_is_local(commodity, false);
 	state->world.commodity_set_money_rgo(commodity, false);
-	state->world.market_set_stockpile(market, commodity, 4.0f);
-	state->world.market_set_actual_probability_to_buy(market, commodity, 1.0f);
 	economy::commodity_set inputs{};
 	inputs.commodity_type[0] = commodity;
 	inputs.commodity_amounts[0] = 4.0f;
@@ -411,7 +410,13 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	::economy::physical::factory_inputs::begin_planning(*state);
 	REQUIRE(::economy::physical::factory_inputs::plan(*state, factory, destination, owner, inputs, market, 1.0f));
 	REQUIRE(::economy::physical::factory_inputs::planned_quantity(*state, factory, commodity, -1.0f) == Approx(4.0f));
-	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(4.0f));
+	// The market has not settled yet, and fulfillment must not touch its stockpile.
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
+	::economy::market_clearing::begin_day(*state);
+	::economy::market_clearing::record(*state, market, commodity,
+		::economy::market_clearing::demand_class::intermediate, 4.0f);
+	auto settled = ::economy::market_clearing::settle(*state, market, commodity, 4.0f, 4.0f, 1.0f);
+	REQUIRE(settled.class_fill[static_cast<size_t>(::economy::market_clearing::demand_class::intermediate)] == Approx(1.0f));
 	::economy::physical::factory_inputs::fulfill(*state);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
 	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, owner) == Approx(0.0f));

@@ -141,16 +141,12 @@ void fulfill(sys::state& state) {
 		if(planned <= 0.0f) continue;
 		auto allocated = planned * std::clamp(market_clearing::fill(
 			state, order.market, commodity, market_clearing::demand_class::intermediate), 0.0f, 1.0f);
-		allocated = std::min(allocated, std::max(0.0f, state.world.market_get_stockpile(order.market, commodity)));
 		if(allocated <= 0.0f) continue;
-		state.world.market_set_stockpile(order.market, commodity,
-			std::max(0.0f, state.world.market_get_stockpile(order.market, commodity) - allocated));
 		inventory::add(state, hub, commodity, allocated, order.owner);
-		if(!shipments::dispatch(state, hub, order.destination, commodity, allocated, order.owner)) {
-			inventory::add(state, hub, commodity, allocated, order.owner);
-			state.world.market_set_stockpile(order.market, commodity,
-				state.world.market_get_stockpile(order.market, commodity) + allocated);
-		}
+		// Settlement has already accounted for the purchase. If the physical
+		// dispatch cannot be created, leave the purchased quantity at the hub;
+		// never recreate it in the legacy market.
+		shipments::dispatch(state, hub, order.destination, commodity, allocated, order.owner);
 	}
 });
 }
