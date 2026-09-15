@@ -395,6 +395,7 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	state->world.force_create_site_location(hub, province);
 	auto market = state->world.create_market();
 	state->world.force_create_market_hub_site(market, hub);
+	auto factory = state->world.create_factory();
 	auto owner = state->world.create_economic_actor();
 	auto commodity = state->world.create_commodity();
 	state->world.market_resize_stockpile(state->world.commodity_size());
@@ -407,7 +408,10 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	inputs.commodity_type[0] = commodity;
 	inputs.commodity_amounts[0] = 4.0f;
 
-	REQUIRE(::economy::physical::factory_inputs::procure(*state, destination, owner, inputs, market, 1.0f));
+	::economy::physical::factory_inputs::begin_planning(*state);
+	REQUIRE(::economy::physical::factory_inputs::plan(*state, factory, destination, owner, inputs, market, 1.0f));
+	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(4.0f));
+	::economy::physical::factory_inputs::fulfill(*state);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
 	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, owner) == Approx(0.0f));
 	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner) == Approx(0.0f));

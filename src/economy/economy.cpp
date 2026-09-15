@@ -6,6 +6,7 @@
 #include "world_trade_capacity.hpp"
 #include "market_clearing.hpp"
 #include "commodity_logistics.hpp"
+#include "economy/physical/factory_inputs.hpp"
 #include "market_access.hpp"
 #include "cargo_transit.hpp"
 #include "construction.hpp"
@@ -3542,6 +3543,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	});
 
 	set_profile_point(state, "clear_market");
+	if(gamerule::age_of_transformation_enabled(state))
+		economy::physical::factory_inputs::fulfill(state);
 
 #ifndef NDEBUG
 	state.world.execute_serial_over_market([&](auto markets) {

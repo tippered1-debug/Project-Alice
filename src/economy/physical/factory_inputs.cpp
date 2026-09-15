@@ -9,11 +9,23 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <vector>
 
 namespace economy::physical::factory_inputs {
 namespace {
 
 constexpr float epsilon = 1.0e-5f;
+
+struct planned_order {
+	dcon::site_id destination{};
+	dcon::economic_actor_id owner{};
+	economy::commodity_set inputs{};
+	dcon::market_id market{};
+	float input_scale = 0.0f;
+	bool ready = false;
+};
+
+std::vector<planned_order> planned_orders;
 
 bool physical_commodity(sys::state const& state, dcon::commodity_id commodity) {
 	return commodity
@@ -59,36 +71,55 @@ bool ordinary_physical_input(sys::state const& state, dcon::commodity_id commodi
 	return physical_commodity(state, commodity);
 }
 
-bool procure(sys::state& state, dcon::site_id destination, dcon::economic_actor_id owner,
-	economy::commodity_set const& inputs, dcon::market_id market, float input_scale) {
+void begin_planning(sys::state& state) {
+	planned_orders.assign(state.world.factory_size(), planned_order{});
+}
+
+bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination,
+	dcon::economic_actor_id owner, economy::commodity_set const& inputs,
+	dcon::market_id market, float input_scale) {
+	if(!factory || factory.index() >= planned_orders.size())
+		return false;
+	planned_orders[factory.index()] = { destination, owner, inputs, market, input_scale, false };
 	if(!destination || !owner || !market || !std::isfinite(input_scale) || input_scale < 0.0f)
 		return false;
 	auto hub = deposits::market_hub_for(state, market);
 	if(!hub)
 		return false;
+	planned_orders[factory.index()].ready = true;
+	return true;
+}
+
+void fulfill(sys::state& state) {
+	state.world.for_each_factory([&](dcon::factory_id factory) {
+		if(factory.index() >= planned_orders.size() || !planned_orders[factory.index()].ready)
+			return;
+		auto const& order = planned_orders[factory.index()];
+		auto hub = deposits::market_hub_for(state, order.market);
+		if(!hub) return;
 	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-		auto commodity = inputs.commodity_type[i];
+		auto commodity = order.inputs.commodity_type[i];
 		if(!commodity) break;
-		if(seen_before(inputs, i) || !physical_commodity(state, commodity)) continue;
-		auto required = required_for(inputs, commodity, input_scale);
-		auto committed = inventory::quantity(state, destination, commodity, owner)
-		+ in_transit_to(state, destination, commodity, owner);
+		if(seen_before(order.inputs, i) || !physical_commodity(state, commodity)) continue;
+		auto required = required_for(order.inputs, commodity, order.input_scale);
+		auto committed = inventory::quantity(state, order.destination, commodity, order.owner)
+		+ in_transit_to(state, order.destination, commodity, order.owner);
 		auto shortage = std::max(0.0f, required - committed);
 		if(shortage <= 0.0f) continue;
 		auto allocated = shortage * std::clamp(market_clearing::fill(
-			state, market, commodity, market_clearing::demand_class::intermediate), 0.0f, 1.0f);
-		allocated = std::min(allocated, std::max(0.0f, state.world.market_get_stockpile(market, commodity)));
+			state, order.market, commodity, market_clearing::demand_class::intermediate), 0.0f, 1.0f);
+		allocated = std::min(allocated, std::max(0.0f, state.world.market_get_stockpile(order.market, commodity)));
 		if(allocated <= 0.0f) continue;
-		state.world.market_set_stockpile(market, commodity,
-			std::max(0.0f, state.world.market_get_stockpile(market, commodity) - allocated));
-		inventory::add(state, hub, commodity, allocated, owner);
-		if(!shipments::dispatch(state, hub, destination, commodity, allocated, owner)) {
-			inventory::add(state, hub, commodity, allocated, owner);
-			state.world.market_set_stockpile(market, commodity,
-				state.world.market_get_stockpile(market, commodity) + allocated);
+		state.world.market_set_stockpile(order.market, commodity,
+			std::max(0.0f, state.world.market_get_stockpile(order.market, commodity) - allocated));
+		inventory::add(state, hub, commodity, allocated, order.owner);
+		if(!shipments::dispatch(state, hub, order.destination, commodity, allocated, order.owner)) {
+			inventory::add(state, hub, commodity, allocated, order.owner);
+			state.world.market_set_stockpile(order.market, commodity,
+				state.world.market_get_stockpile(order.market, commodity) + allocated);
 		}
 	}
-	return true;
+});
 }
 
 availability evaluate(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,

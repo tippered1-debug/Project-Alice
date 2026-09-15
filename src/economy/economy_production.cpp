@@ -1690,8 +1690,8 @@ void update_single_factory_consumption(
 	auto physical_input_site = ::world::site::site_for_factory(state, fac.id);
 	auto physical_input_owner = actors::organizations::operator_actor_for_factory(state, fac.id);
 	auto physical_inputs_ready = ::economy::physical::legacy_market_bridge::physical_path_enabled(state)
-		&& ::economy::physical::factory_inputs::procure(
-			state, physical_input_site, physical_input_owner, direct_inputs, m,
+		&& ::economy::physical::factory_inputs::plan(state, fac.id, physical_input_site, physical_input_owner,
+			direct_inputs, m,
 			input_multiplier * employment_units * throughput_multiplier);
 	auto physical_inputs = ::economy::physical::factory_inputs::evaluate(
 		state, physical_input_site, physical_input_owner, direct_inputs, m,
@@ -2605,6 +2605,7 @@ efficiency consumption scale)
 */
 
 void update_production_consumption(sys::state& state) {
+	::economy::physical::factory_inputs::begin_planning(state);
 	std::vector<ve::vectorizable_buffer<float, dcon::province_id>> buffer_demanded{};
 	std::vector<ve::vectorizable_buffer<float, dcon::province_id>> buffer_consumed_estimation{};
 
