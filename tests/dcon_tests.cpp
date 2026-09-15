@@ -826,6 +826,42 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 	REQUIRE(bank_b_actor);
 }
 
+TEST_CASE("commercial_banking_state_survives_save_load", "[economy][banking][serialization]") {
+	auto state = std::make_unique<sys::state>();
+	auto settlement = state->world.create_commodity();
+	auto bank = ::economy::banking::create_bank(*state);
+	auto reserve = ::economy::banking::open_reserve_account(*state, bank, settlement);
+	auto borrower = state->world.create_economic_actor();
+	auto deposit = ::economy::banking::open_deposit_account(*state, bank, borrower, settlement);
+	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, reserve, 321.0f));
+	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, deposit, 45.0f));
+	auto loan = ::economy::banking::originate_loan(*state, bank, deposit, 12.0f,
+		sys::date{1}, sys::date{10}, 0.05f);
+	REQUIRE(loan);
+
+	std::vector<uint8_t> bytes(sys::sizeof_save_section(*state));
+	auto const* end = sys::write_save_section(bytes.data(), *state);
+	REQUIRE(end == bytes.data() + bytes.size());
+
+	// The normal loader starts from the scenario-shaped object counts.
+	auto loaded = std::make_unique<sys::state>();
+	auto loaded_settlement = loaded->world.create_commodity();
+	auto loaded_bank = ::economy::banking::create_bank(*loaded);
+	auto loaded_reserve = ::economy::banking::open_reserve_account(*loaded, loaded_bank, loaded_settlement);
+	auto loaded_borrower = loaded->world.create_economic_actor();
+	auto loaded_deposit = ::economy::banking::open_deposit_account(*loaded, loaded_bank, loaded_borrower, loaded_settlement);
+	auto loaded_loan = ::economy::banking::originate_loan(*loaded, loaded_bank, loaded_deposit, 12.0f,
+		sys::date{1}, sys::date{10}, 0.05f);
+	REQUIRE(loaded_loan);
+	sys::read_save_section(bytes.data(), end, *loaded);
+
+	REQUIRE(::economy::banking::reserve_account_for(*loaded, loaded_bank, loaded_settlement) == loaded_reserve);
+	REQUIRE(::economy::accounts::balance(*loaded, loaded_reserve) == Approx(321.0f));
+	REQUIRE(::economy::banking::deposit_balance(*loaded, loaded_deposit) == Approx(57.0f));
+	REQUIRE(::economy::relations::total_due(*loaded, loaded_loan) == Approx(12.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, loaded_bank).loan_assets == Approx(12.0f));
+}
+
 TEST_CASE("governance_institutions_and_authority_are_concrete", "[governance]") {
 	auto state = std::make_unique<sys::state>();
 	auto nation = state->world.create_nation();
