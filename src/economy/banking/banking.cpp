@@ -207,25 +207,41 @@ bool write_off_loan(sys::state& state, dcon::obligation_id loan) {
 		&& relations::write_off(state, loan);
 }
 
-balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id bank) {
+balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id bank,
+	dcon::commodity_id settlement) {
 	balance_sheet result{};
-	if(!valid_bank(state, bank)) return result;
+	if(!valid_bank(state, bank) || !settlement || !state.world.commodity_is_valid(settlement)) return result;
 	state.world.organization_for_each_monetary_account_reserve_bank_as_organization(bank,
 		[&](dcon::monetary_account_reserve_bank_id relation) {
 			auto account = state.world.monetary_account_reserve_bank_get_monetary_account(relation);
-			if(account) result.settlement_assets += economy::accounts::balance(state, account);
+			if(account && economy::accounts::settlement_of(state, account) == settlement)
+				result.settlement_assets += economy::accounts::balance(state, account);
 		});
 	state.world.organization_for_each_deposit_account_bank_as_organization(bank,
 		[&](dcon::deposit_account_bank_id relation) {
 			auto account = state.world.deposit_account_bank_get_deposit_account(relation);
-			if(account) result.deposit_liabilities += deposit_balance(state, account);
+			if(account && state.world.deposit_account_get_commodity_from_deposit_account_settlement(account) == settlement)
+				result.deposit_liabilities += deposit_balance(state, account);
 		});
 	auto bank_actor = actors::organizations::actor_for_organization(state, bank);
 	state.world.economic_actor_for_each_obligation_creditor_as_economic_actor(bank_actor,
 		[&](dcon::obligation_creditor_id relation) {
 			auto loan = state.world.obligation_creditor_get_obligation(relation);
-			if(loan && state.world.obligation_get_kind(loan) == uint8_t(relations::obligation_kind::loan))
+			if(loan && state.world.obligation_get_kind(loan) == uint8_t(relations::obligation_kind::loan)
+				&& state.world.obligation_get_settlement_commodity(loan) == settlement
+				&& state.world.obligation_get_status(loan) != uint8_t(relations::obligation_status::paid)
+				&& state.world.obligation_get_status(loan) != uint8_t(relations::obligation_status::written_off)
+				&& relations::total_due(state, loan) > 0.0f)
 				result.loan_assets += relations::total_due(state, loan);
+		});
+	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(bank_actor,
+		[&](dcon::obligation_debtor_id relation) {
+			auto obligation = state.world.obligation_debtor_get_obligation(relation);
+			if(obligation && state.world.obligation_get_settlement_commodity(obligation) == settlement
+				&& state.world.obligation_get_status(obligation) != uint8_t(relations::obligation_status::paid)
+				&& state.world.obligation_get_status(obligation) != uint8_t(relations::obligation_status::written_off)
+				&& relations::total_due(state, obligation) > 0.0f)
+				result.other_financial_liabilities += relations::total_due(state, obligation);
 		});
 	result.total_assets = result.settlement_assets + result.loan_assets;
 	result.total_liabilities = result.deposit_liabilities + result.other_financial_liabilities;

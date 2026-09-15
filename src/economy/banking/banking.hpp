@@ -43,6 +43,7 @@ float repay_loan(sys::state&, dcon::obligation_id, dcon::deposit_account_id borr
 float accrue_loan_interest(sys::state&, dcon::obligation_id, uint32_t days);
 bool write_off_loan(sys::state&, dcon::obligation_id);
 
-balance_sheet bank_balance_sheet(sys::state const&, dcon::organization_id);
+balance_sheet bank_balance_sheet(sys::state const&, dcon::organization_id bank,
+	dcon::commodity_id settlement);
 
 } // namespace economy::banking

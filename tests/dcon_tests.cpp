@@ -759,7 +759,7 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 	auto other_bank_deposit = ::economy::banking::open_deposit_account(*state, bank_b, other_bank_payee, settlement);
 	REQUIRE(borrower_deposit); REQUIRE(same_bank_deposit); REQUIRE(other_bank_deposit);
 	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, borrower_deposit, 200.0f));
-	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank_a).net_worth == Approx(800.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank_a, settlement).net_worth == Approx(800.0f));
 
 	auto loan = ::economy::banking::originate_loan(*state, bank_a, borrower_deposit, 100.0f,
 		sys::date{1}, sys::date{100}, 0.12f);
@@ -767,7 +767,7 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 	REQUIRE(::economy::banking::deposit_balance(*state, borrower_deposit) == Approx(300.0f));
 	REQUIRE(::economy::relations::total_due(*state, loan) == Approx(100.0f));
 	// Origination creates a loan asset and a matching deposit liability, without moving reserves.
-	auto after_origination = ::economy::banking::bank_balance_sheet(*state, bank_a);
+	auto after_origination = ::economy::banking::bank_balance_sheet(*state, bank_a, settlement);
 	REQUIRE(after_origination.settlement_assets == Approx(1000.0f));
 	REQUIRE(after_origination.loan_assets == Approx(100.0f));
 	REQUIRE(after_origination.deposit_liabilities == Approx(300.0f));
@@ -783,8 +783,8 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 	REQUIRE(::economy::banking::deposit_balance(*state, other_bank_deposit) == Approx(75.0f));
 	REQUIRE(::economy::accounts::balance(*state, reserve_a) == Approx(925.0f));
 	REQUIRE(::economy::accounts::balance(*state, reserve_b) == Approx(1075.0f));
-	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank_a).net_worth == Approx(800.0f));
-	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank_b).net_worth == Approx(1000.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank_a, settlement).net_worth == Approx(800.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank_b, settlement).net_worth == Approx(1000.0f));
 
 	auto interest = ::economy::banking::accrue_loan_interest(*state, loan, 10);
 	REQUIRE(interest == Approx(100.0f * 0.12f * 10.0f / 365.0f).epsilon(0.00001));
@@ -798,11 +798,11 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 	auto second_loan = ::economy::banking::originate_loan(*state, bank_a, same_bank_deposit, 40.0f,
 		sys::date{5}, sys::date{100}, 0.0f);
 	REQUIRE(second_loan);
-	auto before_writeoff = ::economy::banking::bank_balance_sheet(*state, bank_a);
+	auto before_writeoff = ::economy::banking::bank_balance_sheet(*state, bank_a, settlement);
 	auto same_bank_balance = ::economy::banking::deposit_balance(*state, same_bank_deposit);
 	REQUIRE(::economy::banking::write_off_loan(*state, second_loan));
 	REQUIRE(::economy::banking::deposit_balance(*state, same_bank_deposit) == Approx(same_bank_balance));
-	auto after_writeoff = ::economy::banking::bank_balance_sheet(*state, bank_a);
+	auto after_writeoff = ::economy::banking::bank_balance_sheet(*state, bank_a, settlement);
 	REQUIRE(after_writeoff.loan_assets == Approx(before_writeoff.loan_assets - 40.0f));
 	REQUIRE(after_writeoff.net_worth == Approx(before_writeoff.net_worth - 40.0f));
 
@@ -829,12 +829,17 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 TEST_CASE("commercial_banking_state_survives_save_load", "[economy][banking][serialization]") {
 	auto state = std::make_unique<sys::state>();
 	auto settlement = state->world.create_commodity();
+	auto second_settlement = state->world.create_commodity();
 	auto bank = ::economy::banking::create_bank(*state);
 	auto reserve = ::economy::banking::open_reserve_account(*state, bank, settlement);
+	auto second_reserve = ::economy::banking::open_reserve_account(*state, bank, second_settlement);
 	auto borrower = state->world.create_economic_actor();
 	auto deposit = ::economy::banking::open_deposit_account(*state, bank, borrower, settlement);
+	auto second_deposit = ::economy::banking::open_deposit_account(*state, bank, borrower, second_settlement);
 	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, reserve, 321.0f));
+	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, second_reserve, 654.0f));
 	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, deposit, 45.0f));
+	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, second_deposit, 23.0f));
 	auto loan = ::economy::banking::originate_loan(*state, bank, deposit, 12.0f,
 		sys::date{1}, sys::date{10}, 0.05f);
 	REQUIRE(loan);
@@ -846,20 +851,89 @@ TEST_CASE("commercial_banking_state_survives_save_load", "[economy][banking][ser
 	// The normal loader starts from the scenario-shaped object counts.
 	auto loaded = std::make_unique<sys::state>();
 	auto loaded_settlement = loaded->world.create_commodity();
+	auto loaded_second_settlement = loaded->world.create_commodity();
 	auto loaded_bank = ::economy::banking::create_bank(*loaded);
 	auto loaded_reserve = ::economy::banking::open_reserve_account(*loaded, loaded_bank, loaded_settlement);
+	auto loaded_second_reserve = ::economy::banking::open_reserve_account(*loaded, loaded_bank, loaded_second_settlement);
 	auto loaded_borrower = loaded->world.create_economic_actor();
 	auto loaded_deposit = ::economy::banking::open_deposit_account(*loaded, loaded_bank, loaded_borrower, loaded_settlement);
+	auto loaded_second_deposit = ::economy::banking::open_deposit_account(*loaded, loaded_bank, loaded_borrower, loaded_second_settlement);
 	auto loaded_loan = ::economy::banking::originate_loan(*loaded, loaded_bank, loaded_deposit, 12.0f,
 		sys::date{1}, sys::date{10}, 0.05f);
 	REQUIRE(loaded_loan);
 	sys::read_save_section(bytes.data(), end, *loaded);
 
 	REQUIRE(::economy::banking::reserve_account_for(*loaded, loaded_bank, loaded_settlement) == loaded_reserve);
+	REQUIRE(::economy::banking::reserve_account_for(*loaded, loaded_bank, loaded_second_settlement) == loaded_second_reserve);
 	REQUIRE(::economy::accounts::balance(*loaded, loaded_reserve) == Approx(321.0f));
+	REQUIRE(::economy::accounts::balance(*loaded, loaded_second_reserve) == Approx(654.0f));
 	REQUIRE(::economy::banking::deposit_balance(*loaded, loaded_deposit) == Approx(57.0f));
+	REQUIRE(::economy::banking::deposit_balance(*loaded, loaded_second_deposit) == Approx(23.0f));
 	REQUIRE(::economy::relations::total_due(*loaded, loaded_loan) == Approx(12.0f));
-	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, loaded_bank).loan_assets == Approx(12.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, loaded_bank, loaded_settlement).loan_assets == Approx(12.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, loaded_bank, loaded_second_settlement).settlement_assets == Approx(654.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, loaded_bank, loaded_second_settlement).deposit_liabilities == Approx(23.0f));
+}
+
+TEST_CASE("commercial_banking_balance_sheets_are_settlement_specific", "[economy][banking]") {
+	auto state = std::make_unique<sys::state>();
+	auto usd = state->world.create_commodity();
+	auto eur = state->world.create_commodity();
+	auto bank = ::economy::banking::create_bank(*state);
+	auto reserve_usd = ::economy::banking::open_reserve_account(*state, bank, usd);
+	auto reserve_eur = ::economy::banking::open_reserve_account(*state, bank, eur);
+	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, reserve_usd, 100.0f));
+	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, reserve_eur, 200.0f));
+	auto usd_owner = state->world.create_economic_actor();
+	auto eur_owner = state->world.create_economic_actor();
+	auto usd_deposit = ::economy::banking::open_deposit_account(*state, bank, usd_owner, usd);
+	auto eur_deposit = ::economy::banking::open_deposit_account(*state, bank, eur_owner, eur);
+	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, usd_deposit, 70.0f));
+
+	auto eur_loan = ::economy::banking::originate_loan(*state, bank, eur_deposit, 40.0f,
+		sys::date{1}, sys::date{10}, 0.0f);
+	REQUIRE(eur_loan);
+	auto usd_sheet = ::economy::banking::bank_balance_sheet(*state, bank, usd);
+	auto eur_sheet = ::economy::banking::bank_balance_sheet(*state, bank, eur);
+	REQUIRE(usd_sheet.settlement_assets == Approx(100.0f));
+	REQUIRE(usd_sheet.loan_assets == Approx(0.0f));
+	REQUIRE(usd_sheet.deposit_liabilities == Approx(70.0f));
+	REQUIRE(usd_sheet.total_assets == Approx(100.0f));
+	REQUIRE(usd_sheet.total_liabilities == Approx(70.0f));
+	REQUIRE(usd_sheet.net_worth == Approx(30.0f));
+	REQUIRE(eur_sheet.settlement_assets == Approx(200.0f));
+	REQUIRE(eur_sheet.loan_assets == Approx(40.0f));
+	REQUIRE(eur_sheet.deposit_liabilities == Approx(40.0f));
+	REQUIRE(eur_sheet.net_worth == Approx(200.0f));
+	REQUIRE(usd_sheet.settlement_assets != Approx(300.0f));
+	REQUIRE(eur_sheet.settlement_assets != Approx(300.0f));
+
+	auto generic_creditor = state->world.create_economic_actor();
+	auto bank_actor = ::actors::organizations::actor_for_organization(*state, bank);
+	auto bank_debt = ::economy::relations::create_obligation(*state, bank_actor, generic_creditor,
+		50.0f, usd, sys::date{1}, sys::date{10}, 0.0f,
+		::economy::relations::obligation_kind::trade_credit);
+	REQUIRE(bank_debt);
+	usd_sheet = ::economy::banking::bank_balance_sheet(*state, bank, usd);
+	REQUIRE(usd_sheet.other_financial_liabilities == Approx(50.0f));
+	REQUIRE(usd_sheet.net_worth == Approx(-20.0f));
+	REQUIRE(::economy::relations::repay_obligation(*state, bank_debt, 20.0f) == Approx(20.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, usd).other_financial_liabilities == Approx(30.0f));
+	REQUIRE(::economy::relations::write_off(*state, bank_debt));
+	usd_sheet = ::economy::banking::bank_balance_sheet(*state, bank, usd);
+	REQUIRE(usd_sheet.other_financial_liabilities == Approx(0.0f));
+	REQUIRE(usd_sheet.net_worth == Approx(30.0f));
+
+	REQUIRE(::economy::banking::repay_loan(*state, eur_loan, eur_deposit, 15.0f, sys::date{2}) == Approx(15.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, eur).loan_assets == Approx(25.0f));
+	auto paid_loan = ::economy::banking::originate_loan(*state, bank, eur_deposit, 10.0f,
+		sys::date{3}, sys::date{10}, 0.0f);
+	REQUIRE(paid_loan);
+	REQUIRE(::economy::banking::repay_loan(*state, paid_loan, eur_deposit, 10.0f, sys::date{4}) == Approx(10.0f));
+	REQUIRE(state->world.obligation_get_status(paid_loan) == uint8_t(::economy::relations::obligation_status::paid));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, eur).loan_assets == Approx(25.0f));
+	REQUIRE(::economy::relations::write_off(*state, eur_loan));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, eur).loan_assets == Approx(0.0f));
 }
 
 TEST_CASE("governance_institutions_and_authority_are_concrete", "[governance]") {
