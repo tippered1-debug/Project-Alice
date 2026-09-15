@@ -22,6 +22,8 @@ bool plan(sys::state&, dcon::factory_id, dcon::site_id, dcon::economic_actor_id,
 void fulfill(sys::state&);
 
 bool ordinary_physical_input(sys::state const&, dcon::commodity_id) noexcept;
+float net_demand(sys::state const&, dcon::site_id, dcon::economic_actor_id,
+	dcon::commodity_id, float required) noexcept;
 
 bool consume(sys::state&, dcon::site_id, dcon::economic_actor_id,
 	economy::commodity_set const&, float input_scale, float ratio);

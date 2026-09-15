@@ -71,6 +71,14 @@ bool ordinary_physical_input(sys::state const& state, dcon::commodity_id commodi
 	return physical_commodity(state, commodity);
 }
 
+float net_demand(sys::state const& state, dcon::site_id destination,
+	dcon::economic_actor_id owner, dcon::commodity_id commodity, float required) noexcept {
+	if(!std::isfinite(required) || required <= 0.0f)
+		return 0.0f;
+	return std::max(0.0f, required - inventory::quantity(state, destination, commodity, owner)
+		- in_transit_to(state, destination, commodity, owner));
+}
+
 void begin_planning(sys::state& state) {
 	planned_orders.assign(state.world.factory_size(), planned_order{});
 }

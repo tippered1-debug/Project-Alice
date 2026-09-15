@@ -427,6 +427,28 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	REQUIRE(::economy::physical::inventory::quantity(*state, destination, commodity, owner) == Approx(0.0f));
 }
 
+TEST_CASE("physical_factory_procurement_demand_is_net_of_stock_and_transit", "[economy][physical][factory]") {
+	auto state = std::make_unique<sys::state>();
+	auto province = state->world.create_province();
+	auto origin = state->world.create_site();
+	auto destination = state->world.create_site();
+	state->world.force_create_site_location(origin, province);
+	state->world.force_create_site_location(destination, province);
+	auto commodity = state->world.create_commodity();
+	state->world.commodity_set_is_local(commodity, false);
+	state->world.commodity_set_money_rgo(commodity, false);
+	auto owner = state->world.create_economic_actor();
+	REQUIRE(::economy::physical::factory_inputs::net_demand(*state, destination, owner, commodity, 100.0f) == Approx(100.0f));
+	::economy::physical::inventory::add(*state, destination, commodity, 100.0f, owner);
+	REQUIRE(::economy::physical::factory_inputs::net_demand(*state, destination, owner, commodity, 100.0f) == Approx(0.0f));
+	::economy::physical::inventory::remove(*state, destination, commodity, 100.0f, owner);
+	::economy::physical::inventory::add(*state, destination, commodity, 20.0f, owner);
+	::economy::physical::inventory::add(*state, origin, commodity, 30.0f, owner);
+	REQUIRE(::economy::physical::shipments::dispatch(*state, origin, destination, commodity, 30.0f, owner));
+	REQUIRE(::economy::physical::factory_inputs::net_demand(*state, destination, owner, commodity, 100.0f) == Approx(50.0f));
+	REQUIRE(::economy::physical::factory_inputs::net_demand(*state, destination, owner, commodity, 10.0f) == Approx(0.0f));
+}
+
 TEST_CASE("local_rgo_keeps_legacy_supply_in_physical_mode", "[economy][physical][integration]") {
 	auto state = std::make_unique<sys::state>();
 	state->force_age_of_transformation_ruleset = true;
