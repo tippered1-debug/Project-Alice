@@ -5176,6 +5176,14 @@ object{
 }
 
 object{
+	name{ deposit_account }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ balance } type{ float } tag{ save } }
+}
+
+object{
 	name{ physical_stock }
 	storage_type{ erasable }
 	size{ 50000 }
@@ -5832,6 +5840,34 @@ relationship{
 	name{ monetary_account_settlement }
 	tag{ save }
 	link{ object{ monetary_account } name{ monetary_account } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ monetary_account_reserve_bank }
+	tag{ save }
+	link{ object{ monetary_account } name{ monetary_account } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ deposit_account_bank }
+	tag{ save }
+	link{ object{ deposit_account } name{ deposit_account } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ deposit_account_owner }
+	tag{ save }
+	link{ object{ deposit_account } name{ deposit_account } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ deposit_account_settlement }
+	tag{ save }
+	link{ object{ deposit_account } name{ deposit_account } type{ unique } }
 	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
 }
 

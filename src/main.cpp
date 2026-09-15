@@ -19,6 +19,7 @@
 #include "economy/physical/factory_inputs.cpp"
 #include "economy/relations/relations.cpp"
 #include "economy/accounts/accounts.cpp"
+#include "economy/banking/banking.cpp"
 #include "governance/governance.cpp"
 #include "persons/persons.cpp"
 #include "governance/actions/actions.cpp"
