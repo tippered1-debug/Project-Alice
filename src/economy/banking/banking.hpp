@@ -33,9 +33,14 @@ dcon::deposit_account_id open_deposit_account(sys::state&, dcon::organization_id
 float deposit_balance(sys::state const&, dcon::deposit_account_id);
 bool bootstrap_set_deposit_balance(sys::state&, dcon::deposit_account_id, float);
 
+// Low-level compatibility primitive. Normal loan origination should use the
+// consent-aware overload below so both lender and borrower accept the proposal.
 dcon::obligation_id originate_loan(sys::state&, dcon::organization_id bank,
 	dcon::deposit_account_id borrower_account, float principal, sys::date creation_date,
 	sys::date due_date, float annual_interest_rate);
+dcon::obligation_id originate_loan_with_consent(sys::state&, dcon::organization_id bank,
+	dcon::deposit_account_id borrower_account, float principal, sys::date creation_date,
+	sys::date due_date, float annual_interest_rate, dcon::economic_proposal_id proposal);
 
 bool transfer_deposit(sys::state&, dcon::deposit_account_id source,
 	dcon::deposit_account_id destination, float amount, sys::date timestamp);

@@ -5216,6 +5216,37 @@ object{
 }
 
 object{
+	name{ organization_decision_mandate }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ decision_kind } type{ uint8_t } tag{ save } }
+	property{ name{ started_on } type{ sys::date } tag{ save } }
+	property{ name{ ended_on } type{ sys::date } tag{ save } }
+}
+
+object{
+	name{ economic_proposal }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ settlement } type{ commodity_id } tag{ save } }
+	property{ name{ amount } type{ float } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ economic_decision }
+	storage_type{ erasable }
+	size{ 400000 }
+	tag{ save }
+	property{ name{ accepted } type{ uint8_t } tag{ save } }
+	property{ name{ occurred_on } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ deposit_account }
 	storage_type{ erasable }
 	size{ 100000 }
@@ -5795,6 +5826,49 @@ relationship{
 	tag{ save }
 	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
 	link{ object{ policy_rule } name{ policy_rule } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ organization_decision_mandate_organization }
+	tag{ save }
+	link{ object{ organization_decision_mandate } name{ organization_decision_mandate } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ organization_decision_mandate_person }
+	tag{ save }
+	link{ object{ organization_decision_mandate } name{ organization_decision_mandate } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ economic_proposal_actor_a }
+	tag{ save }
+	link{ object{ economic_proposal } name{ economic_proposal } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ economic_proposal_actor_b }
+	tag{ save }
+	link{ object{ economic_proposal } name{ economic_proposal } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ economic_decision_proposal }
+	tag{ save }
+	link{ object{ economic_decision } name{ economic_decision } type{ unique } }
+	link{ object{ economic_proposal } name{ economic_proposal } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ economic_decision_deciding_actor }
+	tag{ save }
+	link{ object{ economic_decision } name{ economic_decision } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ economic_decision_deciding_person }
+	tag{ save }
+	link{ object{ economic_decision } name{ economic_decision } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
 }
 
 relationship{

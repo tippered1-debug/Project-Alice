@@ -2,6 +2,7 @@
 
 #include "actors/organizations/organizations.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "economy/consent/consent.hpp"
 #include "economy/relations/relations.hpp"
 #include "system_state.hpp"
 
@@ -137,6 +138,25 @@ dcon::obligation_id originate_loan(sys::state& state, dcon::organization_id bank
 		creation_date, due_date, annual_interest_rate, relations::obligation_kind::loan);
 	if(!loan) return {};
 	state.world.deposit_account_set_balance(borrower_account, deposit_balance(state, borrower_account) + principal);
+	return loan;
+}
+
+dcon::obligation_id originate_loan_with_consent(sys::state& state, dcon::organization_id bank,
+	dcon::deposit_account_id borrower_account, float principal, sys::date creation_date,
+	sys::date due_date, float annual_interest_rate, dcon::economic_proposal_id proposal) {
+	if(!proposal || !state.world.economic_proposal_is_valid(proposal)
+		|| state.world.economic_proposal_get_kind(proposal) != uint8_t(economy::consent::proposal_kind::loan)
+		|| !borrower_account || !state.world.deposit_account_is_valid(borrower_account)) return {};
+	auto bank_actor = actors::organizations::actor_for_organization(state, bank);
+	auto borrower = state.world.deposit_account_get_economic_actor_from_deposit_account_owner(borrower_account);
+	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(borrower_account);
+	if(state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_a(proposal) != bank_actor
+		|| state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(proposal) != borrower
+		|| state.world.economic_proposal_get_settlement(proposal) != settlement
+		|| state.world.economic_proposal_get_amount(proposal) != principal
+		|| !economy::consent::proposal_fully_accepted(state, proposal, creation_date)) return {};
+	auto loan = originate_loan(state, bank, borrower_account, principal, creation_date, due_date, annual_interest_rate);
+	if(!loan || !economy::consent::mark_executed(state, proposal)) return {};
 	return loan;
 }
 

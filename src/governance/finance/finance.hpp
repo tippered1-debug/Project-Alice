@@ -38,6 +38,12 @@ dcon::fiscal_action_id authorized_spend(sys::state&, dcon::person_id initiator,
 dcon::fiscal_action_id authorized_issue_public_debt(sys::state&, dcon::person_id initiator,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
 	float principal, sys::date due_date, float annual_interest_rate, sys::date date);
+// The legacy overload remains a raw compatibility primitive. Investor-facing
+// issuance should use the consent-aware overload below.
+dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state&, dcon::person_id initiator,
+	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
+	float principal, sys::date due_date, float annual_interest_rate, sys::date date,
+	dcon::economic_proposal_id investor_proposal);
 float accrue_public_debt_interest(sys::state&, dcon::obligation_id, uint32_t days);
 dcon::transaction_id service_public_debt(sys::state&, dcon::obligation_id,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id holder_account,

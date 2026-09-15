@@ -15,6 +15,7 @@
 #include "economy/relations/relations.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/banking/banking.hpp"
+#include "economy/consent/consent.hpp"
 #include "governance/finance/finance.hpp"
 #include "governance/law/law.hpp"
 #include "governance/governance.hpp"
@@ -1243,6 +1244,138 @@ TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][se
 	REQUIRE(loaded->world.fiscal_action_get_transaction_from_fiscal_action_resulting_transaction(ldebt_action));
 	REQUIRE(::governance::finance::fiscal_position_for(*loaded, linstitution, lsettlement).treasury_cash == Approx(60.0f));
 	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, lbank, lsettlement).public_debt_assets == Approx(40.0f));
+}
+
+TEST_CASE("actor_consent_gates_loans_and_public_debt", "[economy][consent][finance]") {
+	auto state = std::make_unique<sys::state>();
+	auto settlement = state->world.create_commodity();
+	auto nation = state->world.create_nation();
+	auto institution = ::governance::create_institution(*state, nation, ::governance::institution_kind::central_government);
+	auto office = ::governance::create_office(*state, institution, ::governance::office_kind::finance_minister);
+	auto issuer = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::appoint_person(*state, issuer, office, sys::date{1}));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::issue_public_debt, nation));
+	auto bank = ::economy::banking::create_bank(*state);
+	auto bank_actor = ::actors::organizations::actor_for_organization(*state, bank);
+	auto borrower = ::persons::create_person(*state, sys::date{1});
+	auto borrower_actor = ::persons::actor_for_person(*state, borrower);
+	auto borrower_account = ::economy::banking::open_deposit_account(*state, bank, borrower_actor, settlement);
+	REQUIRE(borrower_account);
+	auto bank_representative = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::economy::consent::create_mandate(*state, bank, bank_representative,
+		::economy::consent::decision_kind::lend, sys::date{1}));
+	auto loan_proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::loan,
+		bank_actor, borrower_actor, settlement, 100.0f, sys::date{1});
+	REQUIRE(loan_proposal);
+	REQUIRE_FALSE(::economy::banking::originate_loan_with_consent(*state, bank, borrower_account, 100.0f,
+		sys::date{1}, sys::date{100}, 0.0f, loan_proposal));
+	REQUIRE(state->world.obligation_size() == 0);
+	REQUIRE(::economy::consent::accept_proposal(*state, loan_proposal, bank_actor, bank_representative, sys::date{1}));
+	REQUIRE(::economy::consent::accept_proposal(*state, loan_proposal, borrower_actor, borrower, sys::date{1}));
+	auto loan = ::economy::banking::originate_loan_with_consent(*state, bank, borrower_account, 100.0f,
+		sys::date{1}, sys::date{100}, 0.0f, loan_proposal);
+	REQUIRE(loan);
+	REQUIRE(::economy::consent::proposal_fully_accepted(*state, loan_proposal, sys::date{1}) == false);
+	REQUIRE(state->world.economic_proposal_get_status(loan_proposal) == uint8_t(::economy::consent::proposal_status::executed));
+	REQUIRE(::economy::banking::deposit_balance(*state, borrower_account) == Approx(100.0f));
+	REQUIRE_FALSE(::economy::banking::originate_loan_with_consent(*state, bank, borrower_account, 100.0f,
+		sys::date{1}, sys::date{100}, 0.0f, loan_proposal));
+	REQUIRE(state->world.obligation_size() == 1);
+
+	auto treasury = ::governance::finance::open_treasury_account(*state, institution, settlement);
+	auto investor = ::persons::create_person(*state, sys::date{1});
+	auto investor_actor = ::persons::actor_for_person(*state, investor);
+	auto investor_account = ::economy::accounts::open_account(*state, investor_actor, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, investor_account, 80.0f));
+	auto issuer_actor = ::governance::actor_for_institution(*state, institution);
+	auto debt_proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::investment,
+		issuer_actor, investor_actor, settlement, 80.0f, sys::date{2});
+	REQUIRE(debt_proposal);
+	auto obligations_before = state->world.obligation_size();
+	auto actions_before = state->world.fiscal_action_size();
+	REQUIRE_FALSE(::governance::finance::authorized_issue_public_debt_with_consent(*state, issuer, treasury,
+		investor_account, 80.0f, sys::date{100}, 0.0f, sys::date{2}, debt_proposal));
+	REQUIRE(state->world.obligation_size() == obligations_before);
+	REQUIRE(state->world.fiscal_action_size() == actions_before);
+	REQUIRE(::economy::consent::accept_proposal(*state, debt_proposal, investor_actor, investor, sys::date{2}));
+	auto debt_action = ::governance::finance::authorized_issue_public_debt_with_consent(*state, issuer, treasury,
+		investor_account, 80.0f, sys::date{100}, 0.0f, sys::date{2}, debt_proposal);
+	REQUIRE(debt_action);
+	REQUIRE(state->world.economic_proposal_get_status(debt_proposal) == uint8_t(::economy::consent::proposal_status::executed));
+	REQUIRE(::economy::accounts::balance(*state, investor_account) == Approx(0.0f));
+
+	// Organization investors require their own representative and a matching,
+	// active mandate; personal authority does not leak across organizations.
+	auto company = ::actors::organizations::create_company(*state);
+	auto company_actor = ::actors::organizations::actor_for_organization(*state, company);
+	auto company_representative = ::persons::create_person(*state, sys::date{1});
+	auto unrelated = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::economy::consent::create_mandate(*state, company, company_representative,
+		::economy::consent::decision_kind::invest, sys::date{5}, sys::date{10}));
+	REQUIRE_FALSE(::economy::consent::can_decide_for_actor(*state, unrelated, company_actor,
+		::economy::consent::decision_kind::invest, sys::date{6}));
+	REQUIRE_FALSE(::economy::consent::can_decide_for_actor(*state, company_representative, company_actor,
+		::economy::consent::decision_kind::borrow, sys::date{6}));
+	REQUIRE_FALSE(::economy::consent::can_decide_for_actor(*state, company_representative, company_actor,
+		::economy::consent::decision_kind::invest, sys::date{4}));
+	REQUIRE(::economy::consent::can_decide_for_actor(*state, company_representative, company_actor,
+		::economy::consent::decision_kind::invest, sys::date{6}));
+	REQUIRE_FALSE(::economy::consent::can_decide_for_actor(*state, company_representative, company_actor,
+		::economy::consent::decision_kind::invest, sys::date{10}));
+	auto company_account = ::economy::accounts::open_account(*state, company_actor, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, company_account, 10.0f));
+	auto company_proposal = ::economy::consent::create_proposal(*state,
+		::economy::consent::proposal_kind::investment, issuer_actor, company_actor,
+		settlement, 10.0f, sys::date{5});
+	REQUIRE_FALSE(::economy::consent::accept_proposal(*state, company_proposal, company_actor, unrelated, sys::date{6}));
+	REQUIRE(::economy::consent::accept_proposal(*state, company_proposal, company_actor, company_representative, sys::date{6}));
+	REQUIRE(::governance::finance::authorized_issue_public_debt_with_consent(*state, issuer, treasury,
+		company_account, 10.0f, sys::date{100}, 0.0f, sys::date{6}, company_proposal));
+}
+
+TEST_CASE("actor_consent_relations_survive_save_load", "[economy][consent][serialization]") {
+	auto state = std::make_unique<sys::state>();
+	auto settlement = state->world.create_commodity();
+	auto organization = ::actors::organizations::create_company(*state);
+	auto representative = ::persons::create_person(*state, sys::date{1});
+	auto representative_actor = ::persons::actor_for_person(*state, representative);
+	auto mandate = ::economy::consent::create_mandate(*state, organization, representative,
+		::economy::consent::decision_kind::lend, sys::date{1}, sys::date{20});
+	auto proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::loan,
+		::actors::organizations::actor_for_organization(*state, organization), representative_actor,
+		settlement, 25.0f, sys::date{2});
+	REQUIRE(proposal);
+	REQUIRE(::economy::consent::accept_proposal(*state, proposal,
+		::actors::organizations::actor_for_organization(*state, organization), representative, sys::date{2}));
+	REQUIRE(::economy::consent::accept_proposal(*state, proposal, representative_actor, representative, sys::date{2}));
+	REQUIRE(::economy::consent::mark_executed(*state, proposal));
+	std::vector<uint8_t> bytes(sys::sizeof_save_section(*state));
+	auto const* end = sys::write_save_section(bytes.data(), *state);
+
+	auto loaded = std::make_unique<sys::state>();
+	auto lsettlement = loaded->world.create_commodity();
+	auto lorganization = ::actors::organizations::create_company(*loaded);
+	auto lrepresentative = ::persons::create_person(*loaded, sys::date{1});
+	auto lmandate = ::economy::consent::create_mandate(*loaded, lorganization, lrepresentative,
+		::economy::consent::decision_kind::lend, sys::date{1}, sys::date{20});
+	auto lproposal = ::economy::consent::create_proposal(*loaded, ::economy::consent::proposal_kind::loan,
+		::actors::organizations::actor_for_organization(*loaded, lorganization),
+		::persons::actor_for_person(*loaded, lrepresentative), lsettlement, 25.0f, sys::date{2});
+	REQUIRE(::economy::consent::accept_proposal(*loaded, lproposal,
+		::actors::organizations::actor_for_organization(*loaded, lorganization), lrepresentative, sys::date{2}));
+	REQUIRE(::economy::consent::accept_proposal(*loaded, lproposal,
+		::persons::actor_for_person(*loaded, lrepresentative), lrepresentative, sys::date{2}));
+	REQUIRE(::economy::consent::mark_executed(*loaded, lproposal));
+	sys::read_save_section(bytes.data(), end, *loaded);
+	REQUIRE(loaded->world.organization_decision_mandate_get_decision_kind(lmandate) == uint8_t(::economy::consent::decision_kind::lend));
+	REQUIRE(loaded->world.organization_decision_mandate_get_started_on(lmandate) == sys::date{1});
+	REQUIRE(loaded->world.organization_decision_mandate_get_ended_on(lmandate) == sys::date{20});
+	REQUIRE(loaded->world.economic_proposal_get_status(lproposal) == uint8_t(::economy::consent::proposal_status::executed));
+	REQUIRE(loaded->world.economic_proposal_get_amount(lproposal) == Approx(25.0f));
+	uint32_t decisions = 0;
+	for(auto decision : loaded->world.in_economic_decision)
+		if(loaded->world.economic_decision_get_economic_proposal_from_economic_decision_proposal(decision) == lproposal) ++decisions;
+	REQUIRE(decisions == 2);
 }
 
 TEST_CASE("governance_institutions_and_authority_are_concrete", "[governance]") {

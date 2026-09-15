@@ -1,6 +1,7 @@
 #include "finance.hpp"
 
 #include "economy/accounts/accounts.hpp"
+#include "economy/consent/consent.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
 #include "governance/law/law.hpp"
@@ -192,6 +193,30 @@ dcon::fiscal_action_id authorized_issue_public_debt(sys::state& state, dcon::per
 	if(!transaction) return {};
 	return record_action(state, fiscal_action_kind::public_debt_issuance, initiator, context.office,
 		context.institution, treasury_account, date, obligation, transaction);
+}
+
+dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state& state, dcon::person_id initiator,
+	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
+	float principal, sys::date due_date, float annual_interest_rate, sys::date date,
+	dcon::economic_proposal_id investor_proposal) {
+	if(!investor_proposal || !state.world.economic_proposal_is_valid(investor_proposal)
+		|| state.world.economic_proposal_get_kind(investor_proposal) != uint8_t(economy::consent::proposal_kind::investment)
+		|| !investor_account || !state.world.monetary_account_is_valid(investor_account)) return {};
+	authority_context context{};
+	if(!authority_for_treasury(state, initiator, authority_kind::issue_public_debt, treasury_account, date, context)) return {};
+	auto issuer = governance::actor_for_institution(state, context.institution);
+	auto investor = economy::accounts::owner_of(state, investor_account);
+	if(!issuer || !investor
+		|| state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_a(investor_proposal) != issuer
+		|| state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(investor_proposal) != investor
+		|| state.world.economic_proposal_get_settlement(investor_proposal) != context.settlement
+		|| state.world.economic_proposal_get_amount(investor_proposal) != principal
+		|| !economy::consent::proposal_fully_accepted(state, investor_proposal, date)) return {};
+	// All consent and authority checks precede the legacy atomic issuance primitive.
+	auto action = authorized_issue_public_debt(state, initiator, treasury_account, investor_account,
+		principal, due_date, annual_interest_rate, date);
+	if(!action || !economy::consent::mark_executed(state, investor_proposal)) return {};
+	return action;
 }
 
 float accrue_public_debt_interest(sys::state& state, dcon::obligation_id obligation, uint32_t days) {
