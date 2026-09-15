@@ -27,6 +27,11 @@ bool live_obligation(sys::state const& state, dcon::obligation_id obligation) {
 		&& economy::relations::total_due(state, obligation) > 0.0f;
 }
 
+bool payable_obligation(sys::state const& state, dcon::obligation_id obligation) {
+	return live_obligation(state, obligation)
+		&& state.world.obligation_get_status(obligation) == uint8_t(obligation_status::active);
+}
+
 dcon::office_id office_for_tenure(sys::state const& state, dcon::office_tenure_id tenure) {
 	return tenure ? state.world.office_tenure_get_office_from_office_tenure_office(tenure) : dcon::office_id{};
 }
@@ -116,7 +121,7 @@ dcon::fiscal_action_id authorized_assess_tax(sys::state& state, dcon::person_id 
 	dcon::economic_actor_id taxpayer_actor, dcon::monetary_account_id treasury_account,
 	float amount, sys::date due_date, sys::date date) {
 	authority_context context{};
-	if(!valid_amount(amount) || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor)
+	if(!valid_amount(amount) || due_date < date || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor)
 		|| !authority_for_treasury(state, initiator, authority_kind::levy_tax, treasury_account, date, context)) return {};
 	auto creditor = governance::actor_for_institution(state, context.institution);
 	auto obligation = economy::relations::create_obligation(state, taxpayer_actor, creditor, amount,
@@ -131,7 +136,7 @@ dcon::transaction_id pay_tax(sys::state& state, dcon::obligation_id tax_obligati
 	float amount, sys::date date) {
 	if(!valid_amount(amount) || !tax_obligation || !state.world.obligation_is_valid(tax_obligation)
 		|| state.world.obligation_get_kind(tax_obligation) != uint8_t(obligation_kind::tax)
-		|| !live_obligation(state, tax_obligation)) return {};
+		|| !payable_obligation(state, tax_obligation)) return {};
 	auto debtor = state.world.obligation_get_economic_actor_from_obligation_debtor(tax_obligation);
 	auto creditor = state.world.obligation_get_economic_actor_from_obligation_creditor(tax_obligation);
 	auto settlement = state.world.obligation_get_settlement_commodity(tax_obligation);
@@ -166,7 +171,7 @@ dcon::fiscal_action_id authorized_issue_public_debt(sys::state& state, dcon::per
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
 	float principal, sys::date due_date, float annual_interest_rate, sys::date date) {
 	authority_context context{};
-	if(!valid_amount(principal) || !std::isfinite(annual_interest_rate) || annual_interest_rate < 0.0f
+	if(!valid_amount(principal) || due_date < date || !std::isfinite(annual_interest_rate) || annual_interest_rate < 0.0f
 		|| !authority_for_treasury(state, initiator, authority_kind::issue_public_debt, treasury_account, date, context)
 		|| !investor_account || !state.world.monetary_account_is_valid(investor_account)
 		|| economy::accounts::settlement_of(state, investor_account) != context.settlement
@@ -195,7 +200,7 @@ dcon::transaction_id service_public_debt(sys::state& state, dcon::obligation_id 
 	float amount, sys::date date) {
 	if(!valid_amount(amount) || !obligation || !state.world.obligation_is_valid(obligation)
 		|| state.world.obligation_get_kind(obligation) != uint8_t(obligation_kind::public_debt)
-		|| !live_obligation(state, obligation)) return {};
+		|| !payable_obligation(state, obligation)) return {};
 	auto debtor = state.world.obligation_get_economic_actor_from_obligation_debtor(obligation);
 	auto creditor = state.world.obligation_get_economic_actor_from_obligation_creditor(obligation);
 	auto settlement = state.world.obligation_get_settlement_commodity(obligation);
