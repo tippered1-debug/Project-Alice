@@ -374,7 +374,8 @@ void save_inputs_to_buffers(
 	VALUE min_available,
 	bool skip_physical_consumption = false,
 	dcon::site_id physical_site = {},
-	dcon::economic_actor_id physical_owner = {}
+	dcon::economic_actor_id physical_owner = {},
+	dcon::factory_id physical_factory = {}
 ) {
 	for(uint32_t i = 0; i < SET::set_size; ++i) {
 		if(inputs.commodity_type[i]) {
@@ -382,8 +383,8 @@ void save_inputs_to_buffers(
 			auto demand = scale * inputs.commodity_amounts[i];
 			if constexpr(std::is_same_v<VALUE, float>)
 			if(skip_physical_consumption && ::economy::physical::factory_inputs::ordinary_physical_input(state, inputs.commodity_type[i]))
-				demand = ::economy::physical::factory_inputs::net_demand(
-					state, physical_site, physical_owner, inputs.commodity_type[i], demand);
+				demand = ::economy::physical::factory_inputs::planned_quantity(
+					state, physical_factory, inputs.commodity_type[i], demand);
 			buffer_demanded[b_index].set(provs, buffer_demanded[b_index].get(provs) + demand);
 			if(!skip_physical_consumption || !::economy::physical::factory_inputs::ordinary_physical_input(state, inputs.commodity_type[i]))
 				buffer_consumed[b_index].set(provs, buffer_consumed[b_index].get(provs) + scale * inputs.commodity_amounts[i] * min_available);
@@ -677,7 +678,8 @@ consumption_data consume(
 	economy_reason reason,
 	bool skip_physical_consumption,
 	dcon::site_id physical_site,
-	dcon::economic_actor_id physical_owner
+	dcon::economic_actor_id physical_owner,
+	dcon::factory_id physical_factory
 ) {
 	assert(input_multiplier >= 0.f);
 	assert(throughput_multiplier >= 0.f);
@@ -691,7 +693,7 @@ consumption_data consume(
 		* production_units;
 	assert(input_scale >= 0.f);
 
-	save_inputs_to_buffers(state, province, buffer_demanded, buffer_consumed, inputs, input_scale, additional_data.direct_inputs_data.min_available, skip_physical_consumption, physical_site, physical_owner);
+	save_inputs_to_buffers(state, province, buffer_demanded, buffer_consumed, inputs, input_scale, additional_data.direct_inputs_data.min_available, skip_physical_consumption, physical_site, physical_owner, physical_factory);
 
 	consumption_data result = {
 		.direct_inputs_cost = additional_data.direct_inputs_cost_per_production_unit_availability_adjusted
@@ -1721,7 +1723,7 @@ void update_single_factory_consumption(
 		output_multiplier_from_workers_with_high_education(
 			state, fac_type.get_output(), ::world::legacy_bridge::province_for_factory(state, fac.id), fac.get_secondary_employment()
 		), max_employment, economy_reason::factory, physical_inputs_ready && physical_inputs.active,
-		physical_input_site, physical_input_owner
+		physical_input_site, physical_input_owner, fac.id
 	);
 	if(physical_inputs_ready && physical_inputs.active)
 		::economy::physical::factory_inputs::consume(

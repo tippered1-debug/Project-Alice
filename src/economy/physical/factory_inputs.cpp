@@ -22,6 +22,8 @@ struct planned_order {
 	economy::commodity_set inputs{};
 	dcon::market_id market{};
 	float input_scale = 0.0f;
+	std::array<dcon::commodity_id, economy::commodity_set::set_size> commodities{};
+	std::array<float, economy::commodity_set::set_size> quantities{};
 	bool ready = false;
 };
 
@@ -88,14 +90,34 @@ bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination
 	dcon::market_id market, float input_scale) {
 	if(!factory || factory.index() >= planned_orders.size())
 		return false;
-	planned_orders[factory.index()] = { destination, owner, inputs, market, input_scale, false };
+	planned_orders[factory.index()] = { destination, owner, inputs, market, input_scale, {}, {}, false };
 	if(!destination || !owner || !market || !std::isfinite(input_scale) || input_scale < 0.0f)
 		return false;
 	auto hub = deposits::market_hub_for(state, market);
 	if(!hub)
 		return false;
+	uint32_t quantity_index = 0;
+	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+		auto commodity = inputs.commodity_type[i];
+		if(!commodity) break;
+		if(seen_before(inputs, i) || !physical_commodity(state, commodity)) continue;
+		planned_orders[factory.index()].commodities[quantity_index] = commodity;
+		planned_orders[factory.index()].quantities[quantity_index] = net_demand(
+			state, destination, owner, commodity, required_for(inputs, commodity, input_scale));
+		++quantity_index;
+	}
 	planned_orders[factory.index()].ready = true;
 	return true;
+}
+
+float planned_quantity(sys::state const& state, dcon::factory_id factory,
+	dcon::commodity_id commodity, float fallback) noexcept {
+	if(!factory || factory.index() >= planned_orders.size()) return fallback;
+	auto const& order = planned_orders[factory.index()];
+	for(uint32_t i = 0; i < order.commodities.size(); ++i)
+		if(order.commodities[i] == commodity)
+			return order.quantities[i];
+	return fallback;
 }
 
 void fulfill(sys::state& state) {
@@ -110,11 +132,14 @@ void fulfill(sys::state& state) {
 		if(!commodity) break;
 		if(seen_before(order.inputs, i) || !physical_commodity(state, commodity)) continue;
 		auto required = required_for(order.inputs, commodity, order.input_scale);
-		auto committed = inventory::quantity(state, order.destination, commodity, order.owner)
-		+ in_transit_to(state, order.destination, commodity, order.owner);
-		auto shortage = std::max(0.0f, required - committed);
-		if(shortage <= 0.0f) continue;
-		auto allocated = shortage * std::clamp(market_clearing::fill(
+		auto planned = 0.0f;
+		for(uint32_t quantity_index = 0; quantity_index < order.commodities.size(); ++quantity_index)
+			if(order.commodities[quantity_index] == commodity) {
+				planned = order.quantities[quantity_index];
+				break;
+			}
+		if(planned <= 0.0f) continue;
+		auto allocated = planned * std::clamp(market_clearing::fill(
 			state, order.market, commodity, market_clearing::demand_class::intermediate), 0.0f, 1.0f);
 		allocated = std::min(allocated, std::max(0.0f, state.world.market_get_stockpile(order.market, commodity)));
 		if(allocated <= 0.0f) continue;

@@ -410,6 +410,7 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 
 	::economy::physical::factory_inputs::begin_planning(*state);
 	REQUIRE(::economy::physical::factory_inputs::plan(*state, factory, destination, owner, inputs, market, 1.0f));
+	REQUIRE(::economy::physical::factory_inputs::planned_quantity(*state, factory, commodity, -1.0f) == Approx(4.0f));
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(4.0f));
 	::economy::physical::factory_inputs::fulfill(*state);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));

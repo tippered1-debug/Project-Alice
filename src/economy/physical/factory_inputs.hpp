@@ -19,6 +19,8 @@ availability evaluate(sys::state const&, dcon::site_id, dcon::economic_actor_id,
 void begin_planning(sys::state&);
 bool plan(sys::state&, dcon::factory_id, dcon::site_id, dcon::economic_actor_id,
 	economy::commodity_set const&, dcon::market_id, float input_scale);
+float planned_quantity(sys::state const&, dcon::factory_id, dcon::commodity_id,
+	float fallback) noexcept;
 void fulfill(sys::state&);
 
 bool ordinary_physical_input(sys::state const&, dcon::commodity_id) noexcept;
