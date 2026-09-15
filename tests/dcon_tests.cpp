@@ -1043,6 +1043,10 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	REQUIRE(::persons::appoint_person(*state, person, office, sys::date{1}));
 	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::legislate, nation));
 	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::issue_public_debt, nation));
+	auto second_office = ::governance::create_office(*state, institution, ::governance::office_kind::agency_director);
+	auto second_person = ::persons::create_person(*state, sys::date{2});
+	REQUIRE(::persons::appoint_person(*state, second_person, second_office, sys::date{20}));
+	REQUIRE(::governance::grant_authority_to_office(*state, second_office, ::governance::authority_kind::legislate, nation));
 	auto settlement = state->world.create_commodity();
 	auto treasury = ::governance::finance::open_treasury_account(*state, institution, settlement);
 	auto investor = state->world.create_economic_actor();
@@ -1052,7 +1056,22 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 80.0f, sys::date{100}, 0.0f, sys::date{15}));
 	auto draft = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
 	REQUIRE(draft);
+	auto invalid_count = state->world.legal_instrument_size();
+	REQUIRE_FALSE(::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, dcon::nation_id{9999}));
+	REQUIRE(state->world.legal_instrument_size() == invalid_count);
 	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*state, draft, settlement, 100.0f));
+	REQUIRE_FALSE(::governance::law::add_public_debt_ceiling_rule(*state, draft, settlement, 200.0f));
+	auto no_legislate = ::persons::create_person(*state, sys::date{1});
+	auto no_legislate_office = ::governance::create_office(*state, institution, ::governance::office_kind::agency_director);
+	REQUIRE(::persons::appoint_person(*state, no_legislate, no_legislate_office, sys::date{1}));
+	REQUIRE_FALSE(::governance::law::authorized_enact(*state, no_legislate, draft, sys::date{10}, sys::date{10}));
+	auto regulation_without_regulate = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::regulation, nation);
+	REQUIRE(::governance::law::add_public_debt_prohibition_rule(*state, regulation_without_regulate, settlement));
+	REQUIRE_FALSE(::governance::law::authorized_enact(*state, second_person, regulation_without_regulate, sys::date{10}, sys::date{10}));
+	REQUIRE_FALSE(::governance::law::authorized_enact(*state, second_person, draft, sys::date{19}, sys::date{19}));
+	auto dead_person = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::mark_dead(*state, dead_person, sys::date{2}));
+	REQUIRE_FALSE(::governance::law::authorized_enact(*state, dead_person, draft, sys::date{10}, sys::date{10}));
 	auto enactment = ::governance::law::authorized_enact(*state, person, draft, sys::date{10}, sys::date{20});
 	REQUIRE(enactment);
 	REQUIRE(!::governance::law::public_debt_policy_for(*state, nation, settlement, sys::date{15}).ceiling);
@@ -1060,6 +1079,13 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	auto conflicting = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
 	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*state, conflicting, settlement, 200.0f));
 	REQUIRE_FALSE(::governance::law::authorized_enact(*state, person, conflicting, sys::date{21}, sys::date{21}));
+	auto second_settlement = state->world.create_commodity();
+	auto future_a = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
+	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*state, future_a, second_settlement, 100.0f));
+	REQUIRE(::governance::law::authorized_enact(*state, person, future_a, sys::date{10}, sys::date{40}));
+	auto future_b = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
+	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*state, future_b, second_settlement, 200.0f));
+	REQUIRE_FALSE(::governance::law::authorized_enact(*state, person, future_b, sys::date{20}, sys::date{20}));
 	auto obligations_before = state->world.obligation_size();
 	auto transactions_before = state->world.transaction_size();
 	auto actions_before = state->world.fiscal_action_size();
@@ -1072,9 +1098,17 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(treasury_before));
 	REQUIRE(::economy::accounts::balance(*state, investor_account) == Approx(investor_before));
 	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 20.0f, sys::date{100}, 0.0f, sys::date{21}));
-	REQUIRE(::governance::law::authorized_repeal(*state, person, draft, sys::date{30}));
+	auto repeal_action = ::governance::law::authorized_repeal(*state, second_person, draft, sys::date{30});
+	REQUIRE(repeal_action);
+	REQUIRE(state->world.legal_action_get_person_from_legal_action_initiator(repeal_action) == second_person);
+	REQUIRE(state->world.legal_action_get_office_from_legal_action_authorizing_office(repeal_action) == second_office);
+	REQUIRE(state->world.legal_action_get_institution_from_legal_action_issuing_institution(repeal_action) == institution);
+	REQUIRE(state->world.legal_instrument_get_person_from_legal_instrument_enactor(draft) == person);
+	REQUIRE(state->world.legal_instrument_get_office_from_legal_instrument_authorizing_office(draft) == office);
 	REQUIRE(::governance::law::instrument_is_effective(*state, draft, sys::date{25}));
 	REQUIRE_FALSE(::governance::law::instrument_is_effective(*state, draft, sys::date{30}));
+	auto unauthorized_repealer = ::persons::create_person(*state, sys::date{1});
+	REQUIRE_FALSE(::governance::law::authorized_repeal(*state, unauthorized_repealer, draft, sys::date{25}));
 	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 30.0f, sys::date{100}, 0.0f, sys::date{31}));
 
 	auto prohibited = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::regulation, nation);
@@ -1084,7 +1118,70 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	auto after_prohibition = state->world.obligation_size();
 	REQUIRE_FALSE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 1.0f, sys::date{100}, 0.0f, sys::date{41}));
 	REQUIRE(state->world.obligation_size() == after_prohibition);
+	auto replacement = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
+	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*state, replacement, settlement, 200.0f));
+	REQUIRE(::governance::law::authorized_enact(*state, person, replacement, sys::date{30}, sys::date{30}));
 
+}
+
+TEST_CASE("law_relations_survive_save_load", "[governance][law][serialization]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto institution = ::governance::create_institution(*state, nation, ::governance::institution_kind::central_government);
+	auto office = ::governance::create_office(*state, institution, ::governance::office_kind::finance_minister);
+	auto person = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::appoint_person(*state, person, office, sys::date{1}));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::legislate, nation));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::regulate, nation));
+	auto settlement = state->world.create_commodity();
+	auto ceiling = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
+	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*state, ceiling, settlement, 100.0f));
+	auto enactment = ::governance::law::authorized_enact(*state, person, ceiling, sys::date{10}, sys::date{20});
+	auto prohibition = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::regulation, nation);
+	REQUIRE(::governance::law::add_public_debt_prohibition_rule(*state, prohibition, settlement));
+	REQUIRE(::governance::law::authorized_enact(*state, person, prohibition, sys::date{12}, sys::date{12}));
+	auto repeal = ::governance::law::authorized_repeal(*state, person, prohibition, sys::date{30});
+	REQUIRE(enactment); REQUIRE(repeal);
+
+	std::vector<uint8_t> bytes(sys::sizeof_save_section(*state));
+	auto const* end = sys::write_save_section(bytes.data(), *state);
+	auto loaded = std::make_unique<sys::state>();
+	auto lnation = loaded->world.create_nation();
+	auto linstitution = ::governance::create_institution(*loaded, lnation, ::governance::institution_kind::central_government);
+	auto loffice = ::governance::create_office(*loaded, linstitution, ::governance::office_kind::finance_minister);
+	auto lperson = ::persons::create_person(*loaded, sys::date{1});
+	REQUIRE(::persons::appoint_person(*loaded, lperson, loffice, sys::date{1}));
+	REQUIRE(::governance::grant_authority_to_office(*loaded, loffice, ::governance::authority_kind::legislate, lnation));
+	REQUIRE(::governance::grant_authority_to_office(*loaded, loffice, ::governance::authority_kind::regulate, lnation));
+	auto lsettlement = loaded->world.create_commodity();
+	auto lceiling = ::governance::law::create_draft_instrument(*loaded, ::governance::law::legal_instrument_kind::statute, lnation);
+	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*loaded, lceiling, lsettlement, 100.0f));
+	auto lenactment = ::governance::law::authorized_enact(*loaded, lperson, lceiling, sys::date{10}, sys::date{20});
+	auto lprohibition = ::governance::law::create_draft_instrument(*loaded, ::governance::law::legal_instrument_kind::regulation, lnation);
+	REQUIRE(::governance::law::add_public_debt_prohibition_rule(*loaded, lprohibition, lsettlement));
+	REQUIRE(::governance::law::authorized_enact(*loaded, lperson, lprohibition, sys::date{12}, sys::date{12}));
+	auto lrepeal = ::governance::law::authorized_repeal(*loaded, lperson, lprohibition, sys::date{30});
+	REQUIRE(lenactment); REQUIRE(lrepeal);
+	sys::read_save_section(bytes.data(), end, *loaded);
+	REQUIRE(loaded->world.legal_instrument_get_nation_from_legal_instrument_nation_jurisdiction(lceiling) == lnation);
+	REQUIRE(loaded->world.legal_instrument_get_person_from_legal_instrument_enactor(lceiling) == lperson);
+	REQUIRE(loaded->world.legal_instrument_get_office_from_legal_instrument_authorizing_office(lceiling) == loffice);
+	REQUIRE(loaded->world.legal_instrument_get_institution_from_legal_instrument_issuing_institution(lceiling) == linstitution);
+	REQUIRE(loaded->world.legal_instrument_get_enacted_on(lceiling) == sys::date{10});
+	REQUIRE(loaded->world.legal_instrument_get_effective_from(lceiling) == sys::date{20});
+	REQUIRE(loaded->world.legal_instrument_get_repealed_on(lprohibition) == sys::date{30});
+	REQUIRE(loaded->world.legal_action_get_legal_instrument_from_legal_action_instrument(lenactment) == lceiling);
+	REQUIRE(loaded->world.legal_action_get_legal_instrument_from_legal_action_instrument(lrepeal) == lprohibition);
+	bool found_ceiling = false;
+	for(auto rule : loaded->world.in_policy_rule)
+		if(loaded->world.policy_rule_get_settlement(rule) == lsettlement && loaded->world.policy_rule_get_amount(rule) == Approx(100.0f)) found_ceiling = true;
+	REQUIRE(found_ceiling);
+	REQUIRE(::governance::law::instrument_is_effective(*loaded, lceiling, sys::date{25}));
+	REQUIRE(::governance::law::instrument_is_effective(*loaded, lprohibition, sys::date{25}));
+	REQUIRE_FALSE(::governance::law::instrument_is_effective(*loaded, lprohibition, sys::date{30}));
+	REQUIRE(::governance::law::public_debt_policy_for(*loaded, lnation, lsettlement, sys::date{25}).ceiling == Approx(100.0f));
+	REQUIRE(::governance::law::public_debt_policy_for(*loaded, lnation, lsettlement, sys::date{25}).issuance_allowed == false);
+	REQUIRE(::governance::law::public_debt_policy_for(*loaded, lnation, lsettlement, sys::date{31}).issuance_allowed);
 }
 
 TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][serialization]") {
