@@ -145,7 +145,7 @@ void fulfill(sys::state& state) {
 		// from concrete seller stocks at the hub.
 		auto remaining = planned;
 		auto price = state.world.market_get_price(order.market, commodity);
-		auto settlement = exchange::settlement_for_purchase(state);
+		auto settlement = exchange::settlement_for_purchase(state, order.owner);
 		if(!settlement) return;
 		for(auto stock : exchange::seller_stocks(state, hub, commodity, order.owner)) {
 			if(remaining <= 0.0f) break;

@@ -28,6 +28,18 @@ dcon::monetary_account_id find_account(sys::state const& state, dcon::economic_a
 	return result;
 }
 
+dcon::commodity_id first_settlement_for(sys::state const& state, dcon::economic_actor_id owner) {
+	dcon::commodity_id result{};
+	if(!owner) return result;
+	state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(owner,
+		[&](dcon::monetary_account_owner_id relation) {
+			auto account = state.world.monetary_account_owner_get_monetary_account(relation);
+			if(!result && account && state.world.monetary_account_is_valid(account))
+				result = settlement_of(state, account);
+		});
+	return result;
+}
+
 dcon::economic_actor_id owner_of(sys::state const& state, dcon::monetary_account_id account) {
 	return account ? state.world.monetary_account_get_economic_actor_from_monetary_account_owner(account) : dcon::economic_actor_id{};
 }
@@ -92,6 +104,43 @@ dcon::transaction_id settle_obligation_payment(sys::state& state, dcon::obligati
 	state.world.force_create_transaction_source_account(transaction, debtor_account);
 	state.world.force_create_transaction_destination_account(transaction, creditor_account);
 	return transaction;
+}
+
+namespace {
+float transaction_total(sys::state const& state, dcon::economic_actor_id actor,
+	dcon::commodity_id settlement, bool incoming) {
+	float result = 0.0f;
+	if(!actor) return result;
+	state.world.for_each_transaction([&](dcon::transaction_id transaction) {
+		if(!transaction || state.world.transaction_get_settlement_commodity(transaction) != settlement)
+			return;
+		dcon::economic_actor_id participant{};
+		if(incoming) {
+			auto relation = state.world.transaction_get_transaction_payee(transaction);
+			if(!relation) return;
+			participant = state.world.transaction_payee_get_economic_actor(relation);
+		} else {
+			auto relation = state.world.transaction_get_transaction_payer(transaction);
+			if(!relation) return;
+			participant = state.world.transaction_payer_get_economic_actor(relation);
+		}
+		if(participant == actor)
+			result += std::max(0.0f, state.world.transaction_get_amount(transaction));
+	});
+	return result;
+}
+}
+
+float cash_inflow(sys::state const& state, dcon::economic_actor_id actor, dcon::commodity_id settlement) {
+	return transaction_total(state, actor, settlement, true);
+}
+
+float cash_outflow(sys::state const& state, dcon::economic_actor_id actor, dcon::commodity_id settlement) {
+	return transaction_total(state, actor, settlement, false);
+}
+
+float operating_cash_flow(sys::state const& state, dcon::economic_actor_id actor, dcon::commodity_id settlement) {
+	return cash_inflow(state, actor, settlement) - cash_outflow(state, actor, settlement);
 }
 
 } // namespace economy::accounts

@@ -10,12 +10,8 @@
 
 namespace economy::physical::exchange {
 
-dcon::commodity_id settlement_for_purchase(sys::state const& state) {
-	for(uint32_t i = 1; i < state.world.commodity_size(); ++i) {
-		dcon::commodity_id candidate{dcon::commodity_id::value_base_t(i)};
-		if(state.world.commodity_is_valid(candidate)) return candidate;
-	}
-	return {};
+dcon::commodity_id settlement_for_purchase(sys::state const& state, dcon::economic_actor_id buyer) {
+	return accounts::first_settlement_for(state, buyer);
 }
 
 std::vector<dcon::physical_stock_id> seller_stocks(sys::state const& state, dcon::site_id site,
@@ -47,16 +43,15 @@ dcon::transaction_id purchase(sys::state& state, dcon::site_id site, dcon::commo
 	auto cost = quantity * unit_price;
 	if(!std::isfinite(cost) || accounts::balance(state, buyer_account) < cost)
 		return {};
-	// All account and stock preconditions are checked before settlement.
+	// Move the physical stock first, then commit money and its transaction. All
+	// preconditions above make the reverse operation safe if account settlement
+	// unexpectedly fails; failed exchanges therefore leave no Transaction.
+	if(!inventory::transfer(state, site, commodity, seller, buyer, quantity)) return {};
 	auto transaction = accounts::transfer(state, buyer_account, seller_account, cost,
 		relations::transaction_kind::purchase, timestamp);
-	if(!transaction) return {};
-	if(!inventory::transfer(state, site, commodity, seller, buyer, quantity)) {
-		state.world.monetary_account_set_balance(buyer_account, accounts::balance(state, buyer_account) + cost);
-		state.world.monetary_account_set_balance(seller_account, accounts::balance(state, seller_account) - cost);
-		return {};
-	}
-	return transaction;
+	if(transaction) return transaction;
+	inventory::transfer(state, site, commodity, buyer, seller, quantity);
+	return {};
 }
 
 } // namespace economy::physical::exchange

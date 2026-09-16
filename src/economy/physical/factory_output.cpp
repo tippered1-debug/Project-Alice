@@ -6,6 +6,7 @@
 #include "inventory.hpp"
 #include "shipments.hpp"
 #include "deposits.hpp"
+#include "exchange.hpp"
 #include "system_state.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "world/site.hpp"
@@ -53,6 +54,29 @@ bool materialize_and_dispatch(sys::state& state, dcon::factory_id factory, float
 	if(!shipments::dispatch(state, origin, hub, commodity, produced_amount, operator_actor))
 		return false;
 	return true;
+}
+
+dcon::transaction_id sell_output(sys::state& state, dcon::factory_id factory,
+	dcon::economic_actor_id buyer, float quantity, float unit_price,
+	dcon::commodity_id settlement, sys::date timestamp) {
+	if(!factory || !buyer || !std::isfinite(quantity) || quantity <= 0.0f)
+		return {};
+	auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
+	auto origin = world::site::site_for_factory(state, factory);
+	auto type = state.world.factory_get_building_type(factory);
+	auto commodity = type ? state.world.factory_type_get_output(type) : dcon::commodity_id{};
+	if(!operator_actor || !origin || !commodity) return {};
+	// Normal production dispatches output to the local market hub before sale;
+	// retain the factory site as a useful direct-sale fallback for callers that
+	// materialize output without dispatching it.
+	auto province = world::site::province_for_site(state, origin);
+	auto zone = province ? state.world.province_get_state_membership(province) : dcon::state_instance_id{};
+	auto market = zone ? state.world.state_instance_get_market_from_local_market(zone) : dcon::market_id{};
+	if(auto hub = market ? deposits::market_hub_for(state, market) : dcon::site_id{};
+		hub && inventory::quantity(state, hub, commodity, operator_actor) >= quantity)
+		origin = hub;
+	return exchange::purchase(state, origin, commodity, operator_actor, buyer,
+		quantity, unit_price, settlement, timestamp);
 }
 
 } // namespace economy::physical::factory_output

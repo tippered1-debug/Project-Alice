@@ -1,6 +1,7 @@
 #include "organizations.hpp"
 
 #include "system_state.hpp"
+#include "economy/accounts/accounts.hpp"
 
 namespace actors::organizations {
 
@@ -39,6 +40,19 @@ dcon::economic_actor_id actor_for_organization(sys::state const& s, dcon::organi
 
 dcon::asset_id equity_asset_for_organization(sys::state const& s, dcon::organization_id organization) {
 	return organization ? s.world.organization_get_asset_from_organization_equity_asset(organization) : dcon::asset_id{};
+}
+
+dcon::monetary_account_id operating_account_for(sys::state const& s, dcon::organization_id organization,
+	dcon::commodity_id settlement) {
+	return organization && settlement ? economy::accounts::find_account(s, actor_for_organization(s, organization), settlement)
+		: dcon::monetary_account_id{};
+}
+
+dcon::monetary_account_id operating_account_for(sys::state& s, dcon::organization_id organization,
+	dcon::commodity_id settlement) {
+	if(auto existing = operating_account_for(static_cast<sys::state const&>(s), organization, settlement)) return existing;
+	if(!organization || !settlement || !is_economic_kind(ownership::actor_kind(s.world.organization_get_kind(organization)))) return {};
+	return economy::accounts::open_account(s, actor_for_organization(s, organization), settlement);
 }
 
 dcon::organization_id organization_for_actor(sys::state const& s, dcon::economic_actor_id actor) {

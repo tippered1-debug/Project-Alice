@@ -11,6 +11,8 @@ dcon::organization_id create_organization(sys::state&, ownership::actor_kind);
 dcon::organization_id create_company(sys::state&);
 dcon::economic_actor_id actor_for_organization(sys::state const&, dcon::organization_id);
 dcon::asset_id equity_asset_for_organization(sys::state const&, dcon::organization_id);
+dcon::monetary_account_id operating_account_for(sys::state&, dcon::organization_id, dcon::commodity_id);
+dcon::monetary_account_id operating_account_for(sys::state const&, dcon::organization_id, dcon::commodity_id);
 dcon::organization_id organization_for_actor(sys::state const&, dcon::economic_actor_id);
 
 bool bind_factory_operator(sys::state&, dcon::organization_id, dcon::factory_id);
