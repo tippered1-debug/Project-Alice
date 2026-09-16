@@ -5273,6 +5273,13 @@ object{
 }
 
 object{
+	name{ economic_decision_belief_basis }
+	storage_type{ erasable }
+	size{ 400000 }
+	tag{ save }
+}
+
+object{
 	name{ deposit_account }
 	storage_type{ erasable }
 	size{ 100000 }
@@ -5945,9 +5952,15 @@ relationship{
 	link{ object{ information_report } name{ information_report } type{ many } index_storage{ array } }
 }
 relationship{
-	name{ economic_decision_belief }
+	name{ economic_decision_belief_basis_decision }
 	tag{ save }
-	link{ object{ economic_decision } name{ economic_decision } type{ unique } }
+	link{ object{ economic_decision_belief_basis } name{ economic_decision_belief_basis } type{ unique } }
+	link{ object{ economic_decision } name{ economic_decision } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ economic_decision_belief_basis_belief }
+	tag{ save }
+	link{ object{ economic_decision_belief_basis } name{ economic_decision_belief_basis } type{ unique } }
 	link{ object{ belief } name{ belief } type{ many } index_storage{ array } }
 }
 

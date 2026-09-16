@@ -1377,23 +1377,43 @@ TEST_CASE("information_beliefs_are_stale_private_and_provenance_bound", "[econom
 		nation, settlement, 140.0f, sys::date{20}, sys::date{20}, sys::date{20}, 1.0f);
 	auto second_belief = ::economy::information::adopt_report_as_belief(*state, recipient_actor, second_report, sys::date{20});
 	REQUIRE(second_belief);
+	auto third_report = ::economy::information::publish_report(*state,
+		::economy::information::information_fact_kind::national_public_debt, source, recipient_actor,
+		nation, settlement, 130.0f, sys::date{20}, sys::date{20}, sys::date{20}, 1.0f);
+	auto third_belief = ::economy::information::adopt_report_as_belief(*state, recipient_actor, third_report, sys::date{20});
+	REQUIRE(third_belief);
 	REQUIRE(::economy::information::latest_belief(*state, recipient_actor,
 		::economy::information::information_fact_kind::national_public_debt, nation, settlement, sys::date{15}) == first_belief);
 	REQUIRE(::economy::information::latest_belief(*state, recipient_actor,
-		::economy::information::information_fact_kind::national_public_debt, nation, settlement, sys::date{20}) == second_belief);
+		::economy::information::information_fact_kind::national_public_debt, nation, settlement, sys::date{20}) == third_belief);
 	auto outsider = state->world.create_economic_actor();
 	REQUIRE_FALSE(::economy::information::adopt_report_as_belief(*state, outsider, report, sys::date{10}));
 	auto proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::investment,
-		source, recipient_actor, settlement, 10.0f, sys::date{30}, 0.0f, sys::date{20});
+		source, recipient_actor, settlement, 10.0f, sys::date{30}, 0.0f, sys::date{10});
 	REQUIRE(proposal);
 	REQUIRE_FALSE(::economy::consent::accept_proposal_with_basis(*state, proposal, recipient_actor, recipient,
-		sys::date{19}, {first_belief}));
+		sys::date{19}, {second_belief}));
 	auto decision = ::economy::consent::accept_proposal_with_basis(*state, proposal, recipient_actor, recipient,
-		sys::date{20}, {second_belief});
+		sys::date{20}, {first_belief, second_belief, third_belief});
 	REQUIRE(decision);
-	REQUIRE(state->world.economic_decision_get_belief_from_economic_decision_belief(decision) == second_belief);
+	REQUIRE_FALSE(::economy::consent::accept_proposal_with_basis(*state, proposal, recipient_actor, recipient,
+		sys::date{20}, {second_belief, second_belief}));
 	REQUIRE_FALSE(::economy::consent::accept_proposal_with_basis(*state, proposal, recipient_actor, recipient,
 		sys::date{20}, {first_belief}));
+	auto second_proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::investment,
+		source, recipient_actor, settlement, 11.0f, sys::date{30}, 0.0f, sys::date{20});
+	REQUIRE(second_proposal);
+	auto second_decision = ::economy::consent::accept_proposal_with_basis(*state, second_proposal, recipient_actor, recipient,
+		sys::date{20}, {second_belief});
+	REQUIRE(second_decision);
+	uint32_t decisions_supported_by_second_belief = 0;
+	state->world.belief_for_each_economic_decision_belief_basis_belief_as_belief(second_belief,
+		[&](dcon::economic_decision_belief_basis_belief_id relation) {
+			auto supported = state->world.economic_decision_belief_basis_decision_get_economic_decision(
+			dcon::economic_decision_belief_basis_decision_id(relation.index()));
+			if(supported) ++decisions_supported_by_second_belief;
+		});
+	REQUIRE(decisions_supported_by_second_belief == 2);
 	std::vector<uint8_t> bytes(sys::sizeof_save_section(*state));
 	auto const* end = sys::write_save_section(bytes.data(), *state);
 	auto loaded = std::make_unique<sys::state>();
@@ -1410,10 +1430,14 @@ TEST_CASE("information_beliefs_are_stale_private_and_provenance_bound", "[econom
 		::economy::information::information_fact_kind::national_public_debt, lsource, lrecipient_actor,
 		lnation, lsettlement, 140.0f, sys::date{20}, sys::date{20}, sys::date{20}, 1.0f);
 	auto lsecond_belief = ::economy::information::adopt_report_as_belief(*loaded, lrecipient_actor, lsecond_report, sys::date{20});
+	auto lthird_report = ::economy::information::publish_report(*loaded,
+		::economy::information::information_fact_kind::national_public_debt, lsource, lrecipient_actor,
+		lnation, lsettlement, 130.0f, sys::date{20}, sys::date{20}, sys::date{20}, 1.0f);
+	auto lthird_belief = ::economy::information::adopt_report_as_belief(*loaded, lrecipient_actor, lthird_report, sys::date{20});
 	auto lproposal = ::economy::consent::create_proposal(*loaded, ::economy::consent::proposal_kind::investment,
-		lsource, lrecipient_actor, lsettlement, 10.0f, sys::date{30}, 0.0f, sys::date{20});
+		lsource, lrecipient_actor, lsettlement, 10.0f, sys::date{30}, 0.0f, sys::date{10});
 	auto ldecision = ::economy::consent::accept_proposal_with_basis(*loaded, lproposal, lrecipient_actor, lrecipient,
-		sys::date{20}, {lsecond_belief});
+		sys::date{20}, {lfirst_belief, lsecond_belief, lthird_belief});
 	sys::read_save_section(bytes.data(), end, *loaded);
 	REQUIRE(loaded->world.information_report_get_economic_actor_from_information_report_source(lreport) == lsource);
 	REQUIRE(loaded->world.information_report_get_economic_actor_from_information_report_recipient(lreport) == lrecipient_actor);
@@ -1427,14 +1451,87 @@ TEST_CASE("information_beliefs_are_stale_private_and_provenance_bound", "[econom
 	REQUIRE(loaded->world.information_report_get_confidence(lreport) == Approx(0.8f));
 	REQUIRE(loaded->world.belief_get_estimated_value(lfirst_belief) == Approx(70.0f));
 	REQUIRE(loaded->world.belief_get_estimated_value(lsecond_belief) == Approx(140.0f));
+	REQUIRE(loaded->world.belief_get_estimated_value(lthird_belief) == Approx(130.0f));
 	REQUIRE(loaded->world.belief_get_economic_actor_from_belief_holder(lfirst_belief) == lrecipient_actor);
 	REQUIRE(loaded->world.belief_get_information_report_from_belief_source(lfirst_belief) == lreport);
 	REQUIRE(loaded->world.belief_get_formed_on(lsecond_belief) == sys::date{20});
 	REQUIRE(::economy::information::latest_belief(*loaded, lrecipient_actor,
 		::economy::information::information_fact_kind::national_public_debt, lnation, lsettlement, sys::date{15}) == lfirst_belief);
 	REQUIRE(::economy::information::latest_belief(*loaded, lrecipient_actor,
-		::economy::information::information_fact_kind::national_public_debt, lnation, lsettlement, sys::date{20}) == lsecond_belief);
-	REQUIRE(loaded->world.economic_decision_get_belief_from_economic_decision_belief(ldecision) == lsecond_belief);
+		::economy::information::information_fact_kind::national_public_debt, lnation, lsettlement, sys::date{20}) == lthird_belief);
+	uint32_t loaded_basis_count = 0;
+	bool loaded_second_belief_found = false;
+	loaded->world.economic_decision_for_each_economic_decision_belief_basis_decision_as_economic_decision(ldecision,
+		[&](dcon::economic_decision_belief_basis_decision_id relation) {
+			auto basis = loaded->world.economic_decision_belief_basis_decision_get_economic_decision_belief_basis(relation);
+			auto belief = loaded->world.economic_decision_belief_basis_get_belief_from_economic_decision_belief_basis_belief(basis);
+			++loaded_basis_count;
+			loaded_second_belief_found = loaded_second_belief_found || belief == lsecond_belief;
+		});
+	REQUIRE(loaded_basis_count == 3);
+	REQUIRE(loaded_second_belief_found);
+}
+
+TEST_CASE("information_provenance_reaches_public_debt_execution", "[economy][information][consent][finance]") {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto settlement = state->world.create_commodity();
+	auto institution = ::governance::create_institution(*state, nation, ::governance::institution_kind::central_government);
+	auto office = ::governance::create_office(*state, institution, ::governance::office_kind::finance_minister);
+	auto issuer = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::appoint_person(*state, issuer, office, sys::date{1}));
+	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::issue_public_debt, nation));
+	auto treasury = ::governance::finance::open_treasury_account(*state, institution, settlement);
+	auto issuer_actor = ::governance::actor_for_institution(*state, institution);
+
+	// Objective debt is established independently of the investor's information state.
+	auto objective_holder = state->world.create_economic_actor();
+	auto objective_account = ::economy::accounts::open_account(*state, objective_holder, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, objective_account, 100.0f));
+	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, issuer, treasury, objective_account,
+		100.0f, sys::date{200}, 0.0f, sys::date{1}));
+	REQUIRE(::governance::finance::national_public_debt(*state, nation, settlement) == Approx(100.0f));
+
+	auto investor = ::persons::create_person(*state, sys::date{1});
+	auto investor_actor = ::persons::actor_for_person(*state, investor);
+	auto investor_account = ::economy::accounts::open_account(*state, investor_actor, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, investor_account, 20.0f));
+	REQUIRE_FALSE(::economy::information::latest_belief(*state, investor_actor,
+		::economy::information::information_fact_kind::national_public_debt, nation, settlement, sys::date{10}));
+
+	auto report = ::economy::information::publish_report(*state,
+		::economy::information::information_fact_kind::national_public_debt, issuer_actor, investor_actor,
+		nation, settlement, 60.0f, sys::date{5}, sys::date{6}, sys::date{10}, 1.0f);
+	REQUIRE(report);
+	auto belief = ::economy::information::adopt_report_as_belief(*state, investor_actor, report, sys::date{10});
+	REQUIRE(belief);
+	REQUIRE(state->world.belief_get_estimated_value(belief) == Approx(60.0f));
+	REQUIRE(::economy::information::latest_belief(*state, investor_actor,
+		::economy::information::information_fact_kind::national_public_debt, nation, settlement, sys::date{10}) == belief);
+
+	auto proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::investment,
+		issuer_actor, investor_actor, settlement, 20.0f, sys::date{100}, 0.0f, sys::date{10});
+	REQUIRE(proposal);
+	auto decision = ::economy::consent::accept_proposal_with_basis(*state, proposal, investor_actor, investor,
+		sys::date{10}, {belief});
+	REQUIRE(decision);
+	auto action = ::governance::finance::authorized_issue_public_debt_with_consent(*state, issuer, treasury,
+		investor_account, 20.0f, sys::date{100}, 0.0f, sys::date{10}, proposal);
+	REQUIRE(action);
+	REQUIRE(::governance::finance::national_public_debt(*state, nation, settlement) == Approx(120.0f));
+	REQUIRE(state->world.economic_proposal_get_status(proposal) == uint8_t(::economy::consent::proposal_status::executed));
+
+	uint32_t basis_count = 0;
+	bool basis_found = false;
+	state->world.economic_decision_for_each_economic_decision_belief_basis_decision_as_economic_decision(decision,
+		[&](dcon::economic_decision_belief_basis_decision_id relation) {
+			++basis_count;
+			auto basis = state->world.economic_decision_belief_basis_decision_get_economic_decision_belief_basis(relation);
+			basis_found = basis_found
+				|| state->world.economic_decision_belief_basis_get_belief_from_economic_decision_belief_basis_belief(basis) == belief;
+		});
+	REQUIRE(basis_count == 1);
+	REQUIRE(basis_found);
 }
 
 TEST_CASE("actor_consent_relations_survive_save_load", "[economy][consent][serialization]") {

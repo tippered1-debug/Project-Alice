@@ -55,7 +55,10 @@ bool rejected_by(sys::state const& state, dcon::economic_proposal_id proposal) {
 
 bool valid_basis(sys::state const& state, dcon::economic_actor_id actor, sys::date date,
 	std::vector<dcon::belief_id> const& basis) {
-	for(auto belief : basis) {
+	for(size_t i = 0; i < basis.size(); ++i) {
+		for(size_t j = 0; j < i; ++j)
+			if(basis[i] == basis[j]) return false;
+		auto belief = basis[i];
 		if(!belief || !state.world.belief_is_valid(belief)
 			|| state.world.belief_get_economic_actor_from_belief_holder(belief) != actor
 			|| state.world.belief_get_formed_on(belief) > date) return false;
@@ -163,7 +166,11 @@ dcon::economic_decision_id accept_proposal_with_basis(sys::state& state, dcon::e
 	state.world.force_create_economic_decision_proposal(decision, proposal);
 	state.world.force_create_economic_decision_deciding_actor(decision, actor);
 	state.world.force_create_economic_decision_deciding_person(decision, person);
-	for(auto belief : basis) state.world.force_create_economic_decision_belief(decision, belief);
+	for(auto belief : basis) {
+		auto link = state.world.create_economic_decision_belief_basis();
+		state.world.force_create_economic_decision_belief_basis_decision(link, decision);
+		state.world.force_create_economic_decision_belief_basis_belief(link, belief);
+	}
 	return decision;
 }
 
@@ -184,7 +191,11 @@ dcon::economic_decision_id reject_proposal_with_basis(sys::state& state, dcon::e
 	state.world.force_create_economic_decision_proposal(decision, proposal);
 	state.world.force_create_economic_decision_deciding_actor(decision, actor);
 	state.world.force_create_economic_decision_deciding_person(decision, person);
-	for(auto belief : basis) state.world.force_create_economic_decision_belief(decision, belief);
+	for(auto belief : basis) {
+		auto link = state.world.create_economic_decision_belief_basis();
+		state.world.force_create_economic_decision_belief_basis_decision(link, decision);
+		state.world.force_create_economic_decision_belief_basis_belief(link, belief);
+	}
 	state.world.economic_proposal_set_status(proposal, uint8_t(proposal_status::rejected));
 	return decision;
 }
