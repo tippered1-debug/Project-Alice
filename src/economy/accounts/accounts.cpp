@@ -92,15 +92,36 @@ dcon::transaction_id settle_obligation_payment(sys::state& state, dcon::obligati
 	auto accepted = std::min(requested_amount, relations::total_due(state, obligation));
 	if(!debtor_account || !creditor_account || owner_of(state, debtor_account) != debtor
 		|| owner_of(state, creditor_account) != creditor || settlement_of(state, debtor_account) != settlement
-		|| settlement_of(state, creditor_account) != settlement || balance(state, debtor_account) < accepted) return {};
-	// Apply the obligation only after account validation, then emit one settlement record.
-	state.world.monetary_account_set_balance(debtor_account, balance(state, debtor_account) - accepted);
-	state.world.monetary_account_set_balance(creditor_account, balance(state, creditor_account) + accepted);
+		|| settlement_of(state, creditor_account) != settlement || !settlement
+		|| !state.world.commodity_is_valid(settlement) || !std::isfinite(accepted) || accepted <= 0.0f
+		|| balance(state, debtor_account) < accepted) return {};
+	// Snapshot every mutable field touched by payment. This keeps the operation
+	// atomic even if a later obligation or transaction operation rejects it.
+	auto const debtor_balance = balance(state, debtor_account);
+	auto const creditor_balance = balance(state, creditor_account);
+	auto const principal = state.world.obligation_get_principal_outstanding(obligation);
+	auto const interest = state.world.obligation_get_accrued_interest(obligation);
+	auto const status = state.world.obligation_get_status(obligation);
+	auto rollback = [&]() {
+		state.world.monetary_account_set_balance(debtor_account, debtor_balance);
+		state.world.monetary_account_set_balance(creditor_account, creditor_balance);
+		state.world.obligation_set_principal_outstanding(obligation, principal);
+		state.world.obligation_set_accrued_interest(obligation, interest);
+		state.world.obligation_set_status(obligation, status);
+	};
+	state.world.monetary_account_set_balance(debtor_account, debtor_balance - accepted);
+	state.world.monetary_account_set_balance(creditor_account, creditor_balance + accepted);
 	auto paid = relations::repay_obligation(state, obligation, accepted);
-	if(paid != accepted) return {};
+	if(paid != accepted) {
+		rollback();
+		return {};
+	}
 	auto transaction = relations::record_transaction(state, debtor, creditor, accepted, settlement,
 		relations::transaction_kind::repayment, timestamp);
-	if(!transaction) return {};
+	if(!transaction) {
+		rollback();
+		return {};
+	}
 	state.world.force_create_transaction_source_account(transaction, debtor_account);
 	state.world.force_create_transaction_destination_account(transaction, creditor_account);
 	return transaction;
