@@ -1233,7 +1233,7 @@ void populate_private_construction_consumption(sys::state& state) {
 // after usage of this function, construction demand actually becomes a stockpile for construction projects
 void refund_construction_demand(sys::state& state, dcon::nation_id n, float total_spent_on_construction) {
 	uint32_t total_commodities = state.world.commodity_size();
-	float p_spending = state.world.nation_get_private_investment_effective_fraction(n);
+	float p_spending = 0.0f;
 	float refund_amount = 0.0f;
 	state.world.nation_for_each_state_ownership(n, [&](auto soid) {
 		auto local_state = state.world.state_ownership_get_state(soid);

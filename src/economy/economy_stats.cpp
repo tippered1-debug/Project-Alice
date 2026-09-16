@@ -1333,38 +1333,38 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 	text::add_line(
 		state,
 		contents,
-		"factory_bank",
+		"factory_profit",
 		text::variable_type::val,
 		text::fp_currency{
-			state.world.province_get_factory_bank(province)
+		0.f
 		},
 		0
 	);
-	auto factory_bank_balance = 0.f;
+	auto factory_profit_total = 0.f;
 	// FACTORIES
 	// all profits go to factory banks and then they are distributed to capitalists
 	for(auto f : state.world.province_get_factory_location(province)) {
 		auto fac = f.get_factory();
 		auto profit = explain_last_factory_profit(state, fac);
-		factory_bank_balance += profit.profit;
+		factory_profit_total += profit.profit;
 	}
 	text::add_line(
 		state,
 		contents,
-		"factory_bank_in",
+		"factory_profit_in",
 		text::variable_type::val,
 		text::fp_currency{
-			factory_bank_balance
+			factory_profit_total
 		},
 		15
 	);
 	text::add_line(
 		state,
 		contents,
-		"factory_bank_out",
+		"factory_profit_out",
 		text::variable_type::val,
 		text::fp_currency{
-			std::max(0.f, state.world.province_get_factory_bank(province) * economy::pops::trade_dividents_rate)
+			0.f
 		},
 		15
 	);
@@ -1373,10 +1373,10 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 	text::add_line(
 		state,
 		contents,
-		"artisan_bank",
+		"artisan_profit_balance",
 		text::variable_type::val,
 		text::fp_currency{
-			state.world.province_get_artisan_bank(province)
+		0.f
 		},
 		0
 	);
@@ -1395,17 +1395,17 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 	text::add_line(
 		state,
 		contents,
-		"rgo_bank",
+		"rgo_profit",
 		text::variable_type::val,
 		text::fp_currency{
-			state.world.province_get_rgo_bank(province)
+		0.f
 		},
 		0
 	);
 	text::add_line(
 		state,
 		contents,
-		"rgo_bank_in",
+		"rgo_profit_in",
 		text::variable_type::val,
 		text::fp_currency{
 			state.world.province_get_rgo_profit(province)
@@ -1415,10 +1415,10 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 	text::add_line(
 		state,
 		contents,
-		"rgo_bank_out",
+		"rgo_profit_out",
 		text::variable_type::val,
 		text::fp_currency{
-			std::max(0.f, state.world.province_get_rgo_bank(province) * economy::pops::trade_dividents_rate)
+			0.f
 		},
 		15
 	);
@@ -1431,7 +1431,7 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 		"private_education_owners",
 		text::variable_type::val,
 		text::fp_currency{
-			state.world.province_get_advanced_province_building_private_savings(province, advanced_province_buildings::list::schools_and_universities)
+		0.f
 		},
 		0
 	);
@@ -1502,7 +1502,7 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 		"port_owners",
 		text::variable_type::val,
 		text::fp_currency{
-			state.world.province_get_advanced_province_building_private_savings(province, advanced_province_buildings::list::civilian_ports)
+		0.f
 		},
 		0
 	);
@@ -1523,7 +1523,7 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 		"housing_owners",
 		text::variable_type::val,
 		text::fp_currency{
-			state.world.province_get_advanced_province_building_private_savings(province, advanced_province_buildings::list::local_cities_and_towns)
+		0.f
 		},
 		0
 	);
@@ -1568,12 +1568,12 @@ nation_monetary_breakdown breakdown_nation_monetary_structure(sys::state& state,
 	nation_monetary_breakdown result { };
 	result.nation = 0.0f;
 	result.bank = 0.0f;
-	result.investment_pool = state.world.nation_get_private_investment(n);
+	result.investment_pool = 0.0f;
 	state.world.nation_for_each_province_ownership(n, [&](auto poid) {
 		auto pid = state.world.province_ownership_get_province(poid);
 		auto sid = state.world.province_get_state_membership(pid);
 		auto mid = state.world.state_instance_get_market_from_local_market(sid);
-		result.rgo += state.world.province_get_rgo_bank(pid);
+		(void)pid;
 		state.world.for_each_commodity([&](dcon::commodity_id c) {
 			auto size = state.world.province_get_rgo_size(pid, c);
 			auto actual_amount_of_workers =
@@ -1597,12 +1597,8 @@ nation_monetary_breakdown breakdown_nation_monetary_structure(sys::state& state,
 	});
 	state.world.nation_for_each_province_ownership(n, [&](auto poid) {
 		auto pid = state.world.province_ownership_get_province(poid);
-		result.factory += state.world.province_get_factory_bank(pid);
+		(void)pid;
 
-		result.educators += state.world.province_get_advanced_province_building_private_savings(pid, advanced_province_buildings::list::schools_and_universities);
-		result.landlords += state.world.province_get_advanced_province_building_private_savings(pid, advanced_province_buildings::list::local_cities_and_towns);
-		result.ports += state.world.province_get_advanced_province_building_private_savings(pid, advanced_province_buildings::list::civilian_ports);
-		result.artisans += state.world.province_get_artisan_bank(pid);
 	});
 	state.world.nation_for_each_province_ownership(n, [&](auto poid) {
 		auto pid = state.world.province_ownership_get_province(poid);

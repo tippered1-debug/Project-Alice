@@ -148,7 +148,6 @@ constexpr inline float a_few_months = 120.f;
 void initialize_size_of_dcon_arrays(sys::state& state) {
 	state.world.province_resize_advanced_province_building_national_size(list::total);
 	state.world.province_resize_advanced_province_building_private_size(list::total);
-	state.world.province_resize_advanced_province_building_private_savings(list::total);
 	state.world.province_resize_advanced_province_building_private_output(list::total);
 	state.world.province_resize_advanced_province_building_max_national_size(list::total);
 	state.world.province_resize_advanced_province_building_max_private_size(list::total);
@@ -226,7 +225,7 @@ void update_consumption(sys::state& state) {
 
 			auto demand_scale = 0.f;
 
-			auto budget = std::max(0.f, state.world.province_get_advanced_province_building_private_savings(pid, id));
+			auto budget = 0.f;
 			auto max_demand_scale = budget / material_cost_per_constructed_unit;
 
 			if((expected_profit_per_size - expected_maintenance > 0) && expected_days_to_payoff > 0.f && expected_days_to_payoff < 365.f * 5.f && !lots_of_empty_housing) {
@@ -348,9 +347,7 @@ void update_profit_and_refund(sys::state& state) {
 
 			auto profit = output * actually_sold * cost_of_output - private_size * cost_of_input * actually_bought;
 
-			auto current_money = state.world.province_get_advanced_province_building_private_savings(pid, i);
-			state.world.province_set_advanced_province_building_private_savings(pid, i,
-				std::max(0.f, current_money + profit));
+			(void)profit;
 		}
 
 		// expand ports
@@ -397,9 +394,7 @@ void update_profit_and_refund(sys::state& state) {
 					}
 				}
 
-				auto current_money = state.world.province_get_advanced_province_building_private_savings(pid, id);
-				state.world.province_set_advanced_province_building_private_savings(pid, id,
-					std::max(0.f, current_money - cost));
+				(void)cost;
 
 				auto current_max_size = state.world.province_get_advanced_province_building_max_private_size(pid, id);
 				state.world.province_set_advanced_province_building_max_private_size(
@@ -449,7 +444,7 @@ void update_profit_and_refund(sys::state& state) {
 
 			auto construction_scale = 0.f;
 
-			auto budget = std::max(0.f, state.world.province_get_advanced_province_building_private_savings(pid, id));
+			auto budget = 0.f;
 			auto max_demand_scale = budget / material_cost_per_constructed_unit;
 
 			if((expected_profit_per_size - expected_maintenance > 0.f) && expected_days_to_payoff > 0.f && expected_days_to_payoff < 365.f * 5.f && !lots_of_empty_housing) {
@@ -496,9 +491,7 @@ void update_profit_and_refund(sys::state& state) {
 				pid, id, max_size + size_increase
 			);
 
-			auto current_money = state.world.province_get_advanced_province_building_private_savings(pid, id);
-			state.world.province_set_advanced_province_building_private_savings(pid, id,
-				std::max(0.f, current_money - spendings));
+			(void)spendings;
 		}
 	});
 }

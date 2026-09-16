@@ -581,7 +581,7 @@ public:
 
 		{
 			text::substitution_map sub{};
-			text::add_to_substitution_map(sub, text::variable_type::x, text::fp_currency{ state.world.nation_get_private_investment(state.local_player_nation) });
+			text::add_to_substitution_map(sub, text::variable_type::x, text::fp_currency{ 0.0f });
 			auto box = text::open_layout_box(contents, 0);
 			text::localised_format_box(state, contents, box, "investment_pool", sub);
 			text::close_layout_box(contents, box);
@@ -632,13 +632,12 @@ public:
 				if(overlord == state.local_player_nation) {
 					bool temp = false;
 					float est_private_const_spending = economy::estimate_private_construction_spendings(state, n);
-					auto craved_constructions = economy::estimate_private_investment_construct(state, n, true, est_private_const_spending, temp);
-					//auto upgrades = economy::estimate_private_investment_upgrade(state, n, est_private_const_spending);
-					auto constructions = economy::estimate_private_investment_construct(state, n, false, est_private_const_spending, temp);
-					auto province_constr = economy::estimate_private_investment_province(state, n, est_private_const_spending);
+					std::vector<economy::full_construction_factory> craved_constructions;
+					std::vector<economy::full_construction_factory> constructions;
+					std::vector<economy::full_construction_province> province_constr;
 
 					if(economy::estimate_private_construction_spendings(state, n) < 1.0f /* && upgrades.size() == 0 */ && constructions.size() == 0 && province_constr.size() == 0) {
-						auto amt = state.world.nation_get_private_investment(n) * state.defines.alice_privateinvestment_subject_transfer / 100.f;
+						auto amt = 0.0f;
 
 						text::substitution_map sub{};
 						text::add_to_substitution_map(sub, text::variable_type::x, text::fp_currency{ amt });
@@ -671,14 +670,13 @@ public:
 		{
 			bool temp = false;
 			float est_private_const_spending = economy::estimate_private_construction_spendings(state, state.local_player_nation);
-			auto craved_constructions = economy::estimate_private_investment_construct(state, state.local_player_nation, true, est_private_const_spending, temp);
-			//auto upgrades = economy::estimate_private_investment_upgrade(state, state.local_player_nation, est_private_const_spending);
-			auto constructions = economy::estimate_private_investment_construct(state, state.local_player_nation, false, est_private_const_spending, temp);
-			auto province_constr = economy::estimate_private_investment_province(state, state.local_player_nation, est_private_const_spending);
+		std::vector<economy::full_construction_factory> craved_constructions;
+		std::vector<economy::full_construction_factory> constructions;
+		std::vector<economy::full_construction_province> province_constr;
 
 			if(private_constr < 1.f /* && upgrades.size() == 0 */ && constructions.size() == 0 && province_constr.size() == 0) {
 				auto subjects = nations::nation_get_subjects(state, state.local_player_nation);
-				auto amt = state.world.nation_get_private_investment(state.local_player_nation) * state.defines.alice_privateinvestment_subject_transfer / 100.f;
+				auto amt = 0.0f;
 
 				if(subjects.size() > 0) {
 					text::substitution_map sub{};

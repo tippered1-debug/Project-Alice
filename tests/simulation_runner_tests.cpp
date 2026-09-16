@@ -75,8 +75,6 @@ simulation_diagnostics_fixture make_simulation_diagnostics_fixture() {
 	fixture.state->world.province_set_nation_from_province_ownership(fixture.province, fixture.nation);
 	fixture.state->world.province_set_control_ratio(fixture.province, 0.7f);
 	fixture.state->world.nation_set_stockpiles(fixture.nation, economy::money, 10.0f);
-	fixture.state->world.nation_set_national_bank(fixture.nation, 8.0f);
-	fixture.state->world.nation_set_private_investment(fixture.nation, 3.0f);
 	fixture.state->defines.loan_base_interest = 0.03f;
 	fixture.state->force_age_of_transformation_ruleset = true;
 	fixture.state->transformation_politics_cache.assign(
@@ -146,8 +144,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(snapshot.depot_stockpile == Approx(9.0));
 	REQUIRE(snapshot.treasury == Approx(0.0));
 	REQUIRE(snapshot.government_debt == Approx(0.0));
-	REQUIRE(snapshot.national_bank == Approx(0.0));
-	REQUIRE(snapshot.private_investment == Approx(3.0));
 	REQUIRE(snapshot.control_ratio_sum == Approx(0.7));
 	REQUIRE(snapshot.minimum_control_ratio == Approx(0.7));
 	REQUIRE(snapshot.legitimacy_sum == Approx(60.0));

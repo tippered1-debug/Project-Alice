@@ -1399,7 +1399,7 @@ void update_production_investement_consumption(
 	});
 
 	province::for_each_nation_owned_province_parallel_over_nation(state, [&](dcon::nation_id nation, dcon::province_id province) {
-		auto available_investment = state.world.nation_get_private_investment(nation);
+		auto available_investment = 0.0f;
 		auto actually_spent = 0.f;
 		auto total_tokens = investment_tokens.get(nation);
 		auto area = state.world.province_get_state_membership(province);
@@ -1652,7 +1652,7 @@ void update_production_investement_consumption(
 		}
 
 		// guard against fp errors
-		state.world.nation_set_private_investment(nation, std::max(0.f, state.world.nation_get_private_investment(nation) - actually_spent));
+	(void)actually_spent;
 	});
 }
 

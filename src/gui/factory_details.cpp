@@ -693,7 +693,7 @@ void factory_details_main_total_investments_value_t::on_update(sys::state& state
 	auto province = state.world.factory_get_province_from_factory_location(factory);
 	auto nation = state.world.province_get_nation_from_province_ownership(province);
 	auto total_tokens = economy::total_nation_investments_tokens(state, nation);
-	auto total_investment = state.world.nation_get_private_investment(nation);
+	auto total_investment = 0.0f;
 	auto tokens = main.last_explanation.investments_tokens;
 	if(total_tokens == 0.f) {
 		set_text(state, text::format_money(0.f));
@@ -710,7 +710,7 @@ void factory_details_main_investment_expansion_t::on_update(sys::state& state) n
 	auto province = state.world.factory_get_province_from_factory_location(factory);
 	auto nation = state.world.province_get_nation_from_province_ownership(province);
 	auto total_tokens = economy::total_nation_investments_tokens(state, nation);
-	auto total_investment = state.world.nation_get_private_investment(nation);
+	auto total_investment = 0.0f;
 	auto tokens = main.last_explanation.investments_tokens;
 	if(total_tokens == 0.f) {
 		set_text(state, text::format_money(0.f));
@@ -727,7 +727,7 @@ void factory_details_main_investment_efficiency_t::on_update(sys::state& state) 
 	auto province = state.world.factory_get_province_from_factory_location(factory);
 	auto nation = state.world.province_get_nation_from_province_ownership(province);
 	auto total_tokens = economy::total_nation_investments_tokens(state, nation);
-	auto total_investment = state.world.nation_get_private_investment(nation);
+	auto total_investment = 0.0f;
 	auto tokens = main.last_explanation.investments_tokens;
 	if(total_tokens == 0.f) {
 		set_text(state, text::format_money(0.f));

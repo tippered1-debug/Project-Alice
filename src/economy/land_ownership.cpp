@@ -716,7 +716,7 @@ void update_markets(sys::state& state) {
 				? finite_nonnegative(foreign_investment) : 0.f;
 		auto const daily_rgo_income = std::max(
 			smoothed_rent,
-			finite_nonnegative(state.world.province_get_rgo_bank(province))
+			0.f
 				* economy::pops::trade_dividents_rate);
 		auto const land_value = std::max(1.f,
 			daily_rgo_income * 365.f * 10.f);

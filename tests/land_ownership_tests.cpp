@@ -435,7 +435,6 @@ TEST_CASE("province land market transfers real POP savings",
 		province, nation);
 	state->world.province_set_landowners_share(province, 0.80f);
 	state->world.province_set_capitalists_share(province, 0.10f);
-	state->world.province_set_rgo_bank(province, 0.f);
 
 	auto make_pop = [&](dcon::pop_type_id type, float savings) {
 		auto const pop = state->world.create_pop();

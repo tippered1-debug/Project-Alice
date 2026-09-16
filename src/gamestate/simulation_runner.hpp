@@ -55,8 +55,6 @@ enum class invariant_field : uint8_t {
 	supply_depot_stockpile,
 	nation_treasury,
 	nation_debt,
-	national_bank,
-	private_investment,
 	money_supply,
 	market_gdp,
 	factory_profit,
@@ -94,8 +92,6 @@ inline constexpr std::string_view invariant_field_name(invariant_field field) no
 	case invariant_field::supply_depot_stockpile: return "supply_depot_stockpile";
 	case invariant_field::nation_treasury: return "nation_treasury";
 	case invariant_field::nation_debt: return "nation_debt";
-	case invariant_field::national_bank: return "national_bank";
-	case invariant_field::private_investment: return "private_investment";
 	case invariant_field::money_supply: return "money_supply";
 	case invariant_field::market_gdp: return "market_gdp";
 	case invariant_field::factory_profit: return "factory_profit";
@@ -207,8 +203,6 @@ struct aggregate_snapshot {
 	double depot_stockpile = 0.0;
 	double treasury = 0.0;
 	double government_debt = 0.0;
-	double national_bank = 0.0;
-	double private_investment = 0.0;
 	double market_gdp = 0.0;
 	// Profit is deliberately signed: a negative value is an economic signal,
 	// not an invariant violation.
@@ -388,14 +382,9 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		++result.nation_count;
 		auto const entity = int32_t(nation.index());
 		auto const debt = 0.0f;
-		auto const investment = state.world.nation_get_private_investment(nation);
 		if(detail::observe_nonnegative(result.observed_violations, invariant_field::nation_debt,
 				entity, -1, debt)) {
 			result.government_debt += double(debt);
-		}
-		if(detail::observe_nonnegative(result.observed_violations, invariant_field::private_investment,
-				entity, -1, investment)) {
-			result.private_investment += double(investment);
 		}
 
 	});
@@ -916,8 +905,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.depot_stockpile);
 	validate_aggregate(snapshot.treasury);
 	validate_aggregate(snapshot.government_debt);
-	validate_aggregate(snapshot.national_bank);
-	validate_aggregate(snapshot.private_investment);
 	validate_aggregate(snapshot.market_gdp);
 	if(!std::isfinite(snapshot.factory_profit)) {
 		++report.violations.nonfinite;
@@ -1104,8 +1091,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"unemployed_population\":" << snapshot.unemployed_population << "}"
 		<< ",\"finance\":{\"treasury\":" << snapshot.treasury
 		<< ",\"government_debt\":" << snapshot.government_debt
-		<< ",\"national_bank\":" << snapshot.national_bank
-		<< ",\"private_investment\":" << snapshot.private_investment << "}"
 		<< ",\"industry\":{\"value\":" << snapshot.industry_value
 		<< ",\"value_capitalists\":" << snapshot.industry_value_capitalists
 		<< ",\"value_landed\":" << snapshot.industry_value_landed
@@ -1259,7 +1244,6 @@ struct synthetic_lab_result {
 	state.world.province_set_industry_foreign_share(province, 0.10f);
 	state.world.province_set_industry_worker_share(province, 0.05f);
 	state.world.province_set_industry_landed_share(province, 0.10f);
-	state.world.province_set_factory_bank(province, 100'000.0f);
 
 	auto const worker_pop = state.world.create_pop();
 	state.world.pop_set_poptype(worker_pop, workers);
@@ -1386,8 +1370,6 @@ struct synthetic_lab_result {
 		province, economy::pop_labor::primary_no_education, 1.0f);
 
 	state.world.nation_set_stockpiles(nation, money, 1'000'000.0f);
-	state.world.nation_set_national_bank(nation, 500'000.0f);
-	state.world.nation_set_private_investment(nation, 100'000.0f);
 	pop_demographics::set_employment(state, worker_pop, 760'000.0f);
 	pop_demographics::set_employment(state, owner_pop, 200'000.0f);
 	politics::transformation::refresh_all_nations(state);

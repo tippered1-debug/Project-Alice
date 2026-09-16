@@ -743,8 +743,7 @@ void update_consumption(
 				auto pop = state.world.pop_location_get_pop(location);
 
 				auto investment = to_investments.get(pop);
-				auto current_inv = state.world.nation_get_private_investment(n);
-				state.world.nation_set_private_investment(n, current_inv + investment);
+				(void)investment;
 
 				if(n == state.local_player_nation) {
 					state.ui_state.last_tick_investment_pool_change += investment;
@@ -850,9 +849,8 @@ float estimate_artisan_income(sys::state const& state, dcon::province_id pid, dc
 	}
 
 	auto artisan_profit = state.world.province_get_artisan_profit(pid);
-	auto current_bank = state.world.province_get_artisan_bank(pid);
-	auto total = artisan_profit + current_bank;
-	auto dividents = total > 0.f ? total * 0.1f : 0.f;
+	auto total = artisan_profit;
+	auto dividents = 0.f;
 
 	auto num_artisans = state.world.province_get_demographics(pid, key);
 	auto per_artisan = num_artisans > 0.f ? dividents / num_artisans : 0.f;
@@ -874,13 +872,10 @@ void update_income_artisans(sys::state& state) {
 
 	state.world.execute_parallel_over_province([&](auto pids) {
 		auto artisan_profit = state.world.province_get_artisan_profit(pids);
-		auto current_bank = state.world.province_get_artisan_bank(pids);
-		state.world.province_set_artisan_bank(pids, current_bank + artisan_profit);
+		(void)artisan_profit;
 		state.world.province_set_artisan_profit(pids, 0.f);
 
-		auto new_bank = state.world.province_get_artisan_bank(pids);
-		auto dividents = ve::select(new_bank > 0.f, new_bank * 0.1f, 0.f);
-		state.world.province_set_artisan_bank(pids, new_bank - dividents);
+		auto dividents = artisan_profit * 0.f;
 
 		auto num_artisans = state.world.province_get_demographics(pids, key);
 		auto per_artisan = ve::select(num_artisans > 0.f, dividents / num_artisans, 0.f);
@@ -1077,8 +1072,7 @@ void update_income_non_labor(sys::state& state) {
 	// private remainder enters the POP market pool below.
 	if(gamerule::age_of_transformation_enabled(state)) {
 		province::for_each_land_province(state, [&](dcon::province_id pid) {
-			auto const bank = std::max(
-				0.f, state.world.province_get_rgo_bank(pid));
+				auto const bank = 0.f;
 			auto const state_share = std::clamp(
 				state.world.province_get_state_land_share(pid), 0.f, 1.f);
 			auto const foreign_share = std::clamp(
@@ -1121,7 +1115,7 @@ void update_income_non_labor(sys::state& state) {
 	// nations. Only the private remainder enters the POP dividend pool below.
 	if(gamerule::age_of_transformation_enabled(state)) {
 		province::for_each_land_province(state, [&](dcon::province_id pid) {
-			auto const bank = std::max(0.f, state.world.province_get_factory_bank(pid));
+			auto const bank = 0.f;
 			auto const owner = state.world.province_get_nation_from_province_ownership(pid);
 			if(!owner || bank <= 0.f)
 				return;
@@ -1170,7 +1164,7 @@ void update_income_non_labor(sys::state& state) {
 	province::for_each_market_province_parallel_over_market(state, [&](dcon::market_id mid, dcon::state_instance_id sid, dcon::province_id pid){
 
 		// distribute private teaching profits right now
-		auto education_funds = state.world.province_get_advanced_province_building_private_savings(pid, advanced_province_buildings::list::schools_and_universities);
+		auto education_funds = 0.f;
 		auto eligible_pops = 0.f;
 		state.world.province_for_each_pop_location(pid, [&](auto pop_location){
 			auto pop = state.world.pop_location_get_pop(pop_location);
@@ -1207,7 +1201,6 @@ void update_income_non_labor(sys::state& state) {
 				}
 			});
 
-			state.world.province_set_advanced_province_building_private_savings(pid, advanced_province_buildings::list::schools_and_universities, education_funds * (1.f - expected_share));
 		}
 
 
@@ -1289,7 +1282,7 @@ void update_income_non_labor(sys::state& state) {
 
 		{
 			auto total = market_rent_money.get(mid);
-			auto current_money = state.world.province_get_advanced_province_building_private_savings(pid, advanced_province_buildings::list::local_cities_and_towns);
+			auto current_money = 0.f;
 			if (current_money > 0.f)
 				market_rent_money.set(mid, total + current_money);
 		}
@@ -1299,7 +1292,7 @@ void update_income_non_labor(sys::state& state) {
 			auto public_share = ve::min(1.f,
 				state.world.province_get_state_land_share(pid)
 				+ state.world.province_get_foreign_land_share(pid));
-			auto current_money = state.world.province_get_rgo_bank(pid)
+			auto current_money = 0.f
 				* (1.f - public_share);
 			market_rgo_money.set(mid,
 				total + ve::select(current_money > 0.f, current_money, 0.f));
@@ -1312,7 +1305,7 @@ void update_income_non_labor(sys::state& state) {
 			auto const foreign_share = ve::min(1.f - state_share,
 				ve::max(0.f, state.world.province_get_industry_foreign_share(pid)));
 			auto const private_share = ve::max(0.f, 1.f - state_share - foreign_share);
-			auto current_money = state.world.province_get_factory_bank(pid) * private_share;
+			auto current_money = 0.f * private_share;
 			market_factory_money.set(mid,
 				total + ve::select(current_money > 0.f, current_money, 0.f));
 		}
@@ -1488,42 +1481,8 @@ void update_income_non_labor(sys::state& state) {
 		auto market = state.world.state_instance_get_market_from_local_market(zone);
 		auto valid_market = market != dcon::market_id{ };
 
-		{
-			auto current_money = state.world.province_get_advanced_province_building_private_savings(pid_vector, advanced_province_buildings::list::local_cities_and_towns);
-			state.world.province_set_advanced_province_building_private_savings(
-				pid_vector,
-				advanced_province_buildings::list::local_cities_and_towns,
-				ve::select(valid_market && market_rent_tokens.get(market) > min_registered_token_size && current_money > 0.f, current_money* (1.f - expected_share), current_money)
-			);
-		}
-		{
-			auto current_money = state.world.province_get_rgo_bank(pid_vector);
-			auto public_share =
-				state.world.province_get_state_land_share(pid_vector)
-				+ state.world.province_get_foreign_land_share(pid_vector);
-			state.world.province_set_rgo_bank(
-				pid_vector,
-				ve::select(valid_market
-						&& (market_rgo_tokens.get(market)
-								> min_registered_token_size
-							|| public_share > 0.f)
-						&& current_money > 0.f,
-					current_money * (1.f - expected_share),
-					current_money)
-			);
-		}
-		{
-			auto current_money = state.world.province_get_factory_bank(pid_vector);
-			auto public_share = ve::min(1.f,
-				state.world.province_get_industry_state_share(pid_vector)
-				+ state.world.province_get_industry_foreign_share(pid_vector));
-			state.world.province_set_factory_bank(
-				pid_vector,
-				ve::select(valid_market && (market_factory_tokens.get(market) > min_registered_token_size
-					|| public_share > 0.f) && current_money > 0.f,
-					current_money * (1.f - expected_share), current_money)
-			);
-		}
+		(void)valid_market;
+		// Producer cash ledgers were removed; token accounting is not a balance sheet.
 	});
 }
 
@@ -1721,7 +1680,7 @@ void update_income_national_subsidy(sys::state& state){
 			/ 100.f;
 
 
-				auto investment_dividents = state.world.nation_get_private_investment(owners)
+			auto investment_dividents = 0.0f
 			* investment_divident_rate
 			* (gamerule::age_of_transformation_enabled(state) ? 0.f : 1.f);
 		auto investment_budget =
@@ -1859,8 +1818,7 @@ void update_income_national_subsidy(sys::state& state){
 	state.world.execute_serial_over_nation([&](auto ids) {
 		auto const dividend_decay = gamerule::age_of_transformation_enabled(state)
 			? 0.f : investment_divident_rate;
-		auto investment = state.world.nation_get_private_investment(ids);
-		state.world.nation_set_private_investment(ids, investment * (1.f - dividend_decay));
+		(void)dividend_decay;
 		(void)dividend_decay;
 	});
 }
@@ -2152,8 +2110,7 @@ void update_income_wages(sys::state& state){
 			}
 			return slaves_profit;
 		}, pid, rgo_workers_wage);
-		auto old_rgo_cash = state.world.province_get_rgo_bank(pid);
-		state.world.province_set_rgo_bank(pid, old_rgo_cash + profit_from_slaves);
+		(void)profit_from_slaves;
 	});
 
 	state.world.execute_parallel_over_pop([&](auto pops) {

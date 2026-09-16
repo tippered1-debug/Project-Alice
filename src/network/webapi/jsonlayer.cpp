@@ -109,7 +109,6 @@ json format_nation(sys::state& state, dcon::nation_id n) {
 	auto nation_ppp_gdp_per_capita_text = text::format_float(economy::gdp::value_nation(state, n) / population * 1000000.f);
 	auto nation_sol_text = text::format_float(demographics::calculate_nation_sol(state, n));
 
-	auto national_bank = state.world.nation_get_national_bank(n);
 	auto state_debt = nations::get_debt(state, n);
 
 	j["population"] = int(population);
@@ -117,7 +116,6 @@ json format_nation(sys::state& state, dcon::nation_id n) {
 	j["nation_ppp_gdp_per_capita"] = nation_ppp_gdp_per_capita_text;
 	j["nation_sol"] = nation_sol_text;
 
-	j["national_bank"] = national_bank;
 	j["state_debt"] = state_debt;
 
 	return j;

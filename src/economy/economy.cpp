@@ -1544,7 +1544,7 @@ float estimate_overseas_penalty_spending(sys::state& state, dcon::nation_id n) {
 	return total;
 }
 
-float full_private_investment_cost(sys::state& state, dcon::nation_id n) {
+float disabled_private_construction_cost(sys::state& state, dcon::nation_id n) {
 	float total = 0.0f;
 	state.world.nation_for_each_state_ownership(n, [&](auto soid) {
 		auto local_state = state.world.state_ownership_get_state(soid);
@@ -1560,7 +1560,7 @@ float full_private_investment_cost(sys::state& state, dcon::nation_id n) {
 	return total;
 }
 
-void update_private_consumption(sys::state& state, dcon::nation_id n, float private_investment_scale) {
+void update_disabled_private_consumption(sys::state& state, dcon::nation_id n, float disabled_scale) {
 	uint32_t total_commodities = state.world.commodity_size();
 	state.world.nation_for_each_state_ownership(n, [&](auto soid) {
 		auto local_state = state.world.state_ownership_get_state(soid);
@@ -1573,7 +1573,7 @@ void update_private_consumption(sys::state& state, dcon::nation_id n, float priv
 				market,
 				cid,
 				state.world.market_get_private_construction_demand(market, cid)
-				* private_investment_scale,
+				* disabled_scale,
 				market_clearing::demand_class::construction);
 		}
 	});
@@ -1681,7 +1681,7 @@ const inline float courage = 1.0f;
 const inline float days_prepaid = 200.f;
 
 /* Returns number of initiated projects */
-std::vector<full_construction_factory> estimate_private_investment_upgrade(sys::state& state, dcon::nation_id nid, float est_private_const_spending) {
+std::vector<full_construction_factory> disabled_factory_upgrade_projects(sys::state& state, dcon::nation_id nid, float est_private_const_spending) {
 	std::vector<full_construction_factory> res;
 	auto n = dcon::fatten(state.world, nid);
 	auto nation_rules = n.get_combined_issue_rules();
@@ -1696,7 +1696,7 @@ std::vector<full_construction_factory> estimate_private_investment_upgrade(sys::
 	// check if current projects are already too expensive for capitalists to manage
 	float total_cost = est_private_const_spending * days_prepaid * 40.f;
 	float total_cost_added = 0.f;
-	float current_inv = n.get_private_investment() * investment_pool_investment_per_day;
+	float current_inv = 0.f;
 
 	if(current_inv * courage < total_cost + total_cost_added) {
 		return res;
@@ -1800,7 +1800,7 @@ std::vector<full_construction_factory> estimate_private_investment_upgrade(sys::
 }
 
 /* Returns number of initiated projects */
-std::vector<full_construction_factory> estimate_private_investment_construct(sys::state& state, dcon::nation_id nid, bool craved, float est_private_const_spending, bool& potential_target_exists) {
+std::vector<full_construction_factory> disabled_factory_projects(sys::state& state, dcon::nation_id nid, bool craved, float est_private_const_spending, bool& potential_target_exists) {
 	std::vector<full_construction_factory> res;
 
 	auto n = dcon::fatten(state.world, nid);
@@ -1816,7 +1816,7 @@ std::vector<full_construction_factory> estimate_private_investment_construct(sys
 	// check if current projects are already too expensive for capitalists to manage
 	float total_cost = est_private_const_spending * days_prepaid;
 	float total_cost_added = 0.f;
-	float current_inv = n.get_private_investment() * investment_pool_investment_per_day;
+	float current_inv = 0.f;
 
 	if(current_inv * courage < total_cost + total_cost_added) {
 		return res;
@@ -1936,14 +1936,14 @@ std::vector<full_construction_factory> estimate_private_investment_construct(sys
 	return res;
 }
 
-std::vector<full_construction_province> estimate_private_investment_province(sys::state& state, dcon::nation_id nid, float est_private_const_spending) {
+std::vector<full_construction_province> disabled_province_projects(sys::state& state, dcon::nation_id nid, float est_private_const_spending) {
 	auto n = dcon::fatten(state.world, nid);
 	auto nation_rules = n.get_combined_issue_rules();
 
 	// check if current projects are already too expensive for capitalists to manage
 	float total_cost = est_private_const_spending * days_prepaid * 40.f;
 	float total_cost_added = 0.f;
-	float current_inv = n.get_private_investment() * investment_pool_investment_per_day;
+	float current_inv = 0.f;
 
 	std::vector<full_construction_province> res;
 
@@ -2009,7 +2009,7 @@ std::vector<full_construction_province> estimate_private_investment_province(sys
 		}
 
 		total_cost_added += added_cost * days_prepaid;
-		if(n.get_private_investment() * investment_pool_investment_per_day * courage < total_cost + total_cost_added) {
+		if(0.f < total_cost + total_cost_added) {
 			return res;
 		}
 
@@ -2019,7 +2019,7 @@ std::vector<full_construction_province> estimate_private_investment_province(sys
 	return res;
 }
 
-void run_private_investment(sys::state& state) {
+void disabled_legacy_investment(sys::state& state) {
 	// make new investments
 	for(auto n : state.world.in_nation) {
 		auto nation_rules = n.get_combined_issue_rules();
@@ -2029,7 +2029,7 @@ void run_private_investment(sys::state& state) {
 			if(n.get_owned_province_count() > 0 && ((nation_rules & issue_rule::pop_build_factory) != 0 || (nation_rules & issue_rule::pop_expand_factory) != 0)) {
 				float est_private_const_spending = estimate_private_construction_spendings(state, n);
 				bool stop = false;
-				auto craved_constructions = estimate_private_investment_construct(state, n, true, est_private_const_spending, stop);
+				auto craved_constructions = disabled_factory_projects(state, n, true, est_private_const_spending, stop);
 				for(auto const& r : craved_constructions) {
 					if(economy::do_resource_potentials_allow_construction(state, r.nation, r.province, r.type)) {
 						auto new_up = fatten(
@@ -2049,7 +2049,7 @@ void run_private_investment(sys::state& state) {
 				}
 
 				/*
-				auto upgrades = estimate_private_investment_upgrade(state, n, est_private_const_spending);
+				auto upgrades = disabled_factory_upgrade_projects(state, n, est_private_const_spending);
 
 				for(auto const& r : upgrades) {
 					auto new_up = fatten(
@@ -2064,7 +2064,7 @@ void run_private_investment(sys::state& state) {
 				}
 				*/
 
-				auto constructions = estimate_private_investment_construct(state, n, false, est_private_const_spending, stop);
+				auto constructions = disabled_factory_projects(state, n, false, est_private_const_spending, stop);
 
 				for(auto const& r : constructions) {
 					if(economy::do_resource_potentials_allow_construction(state, r.nation, r.province, r.type)) {
@@ -2084,7 +2084,7 @@ void run_private_investment(sys::state& state) {
 					continue;
 				}
 
-				auto province_constr = estimate_private_investment_province(state, n, est_private_const_spending);
+				auto province_constr = disabled_province_projects(state, n, est_private_const_spending);
 
 				for(auto const& r : province_constr) {
 					auto new_rr = fatten(
@@ -2103,21 +2103,9 @@ void run_private_investment(sys::state& state) {
 					auto rel = state.world.nation_get_overlord_as_subject(n);
 					auto overlord = state.world.overlord_get_ruler(rel);
 
-					auto amt = state.world.nation_get_private_investment(n) * state.defines.alice_privateinvestment_subject_transfer / 100.f;
-					state.world.nation_set_private_investment(n, state.world.nation_get_private_investment(n) - amt);
-
-					auto subjects = nations::nation_get_subjects(state, n);
-					if(subjects.size() > 0) {
-						auto part = amt / subjects.size();
-						for(auto s : subjects) {
-							state.world.nation_set_private_investment(s, state.world.nation_get_private_investment(s) + part);
-						}
-					} else if(overlord) {
-						state.world.nation_set_private_investment(overlord, state.world.nation_get_private_investment(overlord) + amt);
-					}
+					(void)overlord;
 				}
-			} else { // private investment not allowed
-				state.world.nation_set_private_investment(n, 0.0f);
+			} else {
 			}
 		}
 	}
@@ -2323,9 +2311,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				auto tokens = state.world.nation_get_subsidy_token_total(nation);
 				state.world.nation_set_subsidy_token_total(nation, tokens + effective_output);
 
-				auto current_money = state.world.province_get_factory_bank(province);
 				auto last_token_price = state.world.nation_get_subsidy_token_price(nation);
-				state.world.province_set_factory_bank(province, current_money + last_token_price * effective_output);
+				(void)last_token_price; (void)effective_output;
 			}
 		});
 	});
@@ -2345,9 +2332,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				auto tokens = state.world.nation_get_subsidy_token_total(nation);
 				state.world.nation_set_subsidy_token_total(nation, tokens + effective_output);
 
-				auto current_money = state.world.province_get_rgo_bank(province);
 				auto last_token_price = state.world.nation_get_subsidy_token_price(nation);
-				state.world.province_set_rgo_bank(province, current_money + last_token_price * effective_output);
+				(void)last_token_price; (void)effective_output;
 			}
 		});
 	});
@@ -2365,9 +2351,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				auto tokens = state.world.nation_get_subsidy_token_total(nation);
 				state.world.nation_set_subsidy_token_total(nation, tokens + effective_output);
 
-				auto current_money = state.world.province_get_artisan_bank(province);
 				auto last_token_price = state.world.nation_get_subsidy_token_price(nation);
-				state.world.province_set_artisan_bank(province, current_money + last_token_price * effective_output);
+				(void)last_token_price; (void)effective_output;
 			}
 		});
 	});
@@ -3149,18 +3134,15 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		// private budget
 		{
 			float private_spending_scale = 1.0f;
-			float pi_total = full_private_investment_cost(state, n);
+			float pi_total = disabled_private_construction_cost(state, n);
 			float perceived_spending = pi_total;
 
-			float pi_budget = state.world.nation_get_private_investment(n) * investment_pool_investment_per_day;
+			float pi_budget = 0.f;
 			private_spending_scale = perceived_spending <= pi_budget ? 1.0f : pi_budget / perceived_spending;
-			state.world.nation_set_private_investment_effective_fraction(n, private_spending_scale);
+			(void)private_spending_scale;
 			auto const private_spending = pi_total * private_spending_scale;
-			state.world.nation_set_private_investment(
-				n,
-				std::max(0.0f, state.world.nation_get_private_investment(n) - private_spending)
-			);
-			update_private_consumption(state, n, private_spending_scale);
+			(void)private_spending;
+			(void)private_spending_scale;
 		}
 	});
 
@@ -4428,8 +4410,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				total_factory_profit += profit.profit;
 			}
 
-			auto current_bank = state.world.province_get_factory_bank(pid);
-			state.world.province_set_factory_bank(pid, current_bank + total_factory_profit);
+			(void)total_factory_profit;
 			// Nine-month profit average, the valuation basis for the ownership
 			// market, on the same footing as the land rent average.
 			state.world.province_set_smoothed_factory_profit(pid,
@@ -4439,8 +4420,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 		{
 			auto total_rgo_profit = state.world.province_get_rgo_profit(pid);
-			auto current_bank = state.world.province_get_rgo_bank(pid);
-			state.world.province_set_rgo_bank(pid, current_bank + total_rgo_profit);
+			(void)total_rgo_profit;
 		}
 	});
 
@@ -4750,7 +4730,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	resolve_constructions(state);
 
 	if(!presimulation) {
-		run_private_investment(state);
 	}
 
 	sanity_check(state);
@@ -4779,7 +4758,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		float total_investment_pool = 0.f;
 		state.world.for_each_nation([&](auto nation) {
 		(void)nation;
-			total_investment_pool += state.world.nation_get_private_investment(nation);
+			(void)nation;
 		});
 
 		if(state.cheat_data.savings_buffer.size() == 0) {
@@ -4843,9 +4822,6 @@ void regenerate_unsaved_values(sys::state& state) {
 	});
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		(void)nation;
-		auto private_investment = state.world.nation_get_private_investment(nation);
-		if(!std::isfinite(private_investment))
-			state.world.nation_set_private_investment(nation, 0.f);
 		(void)nation;
 	});
 	state.world.for_each_pop([&](dcon::pop_id pop) {
@@ -5974,7 +5950,8 @@ dcon::modifier_id get_province_immigrator_modifier(sys::state& state) {
 }
 
 float estimate_investment_pool_daily_loss(sys::state& state, dcon::nation_id n) {
-	return state.world.nation_get_private_investment(n) * 0.001f;
+	(void)n;
+	return 0.f;
 }
 
 // Does this commodity has any factory using potentials mechanic

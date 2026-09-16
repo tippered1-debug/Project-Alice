@@ -1686,21 +1686,6 @@ object {
 		type{ float }
 		
 	}	
-	property {
-		name{ artisan_bank }
-		type{ float }
-		tag{ save }
-	}
-	property {
-		name{ rgo_bank }
-		type{ float }
-		tag{ save }
-	}
-	property {
-		name{ factory_bank }
-		type{ float }
-		tag{ save }
-	}
 
 	property{
 		name{ subsistence_score }
@@ -1764,11 +1749,6 @@ object {
 	}
 	property{
 		name{ smoothed_factory_profit }
-		type{ float }
-		tag{ save }
-	}
-	property{
-		name{ producer_debt }
 		type{ float }
 		tag{ save }
 	}
@@ -1911,11 +1891,6 @@ object {
 	}
 	property {
 		name{ advanced_province_building_private_size }
-		type{ array{int32_t}{float} }
-		tag{ save }
-	}
-	property {
-		name{ advanced_province_building_private_savings }
 		type{ array{int32_t}{float} }
 		tag{ save }
 	}
@@ -4503,15 +4478,6 @@ object {
 		tag{ save }
 	}
 	property {
-		name{ private_investment }
-		type{ float }
-		tag{ save }
-	}
-	property {
-		name{ private_investment_effective_fraction }
-		type{ float }
-	}
-	property {
 		name{ total_rich_income }
 		type{ float }
 		tag{ save }
@@ -4628,16 +4594,6 @@ object {
 	property {
 		name{ stockpiles }
 		type{ array{commodity_id}{float} }
-		tag{ save }
-	}
-	property {
-		name{ national_bank }
-		type{ float }
-		tag{ save }
-	}
-	property {
-		name{ local_loan }
-		type{ float }
 		tag{ save }
 	}
 	property {
