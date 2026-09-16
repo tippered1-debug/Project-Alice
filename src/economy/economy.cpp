@@ -29,8 +29,6 @@
 #include "compat/alice/legacy_bridge.hpp"
 #include "events.hpp"
 #include "commands.hpp"
-#include "banking_stability.hpp"
-#include "credit_market.hpp"
 #include "monetary_system.hpp"
 #include "land_ownership.hpp"
 #include "industry_ownership.hpp"
@@ -115,46 +113,6 @@ void sanity_check([[maybe_unused]] sys::state& state) {
 	*/
 	//assert(state.inflation > 0.1f && state.inflation < 10.f);
 #endif
-}
-
-bool can_take_loans(sys::state& state, dcon::nation_id n) {
-	if(!state.world.nation_get_is_player_controlled(n) || !state.world.nation_get_is_debt_spending(n))
-		return false;
-
-	/*
-	A country cannot borrow if it is less than define:BANKRUPTCY_EXTERNAL_LOAN_YEARS since their last bankruptcy.
-	*/
-	auto last_br = state.world.nation_get_bankrupt_until(n);
-	if(last_br && state.current_date < last_br)
-		return false;
-
-	return true;
-}
-
-float interest_payment(sys::state& state, dcon::nation_id n) {
-	/*
-	Every day, a nation must pay its creditors. It must pay national-modifier-to-loan-interest x debt-amount x interest-to-debt-holder-rate / 30
-	When a nation takes a loan, the interest-to-debt-holder-rate is set at nation-taking-the-loan-technology-loan-interest-modifier + define:LOAN_BASE_INTEREST, with a minimum of 0.01.
-	*/
-	auto debt = state.world.nation_get_local_loan(n);
-	auto const legacy_payment = debt * std::max(0.01f, (state.world.nation_get_modifier_values(n, sys::national_mod_offsets::loan_interest) + 1.0f) * state.defines.loan_base_interest) / 30.0f;
-	// The credit market supersedes the standalone risk premium: its multiplier
-	// is scarcity of loanable funds times the same risk term banking_stability
-	// used to apply alone, so the two are not stacked. Classic games get one.
-	return legacy_payment * credit::evaluate_nation(state, n).interest_cost_multiplier;
-}
-float max_loan(sys::state& state, dcon::nation_id n) {
-	/*
-	There is an income cap to how much may be borrowed, namely: define:MAX_LOAN_CAP_FROM_BANKS x (national-modifier-to-max-loan-amount + 1) x national-tax-base.
-	*/
-	auto mod = (state.world.nation_get_modifier_values(n, sys::national_mod_offsets::max_loan_modifier) + 1.0f);
-	auto total_tax_base = state.world.nation_get_total_rich_income(n) + state.world.nation_get_total_middle_income(n) + state.world.nation_get_total_poor_income(n);
-	auto const legacy_limit = std::max(0.0f, (total_tax_base + state.world.nation_get_national_bank(n)) * mod);
-	// In the transformation ruleset the banking model is not merely a tooltip:
-	// credit health constrains new borrowing.  Classic games retain the exact
-	// legacy ceiling because evaluate_nation returns it unchanged when disabled.
-	return std::min(legacy_limit,
-		banking_stability::evaluate_nation(state, n).effective_credit_limit);
 }
 
 int32_t most_recent_price_record_index(sys::state& state) {
@@ -2252,8 +2210,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	sanity_check(state);
 
 	monetary::begin_day(state);
-	state.credit_daily_flows.reset(state.world.nation_size(),
-		state.world.province_size());
 
 	set_profile_point(state, "start");
 
@@ -3125,8 +3081,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		}
 	}
 
-	concurrency::combinable<std::vector<dcon::nation_id>> bankrupt_nations;
-
 	//for(auto n : state.nations_by_rank) {
 	concurrency::parallel_for(int32_t(0), int32_t(state.world.nation_size()), [&](int32_t index) {
 		auto n = dcon::nation_id{ dcon::nation_id::value_base_t(index) };
@@ -3137,42 +3091,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 		spent_on_construction_buffer.set(n, 0.f);
 
-		// handle loans
-		bool is_bankrupt = false;
 		{
-			auto current_money = state.world.nation_get_stockpiles(n, economy::money);
-			if(state.world.nation_get_is_player_controlled(n)) {
-				auto max_loan_amount = max_loan(state, n);
-				auto current_loan = state.world.nation_get_local_loan(n);
-				auto current_interest = interest_payment(state, n);
-				auto required_additional_loan = 0.f;
-				auto current_bank_money = state.world.nation_get_national_bank(n);
-
-				if(current_money < current_interest) {
-					required_additional_loan = required_additional_loan - current_money;
-				}
-
-				if(current_money < current_interest && current_loan + required_additional_loan > max_loan_amount) {
-					is_bankrupt = true;
-				} else if(current_money > current_interest) {
-					// can pay interest without new loans
-					state.world.nation_set_stockpiles(n, economy::money, current_money - current_interest);
-					state.world.nation_set_national_bank(n, current_bank_money + current_interest);
-				} else {
-					// we have to take additional loan to pay interest and we are able to do it
-					state.world.nation_set_local_loan(n, current_loan + required_additional_loan);
-					state.world.nation_set_stockpiles(n, economy::money, 0);
-				}
-			} else {
-				if(current_money < 0) {
-					is_bankrupt = true;
-				}
-			}
-		}
-
-		if(is_bankrupt) {
-			bankrupt_nations.local().push_back(n);
-		} else {
 			float spending_scale = 1.0f;
 
 			// Budget sliders are daily policies. Under the transformation ruleset,
@@ -3185,7 +3104,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				base_budget = national_budget::estimate_sustainable_daily_budget(
 					state, n, treasury_budget);
 			}
-			auto additional_funding = 0.f;
 			auto costs = full_spending_cost(state, n, base_budget);
 			auto const admin_budget = costs.administration;
 			auto const actual_admin_spending = gamerule::age_of_transformation_enabled(state)
@@ -3193,27 +3111,18 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				: admin_budget;
 			auto const effective_total =
 				costs.total - admin_budget + actual_admin_spending;
-			auto required_additional_funding = std::max(0.f, effective_total - base_budget);
-			auto current_loan = state.world.nation_get_local_loan(n);
 
 			assert(costs.total >= 0.f);
 
-			// if loan is required, then take as much as you can
-
-			if(can_take_loans(state, n)) {
-				auto available_loan = std::max(0.f, max_loan(state, n) - current_loan);
-				additional_funding = std::min(required_additional_funding, available_loan);
-			}
-
 			// by definition, ADMIN must be lower or equal than BASE_BUDGET, so we can always pay for admin budget
 
-			if(base_budget + additional_funding >= effective_total) {
+			if(base_budget >= effective_total) {
 				spending_scale = 1.f;
 			} else {
 				spending_scale =
 					(costs.total - admin_budget < 0.001f)
 					? 1.f
-					: (base_budget + additional_funding - actual_admin_spending)
+					: (base_budget - actual_admin_spending)
 						/ (costs.total - admin_budget);
 			}
 
@@ -3221,7 +3130,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			// refunded after labor-market clearing. Never let that temporary prepay
 			// overdraw the cash actually available today.
 			auto const other_costs = costs.total - admin_budget;
-			auto const gross_cash_available = treasury_budget + additional_funding;
+			auto const gross_cash_available = treasury_budget;
 			if(admin_budget + other_costs * spending_scale > gross_cash_available) {
 				auto const cash_limited_scale = other_costs < 0.001f
 					? 1.f
@@ -3238,27 +3147,11 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				other_costs * spending_scale + admin_budget;
 			state.world.nation_set_stockpiles(
 				n, economy::money,
-				treasury_budget + additional_funding - cash_spending);
+				treasury_budget - cash_spending);
 			state.world.nation_set_spending_level(n, spending_scale);
 			state.world.nation_set_last_base_budget(n, base_budget);
 
 			
-
-			if (additional_funding > 0.f) {
-				state.world.nation_set_local_loan(n, current_loan + additional_funding);
-			} else {
-				// Repay debt only from cash above the sustainable daily envelope.
-				auto money_before = state.world.nation_get_stockpiles(n, economy::money);
-				auto paid_loan = std::min(
-					std::max(0.f, money_before - base_budget), current_loan);
-				auto remaining_loan_after = std::max(0.f, current_loan - paid_loan);
-				auto money_after = std::max(0.f, money_before - paid_loan);
-
-				state.world.nation_set_local_loan(n, remaining_loan_after);
-				state.world.nation_set_stockpiles(n, economy::money, money_after);
-				// we do not increase national bank
-				// because it stores the sum of loaned money and money available for a loan
-			}
 
 			spent_on_construction_buffer.set(n, spending_scale * costs.construction);
 
@@ -3279,16 +3172,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			float pi_total = full_private_investment_cost(state, n);
 			float perceived_spending = pi_total;
 
-			// Bank credit is raised before the pool is drawn on, so a shortfall
-			// this day can be financed this day. Both stocks belong to this
-			// nation alone, which keeps the surrounding parallel_for safe.
-			{
-				auto const own_funds =
-					state.world.nation_get_private_investment(n) * investment_pool_investment_per_day;
-				auto const shortfall = std::max(0.f, pi_total - own_funds);
-				credit::settle_nation(state, n, credit::evaluate_nation(state, n, shortfall));
-			}
-
 			float pi_budget = state.world.nation_get_private_investment(n) * investment_pool_investment_per_day;
 			private_spending_scale = perceived_spending <= pi_budget ? 1.0f : pi_budget / perceived_spending;
 			state.world.nation_set_private_investment_effective_fraction(n, private_spending_scale);
@@ -3297,27 +3180,10 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				n,
 				std::max(0.0f, state.world.nation_get_private_investment(n) - private_spending)
 			);
-			state.credit_daily_flows.record_private_spending(n, private_spending);
-
 			update_private_consumption(state, n, private_spending_scale);
 		}
 	});
 
-	{
-		auto total_vector = bankrupt_nations.combine([](auto& a, auto& b) {
-			std::vector<dcon::nation_id> result(a.begin(), a.end());
-			result.insert(result.end(), b.begin(), b.end());
-			return result;
-		});
-		std::sort(total_vector.begin(), total_vector.end(), [](auto a, auto b) { return a.value < b.value; });
-		for(auto& n : total_vector) {		
-			go_bankrupt(state, n);
-			state.world.nation_set_spending_level(n, 0.f);
-			state.world.nation_set_last_base_budget(n, 0.f);
-			update_national_consumption(state, n, 0.f, 0.f);
-			update_consumption_administration(state, n, 0.f);
-		}
-	}
 
 	sanity_check(state);
 
@@ -4602,11 +4468,9 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 	// Service what is already owed before advancing anything new, so a firm
 	// cannot borrow its way out of interest it has not paid.
-	credit::service_producer_debt(state);
 	// A till that has just gone negative is a firm financing itself. Route that
 	// through the bank so the credit is finite, priced and money-conserving,
 	// instead of an unbounded free overdraft.
-	credit::settle_producer_credit(state);
 
 	set_profile_point(state, "rgo/factory banks");
 
@@ -5042,9 +4906,6 @@ void regenerate_unsaved_values(sys::state& state) {
 		auto bank = state.world.nation_get_national_bank(nation);
 		if(!std::isfinite(bank))
 			state.world.nation_set_national_bank(nation, 0.f);
-		auto loan = state.world.nation_get_local_loan(nation);
-		if(!std::isfinite(loan))
-			state.world.nation_set_local_loan(nation, 0.f);
 	});
 	state.world.for_each_pop([&](dcon::pop_id pop) {
 		auto savings = state.world.pop_get_savings(pop);
@@ -6173,54 +6034,6 @@ dcon::modifier_id get_province_selector_modifier(sys::state& state) {
 
 dcon::modifier_id get_province_immigrator_modifier(sys::state& state) {
 	return state.economy_definitions.immigrator_modifier;
-}
-
-void go_bankrupt(sys::state& state, dcon::nation_id n) {
-	auto& debt = state.world.nation_get_local_loan(n);
-
-	/*
-	 If a nation cannot pay and the amount it owes is less than define:SMALL_DEBT_LIMIT, the nation it owes money to gets an on_debtor_default_small event (with the nation defaulting in the from slot). Otherwise, the event is pulled from on_debtor_default. The nation then goes bankrupt. It receives the bad_debter modifier for define:BANKRUPCY_EXTERNAL_LOAN_YEARS years (if it goes bankrupt again within this period, creditors receive an on_debtor_default_second event). It receives the in_bankrupcy modifier for define:BANKRUPCY_DURATION days. Its prestige is reduced by a factor of define:BANKRUPCY_FACTOR, and each of its pops has their militancy increase by 2.
-	*/
-	auto existing_br = state.world.nation_get_bankrupt_until(n);
-	if(existing_br && state.current_date < existing_br) {
-		for(auto gn : state.great_nations) {
-			if(gn.nation && gn.nation != n) {
-				event::fire_fixed_event(state, state.national_definitions.on_debtor_default_second, trigger::to_generic(gn.nation), event::slot_type::nation, gn.nation, trigger::to_generic(n), event::slot_type::nation);
-			}
-		}
-	} else if(banking_stability::is_small_default(debt, state.defines.small_debt_limit)) {
-		for(auto gn : state.great_nations) {
-			if(gn.nation && gn.nation != n) {
-				event::fire_fixed_event(state, state.national_definitions.on_debtor_default_small, trigger::to_generic(gn.nation), event::slot_type::nation, gn.nation, trigger::to_generic(n), event::slot_type::nation);
-			}
-		}
-	} else {
-		for(auto gn : state.great_nations) {
-			if(gn.nation && gn.nation != n) {
-				event::fire_fixed_event(state, state.national_definitions.on_debtor_default, trigger::to_generic(gn.nation), event::slot_type::nation, gn.nation, trigger::to_generic(n), event::slot_type::nation);
-			}
-		}
-	}
-
-	// RESET MONEY: POTENTIAL MERGE CONFLICT WITH SNEAKBUG'S FUTURE CHANGES
-	state.world.nation_set_stockpiles(n, economy::money, 0.f);
-
-	sys::add_modifier_to_nation(state, n, state.national_definitions.in_bankrupcy, state.current_date + int32_t(state.defines.bankrupcy_duration * 365));
-	sys::add_modifier_to_nation(state, n, state.national_definitions.bad_debter, state.current_date + int32_t(state.defines.bankruptcy_external_loan_years * 365));
-
-	state.world.nation_set_local_loan(n, 0.0f);
-	state.world.nation_set_is_debt_spending(n, false);
-	state.world.nation_set_bankrupt_until(n, state.current_date + int32_t(state.defines.bankrupcy_duration * 365));
-
-	notification::post(state, notification::message{
-		[n](sys::state& state, text::layout_base& contents) {
-			text::add_line(state, contents, "msg_bankruptcy_1", text::variable_type::x, n);
-		},
-		"msg_bankruptcy_title",
-		n, dcon::nation_id{}, dcon::nation_id{},
-		sys::message_base_type::bankruptcy,
-		dcon::province_id{ }
-	});
 }
 
 float estimate_investment_pool_daily_loss(sys::state& state, dcon::nation_id n) {

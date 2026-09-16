@@ -20,7 +20,6 @@
 #include "economy.hpp"
 #include "national_budget.hpp"
 #include "gamerule.hpp"
-#include "credit_market.hpp"
 #include "price_level.hpp"
 #include "military.hpp"
 
@@ -471,31 +470,13 @@ public:
 		text::add_line_break_to_layout(state, contents);
 
 		if(gamerule::age_of_transformation_enabled(state)) {
-			// Put the macro indicators beside the cash-flow explanation: a nominal
-			// surplus is not meaningful without the price level and credit stress
-			// that produced it.
+			// Put the macro indicators beside the cash-flow explanation.
 			auto const prices = economy::price_level::evaluate_nation(
-				state, nation_id);
-			auto const credit = economy::credit::evaluate_nation(
 				state, nation_id);
 			auto const nominal_gdp = economy::gdp::value_nation(
 				state, nation_id);
 			auto const real_gdp = prices.cpi > 0.000001f
 				? nominal_gdp / prices.cpi : nominal_gdp;
-			float producer_debt = 0.f;
-			for(auto ownership : state.world.nation_get_province_ownership(nation_id))
-				producer_debt += std::max(0.f,
-					state.world.province_get_producer_debt(
-						ownership.get_province()));
-			auto producer_unfunded = 0.f;
-			auto producer_availability = 1.f;
-			auto const index = std::size_t(nation_id.index());
-			if(index < state.credit_daily_flows.producer_unfunded.size())
-				producer_unfunded =
-					state.credit_daily_flows.producer_unfunded[index];
-			if(index < state.credit_daily_flows.producer_availability.size())
-				producer_availability =
-					state.credit_daily_flows.producer_availability[index];
 
 			text::add_line(state, contents, "alice_aot_economy_header");
 			text::add_line(state, contents, "alice_aot_nominal_gdp",
@@ -507,23 +488,6 @@ public:
 			text::add_line(state, contents, "alice_aot_daily_inflation",
 				text::variable_type::x,
 				text::fp_percentage_two_places{ prices.daily_inflation });
-			text::add_line(state, contents, "alice_aot_credit_rate",
-				text::variable_type::x,
-				text::fp_percentage_two_places{ credit.policy_annual_rate });
-			text::add_line(state, contents, "alice_aot_credit_utilization",
-				text::variable_type::x,
-				text::fp_percentage_two_places{ credit.utilization });
-			text::add_line(state, contents, "alice_aot_lending_capacity",
-				text::variable_type::x,
-				text::fp_currency{ credit.lending_capacity });
-			text::add_line(state, contents, "alice_aot_producer_debt",
-				text::variable_type::x, text::fp_currency{ producer_debt });
-			text::add_line(state, contents, "alice_aot_unfunded_credit",
-				text::variable_type::x,
-				text::fp_currency{ producer_unfunded });
-			text::add_line(state, contents, "alice_aot_credit_employment",
-				text::variable_type::x,
-				text::fp_percentage_two_places{ producer_availability });
 			text::add_line_break_to_layout(state, contents);
 		}
 
@@ -547,7 +511,7 @@ public:
 		total_expense += economy::estimate_pop_payouts_by_income_type(state, nation_id, culture::income_type::education);
 		total_expense += economy::estimate_pop_payouts_by_income_type(state, nation_id, culture::income_type::administration);
 		total_expense += economy::estimate_pop_payouts_by_income_type(state, nation_id, culture::income_type::military);
-		total_expense += economy::interest_payment(state, nation_id);
+		total_expense += 0.0f;
 		total_expense += economy::estimate_subsidy_spending(state, nation_id);
 
 		text::add_to_substitution_map(sub, text::variable_type::yesterday,
@@ -616,7 +580,7 @@ public:
 						-economy::estimate_pop_payouts_by_income_type(state, nation_id, culture::income_type::military) }); // $VAL
 		text::add_line(state, contents, std::string_view("budget_interest"), text::variable_type::val,
 				text::fp_one_place{
-						-economy::interest_payment(state, nation_id) }); // $VAL - presumably loan payments == interest (?)
+						0.0f });
 		text::add_line(state, contents, std::string_view("budget_imports"), text::variable_type::val,
 				text::fp_one_place{ -economy::nation_total_imports(state,
 						nation_id) }); // $VAL - presumably nation_total_imports is for national stockpile (?)

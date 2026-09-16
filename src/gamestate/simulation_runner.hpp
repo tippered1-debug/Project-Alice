@@ -5,8 +5,6 @@
 // economy declarations in its own right rather than through whichever
 // translation unit happens to include it.
 #include "economy/advanced_province_buildings.hpp"
-#include "economy/banking_stability.hpp"
-#include "economy/credit_market.hpp"
 #include "economy/demographics.hpp"
 #include "economy/economy_constants.hpp"
 #include "economy/economy_stats.hpp"
@@ -242,29 +240,6 @@ struct aggregate_snapshot {
 	double minimum_government_stability = 0.0;
 	double cabinet_confidence_sum = 0.0;
 	double minimum_cabinet_confidence = 0.0;
-	double banking_health_sum = 0.0;
-	double minimum_banking_health = 0.0;
-	double banking_stress_sum = 0.0;
-	// Credit market. The rate is a price, so its extremes matter as much as its
-	// average: a single exhausted lender is the interesting observation.
-	double credit_policy_rate_sum = 0.0;
-	double maximum_credit_policy_rate = 0.0;
-	double credit_utilization_sum = 0.0;
-	double credit_government_share_sum = 0.0;
-	double credit_lending_capacity = 0.0;
-	double credit_extended_to_private = 0.0;
-	double credit_private_interest_due = 0.0;
-	// Producer tills financed by the bank today, and the deficit it could not
-	// reach. The unfunded figure is the size of the old free overdraft.
-	double credit_producer_extended = 0.0;
-	double credit_producer_unfunded = 0.0;
-	// Outstanding producer loan book, and the day's service on it. A stock the
-	// flow-only version had no way to represent.
-	double credit_producer_debt = 0.0;
-	double credit_producer_interest_paid = 0.0;
-	double credit_producer_principal_repaid = 0.0;
-	double credit_producer_writeoff = 0.0;
-	uint64_t credit_market_count = 0;
 	// Industrial ownership, weighted by each province's capitalized industry
 	// value so a province with no industry cannot sway the mix.
 	double industry_value = 0.0;
@@ -446,12 +421,11 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		// runaway totals this account exists to catch.
 	}
 
-	bool has_banking_result = false;
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		++result.nation_count;
 		auto const entity = int32_t(nation.index());
 		auto const treasury = state.world.nation_get_stockpiles(nation, economy::money);
-		auto const debt = state.world.nation_get_local_loan(nation);
+		auto const debt = 0.0f;
 		auto const bank = state.world.nation_get_national_bank(nation);
 		auto const investment = state.world.nation_get_private_investment(nation);
 		if(detail::observe_nonnegative(result.observed_violations, invariant_field::nation_treasury,
@@ -471,54 +445,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			result.private_investment += double(investment);
 		}
 
-		auto const banking = economy::banking_stability::evaluate_nation(state, nation);
-		if(banking.enabled
-			&& detail::observe_nonnegative(result.observed_violations, invariant_field::banking_health,
-				entity, -1, banking.credit_health, 1.0f)) {
-			result.banking_health_sum += double(banking.credit_health);
-			result.banking_stress_sum += double(banking.financial_stress);
-			if(!has_banking_result || banking.credit_health < result.minimum_banking_health)
-				result.minimum_banking_health = banking.credit_health;
-			has_banking_result = true;
-		}
-
-		// Rate, utilization and capacity are pure functions of serialized state
-		// and can be re-derived here. The settled flows cannot: they depend on a
-		// construction shortfall that only exists inside the daily update, so
-		// they are read back from what settlement actually recorded.
-		auto const credit = economy::credit::evaluate_nation(state, nation);
-		if(credit.enabled
-			&& detail::observe_nonnegative(result.observed_violations, invariant_field::credit_rate,
-				entity, -1, credit.policy_annual_rate)) {
-			++result.credit_market_count;
-			result.credit_policy_rate_sum += double(credit.policy_annual_rate);
-			result.maximum_credit_policy_rate = std::max(
-				result.maximum_credit_policy_rate, double(credit.policy_annual_rate));
-			result.credit_utilization_sum += double(credit.utilization);
-			result.credit_government_share_sum += double(credit.government_share);
-			result.credit_lending_capacity += double(credit.lending_capacity);
-			auto const settled = std::size_t(nation.index());
-			if(settled < state.credit_daily_flows.extended.size()) {
-				result.credit_extended_to_private +=
-					double(state.credit_daily_flows.extended[settled]);
-				result.credit_private_interest_due +=
-					double(state.credit_daily_flows.interest[settled]);
-			}
-			if(settled < state.credit_daily_flows.producer_interest_paid.size()) {
-				result.credit_producer_interest_paid +=
-					double(state.credit_daily_flows.producer_interest_paid[settled]);
-				result.credit_producer_principal_repaid +=
-					double(state.credit_daily_flows.producer_principal_repaid[settled]);
-				result.credit_producer_writeoff +=
-					double(state.credit_daily_flows.producer_writeoff[settled]);
-			}
-			if(settled < state.credit_daily_flows.producer_extended.size()) {
-				result.credit_producer_extended +=
-					double(state.credit_daily_flows.producer_extended[settled]);
-				result.credit_producer_unfunded +=
-					double(state.credit_daily_flows.producer_unfunded[settled]);
-			}
-		}
 	});
 
 	state.world.for_each_pop([&](dcon::pop_id pop) {
@@ -804,12 +730,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		});
 
 		{
-			auto const debt = double(state.world.province_get_producer_debt(province));
-			if(std::isfinite(debt) && debt > 0.0)
-				result.credit_producer_debt += debt;
-		}
-
-		{
 			auto const value = double(state.world.province_get_industry_market_value(province));
 			if(std::isfinite(value) && value > 0.0) {
 				auto const owners = economy::industry_ownership::current_distribution(state, province);
@@ -1087,22 +1007,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.minimum_government_stability);
 	validate_aggregate(snapshot.cabinet_confidence_sum);
 	validate_aggregate(snapshot.minimum_cabinet_confidence);
-	validate_aggregate(snapshot.banking_health_sum);
-	validate_aggregate(snapshot.minimum_banking_health);
-	validate_aggregate(snapshot.banking_stress_sum);
-	validate_aggregate(snapshot.credit_policy_rate_sum);
-	validate_aggregate(snapshot.maximum_credit_policy_rate);
-	validate_aggregate(snapshot.credit_utilization_sum);
-	validate_aggregate(snapshot.credit_government_share_sum);
-	validate_aggregate(snapshot.credit_lending_capacity);
-	validate_aggregate(snapshot.credit_extended_to_private);
-	validate_aggregate(snapshot.credit_private_interest_due);
-	validate_aggregate(snapshot.credit_producer_extended);
-	validate_aggregate(snapshot.credit_producer_unfunded);
-	validate_aggregate(snapshot.credit_producer_debt);
-	validate_aggregate(snapshot.credit_producer_interest_paid);
-	validate_aggregate(snapshot.credit_producer_principal_repaid);
-	validate_aggregate(snapshot.credit_producer_writeoff);
 	validate_aggregate(snapshot.industry_value);
 	validate_aggregate(snapshot.industry_value_capitalists);
 	validate_aggregate(snapshot.industry_value_landed);
@@ -1277,20 +1181,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"government_debt\":" << snapshot.government_debt
 		<< ",\"national_bank\":" << snapshot.national_bank
 		<< ",\"private_investment\":" << snapshot.private_investment << "}"
-		<< ",\"credit\":{\"markets\":" << snapshot.credit_market_count
-		<< ",\"policy_rate_sum\":" << snapshot.credit_policy_rate_sum
-		<< ",\"maximum_policy_rate\":" << snapshot.maximum_credit_policy_rate
-		<< ",\"utilization_sum\":" << snapshot.credit_utilization_sum
-		<< ",\"government_share_sum\":" << snapshot.credit_government_share_sum
-		<< ",\"lending_capacity\":" << snapshot.credit_lending_capacity
-		<< ",\"extended_to_private\":" << snapshot.credit_extended_to_private
-		<< ",\"private_interest_due\":" << snapshot.credit_private_interest_due
-		<< ",\"producer_extended\":" << snapshot.credit_producer_extended
-		<< ",\"producer_unfunded\":" << snapshot.credit_producer_unfunded
-		<< ",\"producer_debt\":" << snapshot.credit_producer_debt
-		<< ",\"producer_interest_paid\":" << snapshot.credit_producer_interest_paid
-		<< ",\"producer_principal_repaid\":" << snapshot.credit_producer_principal_repaid
-		<< ",\"producer_writeoff\":" << snapshot.credit_producer_writeoff << "}"
 		<< ",\"industry\":{\"value\":" << snapshot.industry_value
 		<< ",\"value_capitalists\":" << snapshot.industry_value_capitalists
 		<< ",\"value_landed\":" << snapshot.industry_value_landed
@@ -1353,9 +1243,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"cabinet_confidence_sum\":" << snapshot.cabinet_confidence_sum
 		<< ",\"minimum_cabinet_confidence\":"
 		<< snapshot.minimum_cabinet_confidence << "}"
-		<< ",\"banking\":{\"credit_health_sum\":" << snapshot.banking_health_sum
-		<< ",\"minimum_credit_health\":" << snapshot.minimum_banking_health
-		<< ",\"financial_stress_sum\":" << snapshot.banking_stress_sum << "}"
 		<< ",\"trade\":{\"cargo\":" << snapshot.trade_route_cargo
 		<< ",\"effective_capacity\":" << snapshot.trade_effective_capacity
 		<< ",\"congestion_sum\":" << snapshot.trade_congestion_sum
@@ -1455,17 +1342,12 @@ struct synthetic_lab_result {
 	state.world.province_set_control_scale(province, 1.0f);
 	state.world.province_set_control_ratio(province, 1.0f);
 	state.world.province_set_capitalists_share(province, 0.20f);
-	// Seed one secured industrial claim so the lab observes the credit book in
-	// motion even though it deliberately does not parse a full factory setup.
-	// The positive valuation keeps it serviceable on the first day; the empty
-	// factory location then lets the normal bad-loan path close it later.
 	state.world.province_set_industry_market_value(province, 1'000'000.0f);
 	state.world.province_set_smoothed_factory_profit(province, 500.0f);
 	state.world.province_set_industry_state_share(province, 0.15f);
 	state.world.province_set_industry_foreign_share(province, 0.10f);
 	state.world.province_set_industry_worker_share(province, 0.05f);
 	state.world.province_set_industry_landed_share(province, 0.10f);
-	state.world.province_set_producer_debt(province, 50'000.0f);
 	state.world.province_set_factory_bank(province, 100'000.0f);
 
 	auto const worker_pop = state.world.create_pop();

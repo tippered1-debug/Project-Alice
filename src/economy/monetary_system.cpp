@@ -123,8 +123,6 @@ double repair_runaway_nominal_stocks(sys::state& state) {
 			state.world.nation_get_national_bank(nation) * scale);
 		state.world.nation_set_private_investment(nation,
 			state.world.nation_get_private_investment(nation) * scale);
-		state.world.nation_set_local_loan(nation,
-			state.world.nation_get_local_loan(nation) * scale);
 	});
 	state.world.for_each_province([&](dcon::province_id province) {
 		state.world.province_set_rgo_bank(province,
@@ -133,8 +131,6 @@ double repair_runaway_nominal_stocks(sys::state& state) {
 			state.world.province_get_factory_bank(province) * scale);
 		state.world.province_set_artisan_bank(province,
 			state.world.province_get_artisan_bank(province) * scale);
-		state.world.province_set_producer_debt(province,
-			state.world.province_get_producer_debt(province) * scale);
 		for(int32_t building = 0; building < advanced_province_buildings::list::total; ++building) {
 			state.world.province_set_advanced_province_building_private_savings(province, building,
 				state.world.province_get_advanced_province_building_private_savings(province, building) * scale);

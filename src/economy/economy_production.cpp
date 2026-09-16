@@ -23,7 +23,6 @@
 #include "money.hpp"
 #include "economy.hpp"
 #include "monetary_system.hpp"
-#include "credit_market.hpp"
 #include "gamerule.hpp"
 
 #include <type_traits>
@@ -2474,7 +2473,7 @@ void update_employment(sys::state& state, bool ignore_reality, float presim_empl
 		// credit that does not exist.
 			scaler = scaler * ve::apply(
 				[&](dcon::province_id province) {
-					return credit::producer_employment_scale(state, province);
+					return 1.0f;
 				}, pid);
 
 #ifndef NDEBUG

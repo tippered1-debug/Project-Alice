@@ -2055,11 +2055,11 @@ float get_treasury(sys::state& state, dcon::nation_id n) {
 }
 
 float get_bank_funds(sys::state& state, dcon::nation_id n) {
-	return economy::max_loan(state, n);
+	return 0.0f;
 }
 
 float get_debt(sys::state& state, dcon::nation_id n) {
-	return std::max(0.f, state.world.nation_get_local_loan(n));
+	return 0.0f;
 }
 
 // estimates rate of tariffs collected in a market

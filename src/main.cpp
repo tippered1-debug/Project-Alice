@@ -53,8 +53,6 @@
 #include "effects.cpp"
 #include "economy_stats.cpp"
 #include "economy.cpp"
-#include "banking_stability.cpp"
-#include "credit_market.cpp"
 #include "monetary_system.cpp"
 #include "price_level.cpp"
 #include "market_clearing.cpp"

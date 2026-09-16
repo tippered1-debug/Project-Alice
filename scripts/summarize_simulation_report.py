@@ -56,8 +56,7 @@ def main() -> int:
         snapshots = load_report(args.report)
         print("date_raw,population,gdp,unemployment,life_needs,everyday_needs,luxury_needs,"
               "factory_profit,unprofitable_factory_share,debt,treasury,cpi,daily_inflation,demand_pressure,real_wage_index,"
-              "money_supply,money_net_to_gross,money_unaccounted_share,household_money_share,producer_till_balance,producer_unfunded,"
-              "credit_rate,credit_utilization,credit_extended,"
+              "money_supply,money_net_to_gross,money_unaccounted_share,household_money_share,producer_till_balance,"
               "market_quantity_traded,unfilled_life_needs,unfilled_intermediate,"
               "trade_requested,trade_delivered,cargo_in_transit,foreign_settlement_floor,"
               "legitimacy,coalition_power,government_stability,cabinet_confidence,"
@@ -72,7 +71,6 @@ def main() -> int:
             # report exists to answer: how much of it is unexplained, and who
             # is holding it.
             money_supply = number(snapshot, "money", "total")
-            credit_markets = number(snapshot, "credit", "markets")
             row = (
                 int(number(snapshot, "date_raw")),
                 population,
@@ -95,10 +93,6 @@ def main() -> int:
                 number(snapshot, "money", "unaccounted") / money_supply if money_supply else 0.0,
                 number(snapshot, "money", "pop_savings") / money_supply if money_supply else 0.0,
                 number(snapshot, "money", "producer_banks"),
-                number(snapshot, "credit", "producer_unfunded"),
-                number(snapshot, "credit", "policy_rate_sum") / credit_markets if credit_markets else 0.0,
-                number(snapshot, "credit", "utilization_sum") / credit_markets if credit_markets else 0.0,
-                number(snapshot, "credit", "extended_to_private"),
                 number(snapshot, "market_clearing", "quantity_traded"),
                 number(snapshot, "market_clearing", "unfilled_life_needs"),
                 number(snapshot, "market_clearing", "unfilled_intermediate"),

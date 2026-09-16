@@ -108,8 +108,8 @@ budget_spending_details estimate_budget_detailed(sys::state& state, dcon::nation
 	// NO RESCALING
 
 	// INTEREST
+	float interest = 0.0f;
 
-	auto interest = economy::interest_payment(state, n);
 	if(interest > available_funds) {
 		interest = available_funds;
 	}

@@ -75,7 +75,6 @@ simulation_diagnostics_fixture make_simulation_diagnostics_fixture() {
 	fixture.state->world.province_set_nation_from_province_ownership(fixture.province, fixture.nation);
 	fixture.state->world.province_set_control_ratio(fixture.province, 0.7f);
 	fixture.state->world.nation_set_stockpiles(fixture.nation, economy::money, 10.0f);
-	fixture.state->world.nation_set_local_loan(fixture.nation, 5.0f);
 	fixture.state->world.nation_set_national_bank(fixture.nation, 8.0f);
 	fixture.state->world.nation_set_private_investment(fixture.nation, 3.0f);
 	fixture.state->defines.loan_base_interest = 0.03f;
@@ -147,7 +146,7 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(snapshot.minimum_army_supply_reserve == Approx(0.6));
 	REQUIRE(snapshot.depot_stockpile == Approx(9.0));
 	REQUIRE(snapshot.treasury == Approx(10.0));
-	REQUIRE(snapshot.government_debt == Approx(5.0));
+	REQUIRE(snapshot.government_debt == Approx(0.0));
 	REQUIRE(snapshot.national_bank == Approx(8.0));
 	REQUIRE(snapshot.private_investment == Approx(3.0));
 	REQUIRE(snapshot.control_ratio_sum == Approx(0.7));
@@ -163,8 +162,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(snapshot.minimum_government_stability == Approx(0.70));
 	REQUIRE(snapshot.cabinet_confidence_sum == Approx(0.65));
 	REQUIRE(snapshot.minimum_cabinet_confidence == Approx(0.65));
-	REQUIRE(snapshot.banking_health_sum >= 0.0);
-	REQUIRE(snapshot.banking_health_sum <= 1.0);
 	for(uint32_t index = 0; index < sys::checksum_key::key_size; ++index) {
 		REQUIRE(snapshot.save_checksum.key[index] == repeated_snapshot.save_checksum.key[index]);
 	}
@@ -177,7 +174,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(line.find("\"politics\":") != std::string::npos);
 	REQUIRE(line.find("\"stable_governments\":1") != std::string::npos);
 	REQUIRE(line.find("\"government_stability_sum\":") != std::string::npos);
-	REQUIRE(line.find("\"banking\":") != std::string::npos);
 	REQUIRE(line.find("\"demography\":") != std::string::npos);
 	REQUIRE(line.find("\"living_standards\":") != std::string::npos);
 	REQUIRE(line.find("\"consumer_price_index\":") != std::string::npos);

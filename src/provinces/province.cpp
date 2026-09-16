@@ -11,7 +11,6 @@
 #include "prng.hpp"
 #include "triggers.hpp"
 #include "economy_stats.hpp"
-#include "credit_market.hpp"
 #include "events.hpp"
 #include <set>
 
@@ -1406,7 +1405,6 @@ void change_province_owner(sys::state& state, dcon::province_id id, dcon::nation
 	}
 
 	state.world.province_set_nation_from_province_ownership(id, new_owner);
-	economy::credit::on_province_owner_changed(state, id, old_owner, new_owner);
 	state.world.province_set_rebel_faction_from_province_rebel_control(id, dcon::rebel_faction_id{});
 	state.world.province_set_last_control_change(id, state.current_date);
 	state.world.province_set_nation_from_province_control(id, new_owner);

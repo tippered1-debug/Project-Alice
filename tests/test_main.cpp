@@ -96,8 +96,6 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "land_ownership_tests.cpp"
 #include "industry_ownership_tests.cpp"
 #include "labor_relations_tests.cpp"
-#include "banking_stability_tests.cpp"
-#include "credit_market_tests.cpp"
 #include "monetary_system_tests.cpp"
 #include "price_level_tests.cpp"
 #include "market_clearing_tests.cpp"

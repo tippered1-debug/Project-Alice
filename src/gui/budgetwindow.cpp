@@ -1720,15 +1720,13 @@ void budgetwindow_main_debt_enable_t::update_tooltip(sys::state& state, int32_t 
 	auto last_br = state.world.nation_get_bankrupt_until(state.local_player_nation);
 	if(last_br && state.current_date < last_br) {
 		text::add_line(state, contents, "alice_currently_bankrupt", text::variable_type::x, last_br);
-	} else if(economy::max_loan(state, state.local_player_nation) <= 0.0f) {
+	} else if(true) {
 		text::add_line(state, contents, "alice_no_loans_possible");
 	} else {
 		text::add_line(state, contents, "alice_debt_spending");
 		text::add_line_break_to_layout(state, contents);
-		text::add_line(state, contents, "alice_loan_size", text::variable_type::x, text::fp_currency{ economy::max_loan(state, state.local_player_nation) });
+		text::add_line(state, contents, "alice_no_loans_possible");
 
-		auto mod = state.world.nation_get_modifier_values(state.local_player_nation, sys::national_mod_offsets::max_loan_modifier);
-		text::add_line(state, contents, "alice_loan_size_mod", text::variable_type::x, text::fp_percentage_one_place{ mod });
 	}
 
 	text::add_line_break_to_layout(state, contents);
@@ -1760,8 +1758,7 @@ void budgetwindow_main_debt_enable_t::on_update(sys::state& state) noexcept {
 	auto last_br = state.world.nation_get_bankrupt_until(state.local_player_nation);
 	if(last_br && state.current_date < last_br)
 		disabled = true;
-	if(economy::max_loan(state, state.local_player_nation) <= 0.0f)
-		disabled = true;
+	disabled = true;
 // END
 }
 bool budgetwindow_main_debt_enable_t::button_action(sys::state& state) noexcept {
@@ -1774,14 +1771,14 @@ bool budgetwindow_main_debt_enable_t::button_action(sys::state& state) noexcept 
 void budgetwindow_main_total_debt_amount_t::on_update(sys::state& state) noexcept {
 	budgetwindow_main_t& main = *((budgetwindow_main_t*)(parent)); 
 // BEGIN main::total_debt_amount::update
-	auto amount = state.world.nation_get_local_loan(state.local_player_nation);
+	auto amount = 0.0f;
 	set_text(state, text::prettify_currency(amount));
 // END
 }
 void budgetwindow_main_max_debt_amount_t::on_update(sys::state& state) noexcept {
 	budgetwindow_main_t& main = *((budgetwindow_main_t*)(parent)); 
 // BEGIN main::max_debt_amount::update
-	auto amount = economy::max_loan(state, state.local_player_nation);
+	auto amount = 0.0f;
 	set_text(state, text::prettify_currency(amount));
 // END
 }
@@ -1849,12 +1846,12 @@ void budgetwindow_main_debt_chart_t::on_update(sys::state& state) noexcept {
 // BEGIN main::debt_chart::update
 	graph_content.clear();
 
-	auto interest = economy::interest_payment(state, state.local_player_nation) > 0;
+	auto interest = false;
 	set_visible(state,  interest);
 	if(!interest)
 		return;
 
-	auto t = state.world.nation_get_local_loan(state.local_player_nation);
+	auto t = 0.0f;
 
 	if(t > 0.0f) {
 		int32_t num_gp = 7;
@@ -4502,7 +4499,7 @@ std::unique_ptr<ui::element_base> make_budgetwindow_budget_header(sys::state& st
 #endif
 // LOST-CODE
 // BEGIN main::debt_overlay::update
-//	set_visible(state, economy::interest_payment(state, state.local_player_nation) > 0);
+// legacy aggregate-loan interest display removed
 // END
 // BEGIN main::close_button::lbutton_action
 ////////////////////////////////////////	parent->set_visible(state, false);

@@ -17,7 +17,6 @@
 #include "economy_constants.hpp"
 #include "gamerule.hpp"
 #include "investment_ranking.hpp"
-#include "credit_market.hpp"
 #include "market_access.hpp"
 
 namespace ai {
@@ -192,7 +191,6 @@ void filter_factories_disjunctive(
 			auto const import_dependence = historical_demand > 0.0f
 				? std::clamp((historical_demand - historical_supply) / historical_demand, 0.0f, 1.0f)
 				: 0.0f;
-			auto const credit_market = economy::credit::evaluate_nation(state, nid, 0.0f);
 			economy::investment::project_inputs project{};
 			project.capital_cost = cost;
 			project.gross_daily_revenue = output;
@@ -203,7 +201,7 @@ void filter_factories_disjunctive(
 			project.logistics_reliability =
 				economy::market_access::evaluate_province(state, pid).access;
 			project.effective_tax_rate = std::clamp(1.0f - effective_profit, 0.0f, 1.0f);
-			project.annual_interest_rate = credit_market.policy_annual_rate;
+			project.annual_interest_rate = 0.0f;
 			project.demand_risk = 1.0f - sell_through;
 			project.jobs = type.get_base_workforce();
 			project.strategic_shortage = sell_through;

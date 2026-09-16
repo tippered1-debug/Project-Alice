@@ -96,8 +96,6 @@ set_source_files_properties(
 list(APPEND ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_stats.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/banking_stability.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/credit_market.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/monetary_system.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/price_level.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/market_clearing.cpp"

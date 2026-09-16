@@ -10,7 +10,6 @@
 #include "economy_pops_constants.hpp"
 #include "policy_execution.hpp"
 #include "advanced_province_buildings.hpp"
-#include "credit_market.hpp"
 #include "gamerule.hpp"
 
 #include <cmath>
@@ -1677,14 +1676,9 @@ void distribute_circulating_capital(sys::state& state) {
 		auto const index = std::size_t(nation.id.index());
 		auto const has_claimants = index < total_weight.size()
 			&& total_weight[index] > 0.0 && std::isfinite(total_weight[index]);
-		credit::settle_circulation(state, nation.id, has_claimants);
 		if(!has_claimants)
 			continue;
 		auto payout = 0.f;
-		if(index < state.credit_daily_flows.bank_distribution.size())
-			payout += state.credit_daily_flows.bank_distribution[index];
-		if(index < state.credit_daily_flows.investment_distribution.size())
-			payout += state.credit_daily_flows.investment_distribution[index];
 		if(!(payout > 0.f) || !std::isfinite(payout))
 			continue;
 

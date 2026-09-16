@@ -31,7 +31,6 @@
 #include "network_containers.hpp"
 #include "container_types_ui.hpp"
 #include "military_supply.hpp"
-#include "credit_market.hpp"
 #include "monetary_system.hpp"
 #include "price_level.hpp"
 #include "market_clearing.hpp"
@@ -815,7 +814,6 @@ struct alignas(64) state {
 
 	// Credit settled today, per nation. Reset at the start of every economy day
 	// and read by observability; never serialized.
-	economy::credit::daily_flows credit_daily_flows;
 
 	// Opt-in per-phase money audit, driven by --money-audit. Never serialized.
 	economy::monetary::audit money_audit;
