@@ -46,13 +46,12 @@ bool materialize_and_dispatch(sys::state& state, dcon::factory_id factory, float
 	auto market = local_state ? state.world.state_instance_get_market_from_local_market(local_state) : dcon::market_id{};
 	auto hub = market ? deposits::market_hub_for(state, market) : dcon::site_id{};
 	if(!origin || !operator_actor || !market || !hub)
-		return legacy_fallback(state, factory, commodity, produced_amount);
+		return false;
 	if(inventory::add(state, origin, commodity, produced_amount, operator_actor) != produced_amount)
-		return legacy_fallback(state, factory, commodity, produced_amount);
-	if(!shipments::dispatch(state, origin, hub, commodity, produced_amount, operator_actor)) {
-		inventory::remove(state, origin, commodity, produced_amount, operator_actor);
-		return legacy_fallback(state, factory, commodity, produced_amount);
-	}
+		return false;
+	// If dispatch fails, the materialized output remains at the factory site.
+	if(!shipments::dispatch(state, origin, hub, commodity, produced_amount, operator_actor))
+		return false;
 	return true;
 }
 

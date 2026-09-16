@@ -1,7 +1,6 @@
 #include "shipments.hpp"
 #include "deposits.hpp"
 #include "inventory.hpp"
-#include "compat/alice/legacy_market_bridge.hpp"
 #include "system_state.hpp"
 #include "province.hpp"
 #include "economy_production.hpp"
@@ -62,7 +61,6 @@ void advance(sys::state& state) {
 
 void process_arrivals(sys::state& state) {
 	advance(state);
-	compat::alice::handoff_arrived_stock(state);
 }
 
 void process_rgo_output(sys::state& state) {

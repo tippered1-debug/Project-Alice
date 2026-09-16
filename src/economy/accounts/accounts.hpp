@@ -8,6 +8,7 @@ namespace sys { class state; }
 namespace economy::accounts {
 
 dcon::monetary_account_id open_account(sys::state&, dcon::economic_actor_id, dcon::commodity_id);
+dcon::monetary_account_id find_account(sys::state const&, dcon::economic_actor_id, dcon::commodity_id);
 dcon::economic_actor_id owner_of(sys::state const&, dcon::monetary_account_id);
 dcon::commodity_id settlement_of(sys::state const&, dcon::monetary_account_id);
 float balance(sys::state const&, dcon::monetary_account_id);

@@ -56,4 +56,23 @@ float remove(sys::state& state, dcon::site_id site, dcon::commodity_id commodity
 	return removed;
 }
 
+bool transfer(sys::state& state, dcon::site_id site, dcon::commodity_id commodity,
+	dcon::economic_actor_id seller, dcon::economic_actor_id buyer, float amount) {
+	if(!site || !commodity || !seller || !buyer || seller == buyer || !std::isfinite(amount) || amount <= 0.0f)
+		return false;
+	auto seller_stock = find(state, site, commodity, seller);
+	if(!seller_stock || quantity(state, site, commodity, seller) < amount)
+		return false;
+	if(!std::isfinite(quantity(state, site, commodity, buyer) + amount))
+		return false;
+	// Both sides have been validated before either stock is changed.
+	if(remove(state, site, commodity, amount, seller) != amount)
+		return false;
+	if(add(state, site, commodity, amount, buyer) != amount) {
+		add(state, site, commodity, amount, seller);
+		return false;
+	}
+	return true;
+}
+
 } // namespace economy::physical::inventory

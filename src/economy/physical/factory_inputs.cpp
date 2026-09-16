@@ -4,6 +4,7 @@
 #include "market_clearing.hpp"
 #include "deposits.hpp"
 #include "shipments.hpp"
+#include "exchange.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -139,14 +140,25 @@ void fulfill(sys::state& state) {
 				break;
 			}
 		if(planned <= 0.0f) continue;
-		auto allocated = planned * std::clamp(market_clearing::fill(
-			state, order.market, commodity, market_clearing::demand_class::intermediate), 0.0f, 1.0f);
-		if(allocated <= 0.0f) continue;
-		inventory::add(state, hub, commodity, allocated, order.owner);
-		// Settlement has already accounted for the purchase. If the physical
-		// dispatch cannot be created, leave the purchased quantity at the hub;
-		// never recreate it in the legacy market.
-		shipments::dispatch(state, hub, order.destination, commodity, allocated, order.owner);
+		(void)required;
+		// Planned quantity is a demand ceiling; physical acquisition is made only
+		// from concrete seller stocks at the hub.
+		auto remaining = planned;
+		auto price = state.world.market_get_price(order.market, commodity);
+		for(auto stock : exchange::seller_stocks(state, hub, commodity, order.owner)) {
+			if(remaining <= 0.0f) break;
+			auto seller_relation = state.world.physical_stock_get_physical_stock_owner(stock);
+			auto seller = seller_relation ? state.world.physical_stock_owner_get_economic_actor(seller_relation) : dcon::economic_actor_id{};
+			auto available = inventory::quantity(state, hub, commodity, seller);
+			auto bought = std::min(remaining, available);
+			if(bought <= 0.0f) continue;
+			if(!exchange::purchase(state, hub, commodity, seller, order.owner, bought, price, state.current_date))
+				continue;
+			if(shipments::dispatch(state, hub, order.destination, commodity, bought, order.owner))
+				remaining -= bought;
+			else
+				break;
+		}
 	}
 });
 }

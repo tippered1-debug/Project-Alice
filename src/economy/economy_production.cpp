@@ -10,7 +10,6 @@
 #include "construction.hpp"
 #include "price.hpp"
 #include "compat/alice/legacy_bridge.hpp"
-#include "compat/alice/legacy_market_bridge.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
@@ -1700,7 +1699,7 @@ void update_single_factory_consumption(
 	) * std::max(0.f, mobilization_impact);
 	auto physical_input_site = ::world::site::site_for_factory(state, fac.id);
 	auto physical_input_owner = actors::organizations::operator_actor_for_factory(state, fac.id);
-	auto physical_inputs_ready = ::compat::alice::physical_path_enabled(state)
+	auto physical_inputs_ready = gamerule::age_of_transformation_enabled(state)
 		&& ::economy::physical::factory_inputs::plan(state, fac.id, physical_input_site, physical_input_owner,
 			direct_inputs, m,
 			input_multiplier * employment_units * throughput_multiplier);
@@ -1852,7 +1851,7 @@ void update_factories_production(
 		auto production = state.world.factory_get_output(factory);
 		auto factory_type = state.world.factory_get_building_type(factory);
 		auto cid = state.world.factory_type_get_output(factory_type);
-		if(::compat::alice::physical_path_enabled(state))
+		if(gamerule::age_of_transformation_enabled(state))
 			::economy::physical::factory_output::materialize_and_dispatch(state, factory, production);
 		else
 			register_domestic_supply(state, local_market, cid, production, economy_reason::factory);
@@ -1945,7 +1944,7 @@ void update_rgo_production(sys::state& state) {
 	// can't do in parallel over provinces
 	// therefore do it in parallel over markets. Cannot do it over commodities because register_domestic_supply writes to market_gdp
 
-	if(::compat::alice::physical_path_enabled(state)) {
+	if(gamerule::age_of_transformation_enabled(state)) {
 		::economy::physical::shipments::process_rgo_output(state);
 	} else concurrency::parallel_for(uint32_t(0), state.world.market_size(), [&](uint32_t k) {
 		dcon::market_id local_market{ dcon::market_id::value_base_t(k) };

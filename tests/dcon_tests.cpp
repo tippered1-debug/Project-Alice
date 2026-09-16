@@ -9,7 +9,6 @@
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "market_clearing.hpp"
-#include "compat/alice/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/relations/relations.hpp"
@@ -240,7 +239,7 @@ TEST_CASE("physical_rgo_bootstrap_is_idempotent", "[economy][physical]") {
 	REQUIRE(::economy::physical::deposits::extraction_site_for(*state, province, commodity) == site);
 }
 
-TEST_CASE("physical_rgo_arrives_once_at_legacy_market", "[economy][physical][integration]") {
+TEST_CASE("physical_rgo_arrives_once_at_market_hub", "[economy][physical][integration]") {
 	auto state = std::make_unique<sys::state>();
 	state->force_age_of_transformation_ruleset = true;
 	state->world.create_province(); // Keep the test province non-null for hub bootstrap.
@@ -279,14 +278,12 @@ TEST_CASE("physical_rgo_arrives_once_at_legacy_market", "[economy][physical][int
 
 	while(state->world.shipment_size() != 0)
 		::economy::physical::shipments::advance(*state);
-	::compat::alice::handoff_arrived_stock(*state);
 	REQUIRE(state->world.shipment_size() == 0);
 	auto expected = 5.0f * (1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage);
-	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(expected).epsilon(0.00001));
-	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(expected).epsilon(0.00001));
+	REQUIRE(::economy::physical::inventory::quantity(*state, ::economy::physical::deposits::market_hub_for(*state, market), commodity, {}) == Approx(expected).epsilon(0.00001));
 }
 
-TEST_CASE("physical_factory_output_uses_operator_owned_shipment_and_handoff", "[economy][physical][factory]") {
+TEST_CASE("physical_factory_output_uses_operator_owned_shipment", "[economy][physical][factory]") {
 	auto state = std::make_unique<sys::state>();
 	state->force_age_of_transformation_ruleset = true;
 	state->map_state.map_data.world_circumference = 10000.0f;
@@ -348,8 +345,7 @@ TEST_CASE("physical_factory_output_uses_operator_owned_shipment_and_handoff", "[
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
 	while(state->world.shipment_size() != 0)
 		::economy::physical::shipments::process_arrivals(*state);
-	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, operator_actor) == Approx(0.0f));
-	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(produced * std::pow(1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage, float(travel_days))).epsilon(0.00001));
+	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, operator_actor) == Approx(produced * std::pow(1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage, float(travel_days))).epsilon(0.00001));
 }
 
 TEST_CASE("physical_factory_inputs_use_operator_stock_and_bottleneck_ratio", "[economy][physical][factory]") {
@@ -436,25 +432,28 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	state->world.force_create_market_hub_site(market, hub);
 	auto factory = state->world.create_factory();
 	auto owner = state->world.create_economic_actor();
+	auto seller = state->world.create_economic_actor();
 	auto commodity = state->world.create_commodity();
 	state->world.market_resize_stockpile(state->world.commodity_size());
 	state->world.market_resize_actual_probability_to_buy(state->world.commodity_size());
+	state->world.market_resize_price(state->world.commodity_size());
+	state->world.market_set_price(market, commodity, 5.0f);
 	state->world.commodity_set_is_local(commodity, false);
 	state->world.commodity_set_money_rgo(commodity, false);
 	economy::commodity_set inputs{};
 	inputs.commodity_type[0] = commodity;
 	inputs.commodity_amounts[0] = 4.0f;
+	REQUIRE(economy::accounts::open_account(*state, owner, economy::money));
+	REQUIRE(economy::accounts::open_account(*state, seller, economy::money));
+	auto buyer_account = economy::accounts::find_account(*state, owner, economy::money);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*state, buyer_account, 100.0f));
+	REQUIRE(::economy::physical::inventory::add(*state, hub, commodity, 4.0f, seller) == Approx(4.0f));
 
 	::economy::physical::factory_inputs::begin_planning(*state);
 	REQUIRE(::economy::physical::factory_inputs::plan(*state, factory, destination, owner, inputs, market, 1.0f));
 	REQUIRE(::economy::physical::factory_inputs::planned_quantity(*state, factory, commodity, -1.0f) == Approx(4.0f));
 	// The market has not settled yet, and fulfillment must not touch its stockpile.
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
-	::economy::market_clearing::begin_day(*state);
-	::economy::market_clearing::record(*state, market, commodity,
-		::economy::market_clearing::demand_class::intermediate, 4.0f);
-	auto settled = ::economy::market_clearing::settle(*state, market, commodity, 4.0f, 4.0f, 1.0f);
-	REQUIRE(settled.class_fill[static_cast<size_t>(::economy::market_clearing::demand_class::intermediate)] == Approx(1.0f));
 	::economy::physical::factory_inputs::fulfill(*state);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
 	REQUIRE(::economy::physical::inventory::quantity(*state, hub, commodity, owner) == Approx(0.0f));

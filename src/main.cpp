@@ -14,7 +14,7 @@
 #include "economy/physical/deposits.cpp"
 #include "economy/physical/inventory.cpp"
 #include "economy/physical/shipments.cpp"
-#include "compat/alice/legacy_market_bridge.cpp"
+#include "economy/physical/exchange.cpp"
 #include "economy/physical/factory_output.cpp"
 #include "economy/physical/factory_inputs.cpp"
 #include "economy/relations/relations.cpp"

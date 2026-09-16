@@ -10,12 +10,22 @@ bool valid_amount(float value) { return std::isfinite(value) && value > 0.0f; }
 }
 
 dcon::monetary_account_id open_account(sys::state& state, dcon::economic_actor_id owner, dcon::commodity_id settlement) {
-	if(!owner || !settlement) return {};
+	if(!owner) return {};
 	auto account = state.world.create_monetary_account();
 	state.world.monetary_account_set_balance(account, 0.0f);
 	state.world.force_create_monetary_account_owner(account, owner);
 	state.world.force_create_monetary_account_settlement(account, settlement);
 	return account;
+}
+
+dcon::monetary_account_id find_account(sys::state const& state, dcon::economic_actor_id owner, dcon::commodity_id settlement) {
+	dcon::monetary_account_id result{};
+	state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(owner, [&](dcon::monetary_account_owner_id relation) {
+		auto account = state.world.monetary_account_owner_get_monetary_account(relation);
+		if(!result && state.world.monetary_account_get_commodity_from_monetary_account_settlement(account) == settlement)
+			result = account;
+	});
+	return result;
 }
 
 dcon::economic_actor_id owner_of(sys::state const& state, dcon::monetary_account_id account) {
@@ -42,7 +52,7 @@ dcon::transaction_id transfer(sys::state& state, dcon::monetary_account_id sourc
 	auto source_owner = owner_of(state, source);
 	auto destination_owner = owner_of(state, destination);
 	auto settlement = settlement_of(state, source);
-	if(!source_owner || !destination_owner || !settlement || settlement_of(state, destination) != settlement) return {};
+	if(!source_owner || !destination_owner || settlement_of(state, destination) != settlement) return {};
 	if(balance(state, source) < amount) return {};
 	// All validation is complete before either balance or transaction is changed.
 	state.world.monetary_account_set_balance(source, balance(state, source) - amount);

@@ -7,7 +7,7 @@ namespace sys { class state; }
 
 namespace economy::relations {
 
-enum class transaction_kind : uint8_t { transfer = 0, repayment = 1, interest = 2, other = 3, tax_payment, public_debt_issuance, public_debt_service, public_spending };
+enum class transaction_kind : uint8_t { transfer = 0, repayment = 1, interest = 2, other = 3, tax_payment, public_debt_issuance, public_debt_service, public_spending, purchase };
 enum class obligation_status : uint8_t { active = 0, paid = 1, defaulted = 2, written_off = 3 };
 enum class obligation_kind : uint8_t { loan = 0, trade_credit = 1, other = 2, tax, public_debt };
 
