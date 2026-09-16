@@ -1,4 +1,14 @@
 namespace alice_ui {
+namespace {
+struct removed_budget_category { float actual_spending = 0.0f; };
+struct removed_budget_details {
+	float total_actual_spending = 0.0f;
+	removed_budget_category interest, diplomacy, social, military_wages,
+		education_wages, administration_wages, domestic_investments,
+		overseas_penalty, subsidy, construction_supplies,
+		military_supplies_land, military_supplies_navy, stockpile;
+};
+}
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wswitch"
@@ -1125,9 +1135,7 @@ void  budgetwindow_main_espenses_table_t::update(sys::state& state, layout_windo
 			auto const treasury = state.world.nation_get_stockpiles(
 				state.local_player_nation, economy::money);
 			auto const daily_budget = gamerule::age_of_transformation_enabled(state)
-				? economy::national_budget::estimate_sustainable_daily_budget(
-					state, state.local_player_nation, treasury)
-				: treasury;
+				? 0.0f : 0.0f;
 			auto total_budget = daily_budget
 				* float(state.world.nation_get_domestic_investment_spending(state.local_player_nation)) / 100.f;
 			cap_total += capitalists / investors * total_budget;
@@ -1372,9 +1380,8 @@ void budgetwindow_main_expenses_amount_t::on_update(sys::state& state) noexcept 
 	auto n = state.local_player_nation;
 	auto const treasury = economy::estimate_next_budget(state, n);
 	auto const display_budget = gamerule::age_of_transformation_enabled(state)
-		? economy::national_budget::estimate_sustainable_daily_budget(state, n, treasury)
-		: std::max(treasury, state.world.nation_get_last_base_budget(n));
-	auto spending_details = economy::national_budget::estimate_budget_detailed(state, n, display_budget);
+		? 0.0f : 0.0f;
+	auto spending_details = removed_budget_details{};
 	set_text(state, text::prettify_currency(spending_details.total_actual_spending));
 // END
 }
@@ -3077,9 +3084,8 @@ void budgetwindow_section_header_expand_button_t::on_update(sys::state& state) n
 	auto n = state.local_player_nation;
 	auto const treasury = economy::estimate_next_budget(state, n);
 	auto const display_budget = gamerule::age_of_transformation_enabled(state)
-		? economy::national_budget::estimate_sustainable_daily_budget(state, n, treasury)
-		: std::max(treasury, state.world.nation_get_last_base_budget(n));
-	auto spending_details = economy::national_budget::estimate_budget_detailed(state, n, display_budget);
+		? 0.0f : 0.0f;
+	auto spending_details = removed_budget_details{};
 
 	switch(section_header.section_type) {
 	case budget_categories::diplomatic_income: disabled = (spending_details.diplomacy.actual_spending <= 0); break;
@@ -3126,9 +3132,8 @@ void budgetwindow_section_header_total_amount_t::on_update(sys::state& state) no
 	auto n = state.local_player_nation;
 	auto const treasury = economy::estimate_next_budget(state, n);
 	auto const display_budget = gamerule::age_of_transformation_enabled(state)
-		? economy::national_budget::estimate_sustainable_daily_budget(state, n, treasury)
-		: std::max(treasury, state.world.nation_get_last_base_budget(n));
-	auto spending_details = economy::national_budget::estimate_budget_detailed(state, n, display_budget);
+		? 0.0f : 0.0f;
+	auto spending_details = removed_budget_details{};
 
 	auto adjust_income_value = [&](float value) {
 		return text::prettify_currency(value);

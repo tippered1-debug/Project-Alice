@@ -8,7 +8,6 @@
 #include "province_templates.hpp"
 #include "rebels.hpp"
 #include "gui_population_window.hpp"
-#include "national_budget.hpp"
 #include "container_types_ui.hpp"
 
 namespace alice_ui {

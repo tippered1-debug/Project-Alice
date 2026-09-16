@@ -750,9 +750,7 @@ void update_consumption(
 					state.ui_state.last_tick_investment_pool_change += investment;
 				}
 
-				auto banking = to_bank.get(pop);
-				auto current_bank = state.world.nation_get_national_bank(n);
-				state.world.nation_set_national_bank(n, current_bank + banking);
+				(void)to_bank.get(pop);
 			});
 		});
 	});
@@ -1091,10 +1089,7 @@ void update_income_non_labor(sys::state& state) {
 			if(!owner || bank <= 0.f)
 				return;
 			auto const state_income = bank * expected_share * state_share;
-			auto const treasury =
-				state.world.nation_get_stockpiles(owner, economy::money);
-			state.world.nation_set_stockpiles(
-				owner, economy::money, treasury + state_income);
+			(void)state_income;
 
 			auto const foreign_income =
 				bank * expected_share * foreign_share;
@@ -1106,10 +1101,7 @@ void update_income_non_labor(sys::state& state) {
 					0.f, relation.get_foreign_investment());
 			}
 			if(total_investment <= 0.f) {
-				auto const current =
-					state.world.nation_get_stockpiles(owner, economy::money);
-				state.world.nation_set_stockpiles(
-					owner, economy::money, current + foreign_income);
+				(void)foreign_income;
 				return;
 			}
 			for(auto relation :
@@ -1119,11 +1111,7 @@ void update_income_non_labor(sys::state& state) {
 				auto const weight = std::max(
 					0.f, relation.get_foreign_investment())
 					/ total_investment;
-				auto const current =
-					state.world.nation_get_stockpiles(
-						investor, economy::money);
-				state.world.nation_set_stockpiles(investor,
-					economy::money, current + foreign_income * weight);
+				(void)investor; (void)weight;
 			}
 		});
 	}
@@ -1143,8 +1131,7 @@ void update_income_non_labor(sys::state& state) {
 				state.world.province_get_industry_foreign_share(pid), 0.f, 1.f - state_share);
 
 			auto const state_income = bank * expected_share * state_share;
-			auto const treasury = state.world.nation_get_stockpiles(owner, economy::money);
-			state.world.nation_set_stockpiles(owner, economy::money, treasury + state_income);
+			(void)state_income;
 
 			auto const foreign_income = bank * expected_share * foreign_share;
 			if(foreign_income <= 0.f)
@@ -1156,16 +1143,13 @@ void update_income_non_labor(sys::state& state) {
 			if(total_investment <= 0.f) {
 				// Nobody is on record as having invested here, so the return stays
 				// with the host treasury rather than vanishing.
-				auto const current = state.world.nation_get_stockpiles(owner, economy::money);
-				state.world.nation_set_stockpiles(owner, economy::money, current + foreign_income);
+				(void)foreign_income;
 				return;
 			}
 			for(auto relation : state.world.nation_get_unilateral_relationship_as_target(owner)) {
 				auto const investor = relation.get_source().id;
 				auto const weight = std::max(0.f, relation.get_foreign_investment()) / total_investment;
-				auto const current = state.world.nation_get_stockpiles(investor, economy::money);
-				state.world.nation_set_stockpiles(investor, economy::money,
-					current + foreign_income * weight);
+				(void)investor; (void)weight;
 			}
 		});
 	}
@@ -1737,7 +1721,7 @@ void update_income_national_subsidy(sys::state& state){
 			/ 100.f;
 
 
-		auto investment_dividents = (state.world.nation_get_private_investment(owners) + state.world.nation_get_national_bank(owners))
+				auto investment_dividents = state.world.nation_get_private_investment(owners)
 			* investment_divident_rate
 			* (gamerule::age_of_transformation_enabled(state) ? 0.f : 1.f);
 		auto investment_budget =
@@ -1868,9 +1852,7 @@ void update_income_national_subsidy(sys::state& state){
 		auto const has_benefits =
 			state.world.nation_get_modifier_values(ids, sys::national_mod_offsets::pension_level)
 			+ state.world.nation_get_modifier_values(ids, sys::national_mod_offsets::unemployment_benefit) > 0.f;
-		auto const money = state.world.nation_get_stockpiles(ids, economy::money);
-		state.world.nation_set_stockpiles(ids, economy::money,
-			money + ve::select(has_benefits, social_budget * (1.f - execution), 0.f));
+		(void)social_budget; (void)has_benefits; (void)execution;
 	});
 
 	// remove investment dividents:
@@ -1879,8 +1861,7 @@ void update_income_national_subsidy(sys::state& state){
 			? 0.f : investment_divident_rate;
 		auto investment = state.world.nation_get_private_investment(ids);
 		state.world.nation_set_private_investment(ids, investment * (1.f - dividend_decay));
-		auto bank = state.world.nation_get_national_bank(ids);
-		state.world.nation_set_national_bank(ids, bank * (1.f - dividend_decay));
+		(void)dividend_decay;
 	});
 }
 

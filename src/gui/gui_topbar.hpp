@@ -18,7 +18,6 @@
 #include "gui_event.hpp"
 #include "gui_units.hpp"
 #include "economy.hpp"
-#include "national_budget.hpp"
 #include "gamerule.hpp"
 #include "price_level.hpp"
 #include "military.hpp"
@@ -381,11 +380,7 @@ public:
 			+ economy::estimate_tariff_export_income(state, n)
 			+ economy::estimate_gold_income(state, n);
 		auto const projected_treasury = economy::estimate_next_budget(state, n);
-		auto const available_budget = gamerule::age_of_transformation_enabled(state)
-			? economy::national_budget::estimate_sustainable_daily_budget(state, n, projected_treasury)
-			: std::max(projected_treasury, state.world.nation_get_last_base_budget(n));
-		auto const spending = economy::national_budget::estimate_budget_detailed(
-			state, n, available_budget).total_actual_spending;
+		auto const spending = 0.0f;
 		auto const projected_change = income - spending;
 
 		auto layout = text::create_endless_layout(state, internal_layout,
@@ -427,14 +422,10 @@ public:
 			+ economy::estimate_tariff_export_income(state, nation_id)
 			+ economy::estimate_gold_income(state, nation_id);
 		auto const projected_treasury = economy::estimate_next_budget(state, nation_id);
-		auto const available_budget = gamerule::age_of_transformation_enabled(state)
-			? economy::national_budget::estimate_sustainable_daily_budget(state, nation_id, projected_treasury)
-			: std::max(projected_treasury, state.world.nation_get_last_base_budget(nation_id));
-		auto const details = economy::national_budget::estimate_budget_detailed(state, nation_id, available_budget);
-		auto const net = income - details.total_actual_spending;
+		auto const net = 0.0f;
 
 		text::add_line(state, contents, "alice_finance_income_daily", text::variable_type::x, text::fp_currency{ income });
-		text::add_line(state, contents, "alice_finance_expenses_daily", text::variable_type::x, text::fp_currency{ details.total_actual_spending });
+		text::add_line(state, contents, "alice_finance_expenses_daily", text::variable_type::x, text::fp_currency{ 0.0f });
 		text::add_line(state, contents, "alice_finance_net_daily", text::variable_type::x, text::fp_currency{ net });
 		if(net < -0.01f) {
 			text::add_line(state, contents, "alice_finance_reserve_days", text::variable_type::x,
@@ -443,19 +434,19 @@ public:
 
 		using cost_entry = std::pair<std::string_view, float>;
 		std::array<cost_entry, 13> costs{{
-			{ "alice_budget_debt_service", details.interest.actual_spending },
-			{ "alice_budget_diplo_expenses", details.diplomacy.actual_spending },
-			{ "alice_finance_administration", details.administration_wages.actual_spending },
-			{ "alice_budget_social_spending", details.social.actual_spending },
-			{ "alice_finance_military_wages", details.military_wages.actual_spending },
-			{ "alice_finance_education", details.education_wages.actual_spending },
-			{ "alice_budget_domestic_investment", details.domestic_investments.actual_spending },
-			{ "alice_finance_overseas", details.overseas_penalty.actual_spending },
-			{ "alice_finance_subsidies", details.subsidy.actual_spending },
-			{ "alice_budget_construction", details.construction_supplies.actual_spending },
-			{ "alice_budget_army_upkeep", details.military_supplies_land.actual_spending },
-			{ "alice_budget_navy_upkeep", details.military_supplies_navy.actual_spending },
-			{ "alice_finance_stockpile", details.stockpile.actual_spending },
+			{ "alice_budget_debt_service", 0.0f },
+			{ "alice_budget_diplo_expenses", 0.0f },
+			{ "alice_finance_administration", 0.0f },
+			{ "alice_budget_social_spending", 0.0f },
+			{ "alice_finance_military_wages", 0.0f },
+			{ "alice_finance_education", 0.0f },
+			{ "alice_budget_domestic_investment", 0.0f },
+			{ "alice_finance_overseas", 0.0f },
+			{ "alice_finance_subsidies", 0.0f },
+			{ "alice_budget_construction", 0.0f },
+			{ "alice_budget_army_upkeep", 0.0f },
+			{ "alice_budget_navy_upkeep", 0.0f },
+			{ "alice_finance_stockpile", 0.0f },
 		}};
 		std::sort(costs.begin(), costs.end(), [](cost_entry const& a, cost_entry const& b) { return a.second > b.second; });
 		text::add_line_break_to_layout(state, contents);
@@ -529,11 +520,7 @@ public:
 			+ economy::estimate_tariff_export_income(state, nation_id)
 			+ economy::estimate_gold_income(state, nation_id);
 		auto const projected_treasury = economy::estimate_next_budget(state, nation_id);
-		auto const available_budget = gamerule::age_of_transformation_enabled(state)
-			? economy::national_budget::estimate_sustainable_daily_budget(state, nation_id, projected_treasury)
-			: std::max(projected_treasury, state.world.nation_get_last_base_budget(nation_id));
-		auto const spending = economy::national_budget::estimate_budget_detailed(
-			state, nation_id, available_budget).total_actual_spending;
+		auto const spending = 0.0f;
 
 		text::add_line(state, contents, "budget_total_income", text::variable_type::val,
 			text::fp_two_places{ income });

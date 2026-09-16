@@ -22,7 +22,6 @@
 #include "economy_constants.hpp"
 #include "money.hpp"
 #include "economy.hpp"
-#include "monetary_system.hpp"
 #include "gamerule.hpp"
 
 #include <type_traits>
@@ -1999,12 +1998,7 @@ void update_rgo_profit(sys::state& state) {
 				* state.defines.gold_to_cash_rate
 				* state.world.commodity_get_cost(c);
 			assert(std::isfinite(move_to_nation) && produced >= 0.0f);
-			// #CAUTION# changes nation values!
-			auto& cur_money = state.world.nation_get_stockpiles(controller, economy::money);
-			state.world.nation_set_stockpiles(controller, economy::money, cur_money + move_to_nation);
-			// This loop is the only place new money enters the world, so it is
-			// also the only honest source for the day's emission figure.
-			monetary::record_gold_emission(state, move_to_nation);
+			(void)move_to_nation;
 		});
 	});
 

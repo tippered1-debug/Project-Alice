@@ -245,9 +245,7 @@ market_config configuration_for(sys::state const& state, dcon::province_id provi
 	config.implementation_efficiency = nation
 		? std::clamp(0.25f + 0.75f * nations::tax_efficiency(state, nation), 0.25f, 1.f)
 		: 0.25f;
-	config.available_public_funds = nation && state.world.commodity_size() > 0
-		? 0.02f * finite_nonnegative(state.world.nation_get_stockpiles(nation, economy::money))
-		: 0.f;
+	config.available_public_funds = 0.f;
 	return config;
 }
 
@@ -481,8 +479,7 @@ void apply_pop_cash(sys::state& state, dcon::province_id province, owner_group g
 		if(cash_delta > 0.f) {
 			auto const nation = state.world.province_get_nation_from_province_ownership(province);
 			if(nation)
-				state.world.nation_set_national_bank(nation,
-					finite_nonnegative(state.world.nation_get_national_bank(nation)) + cash_delta);
+				(void)nation; (void)cash_delta;
 		}
 		return;
 	}
@@ -502,10 +499,7 @@ void apply_pop_cash(sys::state& state, dcon::province_id province, owner_group g
 }
 
 void apply_treasury(sys::state& state, dcon::nation_id nation, float delta) {
-	if(!nation || state.world.commodity_size() == 0 || !std::isfinite(delta))
-		return;
-	auto const treasury = finite_nonnegative(state.world.nation_get_stockpiles(nation, economy::money));
-	state.world.nation_set_stockpiles(nation, economy::money, std::max(0.f, treasury + delta));
+	(void)state; (void)nation; (void)delta;
 }
 
 } // namespace
@@ -599,9 +593,7 @@ void update_markets(sys::state& state) {
 			} else if(group == std::size_t(owner_group::foreign)) {
 				// Foreign proceeds leave the domestic circuit through the bank
 				// rather than being handed to a POP that does not live here.
-				state.world.nation_set_national_bank(nation,
-					std::max(0.f, finite_nonnegative(
-						state.world.nation_get_national_bank(nation)) + delta));
+				(void)nation; (void)delta;
 			} else {
 				apply_pop_cash(state, province, owner_group(group), delta, group_savings[group]);
 			}

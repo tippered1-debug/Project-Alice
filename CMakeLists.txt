@@ -96,7 +96,6 @@ set_source_files_properties(
 list(APPEND ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_stats.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/monetary_system.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/price_level.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/market_clearing.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/commodity_logistics.cpp"
@@ -115,7 +114,6 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_production.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/construction.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/advanced_province_buildings.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/national_budget.cpp"
 )
 set_source_files_properties(
 	${ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY}

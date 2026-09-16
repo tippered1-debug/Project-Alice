@@ -734,9 +734,7 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 		auto const index = size_t(nation.index());
 		if(index >= import_bills.size())
 			return;
-		auto const reserves = finite_nonnegative(
-			state.world.nation_get_stockpiles(nation, economy::money))
-			+ finite_nonnegative(state.world.nation_get_national_bank(nation));
+		auto const reserves = 0.0f;
 		auto const settlement = foreign_exchange::evaluate({
 			.enabled = true,
 			.import_bill = float(std::min(import_bills[index],

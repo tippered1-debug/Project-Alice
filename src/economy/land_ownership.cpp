@@ -75,15 +75,7 @@ void apply_cash_delta(sys::state& state, dcon::province_id province,
 	}
 
 	if(recipients.empty()) {
-		if(cash_delta > 0.f) {
-			auto const nation =
-				state.world.province_get_nation_from_province_ownership(province);
-			if(nation) {
-				state.world.nation_set_national_bank(nation,
-					finite_nonnegative(state.world.nation_get_national_bank(nation))
-						+ cash_delta);
-			}
-		}
+		(void)cash_delta;
 		return;
 	}
 
@@ -115,23 +107,12 @@ void apply_cash_delta(sys::state& state, dcon::province_id province,
 
 void apply_state_cash_delta(sys::state& state, dcon::nation_id nation,
 		float cash_delta) {
-	if(!nation || !std::isfinite(cash_delta))
-		return;
-	auto const current =
-		finite_nonnegative(state.world.nation_get_national_bank(nation));
-	state.world.nation_set_national_bank(nation,
-		std::max(0.f, current + cash_delta));
+	(void)state; (void)nation; (void)cash_delta;
 }
 
 void apply_treasury_cost(sys::state& state, dcon::nation_id nation,
 		float cost) {
-	if(!nation || state.world.commodity_size() == 0
-			|| !std::isfinite(cost) || cost <= 0.f)
-		return;
-	auto const treasury = finite_nonnegative(
-		state.world.nation_get_stockpiles(nation, economy::money));
-	state.world.nation_set_stockpiles(nation, economy::money,
-		std::max(0.f, treasury - cost));
+	(void)state; (void)nation; (void)cost;
 }
 
 void apply_foreign_cash_delta(sys::state& state, dcon::nation_id target,
@@ -154,10 +135,7 @@ void apply_foreign_cash_delta(sys::state& state, dcon::nation_id target,
 			finite_nonnegative(relation.get_foreign_investment())
 			/ total_investment;
 		auto const investor = relation.get_source().id;
-		auto const current =
-			finite_nonnegative(state.world.nation_get_national_bank(investor));
-		state.world.nation_set_national_bank(investor,
-			std::max(0.f, current + cash_delta * weight));
+		(void)investor; (void)weight;
 	}
 }
 
@@ -473,10 +451,7 @@ market_config configuration_for(sys::state const& state,
 		? std::clamp(0.25f + 0.75f * nations::tax_efficiency(state, nation),
 			0.25f, 1.f)
 		: 0.25f;
-	config.available_public_funds = nation && state.world.commodity_size() > 0
-		? 0.02f * finite_nonnegative(
-			state.world.nation_get_stockpiles(nation, economy::money))
-		: 0.f;
+	config.available_public_funds = 0.f;
 	config.nationalization_rate = laws.industry
 		== politics::transformation::laws::industry_regime::nationalizing ? 0.002f : 0.f;
 	config.privatization_rate = laws.industry
@@ -735,9 +710,7 @@ void update_markets(sys::state& state) {
 		};
 		auto const foreign_investment = nation
 			? nations::get_foreign_investment(state, nation) : 0.f;
-		finances[index(owner_group::state)].liquid_savings = nation
-			? finite_nonnegative(
-				state.world.nation_get_national_bank(nation)) : 0.f;
+		finances[index(owner_group::state)].liquid_savings = 0.f;
 		finances[index(owner_group::foreign)].liquid_savings =
 			config.foreign_investment_allowed
 				? finite_nonnegative(foreign_investment) : 0.f;

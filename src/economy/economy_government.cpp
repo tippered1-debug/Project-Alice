@@ -217,9 +217,7 @@ void refund_demand_administration(sys::state& state, dcon::nation_id n) {
 			auto wage = state.world.province_get_labor_price(capital_of_capital_state, economy::labor::high_education_and_accepted);
 			auto demand = state.world.nation_get_administration_employment_target_in_capital(n);
 			auto bought = state.world.province_get_labor_demand_satisfaction(capital_of_capital_state, economy::labor::high_education_and_accepted);
-			auto current = state.world.nation_get_stockpiles(n, economy::money);
-			assert(std::isfinite(current + (1.f - bought) * demand * wage));
-			state.world.nation_set_stockpiles(n, economy::money, current + (1.f - bought) * demand * wage);
+			(void)bought; (void)demand; (void)wage;
 		}
 	}
 
@@ -234,9 +232,7 @@ void refund_demand_administration(sys::state& state, dcon::nation_id n) {
 		auto wage = state.world.province_get_labor_price(capital_of_capital_state, economy::labor::high_education_and_accepted);
 		auto demand = state.world.province_get_administration_employment_target(capital_of_capital_state);
 		auto bought = state.world.province_get_labor_demand_satisfaction(capital_of_capital_state, economy::labor::high_education_and_accepted);
-		auto current = state.world.nation_get_stockpiles(n, economy::money);
-		assert(std::isfinite(current + (1.f - bought) * demand * wage));
-		state.world.nation_set_stockpiles(n, economy::money, current + (1.f - bought) * demand * wage);
+		(void)bought; (void)demand; (void)wage;
 	});
 }
 
@@ -378,9 +374,7 @@ void collect_taxes(sys::state& state, ve::vectorizable_buffer<float, dcon::pop_i
 
 		assert(std::isfinite(collected_tax));
 		assert(collected_tax >= 0);
-		auto cur_money = state.world.nation_get_stockpiles(nid, money);
-		state.world.nation_set_stockpiles(nid, money, cur_money + collected_tax);
-		assert(std::isfinite(state.world.nation_get_stockpiles(nid, money)));
+		(void)collected_tax;
 	});
 }
 

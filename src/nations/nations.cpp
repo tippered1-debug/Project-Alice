@@ -175,10 +175,7 @@ void restore_unsaved_values(sys::state& state) {
 		}
 	});
 
-	state.world.execute_serial_over_nation([&](auto ids) {
-		auto treasury = state.world.nation_get_stockpiles(ids, economy::money);
-		state.world.nation_set_last_treasury(ids, treasury);
-	});
+	// Legacy nation stockpile is not a treasury and is not snapshotted as one.
 
 	restore_cached_values(state);
 }
@@ -2051,7 +2048,8 @@ void update_monthly_points(sys::state& state) {
 }
 
 float get_treasury(sys::state& state, dcon::nation_id n) {
-	return state.world.nation_get_stockpiles(n, economy::money);
+	(void)state; (void)n;
+	return 0.0f;
 }
 
 float get_bank_funds(sys::state& state, dcon::nation_id n) {

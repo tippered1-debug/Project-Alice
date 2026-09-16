@@ -249,10 +249,6 @@ int main(int argc, char* argv[]) {
 	// same seed diverge. Pinning the scheduler to one worker removes that source
 	// entirely, at the cost of speed.
 	bool single_thread = false;
-	// Per-phase money accounting for diagnosing where the supply changes. It
-	// measures every stock at every phase boundary, so it is far too slow for
-	// normal play and is only useful on short bounded runs.
-	bool money_audit = false;
 	int headless_speed = 1;
 	uint64_t headless_days = 0;
 	bool headless_days_were_requested = false;
@@ -426,8 +422,6 @@ int main(int argc, char* argv[]) {
 				game_state.network_state.as_v6 = false;
 			} else if(native_string(argv[i]) == NATIVE("--single-thread")) {
 				single_thread = true;
-			} else if(native_string(argv[i]) == NATIVE("--money-audit")) {
-				money_audit = true;
 			} else if(native_string(argv[i]) == NATIVE("-headless")) {
 				headless = true;
 			} else if(native_string(argv[i]) == NATIVE("--synthetic-lab")) {
@@ -556,10 +550,6 @@ int main(int argc, char* argv[]) {
 		window::emit_error_message("Scheduler pinned to a single worker.\n", false);
 	}
 
-	if(money_audit) {
-		game_state.money_audit.enabled = true;
-		window::emit_error_message("Per-phase money audit enabled.\n", false);
-	}
 
 	if(headless) {
 		window::emit_error_message("Starting in headless mode.\n", false);

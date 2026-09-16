@@ -121,7 +121,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(snapshot.transformed_nation_count == 1);
 	REQUIRE(snapshot.age_of_transformation);
 	REQUIRE(snapshot.inflation == Approx(0.01));
-	REQUIRE(snapshot.legacy_money_decay == Approx(1.25));
 	REQUIRE(snapshot.consumer_price_index == Approx(1.20));
 	REQUIRE(snapshot.consumer_demand_pressure == Approx(0.15));
 	REQUIRE(snapshot.population == Approx(150.0));
@@ -145,9 +144,9 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(snapshot.army_supply_reserve_sum == Approx(0.6));
 	REQUIRE(snapshot.minimum_army_supply_reserve == Approx(0.6));
 	REQUIRE(snapshot.depot_stockpile == Approx(9.0));
-	REQUIRE(snapshot.treasury == Approx(10.0));
+	REQUIRE(snapshot.treasury == Approx(0.0));
 	REQUIRE(snapshot.government_debt == Approx(0.0));
-	REQUIRE(snapshot.national_bank == Approx(8.0));
+	REQUIRE(snapshot.national_bank == Approx(0.0));
 	REQUIRE(snapshot.private_investment == Approx(3.0));
 	REQUIRE(snapshot.control_ratio_sum == Approx(0.7));
 	REQUIRE(snapshot.minimum_control_ratio == Approx(0.7));

@@ -31,7 +31,6 @@
 #include "network_containers.hpp"
 #include "container_types_ui.hpp"
 #include "military_supply.hpp"
-#include "monetary_system.hpp"
 #include "price_level.hpp"
 #include "market_clearing.hpp"
 #include "transformation_politics.hpp"
@@ -799,10 +798,6 @@ struct alignas(64) state {
 	// saves continue to use the scenario's gamerule exclusively.
 	bool force_age_of_transformation_ruleset = false;
 
-	// Daily money-supply account. Every field is derived from serialized stocks
-	// and is rebuilt by economy::monetary::initialize() on load, so it stays out
-	// of the save format while remaining identical across a resumed campaign.
-	economy::monetary::account monetary_account;
 
 	// Derived local consumer prices and real-wage denominators. The opening and
 	// closing CPI samples belong to one economy tick, so no history is serialized.
@@ -815,8 +810,6 @@ struct alignas(64) state {
 	// Credit settled today, per nation. Reset at the start of every economy day
 	// and read by observability; never serialized.
 
-	// Opt-in per-phase money audit, driven by --money-audit. Never serialized.
-	economy::monetary::audit money_audit;
 
 	std::vector<dcon::nation_id> nations_by_rank;
 	std::vector<dcon::nation_id> nations_by_industrial_score;
@@ -921,9 +914,7 @@ struct alignas(64) state {
 	sys::date current_date = sys::date{0};
 	sys::date ui_date = sys::date{0};
 	uint32_t game_seed = 0; // do *not* alter this value, ever
-	// Legacy nominal-balance multiplier. Actual transformation inflation lives
-	// in price_level_account and is measured from consumer prices.
-	float inflation = economy::monetary::legacy_inflation;
+	float inflation = 1.0f;
 	std::vector<player_data> player_data_cache;
 	player_data* find_player_data_cache(dcon::nation_id n) {
 		for(auto& c : player_data_cache) {

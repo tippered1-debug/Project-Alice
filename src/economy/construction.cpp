@@ -1090,7 +1090,7 @@ construction_spending_explanation explain_construction_spending(
 
 
 construction_spending_explanation explain_construction_spending_now(sys::state& state, dcon::nation_id n) {
-	auto treasury = state.world.nation_get_stockpiles(n, economy::money);
+	auto treasury = 0.0f;
 	auto priority = float(state.world.nation_get_construction_spending(n)) / 100.f;
 	auto current_budget = std::max(0.f, treasury * priority);
 	return explain_construction_spending(state, n, current_budget);
@@ -1260,8 +1260,7 @@ void refund_construction_demand(sys::state& state, dcon::nation_id n, float tota
 	});
 	assert(refund_amount >= 0.0f);
 
-	auto& cur_money = state.world.nation_get_stockpiles(n, economy::money);
-	state.world.nation_set_stockpiles(n, economy::money, cur_money + std::min(refund_amount, total_spent_on_construction));
+	(void)refund_amount; (void)total_spent_on_construction;
 }
 
 void advance_construction(sys::state& state, dcon::nation_id n, float total_spent_on_construction) {

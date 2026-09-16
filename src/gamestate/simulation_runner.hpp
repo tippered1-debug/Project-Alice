@@ -11,7 +11,6 @@
 #include "economy/human_development.hpp"
 #include "economy/industry_ownership.hpp"
 #include "economy/market_clearing.hpp"
-#include "economy/monetary_system.hpp"
 #include "economy/price.hpp"
 #include "economy/world_trade_capacity.hpp"
 #include "gamerule/gamerule.hpp"
@@ -170,7 +169,6 @@ struct aggregate_snapshot {
 	// Endogenous consumer-price inflation. The legacy balance-decay factor is
 	// retained separately so reports cannot confuse the two again.
 	double inflation = 0.0;
-	double legacy_money_decay = 1.0;
 	double consumer_price_index = 1.0;
 	double consumer_demand_pressure = 0.0;
 	double population = 0.0;
@@ -211,22 +209,6 @@ struct aggregate_snapshot {
 	double government_debt = 0.0;
 	double national_bank = 0.0;
 	double private_investment = 0.0;
-	// Money-supply account. money_market_cash and money_unaccounted are signed
-	// on purpose: merchants may hold a negative net balance, and money can go
-	// missing as easily as it can appear.
-	double money_pop_savings = 0.0;
-	double money_market_cash = 0.0;
-	double money_treasury = 0.0;
-	double money_national_bank = 0.0;
-	double money_private_investment = 0.0;
-	double money_producer_banks = 0.0;
-	double money_building_savings = 0.0;
-	double money_total = 0.0;
-	double money_expected_total = 0.0;
-	double money_gold_emission = 0.0;
-	double money_unaccounted = 0.0;
-	double money_gross_total = 0.0;
-	double money_net_to_gross = 1.0;
 	double market_gdp = 0.0;
 	// Profit is deliberately signed: a negative value is an economic signal,
 	// not an invariant violation.
@@ -386,8 +368,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	// repeated runs and save/load continuations share the same comparison key.
 	result.save_checksum = state.get_save_checksum();
 
-	result.legacy_money_decay = std::isfinite(state.inflation)
-		? double(state.inflation) : 1.0;
 	if(state.price_level_account.world.enabled) {
 		auto const& prices = state.price_level_account.world;
 		if(detail::observe_nonnegative(result.observed_violations,
@@ -401,44 +381,17 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 			result.consumer_demand_pressure = prices.demand_pressure;
 	}
 
-	{
-		auto const& ledger = state.monetary_account;
-		result.money_pop_savings = ledger.current.pop_savings;
-		result.money_market_cash = ledger.current.market_cash;
-		result.money_treasury = ledger.current.treasury;
-		result.money_national_bank = ledger.current.national_bank;
-		result.money_private_investment = ledger.current.private_investment;
-		result.money_producer_banks = ledger.current.producer_banks;
-		result.money_building_savings = ledger.current.building_savings;
-		result.money_total = ledger.current.total();
-		result.money_expected_total = ledger.last_balance.expected_total;
-		result.money_gold_emission = ledger.last_balance.gold_emission;
-		result.money_unaccounted = ledger.last_balance.unaccounted;
-		result.money_gross_total = ledger.last_balance.gross_total;
-		result.money_net_to_gross = ledger.last_balance.net_to_gross;
-		// The aggregates are validated in doubles by validate_snapshot. Narrowing
-		// them to float here would report a spurious violation for exactly the
-		// runaway totals this account exists to catch.
-	}
+	// Aggregate monetary diagnostics were removed. Concrete account domains own
+	// balances; the legacy nation-wide money ledger is no longer canonical.
 
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		++result.nation_count;
 		auto const entity = int32_t(nation.index());
-		auto const treasury = state.world.nation_get_stockpiles(nation, economy::money);
 		auto const debt = 0.0f;
-		auto const bank = state.world.nation_get_national_bank(nation);
 		auto const investment = state.world.nation_get_private_investment(nation);
-		if(detail::observe_nonnegative(result.observed_violations, invariant_field::nation_treasury,
-				entity, -1, treasury)) {
-			result.treasury += double(treasury);
-		}
 		if(detail::observe_nonnegative(result.observed_violations, invariant_field::nation_debt,
 				entity, -1, debt)) {
 			result.government_debt += double(debt);
-		}
-		if(detail::observe_nonnegative(result.observed_violations, invariant_field::national_bank,
-				entity, -1, bank)) {
-			result.national_bank += double(bank);
 		}
 		if(detail::observe_nonnegative(result.observed_violations, invariant_field::private_investment,
 				entity, -1, investment)) {
@@ -943,7 +896,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		detail::remember_first(report.violations, invariant_field::inflation,
 			-1, -1, float(snapshot.inflation));
 	}
-	validate_aggregate(snapshot.legacy_money_decay);
 	validate_aggregate(snapshot.consumer_price_index);
 	validate_aggregate(snapshot.population);
 	validate_aggregate(snapshot.pop_savings);
@@ -966,32 +918,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.government_debt);
 	validate_aggregate(snapshot.national_bank);
 	validate_aggregate(snapshot.private_investment);
-	validate_aggregate(snapshot.money_pop_savings);
-	validate_aggregate(snapshot.money_treasury);
-	validate_aggregate(snapshot.money_national_bank);
-	validate_aggregate(snapshot.money_private_investment);
-	validate_aggregate(snapshot.money_building_savings);
-	validate_aggregate(snapshot.money_gross_total);
-	validate_aggregate(snapshot.money_gold_emission);
-	// Only the gross position is required to be non-negative. The net supply is
-	// signed: producer tills overdraw without limit in the base game, so on a
-	// real scenario the world's net cash legitimately crosses zero. Failing the
-	// run there would turn ordinary vanilla behaviour into a hard error. The
-	// signal lives in net_to_gross and the producer balance instead.
-	auto validate_signed = [&](double value, invariant_field field) {
-		if(!std::isfinite(value)) {
-			++report.violations.nonfinite;
-			detail::remember_first(report.violations, field, -1, -1, float(value));
-		}
-	};
-	validate_signed(snapshot.money_total, invariant_field::money_supply);
-	validate_signed(snapshot.money_market_cash, invariant_field::money_supply);
-	// Producer tills run collectively negative in the base game: firms pay wages
-	// and buy inputs from a balance that is allowed to overdraw without limit.
-	// That is an economic finding, not an invalid sample.
-	validate_signed(snapshot.money_producer_banks, invariant_field::money_supply);
-	validate_signed(snapshot.money_expected_total, invariant_field::money_supply);
-	validate_signed(snapshot.money_unaccounted, invariant_field::money_supply);
 	validate_aggregate(snapshot.market_gdp);
 	if(!std::isfinite(snapshot.factory_profit)) {
 		++report.violations.nonfinite;
@@ -1112,7 +1038,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"armies\":" << snapshot.army_count
 		<< ",\"depots\":" << snapshot.depot_count << "}"
 		<< ",\"economy\":{\"inflation\":" << snapshot.inflation
-		<< ",\"legacy_money_decay\":" << snapshot.legacy_money_decay
 		<< ",\"consumer_price_index\":" << snapshot.consumer_price_index
 		<< ",\"consumer_demand_pressure\":" << snapshot.consumer_demand_pressure
 		<< ",\"population\":" << snapshot.population
@@ -1190,20 +1115,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"turnover\":" << snapshot.industry_turnover
 		<< ",\"maximum_state_share\":" << snapshot.maximum_industry_state_share
 		<< ",\"maximum_foreign_share\":" << snapshot.maximum_industry_foreign_share << "}"
-		<< ",\"money\":{\"pop_savings\":" << snapshot.money_pop_savings
-		<< ",\"market_cash\":" << snapshot.money_market_cash
-		<< ",\"treasury\":" << snapshot.money_treasury
-		<< ",\"national_bank\":" << snapshot.money_national_bank
-		<< ",\"private_investment\":" << snapshot.money_private_investment
-		<< ",\"producer_banks\":" << snapshot.money_producer_banks
-		<< ",\"building_savings\":" << snapshot.money_building_savings
-		<< ",\"total\":" << snapshot.money_total
-		<< ",\"expected_total\":" << snapshot.money_expected_total
-		<< ",\"gold_emission\":" << snapshot.money_gold_emission
-		<< ",\"unaccounted\":" << snapshot.money_unaccounted
-
-		<< ",\"gross_total\":" << snapshot.money_gross_total
-		<< ",\"net_to_gross\":" << snapshot.money_net_to_gross << "}"
 		<< ",\"labor\":{\"price_sum\":" << snapshot.labor_price_sum
 		<< ",\"real_price_sum\":" << snapshot.real_labor_price_sum
 		<< ",\"supply\":" << snapshot.labor_supply
@@ -1483,7 +1394,6 @@ struct synthetic_lab_result {
 	// The lab bypasses scenario loading, so seed the money-supply baseline the
 	// same way a loaded save does. Without it the first observed day would be
 	// reported as if the entire supply had appeared from nowhere.
-	economy::monetary::initialize(state);
 	economy::price_level::initialize(state);
 
 	return synthetic_lab_result{nation, province, market};
@@ -1523,11 +1433,6 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		std::invoke(tick_function, state);
 		result.ticks_completed = tick;
 
-		if(state.money_audit.enabled) {
-			auto const report = economy::monetary::format_audit(state);
-			if(!report.empty())
-				std::fputs(report.c_str(), stdout);
-		}
 
 		auto const cadence_due = options.snapshot_cadence != 0 && tick % options.snapshot_cadence == 0;
 		auto const final_due = options.include_final_snapshot && tick == options.ticks;

@@ -1241,7 +1241,7 @@ float estimate_probability_to_sell_after_supply_increase(sys::state const& state
 float estimate_next_budget(sys::state const& state, dcon::nation_id n) {
 	// treasury is remainder after spending + income
 	// so there is no need to account for income as it's already there
-	auto treasury = state.world.nation_get_stockpiles(n, economy::money);
+	auto treasury = 0.0f;
 	return treasury;
 }
 
@@ -1566,8 +1566,8 @@ void make_trade_center_tooltip(sys::state& state, text::columnar_layout& content
 
 nation_monetary_breakdown breakdown_nation_monetary_structure(sys::state& state, dcon::nation_id n) {
 	nation_monetary_breakdown result { };
-	result.nation = state.world.nation_get_stockpiles(n, economy::money);
-	result.bank = state.world.nation_get_national_bank(n);
+	result.nation = 0.0f;
+	result.bank = 0.0f;
 	result.investment_pool = state.world.nation_get_private_investment(n);
 	state.world.nation_for_each_province_ownership(n, [&](auto poid) {
 		auto pid = state.world.province_ownership_get_province(poid);

@@ -29,12 +29,9 @@
 #include "compat/alice/legacy_bridge.hpp"
 #include "events.hpp"
 #include "commands.hpp"
-#include "monetary_system.hpp"
 #include "land_ownership.hpp"
 #include "industry_ownership.hpp"
 #include "labor_relations.hpp"
-#include "national_budget.hpp"
-#include "national_budget.hpp"
 #include "policy_execution.hpp"
 #include "gamerule.hpp"
 #include "economy/physical/shipments.hpp"
@@ -877,7 +874,6 @@ void initialize(sys::state& state) {
 	populate_construction_consumption(state);
 
 	state.world.for_each_nation([&](dcon::nation_id n) {
-		state.world.nation_set_stockpiles(n, money, 1000.f);
 	});
 
 
@@ -2142,11 +2138,6 @@ void run_private_investment(sys::state& state) {
 
 static float total_history;
 static void set_profile_point(sys::state& state, std::string name) {
-	// The phases are already named and already bracket the whole day, so the
-	// money audit costs nothing to place and attributes creation to a phase
-	// rather than to the day as a whole.
-	monetary::audit_phase(state, name);
-
 	/*
 	Funnily enough, this place is great to put logging into because of the passed name.
 	*/
@@ -2190,7 +2181,7 @@ static void set_profile_point(sys::state& state, std::string name) {
 		total_markets = total_markets + state.world.market_get_stockpile(ids, money);
 	});
 	state.world.execute_serial_over_nation([&](auto ids) {
-		total_nations = total_nations + state.world.nation_get_stockpiles(ids, money);
+		(void)ids;
 	});
 	auto total = total_nations + total_markets + total_pops;
 	auto diff = total.reduce() - total_history;
@@ -2209,7 +2200,6 @@ static void set_profile_point(sys::state& state, std::string name) {
 void daily_update(sys::state& state, bool presimulation, float presimulation_stage) {
 	sanity_check(state);
 
-	monetary::begin_day(state);
 
 	set_profile_point(state, "start");
 
@@ -2253,10 +2243,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			});
 			break;
 		case 7:
-			state.world.execute_serial_over_nation([&](auto ids) {
-				auto treasury = state.world.nation_get_stockpiles(ids, economy::money);
-				state.world.nation_set_last_treasury(ids, treasury);
-			});
 			break;
 		}
 	});
@@ -3098,12 +3084,9 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			// base them on expected daily revenue and retain accumulated cash as a
 			// reserve. Using the whole treasury here made a 10% policy spend 10% of
 			// the nation's savings every day.
-			auto treasury_budget = state.world.nation_get_stockpiles(n, economy::money);
+			// Legacy nation money is not sovereign treasury in OUR TIME.
+			auto treasury_budget = 0.0f;
 			auto base_budget = treasury_budget;
-			if(gamerule::age_of_transformation_enabled(state)) {
-				base_budget = national_budget::estimate_sustainable_daily_budget(
-					state, n, treasury_budget);
-			}
 			auto costs = full_spending_cost(state, n, base_budget);
 			auto const admin_budget = costs.administration;
 			auto const actual_admin_spending = gamerule::age_of_transformation_enabled(state)
@@ -3145,9 +3128,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			// spend money
 			auto const cash_spending =
 				other_costs * spending_scale + admin_budget;
-			state.world.nation_set_stockpiles(
-				n, economy::money,
-				treasury_budget - cash_spending);
 			state.world.nation_set_spending_level(n, spending_scale);
 			state.world.nation_set_last_base_budget(n, base_budget);
 
@@ -3396,8 +3376,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 						bought_from_nation
 						* state.world.market_get_price(ids_i, c);
 					state.world.nation_set_stockpiles(nations_i, c, national_stockpile_i - bought_from_nation);
-					auto treasury = state.world.nation_get_stockpiles(nations_i, economy::money);
-					state.world.nation_set_stockpiles(nations_i, economy::money, treasury + bought_from_nation_cost);
+					(void)bought_from_nation_cost;
 				}
 			}, capital_mask && draw_from_stockpile, national_stockpile * new_actual_probability_to_sell, national_stockpile, nations, ids);
 		}
@@ -3583,8 +3562,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		}
 
 		// finally, pay back refund:
-		assert(std::isfinite(refund) && std::isfinite(state.world.nation_get_stockpiles(n, money) + refund) && refund >= 0.0f);
-		state.world.nation_set_stockpiles(n, money, state.world.nation_get_stockpiles(n, money) + refund);
+		assert(std::isfinite(refund) && refund >= 0.0f);
 	});
 
 	set_profile_point(state, "refund_nations");
@@ -4569,10 +4547,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		collected_tariff_buffer.set(controller, old_value + collected);
 		mid.set_tariff_collected(0.f);
 	};
-	state.world.execute_serial_over_nation([&](auto nid) {
-		auto old = state.world.nation_get_stockpiles(nid, economy::money);
-		state.world.nation_set_stockpiles(nid, economy::money, old + collected_tariff_buffer.get(nid));
-	});
+	// Tariff proceeds require an explicit concrete fiscal account; do not credit
+	// the legacy nation stockpile.
 
 	set_profile_point(state, "tariffs");
 
@@ -4750,54 +4726,23 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		auto rel = state.world.nation_get_overlord_as_subject(n);
 		auto overlord = state.world.overlord_get_ruler(rel);
 
-		if(overlord) {
-			auto transferamt = estimate_subject_payments_paid(state, n);
-			state.world.nation_set_stockpiles(n, money, state.world.nation_get_stockpiles(n, money) - transferamt);
-			state.world.nation_set_stockpiles(overlord, money, state.world.nation_get_stockpiles(overlord, money) + transferamt);
-		}
+		(void)overlord;
 
 		for(auto uni : n.get_unilateral_relationship_as_source()) {
 			if(uni.get_war_subsidies()) {
 				auto sub_size = estimate_war_subsidies(state, uni.get_target(), uni.get_source());
 
-				if(sub_size <= n.get_stockpiles(money)) {
-					n.set_stockpiles(money, n.get_stockpiles(money) - sub_size);
-					auto& current = uni.get_target().get_stockpiles(money);
-					uni.get_target().set_stockpiles(money, current + sub_size);
-				} else {
-					uni.set_war_subsidies(false);
-
-					notification::post(state, notification::message{
-						[source = n.id, target = uni.get_target().id](sys::state& state, text::layout_base& contents) {
-							text::add_line(state, contents, "msg_wsub_end_1", text::variable_type::x, source, text::variable_type::y, target);
-						},
-						"msg_wsub_end_title",
-						n.id, uni.get_target().id, dcon::nation_id{},
-						sys::message_base_type::war_subsidies_end,
-						dcon::province_id{ }
-					});
-				}
+				(void)sub_size; // war subsidies need a concrete account transfer
 			}
 			if(uni.get_reparations() && state.current_date < n.get_reparations_until()) {
 				auto const tax_eff = nations::tribute_efficiency(state, n);
 				auto total_tax_base = n.get_total_rich_income() + n.get_total_middle_income() + n.get_total_poor_income();
 
 				auto payout = total_tax_base * tax_eff * state.defines.reparations_tax_hit;
-				auto capped_payout = std::min(n.get_stockpiles(money), payout);
-				assert(capped_payout >= 0.0f);
-				n.set_stockpiles(money, n.get_stockpiles(money) - capped_payout);
-				auto& current = uni.get_target().get_stockpiles(money);
-				uni.get_target().set_stockpiles(money, current + capped_payout);
+				(void)payout;
 			}
 		}
 	}
-
-	// Close the day's money-supply books. Classic games are handed back exactly
-	// the legacy blanket decay; the flagship ruleset uses a neutral multiplier
-	// and measures inflation from goods prices. Either way the residual is recorded, so
-	// "how much money appeared from nowhere today" is now a measured number
-	// rather than something a constant has to paper over.
-	monetary::update(state);
 
 	sanity_check(state);
 
@@ -4833,7 +4778,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		float total_savings_nations = 0.f;
 		float total_investment_pool = 0.f;
 		state.world.for_each_nation([&](auto nation) {
-			total_savings_nations += state.world.nation_get_stockpiles(nation, economy::money);
+		(void)nation;
 			total_investment_pool += state.world.nation_get_private_investment(nation);
 		});
 
@@ -4897,15 +4842,11 @@ void regenerate_unsaved_values(sys::state& state) {
 		}
 	});
 	state.world.for_each_nation([&](dcon::nation_id nation) {
-		auto treasury = state.world.nation_get_stockpiles(nation, economy::money);
-		if(!std::isfinite(treasury))
-			state.world.nation_set_stockpiles(nation, economy::money, 0.f);
+		(void)nation;
 		auto private_investment = state.world.nation_get_private_investment(nation);
 		if(!std::isfinite(private_investment))
 			state.world.nation_set_private_investment(nation, 0.f);
-		auto bank = state.world.nation_get_national_bank(nation);
-		if(!std::isfinite(bank))
-			state.world.nation_set_national_bank(nation, 0.f);
+		(void)nation;
 	});
 	state.world.for_each_pop([&](dcon::pop_id pop) {
 		auto savings = state.world.pop_get_savings(pop);
@@ -4913,8 +4854,7 @@ void regenerate_unsaved_values(sys::state& state) {
 			state.world.pop_set_savings(pop, 0.f);
 	});
 
-	auto const nominal_repair = gamerule::age_of_transformation_enabled(state)
-		? monetary::repair_runaway_nominal_stocks(state) : 1.0;
+	auto const nominal_repair = 1.0;
 	if(nominal_repair < 1.0) {
 		// Commodity prices remain anchored to real base costs. Re-anchor only
 		// labor and service quotes that clearly participated in the runaway.
@@ -4951,10 +4891,6 @@ void regenerate_unsaved_values(sys::state& state) {
 		});
 	}
 
-	// Seed the money-supply baseline from the stocks that were just repaired, so
-	// a resumed campaign starts the next day on the same books as a run that was
-	// never interrupted.
-	monetary::initialize(state);
 	price_level::initialize(state);
 
 	state.culture_definitions.rgo_workers.clear();
@@ -5302,7 +5238,8 @@ float estimate_subject_payments_paid(sys::state& state, dcon::nation_id n) {
 			transferamt *= state.defines.alice_puppet_subject_money_transfer / 100.f;
 		}
 
-		return std::max(0.f, std::min(state.world.nation_get_stockpiles(n, money), transferamt));
+		(void)n; (void)transferamt;
+		return 0.f;
 	}
 
 	return 0;
