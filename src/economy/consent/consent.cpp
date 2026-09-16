@@ -5,6 +5,7 @@
 #include "system_state.hpp"
 
 #include <cmath>
+#include <vector>
 
 namespace economy::consent {
 
@@ -50,6 +51,16 @@ bool rejected_by(sys::state const& state, dcon::economic_proposal_id proposal) {
 		if(state.world.economic_decision_get_economic_proposal_from_economic_decision_proposal(decision) == proposal
 			&& state.world.economic_decision_get_accepted(decision) == 0) return true;
 	return false;
+}
+
+bool valid_basis(sys::state const& state, dcon::economic_actor_id actor, sys::date date,
+	std::vector<dcon::belief_id> const& basis) {
+	for(auto belief : basis) {
+		if(!belief || !state.world.belief_is_valid(belief)
+			|| state.world.belief_get_economic_actor_from_belief_holder(belief) != actor
+			|| state.world.belief_get_formed_on(belief) > date) return false;
+	}
+	return true;
 }
 }
 
@@ -131,6 +142,49 @@ dcon::economic_decision_id reject_proposal(sys::state& state, dcon::economic_pro
 	state.world.force_create_economic_decision_proposal(decision, proposal);
 	state.world.force_create_economic_decision_deciding_actor(decision, actor);
 	state.world.force_create_economic_decision_deciding_person(decision, person);
+	state.world.economic_proposal_set_status(proposal, uint8_t(proposal_status::rejected));
+	return decision;
+}
+
+dcon::economic_decision_id accept_proposal_with_basis(sys::state& state, dcon::economic_proposal_id proposal,
+	dcon::economic_actor_id actor, dcon::person_id person, sys::date date,
+	std::vector<dcon::belief_id> const& basis) {
+	if(!proposal || !state.world.economic_proposal_is_valid(proposal)
+		|| state.world.economic_proposal_get_status(proposal) != uint8_t(proposal_status::pending)
+		|| !actor || !person || date < state.world.economic_proposal_get_created_on(proposal)
+		|| !valid_basis(state, actor, date, basis)
+		|| !can_decide_for_actor(state, person, actor, required_for(state, proposal, actor), date)) return {};
+	auto a = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_a(proposal);
+	auto b = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(proposal);
+	if((actor != a && actor != b) || accepted_by(state, proposal, actor)) return {};
+	auto decision = state.world.create_economic_decision();
+	state.world.economic_decision_set_accepted(decision, 1);
+	state.world.economic_decision_set_occurred_on(decision, date);
+	state.world.force_create_economic_decision_proposal(decision, proposal);
+	state.world.force_create_economic_decision_deciding_actor(decision, actor);
+	state.world.force_create_economic_decision_deciding_person(decision, person);
+	for(auto belief : basis) state.world.force_create_economic_decision_belief(decision, belief);
+	return decision;
+}
+
+dcon::economic_decision_id reject_proposal_with_basis(sys::state& state, dcon::economic_proposal_id proposal,
+	dcon::economic_actor_id actor, dcon::person_id person, sys::date date,
+	std::vector<dcon::belief_id> const& basis) {
+	if(!proposal || !state.world.economic_proposal_is_valid(proposal)
+		|| state.world.economic_proposal_get_status(proposal) != uint8_t(proposal_status::pending)
+		|| !actor || !person || date < state.world.economic_proposal_get_created_on(proposal)
+		|| !valid_basis(state, actor, date, basis)
+		|| !can_decide_for_actor(state, person, actor, required_for(state, proposal, actor), date)) return {};
+	auto a = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_a(proposal);
+	auto b = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(proposal);
+	if(actor != a && actor != b) return {};
+	auto decision = state.world.create_economic_decision();
+	state.world.economic_decision_set_accepted(decision, 0);
+	state.world.economic_decision_set_occurred_on(decision, date);
+	state.world.force_create_economic_decision_proposal(decision, proposal);
+	state.world.force_create_economic_decision_deciding_actor(decision, actor);
+	state.world.force_create_economic_decision_deciding_person(decision, person);
+	for(auto belief : basis) state.world.force_create_economic_decision_belief(decision, belief);
 	state.world.economic_proposal_set_status(proposal, uint8_t(proposal_status::rejected));
 	return decision;
 }

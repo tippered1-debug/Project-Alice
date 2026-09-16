@@ -4,6 +4,7 @@
 #include "date_interface.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace sys { class state; }
 
@@ -26,6 +27,10 @@ dcon::economic_decision_id accept_proposal(sys::state&, dcon::economic_proposal_
 	dcon::economic_actor_id, dcon::person_id, sys::date);
 dcon::economic_decision_id reject_proposal(sys::state&, dcon::economic_proposal_id,
 	dcon::economic_actor_id, dcon::person_id, sys::date);
+dcon::economic_decision_id accept_proposal_with_basis(sys::state&, dcon::economic_proposal_id,
+	dcon::economic_actor_id, dcon::person_id, sys::date, std::vector<dcon::belief_id> const&);
+dcon::economic_decision_id reject_proposal_with_basis(sys::state&, dcon::economic_proposal_id,
+	dcon::economic_actor_id, dcon::person_id, sys::date, std::vector<dcon::belief_id> const&);
 bool proposal_fully_accepted(sys::state const&, dcon::economic_proposal_id, sys::date);
 bool mark_executed(sys::state&, dcon::economic_proposal_id);
 

@@ -5249,6 +5249,30 @@ object{
 }
 
 object{
+	name{ information_report }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ fact_kind } type{ uint8_t } tag{ save } }
+	property{ name{ reported_value } type{ float } tag{ save } }
+	property{ name{ fact_date } type{ sys::date } tag{ save } }
+	property{ name{ published_on } type{ sys::date } tag{ save } }
+	property{ name{ received_on } type{ sys::date } tag{ save } }
+	property{ name{ confidence } type{ float } tag{ save } }
+}
+
+object{
+	name{ belief }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ fact_kind } type{ uint8_t } tag{ save } }
+	property{ name{ estimated_value } type{ float } tag{ save } }
+	property{ name{ confidence } type{ float } tag{ save } }
+	property{ name{ formed_on } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ deposit_account }
 	storage_type{ erasable }
 	size{ 100000 }
@@ -5871,6 +5895,60 @@ relationship{
 	tag{ save }
 	link{ object{ economic_decision } name{ economic_decision } type{ unique } }
 	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ information_report_source }
+	tag{ save }
+	link{ object{ information_report } name{ information_report } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ information_report_recipient }
+	tag{ save }
+	link{ object{ information_report } name{ information_report } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ information_report_subject }
+	tag{ save }
+	link{ object{ information_report } name{ information_report } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ information_report_settlement }
+	tag{ save }
+	link{ object{ information_report } name{ information_report } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ belief_holder }
+	tag{ save }
+	link{ object{ belief } name{ belief } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ belief_subject }
+	tag{ save }
+	link{ object{ belief } name{ belief } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ belief_settlement }
+	tag{ save }
+	link{ object{ belief } name{ belief } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ belief_source }
+	tag{ save }
+	link{ object{ belief } name{ belief } type{ unique } }
+	link{ object{ information_report } name{ information_report } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ economic_decision_belief }
+	tag{ save }
+	link{ object{ economic_decision } name{ economic_decision } type{ unique } }
+	link{ object{ belief } name{ belief } type{ many } index_storage{ array } }
 }
 
 relationship{
