@@ -169,7 +169,8 @@ dcon::fiscal_action_id authorized_spend(sys::state& state, dcon::person_id initi
 		context.institution, treasury_account, date, {}, transaction);
 }
 
-dcon::fiscal_action_id authorized_issue_public_debt(sys::state& state, dcon::person_id initiator,
+namespace {
+dcon::fiscal_action_id execute_public_debt_raw(sys::state& state, dcon::person_id initiator,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
 	float principal, sys::date due_date, float annual_interest_rate, sys::date date) {
 	authority_context context{};
@@ -194,6 +195,7 @@ dcon::fiscal_action_id authorized_issue_public_debt(sys::state& state, dcon::per
 	return record_action(state, fiscal_action_kind::public_debt_issuance, initiator, context.office,
 		context.institution, treasury_account, date, obligation, transaction);
 }
+}
 
 dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state& state, dcon::person_id initiator,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
@@ -214,8 +216,8 @@ dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state& sta
 		|| state.world.economic_proposal_get_due_date(investor_proposal) != due_date
 		|| state.world.economic_proposal_get_annual_interest_rate(investor_proposal) != annual_interest_rate
 		|| !economy::consent::proposal_fully_accepted(state, investor_proposal, date)) return {};
-	// All consent and authority checks precede the legacy atomic issuance primitive.
-	auto action = authorized_issue_public_debt(state, initiator, treasury_account, investor_account,
+	// All consent and authority checks precede the internal atomic issuance primitive.
+	auto action = execute_public_debt_raw(state, initiator, treasury_account, investor_account,
 		principal, due_date, annual_interest_rate, date);
 	if(!action || !economy::consent::mark_executed(state, investor_proposal)) return {};
 	return action;

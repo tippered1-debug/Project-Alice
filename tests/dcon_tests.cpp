@@ -9,7 +9,7 @@
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "market_clearing.hpp"
-#include "economy/physical/legacy_market_bridge.hpp"
+#include "compat/alice/legacy_market_bridge.hpp"
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/relations/relations.hpp"
@@ -23,6 +23,39 @@
 #include "persons/persons.hpp"
 #include "governance/actions/actions.hpp"
 #include <limits>
+
+static dcon::obligation_id test_create_loan(sys::state& state, dcon::organization_id bank,
+	dcon::deposit_account_id borrower_account, float principal, sys::date creation_date,
+	sys::date due_date, float annual_interest_rate) {
+	auto borrower = state.world.deposit_account_get_economic_actor_from_deposit_account_owner(borrower_account);
+	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(borrower_account);
+	auto lender = ::actors::organizations::actor_for_organization(state, bank);
+	auto loan = ::economy::relations::create_obligation(state, borrower, lender, principal, settlement,
+		creation_date, due_date, annual_interest_rate, ::economy::relations::obligation_kind::loan);
+	if(loan)
+		state.world.deposit_account_set_balance(borrower_account,
+			state.world.deposit_account_get_balance(borrower_account) + principal);
+	return loan;
+}
+
+static dcon::fiscal_action_id test_issue_public_debt(sys::state& state, dcon::person_id issuer,
+	dcon::monetary_account_id treasury, dcon::monetary_account_id investor_account, float principal,
+	sys::date due_date, float annual_interest_rate, sys::date date, dcon::person_id investor_person) {
+	auto institution = ::governance::finance::treasury_institution_for(state, treasury);
+	auto issuer_actor = ::governance::actor_for_institution(state, institution);
+	auto investor_actor = ::economy::accounts::owner_of(state, investor_account);
+	auto proposal = ::economy::consent::create_proposal(state, ::economy::consent::proposal_kind::investment,
+		issuer_actor, investor_actor, ::economy::accounts::settlement_of(state, investor_account), principal,
+		due_date, annual_interest_rate, date);
+	if(!proposal) return {};
+	if(auto organization = ::actors::organizations::organization_for_actor(state, investor_actor)) {
+		if(!::economy::consent::create_mandate(state, organization, investor_person,
+			::economy::consent::decision_kind::invest, date)) return {};
+	}
+	if(!::economy::consent::accept_proposal(state, proposal, investor_actor, investor_person, date)) return {};
+	return ::governance::finance::authorized_issue_public_debt_with_consent(state, issuer, treasury,
+		investor_account, principal, due_date, annual_interest_rate, date, proposal);
+}
 
 TEST_CASE("dl_setting", "[dcon]") {
     std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
@@ -128,7 +161,7 @@ TEST_CASE("factory_site_bootstrap_is_deterministic", "[world][foundation]") {
 	auto factory = state->world.create_factory();
 	state->world.force_create_factory_location(factory, province);
 
-	::world::legacy_bridge::bootstrap_factory_sites(*state);
+	::compat::alice::bootstrap_factory_sites(*state);
 	auto site = state->world.factory_get_site_from_factory_site(factory);
 	REQUIRE(site);
 	REQUIRE(::world::site::site_for_factory(*state, factory) == site);
@@ -136,7 +169,7 @@ TEST_CASE("factory_site_bootstrap_is_deterministic", "[world][foundation]") {
 	REQUIRE(::world::spatial::site_position(*state, site) == glm::vec2{ 12.0f, 34.0f });
 
 	auto site_count = state->world.site_size();
-	::world::legacy_bridge::bootstrap_factory_sites(*state);
+	::compat::alice::bootstrap_factory_sites(*state);
 	REQUIRE(state->world.site_size() == site_count);
 	REQUIRE(state->world.factory_get_site_from_factory_site(factory) == site);
 }
@@ -246,7 +279,7 @@ TEST_CASE("physical_rgo_arrives_once_at_legacy_market", "[economy][physical][int
 
 	while(state->world.shipment_size() != 0)
 		::economy::physical::shipments::advance(*state);
-	::economy::physical::legacy_market_bridge::handoff_arrived_stock(*state);
+	::compat::alice::handoff_arrived_stock(*state);
 	REQUIRE(state->world.shipment_size() == 0);
 	auto expected = 5.0f * (1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(expected).epsilon(0.00001));
@@ -278,7 +311,7 @@ TEST_CASE("physical_factory_output_uses_operator_owned_shipment_and_handoff", "[
 	auto factory = state->world.create_factory();
 	state->world.factory_set_building_type(factory, factory_type);
 	state->world.force_create_factory_location(factory, factory_province);
-	::world::legacy_bridge::bootstrap_factory_sites(*state);
+	::compat::alice::bootstrap_factory_sites(*state);
 	::economy::physical::deposits::bootstrap(*state);
 	auto company = ::actors::organizations::create_company(*state);
 	REQUIRE(::actors::organizations::bind_factory_operator(*state, company, factory));
@@ -765,7 +798,7 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, borrower_deposit, 200.0f));
 	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank_a, settlement).net_worth == Approx(800.0f));
 
-	auto loan = ::economy::banking::originate_loan(*state, bank_a, borrower_deposit, 100.0f,
+	auto loan = test_create_loan(*state, bank_a, borrower_deposit, 100.0f,
 		sys::date{1}, sys::date{100}, 0.12f);
 	REQUIRE(loan);
 	REQUIRE(::economy::banking::deposit_balance(*state, borrower_deposit) == Approx(300.0f));
@@ -799,7 +832,7 @@ TEST_CASE("commercial_banking_conserves_deposits_reserves_and_loans", "[economy]
 	REQUIRE(state->world.obligation_get_principal_outstanding(loan) == Approx(80.32877f).epsilon(0.0001));
 
 	// Write-off removes only the concrete loan asset; the already-created deposit liability remains.
-	auto second_loan = ::economy::banking::originate_loan(*state, bank_a, same_bank_deposit, 40.0f,
+	auto second_loan = test_create_loan(*state, bank_a, same_bank_deposit, 40.0f,
 		sys::date{5}, sys::date{100}, 0.0f);
 	REQUIRE(second_loan);
 	auto before_writeoff = ::economy::banking::bank_balance_sheet(*state, bank_a, settlement);
@@ -844,7 +877,7 @@ TEST_CASE("commercial_banking_state_survives_save_load", "[economy][banking][ser
 	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, second_reserve, 654.0f));
 	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, deposit, 45.0f));
 	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, second_deposit, 23.0f));
-	auto loan = ::economy::banking::originate_loan(*state, bank, deposit, 12.0f,
+	auto loan = test_create_loan(*state, bank, deposit, 12.0f,
 		sys::date{1}, sys::date{10}, 0.05f);
 	REQUIRE(loan);
 
@@ -862,7 +895,7 @@ TEST_CASE("commercial_banking_state_survives_save_load", "[economy][banking][ser
 	auto loaded_borrower = loaded->world.create_economic_actor();
 	auto loaded_deposit = ::economy::banking::open_deposit_account(*loaded, loaded_bank, loaded_borrower, loaded_settlement);
 	auto loaded_second_deposit = ::economy::banking::open_deposit_account(*loaded, loaded_bank, loaded_borrower, loaded_second_settlement);
-	auto loaded_loan = ::economy::banking::originate_loan(*loaded, loaded_bank, loaded_deposit, 12.0f,
+	auto loaded_loan = test_create_loan(*loaded, loaded_bank, loaded_deposit, 12.0f,
 		sys::date{1}, sys::date{10}, 0.05f);
 	REQUIRE(loaded_loan);
 	sys::read_save_section(bytes.data(), end, *loaded);
@@ -894,7 +927,7 @@ TEST_CASE("commercial_banking_balance_sheets_are_settlement_specific", "[economy
 	auto eur_deposit = ::economy::banking::open_deposit_account(*state, bank, eur_owner, eur);
 	REQUIRE(::economy::banking::bootstrap_set_deposit_balance(*state, usd_deposit, 70.0f));
 
-	auto eur_loan = ::economy::banking::originate_loan(*state, bank, eur_deposit, 40.0f,
+	auto eur_loan = test_create_loan(*state, bank, eur_deposit, 40.0f,
 		sys::date{1}, sys::date{10}, 0.0f);
 	REQUIRE(eur_loan);
 	auto usd_sheet = ::economy::banking::bank_balance_sheet(*state, bank, usd);
@@ -930,7 +963,7 @@ TEST_CASE("commercial_banking_balance_sheets_are_settlement_specific", "[economy
 
 	REQUIRE(::economy::banking::repay_loan(*state, eur_loan, eur_deposit, 15.0f, sys::date{2}) == Approx(15.0f));
 	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, eur).loan_assets == Approx(25.0f));
-	auto paid_loan = ::economy::banking::originate_loan(*state, bank, eur_deposit, 10.0f,
+	auto paid_loan = test_create_loan(*state, bank, eur_deposit, 10.0f,
 		sys::date{3}, sys::date{10}, 0.0f);
 	REQUIRE(paid_loan);
 	REQUIRE(::economy::banking::repay_loan(*state, paid_loan, eur_deposit, 10.0f, sys::date{4}) == Approx(10.0f));
@@ -975,11 +1008,12 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	auto recipient_account = ::economy::accounts::open_account(*state, recipient, settlement);
 	REQUIRE(::governance::finance::authorized_spend(*state, person, treasury, recipient_account, 40.0f, sys::date{22}));
 	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(60.0f));
-	auto investor = state->world.create_economic_actor();
+	auto investor_person = ::persons::create_person(*state, sys::date{1});
+	auto investor = ::persons::actor_for_person(*state, investor_person);
 	auto investor_account = ::economy::accounts::open_account(*state, investor, settlement);
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, investor_account, 50.0f));
-	auto debt_action = ::governance::finance::authorized_issue_public_debt(*state, person, treasury,
-		investor_account, 50.0f, sys::date{200}, 0.10f, sys::date{23});
+	auto debt_action = test_issue_public_debt(*state, person, treasury, investor_account,
+		50.0f, sys::date{200}, 0.10f, sys::date{23}, investor_person);
 	REQUIRE(debt_action);
 	auto debt = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(debt_action);
 	REQUIRE(debt);
@@ -1013,8 +1047,9 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	auto bank = ::economy::banking::create_bank(*state);
 	auto bank_reserve = ::economy::banking::open_reserve_account(*state, bank, settlement);
 	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, bank_reserve, 500.0f));
-	auto bank_debt_action = ::governance::finance::authorized_issue_public_debt(*state, person, treasury,
-		bank_reserve, 100.0f, sys::date{300}, 0.0f, sys::date{27});
+	auto bank_representative = ::persons::create_person(*state, sys::date{1});
+	auto bank_debt_action = test_issue_public_debt(*state, person, treasury, bank_reserve,
+		100.0f, sys::date{300}, 0.0f, sys::date{27}, bank_representative);
 	REQUIRE(bank_debt_action);
 	auto bank_debt = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(bank_debt_action);
 	REQUIRE(::economy::accounts::balance(*state, bank_reserve) == Approx(400.0f));
@@ -1051,11 +1086,12 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	REQUIRE(::governance::grant_authority_to_office(*state, second_office, ::governance::authority_kind::legislate, nation));
 	auto settlement = state->world.create_commodity();
 	auto treasury = ::governance::finance::open_treasury_account(*state, institution, settlement);
-	auto investor = state->world.create_economic_actor();
+	auto investor_person = ::persons::create_person(*state, sys::date{1});
+	auto investor = ::persons::actor_for_person(*state, investor_person);
 	auto investor_account = ::economy::accounts::open_account(*state, investor, settlement);
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, investor_account, 1000.0f));
 	// Future-effective law does not constrain an earlier issue.
-	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 80.0f, sys::date{100}, 0.0f, sys::date{15}));
+	REQUIRE(test_issue_public_debt(*state, person, treasury, investor_account, 80.0f, sys::date{100}, 0.0f, sys::date{15}, investor_person));
 	auto draft = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
 	REQUIRE(draft);
 	auto invalid_count = state->world.legal_instrument_size();
@@ -1093,13 +1129,13 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	auto actions_before = state->world.fiscal_action_size();
 	auto treasury_before = ::economy::accounts::balance(*state, treasury);
 	auto investor_before = ::economy::accounts::balance(*state, investor_account);
-	REQUIRE_FALSE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 30.0f, sys::date{100}, 0.0f, sys::date{20}));
+	REQUIRE_FALSE(test_issue_public_debt(*state, person, treasury, investor_account, 30.0f, sys::date{100}, 0.0f, sys::date{20}, investor_person));
 	REQUIRE(state->world.obligation_size() == obligations_before);
 	REQUIRE(state->world.transaction_size() == transactions_before);
 	REQUIRE(state->world.fiscal_action_size() == actions_before);
 	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(treasury_before));
 	REQUIRE(::economy::accounts::balance(*state, investor_account) == Approx(investor_before));
-	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 20.0f, sys::date{100}, 0.0f, sys::date{21}));
+	REQUIRE(test_issue_public_debt(*state, person, treasury, investor_account, 20.0f, sys::date{100}, 0.0f, sys::date{21}, investor_person));
 	auto repeal_action = ::governance::law::authorized_repeal(*state, second_person, draft, sys::date{30});
 	REQUIRE(repeal_action);
 	REQUIRE(state->world.legal_action_get_person_from_legal_action_initiator(repeal_action) == second_person);
@@ -1111,14 +1147,14 @@ TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[gov
 	REQUIRE_FALSE(::governance::law::instrument_is_effective(*state, draft, sys::date{30}));
 	auto unauthorized_repealer = ::persons::create_person(*state, sys::date{1});
 	REQUIRE_FALSE(::governance::law::authorized_repeal(*state, unauthorized_repealer, draft, sys::date{25}));
-	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 30.0f, sys::date{100}, 0.0f, sys::date{31}));
+	REQUIRE(test_issue_public_debt(*state, person, treasury, investor_account, 30.0f, sys::date{100}, 0.0f, sys::date{31}, investor_person));
 
 	auto prohibited = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::regulation, nation);
 	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::regulate, nation));
 	REQUIRE(::governance::law::add_public_debt_prohibition_rule(*state, prohibited, settlement));
 	REQUIRE(::governance::law::authorized_enact(*state, person, prohibited, sys::date{40}, sys::date{40}));
 	auto after_prohibition = state->world.obligation_size();
-	REQUIRE_FALSE(::governance::finance::authorized_issue_public_debt(*state, person, treasury, investor_account, 1.0f, sys::date{100}, 0.0f, sys::date{41}));
+	REQUIRE_FALSE(test_issue_public_debt(*state, person, treasury, investor_account, 1.0f, sys::date{100}, 0.0f, sys::date{41}, investor_person));
 	REQUIRE(state->world.obligation_size() == after_prohibition);
 	auto replacement = ::governance::law::create_draft_instrument(*state, ::governance::law::legal_instrument_kind::statute, nation);
 	REQUIRE(::governance::law::add_public_debt_ceiling_rule(*state, replacement, settlement, 200.0f));
@@ -1206,7 +1242,8 @@ TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][se
 	auto bank = ::economy::banking::create_bank(*state);
 	auto reserve = ::economy::banking::open_reserve_account(*state, bank, settlement);
 	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, reserve, 100.0f));
-	auto debt_action = ::governance::finance::authorized_issue_public_debt(*state, person, treasury, reserve, 40.0f, sys::date{100}, 0.0f, sys::date{22});
+	auto bank_representative = ::persons::create_person(*state, sys::date{1});
+	auto debt_action = test_issue_public_debt(*state, person, treasury, reserve, 40.0f, sys::date{100}, 0.0f, sys::date{22}, bank_representative);
 	auto debt = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(debt_action);
 	REQUIRE(tax_action); REQUIRE(tax_payment); REQUIRE(debt_action); REQUIRE(debt);
 
@@ -1231,7 +1268,8 @@ TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][se
 	auto lbank = ::economy::banking::create_bank(*loaded);
 	auto lreserve = ::economy::banking::open_reserve_account(*loaded, lbank, lsettlement);
 	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*loaded, lreserve, 100.0f));
-	auto ldebt_action = ::governance::finance::authorized_issue_public_debt(*loaded, lperson, ltreasury, lreserve, 40.0f, sys::date{100}, 0.0f, sys::date{22});
+	auto lbank_representative = ::persons::create_person(*loaded, sys::date{1});
+	auto ldebt_action = test_issue_public_debt(*loaded, lperson, ltreasury, lreserve, 40.0f, sys::date{100}, 0.0f, sys::date{22}, lbank_representative);
 	auto ldebt = loaded->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(ldebt_action);
 	sys::read_save_section(bytes.data(), end, *loaded);
 	REQUIRE(::governance::finance::treasury_institution_for(*loaded, ltreasury) == linstitution);
@@ -1485,11 +1523,12 @@ TEST_CASE("information_provenance_reaches_public_debt_execution", "[economy][inf
 	auto issuer_actor = ::governance::actor_for_institution(*state, institution);
 
 	// Objective debt is established independently of the investor's information state.
-	auto objective_holder = state->world.create_economic_actor();
+	auto objective_holder_person = ::persons::create_person(*state, sys::date{1});
+	auto objective_holder = ::persons::actor_for_person(*state, objective_holder_person);
 	auto objective_account = ::economy::accounts::open_account(*state, objective_holder, settlement);
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, objective_account, 100.0f));
-	REQUIRE(::governance::finance::authorized_issue_public_debt(*state, issuer, treasury, objective_account,
-		100.0f, sys::date{200}, 0.0f, sys::date{1}));
+	REQUIRE(test_issue_public_debt(*state, issuer, treasury, objective_account,
+		100.0f, sys::date{200}, 0.0f, sys::date{1}, objective_holder_person));
 	REQUIRE(::governance::finance::national_public_debt(*state, nation, settlement) == Approx(100.0f));
 
 	auto investor = ::persons::create_person(*state, sys::date{1});

@@ -7,7 +7,7 @@
 #include "shipments.hpp"
 #include "deposits.hpp"
 #include "system_state.hpp"
-#include "world/legacy_bridge.hpp"
+#include "compat/alice/legacy_bridge.hpp"
 #include "world/site.hpp"
 
 #include <cmath>
@@ -18,7 +18,7 @@ namespace {
 bool legacy_fallback(sys::state& state, dcon::factory_id factory, dcon::commodity_id commodity, float amount) {
 	if(!factory || !commodity || amount <= 0.0f)
 		return false;
-	auto province = world::legacy_bridge::province_for_factory(state, factory);
+	auto province = compat::alice::province_for_factory(state, factory);
 	auto local_state = province ? state.world.province_get_state_membership(province) : dcon::state_instance_id{};
 	auto market = local_state ? state.world.state_instance_get_market_from_local_market(local_state) : dcon::market_id{};
 	if(!market)

@@ -29,7 +29,7 @@
 #include "gui_message_settings_window.hpp"
 #include "gui_combat.hpp"
 #include "validation.hpp"
-#include "world/legacy_bridge.hpp"
+#include "compat/alice/legacy_bridge.hpp"
 
 namespace command {
 
@@ -1015,7 +1015,7 @@ bool can_delete_factory(sys::state& state, dcon::nation_id source, dcon::factory
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
-	auto loc = ::world::legacy_bridge::province_for_factory(state, f);
+	auto loc = ::compat::alice::province_for_factory(state, f);
 	if(state.world.province_get_nation_from_province_ownership(loc) != source)
 		return false;
 	auto rules = state.world.nation_get_combined_issue_rules(source);
@@ -1039,7 +1039,7 @@ bool can_change_factory_settings(sys::state& state, dcon::nation_id source, dcon
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
-	auto loc = ::world::legacy_bridge::province_for_factory(state, f);
+	auto loc = ::compat::alice::province_for_factory(state, f);
 	if(state.world.province_get_nation_from_province_ownership(loc) != source)
 		return false;
 

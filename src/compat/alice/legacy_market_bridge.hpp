@@ -4,9 +4,9 @@
 
 namespace sys { class state; }
 
-namespace economy::physical::legacy_market_bridge {
+namespace compat::alice {
 
 bool physical_path_enabled(sys::state const&) noexcept;
 void handoff_arrived_stock(sys::state&);
 
-} // namespace economy::physical::legacy_market_bridge
+} // namespace compat::alice

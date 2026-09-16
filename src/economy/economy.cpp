@@ -26,7 +26,7 @@
 #include "money.hpp"
 #include "economy_constants.hpp"
 #include "economy_factory_view.hpp"
-#include "world/legacy_bridge.hpp"
+#include "compat/alice/legacy_bridge.hpp"
 #include "events.hpp"
 #include "commands.hpp"
 #include "banking_stability.hpp"
@@ -995,7 +995,7 @@ void update_factory_triggered_modifiers(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id f) {
 		auto fac_type = fatten(state.world, state.world.factory_get_building_type(f));
 		float sum = 1.0f;
-		auto prov = ::world::legacy_bridge::province_for_factory(state, f);
+		auto prov = ::compat::alice::province_for_factory(state, f);
 		auto pstate = state.world.province_get_state_membership(prov);
 		auto powner = state.world.province_get_nation_from_province_ownership(prov);
 
@@ -1124,26 +1124,26 @@ struct commodity_profit_holder {
 };
 
 float factory_unqualified_employment(sys::state const& state, dcon::factory_id f) {
-	auto pid = ::world::legacy_bridge::province_for_factory(state, f);
+	auto pid = ::compat::alice::province_for_factory(state, f);
 	auto employment = state.world.factory_get_unqualified_employment(f)
 		* state.world.province_get_labor_demand_satisfaction(pid, labor::no_education);
 	return employment;
 }
 float factory_primary_employment(sys::state const& state, dcon::factory_id f) {
-	auto pid = ::world::legacy_bridge::province_for_factory(state, f);
+	auto pid = ::compat::alice::province_for_factory(state, f);
 	auto primary_employment = state.world.factory_get_primary_employment(f)
 		* state.world.province_get_labor_demand_satisfaction(pid, labor::basic_education);
 	return primary_employment;
 }
 float factory_secondary_employment(sys::state const& state, dcon::factory_id f) {
-	auto pid = ::world::legacy_bridge::province_for_factory(state, f);
+	auto pid = ::compat::alice::province_for_factory(state, f);
 	auto secondary_employment = state.world.factory_get_secondary_employment(f)
 		* state.world.province_get_labor_demand_satisfaction(pid, labor::high_education);
 	return secondary_employment;
 }
 
 float factory_total_employment(sys::state const& state, dcon::factory_id f) {
-	auto pid = ::world::legacy_bridge::province_for_factory(state, f);
+	auto pid = ::compat::alice::province_for_factory(state, f);
 	return (
 		state.world.factory_get_unqualified_employment(f)
 		* state.world.province_get_labor_demand_satisfaction(pid, labor::no_education)
@@ -1818,7 +1818,7 @@ std::vector<full_construction_factory> estimate_private_investment_upgrade(sys::
 		if(selected_factory && profit > 0.f) {
 			auto ft = state.world.factory_get_building_type(selected_factory);
 			auto time = factory_building_construction_time(state, ft, true);
-			auto cm = factory_build_cost_multiplier(state, nid, ::world::legacy_bridge::province_for_factory(state, selected_factory), true);
+		auto cm = factory_build_cost_multiplier(state, nid, ::compat::alice::province_for_factory(state, selected_factory), true);
 			auto& costs = state.world.factory_type_get_construction_costs(ft);
 
 			float added_cost = 0.0f;
@@ -5493,7 +5493,7 @@ construction_status province_building_construction(sys::state& state, dcon::prov
 }
 
 construction_status factory_upgrade(sys::state& state, dcon::factory_id f) {
-	auto in_prov = ::world::legacy_bridge::province_for_factory(state, f);
+	auto in_prov = ::compat::alice::province_for_factory(state, f);
 	auto fac_type = state.world.factory_get_building_type(f);
 
 	for(auto st_con : state.world.province_get_factory_construction(in_prov)) {

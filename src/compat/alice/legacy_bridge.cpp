@@ -1,12 +1,12 @@
 #include "legacy_bridge.hpp"
 #include "system_state.hpp"
 
-namespace world::legacy_bridge {
+namespace compat::alice {
 
 dcon::province_id province_for_factory(sys::state const& state, dcon::factory_id factory) {
-	auto site = site::site_for_factory(state, factory);
+	auto site = world::site::site_for_factory(state, factory);
 	if(site) {
-		auto province = site::province_for_site(state, site);
+		auto province = world::site::province_for_site(state, site);
 		if(province)
 			return province;
 	}
@@ -15,7 +15,7 @@ dcon::province_id province_for_factory(sys::state const& state, dcon::factory_id
 
 void bootstrap_factory_sites(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		auto site = site::site_for_factory(state, factory);
+		auto site = world::site::site_for_factory(state, factory);
 		auto legacy_province = state.world.factory_get_province_from_factory_location(factory);
 		if(!site) {
 			if(!legacy_province)
@@ -34,4 +34,4 @@ void bootstrap_factory_sites(sys::state& state) {
 	});
 }
 
-}
+} // namespace compat::alice

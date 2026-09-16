@@ -1,10 +1,10 @@
 #pragma once
 
-#include "site.hpp"
+#include "world/site.hpp"
 
-namespace world::legacy_bridge {
+namespace compat::alice {
 
 void bootstrap_factory_sites(sys::state&);
 dcon::province_id province_for_factory(sys::state const&, dcon::factory_id);
 
-}
+} // namespace compat::alice

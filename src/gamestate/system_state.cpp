@@ -37,7 +37,7 @@
 #include "alice_ui.hpp"
 #include "commands.hpp"
 #include "dcon_oos_reporter_generated.hpp"
-#include "world/legacy_bridge.hpp"
+#include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/deposits.hpp"
 #include "actors/ownership.hpp"
 #include "governance/governance.hpp"
@@ -4167,7 +4167,7 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 		}
 	}
 	ui_date = current_date;
-	::world::legacy_bridge::bootstrap_factory_sites(*this);
+	::compat::alice::bootstrap_factory_sites(*this);
 	::economy::physical::deposits::bootstrap(*this);
 	::actors::ownership::bootstrap(*this);
 	::governance::bootstrap(*this);
