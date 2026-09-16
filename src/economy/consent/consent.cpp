@@ -78,14 +78,18 @@ bool can_decide_for_actor(sys::state const& state, dcon::person_id person, dcon:
 
 dcon::economic_proposal_id create_proposal(sys::state& state, proposal_kind kind,
 	dcon::economic_actor_id actor_a, dcon::economic_actor_id actor_b, dcon::commodity_id settlement,
-	float amount, sys::date created_on) {
+	float amount, sys::date due_date, float annual_interest_rate, sys::date created_on) {
 	if(!valid_kind(kind) || !actor_a || !actor_b || actor_a == actor_b
 		|| !state.world.economic_actor_is_valid(actor_a) || !state.world.economic_actor_is_valid(actor_b)
-		|| !settlement || !state.world.commodity_is_valid(settlement) || !valid_amount(amount)) return {};
+		|| !settlement || !state.world.commodity_is_valid(settlement) || !valid_amount(amount)
+		|| due_date < created_on || !std::isfinite(annual_interest_rate)
+		|| annual_interest_rate < 0.0f) return {};
 	auto proposal = state.world.create_economic_proposal();
 	state.world.economic_proposal_set_kind(proposal, uint8_t(kind));
 	state.world.economic_proposal_set_settlement(proposal, settlement);
 	state.world.economic_proposal_set_amount(proposal, amount);
+	state.world.economic_proposal_set_due_date(proposal, due_date);
+	state.world.economic_proposal_set_annual_interest_rate(proposal, annual_interest_rate);
 	state.world.economic_proposal_set_created_on(proposal, created_on);
 	state.world.economic_proposal_set_status(proposal, uint8_t(proposal_status::pending));
 	state.world.force_create_economic_proposal_actor_a(proposal, actor_a);
@@ -97,7 +101,8 @@ dcon::economic_decision_id accept_proposal(sys::state& state, dcon::economic_pro
 	dcon::economic_actor_id actor, dcon::person_id person, sys::date date) {
 	if(!proposal || !state.world.economic_proposal_is_valid(proposal)
 		|| state.world.economic_proposal_get_status(proposal) != uint8_t(proposal_status::pending)
-		|| !actor || !person || !can_decide_for_actor(state, person, actor, required_for(state, proposal, actor), date)) return {};
+		|| !actor || !person || date < state.world.economic_proposal_get_created_on(proposal)
+		|| !can_decide_for_actor(state, person, actor, required_for(state, proposal, actor), date)) return {};
 	auto a = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_a(proposal);
 	auto b = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(proposal);
 	if(actor != a && actor != b) return {};
@@ -115,7 +120,8 @@ dcon::economic_decision_id reject_proposal(sys::state& state, dcon::economic_pro
 	dcon::economic_actor_id actor, dcon::person_id person, sys::date date) {
 	if(!proposal || !state.world.economic_proposal_is_valid(proposal)
 		|| state.world.economic_proposal_get_status(proposal) != uint8_t(proposal_status::pending)
-		|| !actor || !person || !can_decide_for_actor(state, person, actor, required_for(state, proposal, actor), date)) return {};
+		|| !actor || !person || date < state.world.economic_proposal_get_created_on(proposal)
+		|| !can_decide_for_actor(state, person, actor, required_for(state, proposal, actor), date)) return {};
 	auto a = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_a(proposal);
 	auto b = state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(proposal);
 	if(actor != a && actor != b) return {};

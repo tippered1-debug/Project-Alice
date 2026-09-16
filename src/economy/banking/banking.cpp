@@ -154,6 +154,8 @@ dcon::obligation_id originate_loan_with_consent(sys::state& state, dcon::organiz
 		|| state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(proposal) != borrower
 		|| state.world.economic_proposal_get_settlement(proposal) != settlement
 		|| state.world.economic_proposal_get_amount(proposal) != principal
+		|| state.world.economic_proposal_get_due_date(proposal) != due_date
+		|| state.world.economic_proposal_get_annual_interest_rate(proposal) != annual_interest_rate
 		|| !economy::consent::proposal_fully_accepted(state, proposal, creation_date)) return {};
 	auto loan = originate_loan(state, bank, borrower_account, principal, creation_date, due_date, annual_interest_rate);
 	if(!loan || !economy::consent::mark_executed(state, proposal)) return {};

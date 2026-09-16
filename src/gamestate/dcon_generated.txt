@@ -5233,6 +5233,8 @@ object{
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ settlement } type{ commodity_id } tag{ save } }
 	property{ name{ amount } type{ float } tag{ save } }
+	property{ name{ due_date } type{ sys::date } tag{ save } }
+	property{ name{ annual_interest_rate } type{ float } tag{ save } }
 	property{ name{ created_on } type{ sys::date } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
 }

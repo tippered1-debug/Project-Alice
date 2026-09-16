@@ -1259,21 +1259,34 @@ TEST_CASE("actor_consent_gates_loans_and_public_debt", "[economy][consent][finan
 	auto bank_actor = ::actors::organizations::actor_for_organization(*state, bank);
 	auto borrower = ::persons::create_person(*state, sys::date{1});
 	auto borrower_actor = ::persons::actor_for_person(*state, borrower);
+	auto invalid_terms = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::loan,
+		bank_actor, borrower_actor, settlement, 10.0f, sys::date{9}, 0.0f, sys::date{10});
+	REQUIRE_FALSE(invalid_terms);
+	REQUIRE_FALSE(::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::loan,
+		bank_actor, borrower_actor, settlement, 10.0f, sys::date{20},
+		std::numeric_limits<float>::quiet_NaN(), sys::date{10}));
 	auto borrower_account = ::economy::banking::open_deposit_account(*state, bank, borrower_actor, settlement);
 	REQUIRE(borrower_account);
 	auto bank_representative = ::persons::create_person(*state, sys::date{1});
 	REQUIRE(::economy::consent::create_mandate(*state, bank, bank_representative,
 		::economy::consent::decision_kind::lend, sys::date{1}));
 	auto loan_proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::loan,
-		bank_actor, borrower_actor, settlement, 100.0f, sys::date{1});
+		bank_actor, borrower_actor, settlement, 100.0f, sys::date{100}, 0.05f, sys::date{1});
 	REQUIRE(loan_proposal);
+	auto decisions_before_backdate = state->world.economic_decision_size();
+	REQUIRE_FALSE(::economy::consent::accept_proposal(*state, loan_proposal, bank_actor, bank_representative, sys::date{0}));
+	REQUIRE_FALSE(::economy::consent::reject_proposal(*state, loan_proposal, bank_actor, bank_representative, sys::date{0}));
+	REQUIRE(state->world.economic_decision_size() == decisions_before_backdate);
 	REQUIRE_FALSE(::economy::banking::originate_loan_with_consent(*state, bank, borrower_account, 100.0f,
 		sys::date{1}, sys::date{100}, 0.0f, loan_proposal));
 	REQUIRE(state->world.obligation_size() == 0);
 	REQUIRE(::economy::consent::accept_proposal(*state, loan_proposal, bank_actor, bank_representative, sys::date{1}));
 	REQUIRE(::economy::consent::accept_proposal(*state, loan_proposal, borrower_actor, borrower, sys::date{1}));
+	REQUIRE_FALSE(::economy::banking::originate_loan_with_consent(*state, bank, borrower_account, 100.0f,
+		sys::date{1}, sys::date{1000}, 0.50f, loan_proposal));
+	REQUIRE(state->world.obligation_size() == 0);
 	auto loan = ::economy::banking::originate_loan_with_consent(*state, bank, borrower_account, 100.0f,
-		sys::date{1}, sys::date{100}, 0.0f, loan_proposal);
+		sys::date{1}, sys::date{100}, 0.05f, loan_proposal);
 	REQUIRE(loan);
 	REQUIRE(::economy::consent::proposal_fully_accepted(*state, loan_proposal, sys::date{1}) == false);
 	REQUIRE(state->world.economic_proposal_get_status(loan_proposal) == uint8_t(::economy::consent::proposal_status::executed));
@@ -1289,7 +1302,7 @@ TEST_CASE("actor_consent_gates_loans_and_public_debt", "[economy][consent][finan
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, investor_account, 80.0f));
 	auto issuer_actor = ::governance::actor_for_institution(*state, institution);
 	auto debt_proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::investment,
-		issuer_actor, investor_actor, settlement, 80.0f, sys::date{2});
+		issuer_actor, investor_actor, settlement, 80.0f, sys::date{100}, 0.05f, sys::date{2});
 	REQUIRE(debt_proposal);
 	auto obligations_before = state->world.obligation_size();
 	auto actions_before = state->world.fiscal_action_size();
@@ -1298,8 +1311,12 @@ TEST_CASE("actor_consent_gates_loans_and_public_debt", "[economy][consent][finan
 	REQUIRE(state->world.obligation_size() == obligations_before);
 	REQUIRE(state->world.fiscal_action_size() == actions_before);
 	REQUIRE(::economy::consent::accept_proposal(*state, debt_proposal, investor_actor, investor, sys::date{2}));
+	REQUIRE_FALSE(::governance::finance::authorized_issue_public_debt_with_consent(*state, issuer, treasury,
+		investor_account, 80.0f, sys::date{1000}, 0.50f, sys::date{2}, debt_proposal));
+	REQUIRE(state->world.obligation_size() == obligations_before);
+	REQUIRE(state->world.fiscal_action_size() == actions_before);
 	auto debt_action = ::governance::finance::authorized_issue_public_debt_with_consent(*state, issuer, treasury,
-		investor_account, 80.0f, sys::date{100}, 0.0f, sys::date{2}, debt_proposal);
+		investor_account, 80.0f, sys::date{100}, 0.05f, sys::date{2}, debt_proposal);
 	REQUIRE(debt_action);
 	REQUIRE(state->world.economic_proposal_get_status(debt_proposal) == uint8_t(::economy::consent::proposal_status::executed));
 	REQUIRE(::economy::accounts::balance(*state, investor_account) == Approx(0.0f));
@@ -1326,7 +1343,7 @@ TEST_CASE("actor_consent_gates_loans_and_public_debt", "[economy][consent][finan
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, company_account, 10.0f));
 	auto company_proposal = ::economy::consent::create_proposal(*state,
 		::economy::consent::proposal_kind::investment, issuer_actor, company_actor,
-		settlement, 10.0f, sys::date{5});
+		settlement, 10.0f, sys::date{100}, 0.0f, sys::date{5});
 	REQUIRE_FALSE(::economy::consent::accept_proposal(*state, company_proposal, company_actor, unrelated, sys::date{6}));
 	REQUIRE(::economy::consent::accept_proposal(*state, company_proposal, company_actor, company_representative, sys::date{6}));
 	REQUIRE(::governance::finance::authorized_issue_public_debt_with_consent(*state, issuer, treasury,
@@ -1343,7 +1360,7 @@ TEST_CASE("actor_consent_relations_survive_save_load", "[economy][consent][seria
 		::economy::consent::decision_kind::lend, sys::date{1}, sys::date{20});
 	auto proposal = ::economy::consent::create_proposal(*state, ::economy::consent::proposal_kind::loan,
 		::actors::organizations::actor_for_organization(*state, organization), representative_actor,
-		settlement, 25.0f, sys::date{2});
+		settlement, 25.0f, sys::date{50}, 0.02f, sys::date{2});
 	REQUIRE(proposal);
 	REQUIRE(::economy::consent::accept_proposal(*state, proposal,
 		::actors::organizations::actor_for_organization(*state, organization), representative, sys::date{2}));
@@ -1360,7 +1377,7 @@ TEST_CASE("actor_consent_relations_survive_save_load", "[economy][consent][seria
 		::economy::consent::decision_kind::lend, sys::date{1}, sys::date{20});
 	auto lproposal = ::economy::consent::create_proposal(*loaded, ::economy::consent::proposal_kind::loan,
 		::actors::organizations::actor_for_organization(*loaded, lorganization),
-		::persons::actor_for_person(*loaded, lrepresentative), lsettlement, 25.0f, sys::date{2});
+		::persons::actor_for_person(*loaded, lrepresentative), lsettlement, 25.0f, sys::date{50}, 0.02f, sys::date{2});
 	REQUIRE(::economy::consent::accept_proposal(*loaded, lproposal,
 		::actors::organizations::actor_for_organization(*loaded, lorganization), lrepresentative, sys::date{2}));
 	REQUIRE(::economy::consent::accept_proposal(*loaded, lproposal,

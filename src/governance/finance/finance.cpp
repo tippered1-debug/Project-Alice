@@ -211,6 +211,8 @@ dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state& sta
 		|| state.world.economic_proposal_get_economic_actor_from_economic_proposal_actor_b(investor_proposal) != investor
 		|| state.world.economic_proposal_get_settlement(investor_proposal) != context.settlement
 		|| state.world.economic_proposal_get_amount(investor_proposal) != principal
+		|| state.world.economic_proposal_get_due_date(investor_proposal) != due_date
+		|| state.world.economic_proposal_get_annual_interest_rate(investor_proposal) != annual_interest_rate
 		|| !economy::consent::proposal_fully_accepted(state, investor_proposal, date)) return {};
 	// All consent and authority checks precede the legacy atomic issuance primitive.
 	auto action = authorized_issue_public_debt(state, initiator, treasury_account, investor_account,

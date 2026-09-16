@@ -20,7 +20,8 @@ bool can_decide_for_actor(sys::state const&, dcon::person_id, dcon::economic_act
 
 dcon::economic_proposal_id create_proposal(sys::state&, proposal_kind,
 	dcon::economic_actor_id actor_a, dcon::economic_actor_id actor_b,
-	dcon::commodity_id settlement, float amount, sys::date created_on);
+	dcon::commodity_id settlement, float amount, sys::date due_date,
+	float annual_interest_rate, sys::date created_on);
 dcon::economic_decision_id accept_proposal(sys::state&, dcon::economic_proposal_id,
 	dcon::economic_actor_id, dcon::person_id, sys::date);
 dcon::economic_decision_id reject_proposal(sys::state&, dcon::economic_proposal_id,
