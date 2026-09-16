@@ -8,6 +8,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
+#include "economy/physical/exchange.hpp"
 #include "market_clearing.hpp"
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
@@ -283,6 +284,42 @@ TEST_CASE("physical_rgo_arrives_once_at_market_hub", "[economy][physical][integr
 	REQUIRE(::economy::physical::inventory::quantity(*state, ::economy::physical::deposits::market_hub_for(*state, market), commodity, {}) == Approx(expected).epsilon(0.00001));
 }
 
+TEST_CASE("physical_exchange_settles_concrete_stock_and_cash_atomically", "[economy][physical][exchange]") {
+	auto state = std::make_unique<sys::state>();
+	auto site = state->world.create_site();
+	state->world.create_commodity();
+	auto settlement = state->world.create_commodity();
+	auto goods = state->world.create_commodity();
+	auto seller = state->world.create_economic_actor();
+	auto buyer = state->world.create_economic_actor();
+	REQUIRE(settlement);
+	REQUIRE(economy::accounts::open_account(*state, seller, settlement));
+	REQUIRE(economy::accounts::open_account(*state, buyer, settlement));
+	auto seller_account = economy::accounts::find_account(*state, seller, settlement);
+	auto buyer_account = economy::accounts::find_account(*state, buyer, settlement);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*state, seller_account, 0.0f));
+	REQUIRE(economy::accounts::bootstrap_set_balance(*state, buyer_account, 1000.0f));
+	REQUIRE(economy::physical::inventory::add(*state, site, goods, 100.0f, seller) == Approx(100.0f));
+	auto transactions_before = state->world.transaction_size();
+	REQUIRE(economy::physical::exchange::purchase(*state, site, goods, seller, buyer, 20.0f, 5.0f, settlement, sys::date{}));
+	REQUIRE(economy::physical::inventory::quantity(*state, site, goods, seller) == Approx(80.0f));
+	REQUIRE(economy::physical::inventory::quantity(*state, site, goods, buyer) == Approx(20.0f));
+	REQUIRE(economy::accounts::balance(*state, buyer_account) == Approx(900.0f));
+	REQUIRE(economy::accounts::balance(*state, seller_account) == Approx(100.0f));
+	REQUIRE(state->world.transaction_size() == transactions_before + 1);
+	REQUIRE_FALSE(economy::physical::exchange::purchase(*state, site, goods, seller, buyer, 1000.0f, 5.0f, settlement, sys::date{}));
+	REQUIRE_FALSE(economy::physical::exchange::purchase(*state, site, goods, seller, buyer, 1.0f, 1000.0f, settlement, sys::date{}));
+	REQUIRE_FALSE(economy::physical::exchange::purchase(*state, site, goods, seller, buyer, 0.0f, 5.0f, settlement, sys::date{}));
+	REQUIRE_FALSE(economy::physical::exchange::purchase(*state, site, goods, seller, seller, 1.0f, 5.0f, settlement, sys::date{}));
+	REQUIRE(state->world.transaction_size() == transactions_before + 1);
+	REQUIRE(economy::physical::inventory::quantity(*state, site, goods, seller) == Approx(80.0f));
+	REQUIRE(economy::physical::inventory::quantity(*state, site, goods, buyer) == Approx(20.0f));
+	REQUIRE(economy::accounts::balance(*state, buyer_account) == Approx(900.0f));
+	REQUIRE(economy::accounts::balance(*state, seller_account) == Approx(100.0f));
+	REQUIRE_FALSE(economy::physical::exchange::purchase(*state, site, goods, seller, buyer, 1.0f, 5.0f, dcon::commodity_id{}, sys::date{}));
+	REQUIRE(state->world.transaction_size() == transactions_before + 1);
+}
+
 TEST_CASE("physical_factory_output_uses_operator_owned_shipment", "[economy][physical][factory]") {
 	auto state = std::make_unique<sys::state>();
 	state->force_age_of_transformation_ruleset = true;
@@ -433,6 +470,8 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	auto factory = state->world.create_factory();
 	auto owner = state->world.create_economic_actor();
 	auto seller = state->world.create_economic_actor();
+	state->world.create_commodity();
+	auto settlement = state->world.create_commodity();
 	auto commodity = state->world.create_commodity();
 	state->world.market_resize_stockpile(state->world.commodity_size());
 	state->world.market_resize_actual_probability_to_buy(state->world.commodity_size());
@@ -443,9 +482,9 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	economy::commodity_set inputs{};
 	inputs.commodity_type[0] = commodity;
 	inputs.commodity_amounts[0] = 4.0f;
-	REQUIRE(economy::accounts::open_account(*state, owner, economy::money));
-	REQUIRE(economy::accounts::open_account(*state, seller, economy::money));
-	auto buyer_account = economy::accounts::find_account(*state, owner, economy::money);
+	REQUIRE(economy::accounts::open_account(*state, owner, settlement));
+	REQUIRE(economy::accounts::open_account(*state, seller, settlement));
+	auto buyer_account = economy::accounts::find_account(*state, owner, settlement);
 	REQUIRE(economy::accounts::bootstrap_set_balance(*state, buyer_account, 100.0f));
 	REQUIRE(::economy::physical::inventory::add(*state, hub, commodity, 4.0f, seller) == Approx(4.0f));
 

@@ -10,6 +10,14 @@
 
 namespace economy::physical::exchange {
 
+dcon::commodity_id settlement_for_purchase(sys::state const& state) {
+	for(uint32_t i = 1; i < state.world.commodity_size(); ++i) {
+		dcon::commodity_id candidate{dcon::commodity_id::value_base_t(i)};
+		if(state.world.commodity_is_valid(candidate)) return candidate;
+	}
+	return {};
+}
+
 std::vector<dcon::physical_stock_id> seller_stocks(sys::state const& state, dcon::site_id site,
 	dcon::commodity_id commodity, dcon::economic_actor_id buyer) {
 	std::vector<dcon::physical_stock_id> result;
@@ -27,12 +35,13 @@ std::vector<dcon::physical_stock_id> seller_stocks(sys::state const& state, dcon
 }
 
 dcon::transaction_id purchase(sys::state& state, dcon::site_id site, dcon::commodity_id commodity,
-	dcon::economic_actor_id seller, dcon::economic_actor_id buyer, float quantity, float unit_price, sys::date timestamp) {
+	dcon::economic_actor_id seller, dcon::economic_actor_id buyer, float quantity, float unit_price,
+	dcon::commodity_id settlement, sys::date timestamp) {
 	if(!site || !commodity || !seller || !buyer || seller == buyer || !std::isfinite(quantity) || quantity <= 0.0f
-		|| !std::isfinite(unit_price) || unit_price <= 0.0f)
+		|| !std::isfinite(unit_price) || unit_price <= 0.0f || !settlement || !state.world.commodity_is_valid(settlement))
 		return {};
-	auto buyer_account = accounts::find_account(state, buyer, economy::money);
-	auto seller_account = accounts::find_account(state, seller, economy::money);
+	auto buyer_account = accounts::find_account(state, buyer, settlement);
+	auto seller_account = accounts::find_account(state, seller, settlement);
 	if(!buyer_account || !seller_account || inventory::quantity(state, site, commodity, seller) < quantity)
 		return {};
 	auto cost = quantity * unit_price;

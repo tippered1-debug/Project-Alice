@@ -145,6 +145,8 @@ void fulfill(sys::state& state) {
 		// from concrete seller stocks at the hub.
 		auto remaining = planned;
 		auto price = state.world.market_get_price(order.market, commodity);
+		auto settlement = exchange::settlement_for_purchase(state);
+		if(!settlement) return;
 		for(auto stock : exchange::seller_stocks(state, hub, commodity, order.owner)) {
 			if(remaining <= 0.0f) break;
 			auto seller_relation = state.world.physical_stock_get_physical_stock_owner(stock);
@@ -152,7 +154,7 @@ void fulfill(sys::state& state) {
 			auto available = inventory::quantity(state, hub, commodity, seller);
 			auto bought = std::min(remaining, available);
 			if(bought <= 0.0f) continue;
-			if(!exchange::purchase(state, hub, commodity, seller, order.owner, bought, price, state.current_date))
+			if(!exchange::purchase(state, hub, commodity, seller, order.owner, bought, price, settlement, state.current_date))
 				continue;
 			if(shipments::dispatch(state, hub, order.destination, commodity, bought, order.owner))
 				remaining -= bought;

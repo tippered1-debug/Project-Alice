@@ -10,7 +10,7 @@ bool valid_amount(float value) { return std::isfinite(value) && value > 0.0f; }
 }
 
 dcon::monetary_account_id open_account(sys::state& state, dcon::economic_actor_id owner, dcon::commodity_id settlement) {
-	if(!owner) return {};
+	if(!owner || !settlement || !state.world.commodity_is_valid(settlement)) return {};
 	auto account = state.world.create_monetary_account();
 	state.world.monetary_account_set_balance(account, 0.0f);
 	state.world.force_create_monetary_account_owner(account, owner);
@@ -52,13 +52,18 @@ dcon::transaction_id transfer(sys::state& state, dcon::monetary_account_id sourc
 	auto source_owner = owner_of(state, source);
 	auto destination_owner = owner_of(state, destination);
 	auto settlement = settlement_of(state, source);
-	if(!source_owner || !destination_owner || settlement_of(state, destination) != settlement) return {};
+	if(!source_owner || !destination_owner || !settlement || !state.world.commodity_is_valid(settlement)
+		|| settlement_of(state, destination) != settlement) return {};
 	if(balance(state, source) < amount) return {};
 	// All validation is complete before either balance or transaction is changed.
 	state.world.monetary_account_set_balance(source, balance(state, source) - amount);
 	state.world.monetary_account_set_balance(destination, balance(state, destination) + amount);
 	auto transaction = relations::record_transaction(state, source_owner, destination_owner, amount, settlement, kind, timestamp);
-	if(!transaction) return {};
+	if(!transaction) {
+		state.world.monetary_account_set_balance(source, balance(state, source) + amount);
+		state.world.monetary_account_set_balance(destination, balance(state, destination) - amount);
+		return {};
+	}
 	state.world.force_create_transaction_source_account(transaction, source);
 	state.world.force_create_transaction_destination_account(transaction, destination);
 	return transaction;
