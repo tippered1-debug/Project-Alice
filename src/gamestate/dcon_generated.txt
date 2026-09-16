@@ -5132,6 +5132,31 @@ object{
 }
 
 object{
+	name{ capital_project }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ project_kind } type{ uint8_t } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ started_on } type{ sys::date } tag{ save } }
+	property{ name{ completed_on } type{ sys::date } tag{ save } }
+	property{ name{ progress } type{ float } tag{ save } }
+	property{ name{ state_funded } type{ uint8_t } tag{ save } }
+	property{ name{ factory_type } type{ factory_type_id } tag{ save } }
+	property{ name{ target_commodity } type{ commodity_id } tag{ save } }
+}
+
+object{
+	name{ capital_project_requirement }
+	storage_type{ erasable }
+	size{ 300000 }
+	tag{ save }
+	property{ name{ required_quantity } type{ float } tag{ save } }
+	property{ name{ consumed_quantity } type{ float } tag{ save } }
+}
+
+object{
 	name{ fiscal_action }
 	storage_type{ erasable }
 	size{ 200000 }
@@ -5670,6 +5695,83 @@ relationship{
 	tag{ save }
 	link{ object{ physical_stock } name{ physical_stock } type{ unique } }
 	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_sponsor }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_responsible }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_site }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_account }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_requirement_project }
+	tag{ save }
+	link{ object{ capital_project_requirement } name{ capital_project_requirement } type{ unique } }
+	link{ object{ capital_project } name{ capital_project } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_requirement_commodity }
+	tag{ save }
+	link{ object{ capital_project_requirement } name{ capital_project_requirement } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_factory }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_asset }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ asset } name{ asset } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_deposit }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ resource_deposit } name{ resource_deposit } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_node }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ infrastructure_node } name{ infrastructure_node } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_edge }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ infrastructure_edge } name{ infrastructure_edge } type{ many } index_storage{ array } }
 }
 
 relationship{
