@@ -54,4 +54,29 @@ dcon::transaction_id purchase(sys::state& state, dcon::site_id site, dcon::commo
 	return {};
 }
 
+dcon::transaction_id purchase_with_account(sys::state& state, dcon::site_id site,
+	dcon::commodity_id commodity, dcon::economic_actor_id seller,
+	dcon::economic_actor_id buyer, dcon::monetary_account_id buyer_account,
+	float quantity, float unit_price, sys::date timestamp) {
+	if(!site || !commodity || !seller || !buyer || seller == buyer || !buyer_account
+		|| accounts::owner_of(state, buyer_account) != buyer || !std::isfinite(quantity)
+		|| quantity <= 0.0f || !std::isfinite(unit_price) || unit_price <= 0.0f)
+		return {};
+	auto settlement = accounts::settlement_of(state, buyer_account);
+	auto seller_account = accounts::find_account(state, seller, settlement);
+	if(!settlement || !state.world.commodity_is_valid(settlement) || !seller_account
+		|| accounts::owner_of(state, seller_account) != seller
+		|| accounts::settlement_of(state, seller_account) != settlement
+		|| inventory::quantity(state, site, commodity, seller) < quantity)
+		return {};
+	auto cost = quantity * unit_price;
+	if(!std::isfinite(cost) || accounts::balance(state, buyer_account) < cost) return {};
+	if(!inventory::transfer(state, site, commodity, seller, buyer, quantity)) return {};
+	auto transaction = accounts::transfer(state, buyer_account, seller_account, cost,
+		relations::transaction_kind::purchase, timestamp);
+	if(transaction) return transaction;
+	inventory::transfer(state, site, commodity, buyer, seller, quantity);
+	return {};
+}
+
 } // namespace economy::physical::exchange

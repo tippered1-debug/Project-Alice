@@ -48,7 +48,9 @@ float reserved_funds(sys::state const& state, dcon::monetary_account_id account)
 dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id buyer,
 	dcon::monetary_account_id account, dcon::site_id destination, dcon::market_id market,
 	dcon::commodity_id commodity, float quantity, float limit_price, order_purpose purpose) {
-	if(!buyer || !account || !destination || !market || !commodity || !valid(quantity) || !valid(limit_price)) return {};
+	if(!buyer || !account || accounts::owner_of(state, account) != buyer || !destination || !market || !commodity
+		|| !state.world.commodity_is_valid(accounts::settlement_of(state, account))
+		|| !valid(quantity) || !valid(limit_price)) return {};
 	if(accounts::balance(state, account) + epsilon < reserved_funds(state, account) + quantity * limit_price) return {};
 	auto bid = state.world.create_concrete_market_bid();
 	state.world.concrete_market_bid_set_original_quantity(bid, quantity);
@@ -115,12 +117,11 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 			auto destination = state.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid);
 			auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
 			auto account = state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid);
-			auto settlement = accounts::settlement_of(state, account);
 			auto quantity = std::min(state.world.concrete_market_bid_get_remaining_quantity(bid), state.world.concrete_market_ask_get_remaining_quantity(ask));
 			quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
 			quantity = std::min(quantity, std::max(0.0f, (accounts::balance(state, account) - reserved_funds(state, account) + state.world.concrete_market_bid_get_reserved_amount(bid)) / price));
-			if(!valid(quantity) || !settlement) continue;
-			auto transaction = exchange::purchase(state, source, commodity, seller, buyer, quantity, price, settlement, date);
+			if(!valid(quantity)) continue;
+			auto transaction = exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
 			if(!transaction) continue;
 			auto shipment = shipments::dispatch(state, source, destination, commodity, quantity, buyer);
 			if(!shipment) continue;
@@ -154,6 +155,29 @@ float observed_price(sys::state const& state, dcon::market_id market, dcon::comm
 		value += state.world.concrete_trade_fill_get_quantity(fill) * state.world.concrete_trade_fill_get_execution_price(fill);
 	});
 	return quantity > epsilon ? value / quantity : fallback;
+}
+
+float canonical_reference_price(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date, float fallback) {
+	float quantity = 0.0f, value = 0.0f;
+	sys::date latest{};
+	bool found = false;
+	state.world.for_each_concrete_trade_fill([&](auto fill) {
+		auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
+		auto bid = state.world.concrete_trade_fill_get_concrete_market_bid_from_concrete_fill_bid(fill);
+		if(!bid || occurred >= date || state.world.concrete_market_bid_get_market_from_concrete_bid_market(bid) != market
+			|| state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) != commodity) return;
+		if(!found || occurred > latest) { found = true; latest = occurred; quantity = 0.0f; value = 0.0f; }
+		if(occurred == latest) {
+			quantity += state.world.concrete_trade_fill_get_quantity(fill);
+			value += state.world.concrete_trade_fill_get_quantity(fill) * state.world.concrete_trade_fill_get_execution_price(fill);
+		}
+	});
+	if(quantity > epsilon) return value / quantity;
+	// Compatibility anchor: this is the only legacy aggregate price read by
+	// the canonical physical order path, and it is never written back.
+	auto reference = state.world.market_get_price(market, commodity);
+	return valid(reference) ? reference : fallback;
 }
 
 void expire(sys::state& state, sys::date date) {

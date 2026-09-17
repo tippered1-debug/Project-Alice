@@ -110,7 +110,7 @@ bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination
 		if(planned_orders[factory.index()].quantities[quantity_index] > 0.0f) {
 			auto settlement = exchange::settlement_for_purchase(state, owner);
 			auto account = settlement ? accounts::find_account(state, owner, settlement) : dcon::monetary_account_id{};
-			auto price = state.world.market_get_price(market, commodity);
+			auto price = concrete_market::canonical_reference_price(state, market, commodity, state.current_date);
 			if(account && std::isfinite(price) && price > 0.0f) {
 				auto bid = concrete_market::post_bid(state, owner, account, destination, market, commodity,
 					planned_orders[factory.index()].quantities[quantity_index], price,
@@ -160,7 +160,7 @@ void fulfill(sys::state& state) {
 			auto seller_relation = state.world.physical_stock_get_physical_stock_owner(stock);
 			auto seller = seller_relation ? state.world.physical_stock_owner_get_economic_actor(seller_relation) : dcon::economic_actor_id{};
 			auto available = inventory::quantity(state, hub, commodity, seller);
-			auto price = state.world.market_get_price(order.market, commodity);
+			auto price = concrete_market::canonical_reference_price(state, order.market, commodity, state.current_date);
 			if(available > 0.0f && std::isfinite(price) && price > 0.0f)
 				(void)concrete_market::post_ask(state, seller, hub, order.market, commodity,
 					available, price, concrete_market::order_purpose::factory_input);

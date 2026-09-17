@@ -1,6 +1,7 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/physical/inventory.hpp"
+#include "economy/physical/shipments.hpp"
 
 namespace concrete_market_tests {
 struct fixture {
@@ -35,10 +36,19 @@ TEST_CASE("concrete market fills exact orders and records observed price", "[eco
 	REQUIRE(f.state->world.concrete_trade_fill_get_concrete_market_bid_from_concrete_fill_bid(fills.front()) == bid);
 	REQUIRE(f.state->world.concrete_trade_fill_get_concrete_market_ask_from_concrete_fill_ask(fills.front()) == ask);
 	REQUIRE(f.state->world.concrete_market_ask_get_remaining_quantity(ask) == Approx(10.0f));
+	REQUIRE(f.state->world.concrete_market_ask_get_reserved_quantity(ask) == Approx(10.0f));
 	REQUIRE(f.state->world.concrete_market_bid_get_status(bid) == uint8_t(economy::physical::concrete_market::order_status::filled));
+	REQUIRE(f.state->world.concrete_market_bid_get_reserved_amount(bid) == Approx(0.0f));
 	REQUIRE(f.state->world.concrete_trade_fill_get_transaction_from_concrete_fill_transaction(fills.front()));
 	REQUIRE(f.state->world.concrete_trade_fill_get_shipment_from_concrete_fill_shipment(fills.front()));
+	REQUIRE(economy::accounts::balance(*f.state, f.buyer_account) == Approx(600.0f));
+	REQUIRE(economy::accounts::balance(*f.state, f.seller_account) == Approx(400.0f));
+	auto transaction = f.state->world.concrete_trade_fill_get_transaction_from_concrete_fill_transaction(fills.front());
+	REQUIRE(f.state->world.transaction_get_monetary_account_from_transaction_source_account(transaction) == f.buyer_account);
+	REQUIRE(f.state->world.transaction_get_monetary_account_from_transaction_destination_account(transaction) == f.seller_account);
 	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods, {}, 99.0f) == Approx(10.0f));
+	economy::physical::shipments::process_arrivals(*f.state);
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.destination, f.goods, f.buyer) == Approx(40.0f));
 }
 
 TEST_CASE("concrete market does not cross non-overlapping limits", "[economy][physical][concrete_market]") {
@@ -80,10 +90,47 @@ TEST_CASE("concrete market reserves funds and inventory", "[economy][physical][c
 	REQUIRE_FALSE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market, f.goods, 20.0f, 10.0f, {}));
 }
 
+TEST_CASE("concrete bid account must belong to its buyer", "[economy][physical][concrete_market]") {
+	concrete_market_tests::fixture f;
+	REQUIRE_FALSE(economy::physical::concrete_market::post_bid(*f.state, f.buyer, f.seller_account,
+		f.destination, f.market, f.goods, 1.0f, 1.0f, {}));
+}
+
+TEST_CASE("concrete settlement debits the reserved account exactly", "[economy][physical][concrete_market]") {
+	concrete_market_tests::fixture f;
+	auto second = economy::accounts::open_account(*f.state, f.buyer, f.settlement);
+	economy::accounts::bootstrap_set_balance(*f.state, second, 100.0f);
+	economy::physical::inventory::add(*f.state, f.source, f.goods, 5.0f, f.seller);
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market, f.goods, 5.0f, 10.0f, {}));
+	auto bid = economy::physical::concrete_market::post_bid(*f.state, f.buyer, second, f.destination,
+		f.market, f.goods, 5.0f, 10.0f, {});
+	REQUIRE(bid);
+	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, {}).size() == 1);
+	REQUIRE(economy::accounts::balance(*f.state, second) == Approx(50.0f));
+	REQUIRE(economy::accounts::balance(*f.state, f.buyer_account) == Approx(1000.0f));
+	REQUIRE(economy::accounts::balance(*f.state, f.seller_account) == Approx(50.0f));
+	auto fill = dcon::concrete_trade_fill_id{dcon::concrete_trade_fill_id::value_base_t(0)};
+	auto transaction = f.state->world.concrete_trade_fill_get_transaction_from_concrete_fill_transaction(fill);
+	REQUIRE(transaction);
+	REQUIRE(f.state->world.transaction_get_monetary_account_from_transaction_source_account(transaction) == second);
+}
+
 TEST_CASE("concrete market observed price falls back without fills", "[economy][physical][concrete_market]") {
 	concrete_market_tests::fixture f;
 	f.state->world.market_set_price(f.market, f.goods, 2.0f);
 	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods, {}, 7.0f) == Approx(7.0f));
+}
+
+TEST_CASE("concrete reference price prefers prior concrete VWAP", "[economy][physical][concrete_market]") {
+	concrete_market_tests::fixture f;
+	f.state->world.market_set_price(f.market, f.goods, 2.0f);
+	REQUIRE(economy::physical::concrete_market::canonical_reference_price(*f.state, f.market, f.goods, sys::date{1}) == Approx(2.0f));
+	economy::physical::inventory::add(*f.state, f.source, f.goods, 5.0f, f.seller);
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market, f.goods, 5.0f, 10.0f, {}));
+	REQUIRE(economy::physical::concrete_market::post_bid(*f.state, f.buyer, f.buyer_account, f.destination, f.market, f.goods, 5.0f, 10.0f, {}));
+	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, {}).size() == 1);
+	f.state->world.market_set_price(f.market, f.goods, 999.0f);
+	REQUIRE(economy::physical::concrete_market::canonical_reference_price(*f.state, f.market, f.goods, sys::date{1}) == Approx(10.0f));
 }
 
 TEST_CASE("concrete market orders expire and release reservations", "[economy][physical][concrete_market]") {
@@ -94,6 +141,7 @@ TEST_CASE("concrete market orders expire and release reservations", "[economy][p
 	f.state->current_date = sys::date{1};
 	economy::physical::concrete_market::expire(*f.state, f.state->current_date);
 	REQUIRE(f.state->world.concrete_market_ask_get_status(ask) == uint8_t(economy::physical::concrete_market::order_status::canceled));
+	REQUIRE(f.state->world.concrete_market_ask_get_reserved_quantity(ask) == Approx(0.0f));
 	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market, f.goods, 20.0f, 10.0f, {}));
 }
 

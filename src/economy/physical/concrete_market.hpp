@@ -20,6 +20,8 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state&, dcon::market_id,
 	dcon::commodity_id, sys::date);
 float observed_price(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date,
 	float fallback = 0.0f);
+float canonical_reference_price(sys::state const&, dcon::market_id, dcon::commodity_id,
+	sys::date, float fallback = 0.0f);
 void expire(sys::state&, sys::date);
 
 } // namespace economy::physical::concrete_market
