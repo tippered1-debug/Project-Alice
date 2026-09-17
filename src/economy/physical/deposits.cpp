@@ -33,26 +33,47 @@ void initialize_legacy_deposit(sys::state& state, dcon::resource_deposit_id depo
 		commodity, snapshot, snapshot, 1.0f, daily, daily, 0, true);
 }
 
-void ensure_legacy_asset_and_operator(sys::state& state, dcon::resource_deposit_id deposit, bool created_now) {
+bool asset_has_owner(sys::state const& state, dcon::asset_id asset) {
+	bool owned = false;
+	if(!asset) return false;
+	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
+		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
+		if(state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake)) owned = true;
+	});
+	return owned;
+}
+
+dcon::economic_actor_id create_legacy_placeholder_owner(sys::state& state) {
+	auto organization = actors::organizations::create_company(state);
+	if(!organization) return {};
+	auto actor = actors::organizations::actor_for_organization(state, organization);
+	if(actor) state.world.economic_actor_set_is_legacy_placeholder(actor, 1);
+	return actor;
+}
+
+void ensure_legacy_asset_and_operator(sys::state& state, dcon::resource_deposit_id deposit) {
 	auto organization = actors::organizations::operator_organization_for_deposit(state, deposit);
 	if(!organization) {
 		organization = actors::organizations::create_company(state);
 		if(organization) {
 			actors::organizations::bind_deposit_operator(state, organization, deposit);
-			if(!actors::ownership::asset_for_deposit(state, deposit)) {
-				auto asset = state.world.create_asset();
-				state.world.force_create_resource_deposit_asset(deposit, asset);
-				actors::ownership::create_stake(state,
-					actors::organizations::actor_for_organization(state, organization), asset,
-					1.0f, 1.0f, 1.0f);
-			}
+			state.world.economic_actor_set_is_legacy_placeholder(
+				actors::organizations::actor_for_organization(state, organization), 1);
 		}
-	} else if(!actors::ownership::asset_for_deposit(state, deposit)) {
+	}
+	auto asset = actors::ownership::asset_for_deposit(state, deposit);
+	if(!asset) {
 		auto asset = state.world.create_asset();
 		state.world.force_create_resource_deposit_asset(deposit, asset);
-		// A pre-existing operator is not silently made owner. The compatibility
-		// stake is only created with the legacy placeholder bootstrap above.
-		(void)created_now;
+	}
+	asset = actors::ownership::asset_for_deposit(state, deposit);
+	if(asset && !asset_has_owner(state, asset)) {
+		// A real pre-existing operator is never silently made owner. Unknown
+		// legacy ownership is represented by a separate deterministic placeholder.
+		auto operator_actor = actors::organizations::operator_actor_for_deposit(state, deposit);
+		auto owner = operator_actor && state.world.economic_actor_get_is_legacy_placeholder(operator_actor)
+			? operator_actor : create_legacy_placeholder_owner(state);
+		if(owner) actors::ownership::create_stake(state, owner, asset, 1.0f, 1.0f, 1.0f);
 	}
 }
 
@@ -130,7 +151,7 @@ void bootstrap(sys::state& state) {
 			if(existing) {
 				initialize_legacy_deposit(state, existing, province);
 				if(state.world.resource_deposit_get_legacy_compatibility_deposit(existing))
-					ensure_legacy_asset_and_operator(state, existing, false);
+					ensure_legacy_asset_and_operator(state, existing);
 				return;
 			}
 			auto site = make_site(state, province);
@@ -140,7 +161,7 @@ void bootstrap(sys::state& state) {
 			auto daily = std::max(1.0f, state.world.commodity_get_rgo_amount(commodity));
 			auto deposit = create_deposit(state, site, commodity, legacy_capacity, legacy_capacity, 1.0f, daily, daily, 0, true);
 			if(!deposit) return;
-		ensure_legacy_asset_and_operator(state, deposit, true);
+		ensure_legacy_asset_and_operator(state, deposit);
 		});
 	});
 

@@ -7,6 +7,7 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/extraction.hpp"
+#include "economy/capital_projects.hpp"
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/exchange.hpp"
@@ -236,9 +237,118 @@ TEST_CASE("physical_rgo_bootstrap_is_idempotent", "[economy][physical]") {
 	REQUIRE(site);
 	REQUIRE(state->world.resource_deposit_size() == 1);
 	REQUIRE(state->world.site_get_province_from_site_location(site) == province);
+	auto deposit = ::economy::physical::deposits::deposit_for(*state, province, commodity);
+	auto deposit_asset = ::actors::ownership::asset_for_deposit(*state, deposit);
+	REQUIRE(deposit_asset);
+	bool has_deposit_owner = false;
+	state->world.asset_for_each_ownership_stake_asset_as_asset(deposit_asset, [&](dcon::ownership_stake_asset_id relation) {
+		has_deposit_owner = has_deposit_owner || bool(state->world.ownership_stake_get_economic_actor_from_ownership_stake_owner(
+			state->world.ownership_stake_asset_get_ownership_stake(relation)));
+	});
+	REQUIRE(has_deposit_owner);
 	::economy::physical::deposits::bootstrap(*state);
 	REQUIRE(state->world.resource_deposit_size() == 1);
 	REQUIRE(::economy::physical::deposits::extraction_site_for(*state, province, commodity) == site);
+}
+
+TEST_CASE("canonical_deposit_creation_rejects_incomplete_values", "[economy][physical][capital]") {
+	auto state = std::make_unique<sys::state>();
+	auto site = state->world.create_site();
+	auto commodity = state->world.create_commodity();
+	auto before = state->world.resource_deposit_size();
+	REQUIRE_FALSE(::economy::physical::deposits::create_deposit(*state, site, commodity, 10.0f, 11.0f, 1.0f, 1.0f, 1.0f));
+	REQUIRE_FALSE(::economy::physical::deposits::create_deposit(*state, site, commodity, 10.0f, 10.0f, std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0f));
+	REQUIRE_FALSE(::economy::physical::deposits::create_deposit(*state, site, commodity, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f));
+	REQUIRE(state->world.resource_deposit_size() == before);
+}
+
+TEST_CASE("capital_extraction_project_completes_with_initialized_owned_deposit", "[economy][capital][physical]") {
+	auto state = std::make_unique<sys::state>();
+	auto province = state->world.create_province();
+	auto site = state->world.create_site();
+	state->world.force_create_site_location(site, province);
+	auto settlement = state->world.create_commodity();
+	auto resource = state->world.create_commodity();
+	auto owner = state->world.create_economic_actor();
+	auto responsible = ::actors::organizations::create_company(*state);
+	auto project = ::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::extraction_site,
+		owner, responsible, site, settlement, {}, resource, 100.0f, 0.8f, 20.0f, 15.0f);
+	REQUIRE(project);
+	state->world.capital_project_set_progress(project, 1.0f);
+	REQUIRE(::economy::capital_projects::complete(*state, project));
+	auto deposit = state->world.capital_project_get_resource_deposit_from_capital_project_deposit(project);
+	REQUIRE(deposit);
+	REQUIRE(state->world.resource_deposit_get_commodity(deposit) == resource);
+	REQUIRE(state->world.resource_deposit_get_original_recoverable_reserves(deposit) == Approx(100.0f));
+	REQUIRE(state->world.resource_deposit_get_remaining_recoverable_reserves(deposit) == Approx(100.0f));
+	REQUIRE(state->world.resource_deposit_get_grade_or_quality(deposit) == Approx(0.8f));
+	REQUIRE(state->world.resource_deposit_get_daily_extraction_capacity(deposit) == Approx(20.0f));
+	REQUIRE(state->world.resource_deposit_get_target_daily_extraction(deposit) == Approx(15.0f));
+	REQUIRE(state->world.resource_deposit_get_status(deposit) == 0);
+	REQUIRE(state->world.resource_deposit_get_organization_from_resource_deposit_operator(deposit) == responsible);
+	REQUIRE(::actors::ownership::asset_for_deposit(*state, deposit));
+	REQUIRE(state->world.capital_project_get_asset_from_capital_project_asset(project));
+	REQUIRE(state->world.capital_project_get_status(project) == uint8_t(::economy::capital_projects::status::completed));
+}
+
+TEST_CASE("capital_project_delivery_rolls_back_all_legs_on_cash_failure", "[economy][capital][physical]") {
+	auto state = std::make_unique<sys::state>();
+	auto province = state->world.create_province();
+	auto seller_site = state->world.create_site();
+	auto project_site = state->world.create_site();
+	state->world.force_create_site_location(seller_site, province);
+	state->world.force_create_site_location(project_site, province);
+	auto settlement = state->world.create_commodity();
+	auto goods = state->world.create_commodity();
+	auto buyer = state->world.create_economic_actor();
+	auto seller = state->world.create_economic_actor();
+	auto responsible = ::actors::organizations::create_company(*state);
+	auto project = ::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::factory,
+		buyer, responsible, project_site, settlement, dcon::factory_type_id{}, goods);
+	// The factory type is not needed for material delivery; use an ordinary
+	// planned project fixture and replace only the delivery-side state.
+	if(!project) {
+		project = ::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::infrastructure,
+			buyer, responsible, project_site, settlement, {}, goods);
+	}
+	REQUIRE(project);
+	auto project_account = state->world.capital_project_get_monetary_account_from_capital_project_account(project);
+	auto seller_account = ::economy::accounts::open_account(*state, seller, settlement);
+	REQUIRE(project_account); REQUIRE(seller_account);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, project_account, 10.0f));
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, seller_account, 0.0f));
+	REQUIRE(::economy::physical::inventory::add(*state, seller_site, goods, 20.0f, seller) == Approx(20.0f));
+	auto transactions_before = state->world.transaction_size();
+	auto shipments_before = state->world.shipment_size();
+	REQUIRE_FALSE(::economy::capital_projects::deliver_material(*state, project, seller_account, seller_site, goods, 5.0f, 50.0f));
+	REQUIRE(::economy::accounts::balance(*state, project_account) == Approx(10.0f));
+	REQUIRE(::economy::accounts::balance(*state, seller_account) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, seller_site, goods, seller) == Approx(20.0f));
+	REQUIRE(state->world.shipment_size() == shipments_before);
+	REQUIRE(state->world.transaction_size() == transactions_before);
+}
+
+TEST_CASE("capital_project_completion_failure_leaves_no_target_or_ownership", "[economy][capital][physical]") {
+	auto state = std::make_unique<sys::state>();
+	auto site = state->world.create_site(); // deliberately has no province location
+	auto settlement = state->world.create_commodity();
+	auto owner = state->world.create_economic_actor();
+	auto responsible = ::actors::organizations::create_company(*state);
+	auto factory_type = state->world.create_factory_type();
+	auto project = ::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::factory,
+		owner, responsible, site, settlement, factory_type, {});
+	REQUIRE(project);
+	state->world.capital_project_set_progress(project, 1.0f);
+	auto deposits_before = state->world.resource_deposit_size();
+	auto assets_before = state->world.asset_size();
+	auto stakes_before = state->world.ownership_stake_size();
+	REQUIRE_FALSE(::economy::capital_projects::complete(*state, project));
+	REQUIRE(state->world.capital_project_get_status(project) != uint8_t(::economy::capital_projects::status::completed));
+	REQUIRE(state->world.capital_project_get_resource_deposit_from_capital_project_deposit(project) == dcon::resource_deposit_id{});
+	REQUIRE(state->world.capital_project_get_asset_from_capital_project_asset(project) == dcon::asset_id{});
+	REQUIRE(state->world.resource_deposit_size() == deposits_before);
+	REQUIRE(state->world.asset_size() == assets_before);
+	REQUIRE(state->world.ownership_stake_size() == stakes_before);
 }
 
 TEST_CASE("physical_rgo_arrives_once_at_market_hub", "[economy][physical][integration]") {

@@ -152,15 +152,27 @@ bool cancel(sys::state& s, dcon::capital_project_id p) { if(!valid(s,p) || s.wor
 
 bool complete(sys::state& s, dcon::capital_project_id p) {
 	if(!valid(s,p) || material_progress(s,p) < 1.0f || s.world.capital_project_get_status(p) == uint8_t(status::cancelled)) return false;
+	if(s.world.capital_project_get_factory_from_capital_project_factory(p)
+		|| s.world.capital_project_get_resource_deposit_from_capital_project_deposit(p)
+		|| s.world.capital_project_get_asset_from_capital_project_asset(p)) return false;
+	auto project_site = site(s, p);
+	auto responsible = s.world.capital_project_get_organization_from_capital_project_responsible(p);
+	if(!project_site || !responsible || !actors::organizations::is_economic_kind(
+		actors::ownership::actor_kind(s.world.organization_get_kind(responsible)))) return false;
 	if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::factory)) {
+		if(!s.world.capital_project_get_factory_type(p)
+			|| !s.world.factory_type_is_valid(s.world.capital_project_get_factory_type(p))) return false;
+		auto province = s.world.site_get_province_from_site_location(project_site);
+		if(!province) return false;
 		auto f = s.world.create_factory();
 		s.world.factory_set_building_type(f, s.world.capital_project_get_factory_type(p));
-		s.world.force_create_factory_location(f, s.world.site_get_province_from_site_location(site(s,p)));
-		s.world.force_create_factory_site(f, site(s,p));
+		s.world.force_create_factory_location(f, province);
+		s.world.force_create_factory_site(f, project_site);
 		auto asset = s.world.create_asset();
 		s.world.force_create_factory_asset(f, asset);
-		if(!actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f)
-			|| !actors::organizations::bind_factory_operator(s, s.world.capital_project_get_organization_from_capital_project_responsible(p), f)) {
+		auto stake = actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f);
+		if(!stake || !actors::organizations::bind_factory_operator(s, responsible, f)) {
+			if(stake) s.world.delete_ownership_stake(stake);
 			s.world.delete_factory(f);
 			s.world.delete_asset(asset);
 			return false;
@@ -173,13 +185,13 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 			s.world.capital_project_get_planned_grade(p), s.world.capital_project_get_planned_daily_capacity(p),
 			s.world.capital_project_get_planned_target_daily_extraction(p));
 		if(!d) return false;
-		auto operator_org = s.world.capital_project_get_organization_from_capital_project_responsible(p);
-		if(!operator_org || !actors::organizations::bind_deposit_operator(s, operator_org, d)) {
+		if(!actors::organizations::bind_deposit_operator(s, responsible, d)) {
 			s.world.delete_resource_deposit(d);
 			return false;
 		}
 		auto asset = s.world.create_asset();
-		if(!actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f)) {
+		auto stake = actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f);
+		if(!stake) {
 			s.world.delete_resource_deposit(d);
 			s.world.delete_asset(asset);
 			return false;
