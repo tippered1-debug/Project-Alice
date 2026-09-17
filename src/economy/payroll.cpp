@@ -5,6 +5,8 @@
 #include "economy/relations/relations.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
+#include "economy/physical/concrete_labor.hpp"
+#include "economy/economy_stats.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -81,6 +83,27 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 	if(!factory || !state.world.factory_get_canonical_production(factory)
 		|| (state.world.factory_get_payroll_initialized(factory)
 			&& state.world.factory_get_last_payroll_date(factory) == state.current_date)) return;
+	// Concrete contracts are the canonical payroll authority. The legacy branch
+	// below is retained for callers that explicitly exercise the old aggregate
+	// payroll API, but it cannot make a factory produce without concrete labor.
+	auto contracts = physical::concrete_labor::contracts_for_factory(state, factory);
+	if(!contracts.empty()) {
+		auto province = compat::alice::province_for_factory(state, factory);
+		auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
+		for(auto contract : physical::concrete_labor::active_contracts_for_factory(state, factory)) {
+			auto settlement = accounts::settlement_of(state,
+				state.world.employment_contract_get_monetary_account_from_employment_contract_payer_account(contract));
+			auto result = physical::concrete_labor::settle_contract_wage(state, contract);
+			if(province && operator_actor && settlement) {
+				record_event(state, factory, province, operator_actor, settlement, result.obligation,
+					result.due, result.paid, result.unpaid, result.due, 0.0f, 0.0f,
+					result.paid, 0.0f, 0.0f);
+			}
+		}
+		state.world.factory_set_last_payroll_date(factory, state.current_date);
+		state.world.factory_set_payroll_initialized(factory, 1);
+		return;
+	}
 	auto province = compat::alice::province_for_factory(state, factory);
 	auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
 	auto settlement = state.world.factory_get_payroll_settlement(factory);

@@ -10,6 +10,7 @@
 #include "economy/payroll.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/firm_agency.hpp"
+#include "economy/physical/concrete_labor.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -19,12 +20,8 @@ namespace {
 float finite_nonnegative(float value, float fallback = 0.0f) {
 	return std::isfinite(value) && value >= 0.0f ? value : fallback;
 }
-float labor_units(sys::state const& state, dcon::factory_id factory, dcon::province_id province, float base_workforce) {
-	if(!province || base_workforce <= 0.0f) return 0.0f;
-	return std::max(0.0f, (
-		state.world.factory_get_unqualified_employment(factory) * state.world.province_get_labor_demand_satisfaction(province, economy::labor::no_education)
-		+ state.world.factory_get_primary_employment(factory) * state.world.province_get_labor_demand_satisfaction(province, economy::labor::basic_education)
-		+ state.world.factory_get_secondary_employment(factory) * state.world.province_get_labor_demand_satisfaction(province, economy::labor::high_education)) / base_workforce);
+float labor_units(sys::state const& state, dcon::factory_id factory) {
+	return std::max(0.0f, physical::concrete_labor::labor_supplied_to_factory(state, factory));
 }
 }
 
@@ -83,9 +80,8 @@ bool plan_factory_inputs(sys::state& state, dcon::factory_id factory, dcon::prov
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
 	if(!type || !site || !owner) return false;
 	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
-	auto base_workforce = float(state.world.factory_type_get_base_workforce(type));
 	auto desired = firm_agency::decide_factory(state, factory).desired_units;
-	auto planned = std::min(desired, labor_units(state, factory, province, base_workforce));
+	auto planned = std::min(desired, labor_units(state, factory));
 	if(!std::isfinite(planned) || planned < 0.0f) planned = 0.0f;
 	return physical::factory_inputs::plan(state, factory, site, owner, state.world.factory_type_get_inputs(type), market, planned);
 }
@@ -99,9 +95,8 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	if(!type || !province || !site || !owner) return 0.0f;
 	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
 	auto productivity = finite_nonnegative(state.world.factory_get_productivity_factor(factory), 1.0f);
-	auto base_workforce = float(state.world.factory_type_get_base_workforce(type));
 	auto desired = firm_agency::decide_factory(state, factory).desired_units;
-	auto planned = std::min(desired, labor_units(state, factory, province, base_workforce));
+	auto planned = std::min(desired, labor_units(state, factory));
 	auto market = state.world.state_instance_get_market_from_local_market(state.world.province_get_state_membership(province));
 	auto available = physical::factory_inputs::evaluate(state, site, owner, state.world.factory_type_get_inputs(type), market, planned);
 	auto ratio = available.active ? std::min(available.physical_ratio, available.legacy_ratio) : available.legacy_ratio;

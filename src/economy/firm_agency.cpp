@@ -4,6 +4,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/concrete_market.hpp"
+#include "economy/physical/concrete_labor.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
@@ -53,17 +54,8 @@ float output_in_transit(sys::state const& state, dcon::economic_actor_id owner,
 	return result;
 }
 
-float full_payroll(sys::state const& state, dcon::factory_id factory,
-	dcon::province_id province, float units, float capacity) {
-	if(!province || capacity <= epsilon) return 0.0f;
-	auto ratio = std::clamp(units / capacity, 0.0f, 1.0f);
-	return ratio * (
-		finite_nonnegative(state.world.factory_get_unqualified_employment(factory))
-			* finite_nonnegative(state.world.province_get_labor_price(province, economy::labor::no_education))
-		+ finite_nonnegative(state.world.factory_get_primary_employment(factory))
-			* finite_nonnegative(state.world.province_get_labor_price(province, economy::labor::basic_education))
-		+ finite_nonnegative(state.world.factory_get_secondary_employment(factory))
-			* finite_nonnegative(state.world.province_get_labor_price(province, economy::labor::high_education)));
+float full_payroll(sys::state const& state, dcon::factory_id factory, float units, float capacity) {
+	return physical::concrete_labor::wage_cost_for_factory(state, factory, units, capacity);
 }
 }
 
@@ -99,7 +91,7 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 		input_cost_per_unit += finite_nonnegative(inputs.commodity_amounts[i]) * finite_nonnegative(price);
 	}
 	result.expected_variable_cost = input_cost_per_unit;
-	result.expected_payroll_cost = full_payroll(state, factory, province, capacity, capacity);
+	result.expected_payroll_cost = full_payroll(state, factory, capacity, capacity);
 	result.expected_gross_margin = result.expected_unit_revenue - result.expected_variable_cost
 		- (capacity > epsilon ? result.expected_payroll_cost / capacity : 0.0f);
 
@@ -143,7 +135,7 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 	};
 	auto affordable = [&](float units) {
 		auto procurement = procurement_cost(units);
-		auto payroll = full_payroll(state, factory, province, units, capacity);
+		auto payroll = full_payroll(state, factory, units, capacity);
 		if(account && payroll_account && account == payroll_account)
 			return procurement + payroll <= procurement_cash + epsilon;
 		return (!account ? procurement <= epsilon : procurement <= procurement_cash + epsilon)
