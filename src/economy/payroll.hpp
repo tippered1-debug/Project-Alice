@@ -15,6 +15,6 @@ struct province_payroll {
 
 void begin_day(sys::state&);
 void settle_factory(sys::state&, dcon::factory_id, float actual_units, float available_units);
-province_payroll for_province(sys::state const&, dcon::province_id);
+province_payroll for_province(sys::state const&, dcon::province_id, sys::date);
 
 } // namespace economy::payroll

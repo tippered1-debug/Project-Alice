@@ -1949,14 +1949,30 @@ void update_income_wages(sys::state& state){
 	static auto buffer_canonical_primary_wage = state.world.province_make_vectorizable_float_buffer();
 	static auto buffer_canonical_secondary_wage = state.world.province_make_vectorizable_float_buffer();
 	static auto buffer_canonical_factory = state.world.province_make_vectorizable_int_buffer();
+	static auto buffer_legacy_primary_share = state.world.province_make_vectorizable_float_buffer();
+	static auto buffer_legacy_secondary_share = state.world.province_make_vectorizable_float_buffer();
 
 	state.world.for_each_province([&](dcon::province_id pid) {
-		auto canonical_payroll = ::economy::payroll::for_province(state, pid);
+		auto canonical_payroll = ::economy::payroll::for_province(state, pid, state.current_date);
 		auto primary_workers = state.world.province_get_demographics(pid, demographics::to_key(state, state.culture_definitions.primary_factory_worker));
 		auto secondary_workers = state.world.province_get_demographics(pid, demographics::to_key(state, state.culture_definitions.secondary_factory_worker));
+		float total_primary = 0.0f, legacy_primary = 0.0f, total_secondary = 0.0f, legacy_secondary = 0.0f;
+		for(auto relation : state.world.province_get_factory_location(pid)) {
+			auto factory = relation.get_factory();
+			auto primary = state.world.factory_get_primary_employment(factory);
+			auto secondary = state.world.factory_get_secondary_employment(factory);
+			total_primary += std::max(0.0f, primary);
+			total_secondary += std::max(0.0f, secondary);
+			if(!state.world.factory_get_canonical_production(factory)) {
+				legacy_primary += std::max(0.0f, primary);
+				legacy_secondary += std::max(0.0f, secondary);
+			}
+		}
 		buffer_canonical_primary_wage.set(pid, canonical_payroll.canonical_factory ? (canonical_payroll.no_education + canonical_payroll.basic_education) / std::max(primary_workers, 1.0f) : 0.0f);
 		buffer_canonical_secondary_wage.set(pid, canonical_payroll.canonical_factory ? canonical_payroll.high_education / std::max(secondary_workers, 1.0f) : 0.0f);
 		buffer_canonical_factory.set(pid, canonical_payroll.canonical_factory ? 1 : 0);
+		buffer_legacy_primary_share.set(pid, total_primary > 0.0f ? legacy_primary / total_primary : 1.0f);
+		buffer_legacy_secondary_share.set(pid, total_secondary > 0.0f ? legacy_secondary / total_secondary : 1.0f);
 		auto no_education_price = state.world.province_get_labor_price(pid, labor::no_education);
 		auto no_education_sold = state.world.province_get_labor_supply_sold(pid, labor::no_education);
 		auto no_education_wage = no_education_price * no_education_sold;
@@ -2141,10 +2157,14 @@ void update_income_wages(sys::state& state){
 			buffer_rgo_workers_wage.get(province),
 			ve::select(
 				pop_type == state.culture_definitions.primary_factory_worker,
-				ve::select(buffer_canonical_factory.get(province) != 0, buffer_canonical_primary_wage.get(province), buffer_primary_workers_wage.get(province)),
+				ve::select(buffer_canonical_factory.get(province) != 0,
+					buffer_canonical_primary_wage.get(province) + buffer_primary_workers_wage.get(province) * buffer_legacy_primary_share.get(province),
+					buffer_primary_workers_wage.get(province)),
 				ve::select(
 					pop_type == state.culture_definitions.secondary_factory_worker,
-					ve::select(buffer_canonical_factory.get(province) != 0, buffer_canonical_secondary_wage.get(province), buffer_high_not_accepted_workers_wage.get(province)),
+					ve::select(buffer_canonical_factory.get(province) != 0,
+						buffer_canonical_secondary_wage.get(province) + buffer_legacy_secondary_share.get(province) * ve::select(accepted, buffer_high_accepted_workers_wage.get(province), buffer_high_not_accepted_workers_wage.get(province)),
+						buffer_high_not_accepted_workers_wage.get(province)),
 					ve::select(
 					accepted && high_education,
 					buffer_high_accepted_workers_wage.get(province),

@@ -5168,6 +5168,12 @@ object{
 	property{ name{ gross_due } type{ float } tag{ save } }
 	property{ name{ paid } type{ float } tag{ save } }
 	property{ name{ unpaid } type{ float } tag{ save } }
+	property{ name{ gross_no_education } type{ float } tag{ save } }
+	property{ name{ gross_basic_education } type{ float } tag{ save } }
+	property{ name{ gross_high_education } type{ float } tag{ save } }
+	property{ name{ paid_no_education } type{ float } tag{ save } }
+	property{ name{ paid_basic_education } type{ float } tag{ save } }
+	property{ name{ paid_high_education } type{ float } tag{ save } }
 	property{ name{ occurred_on } type{ sys::date } tag{ save } }
 }
 
@@ -5698,6 +5704,7 @@ object {
 	property{ name{ canonical_production } type{ uint8_t } tag{ save } }
 	property{ name{ payroll_settlement } type{ commodity_id } tag{ save } }
 	property{ name{ last_payroll_date } type{ sys::date } tag{ save } }
+	property{ name{ payroll_initialized } type{ uint8_t } tag{ save } }
 }
 
 relationship{
@@ -6344,6 +6351,13 @@ relationship{
 	tag{ save }
 	link{ object{ payroll_event } name{ payroll_event } type{ unique } }
 	link{ object{ province } name{ province } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ payroll_event_obligation }
+	tag{ save }
+	link{ object{ payroll_event } name{ payroll_event } type{ unique } }
+	link{ object{ obligation } name{ obligation } type{ many } index_storage{ array } }
 }
 
 relationship{

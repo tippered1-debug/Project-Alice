@@ -44,18 +44,20 @@ bool set_productivity_factor(sys::state& state, dcon::factory_id factory, float 
 
 void bootstrap_factory(sys::state& state, dcon::factory_id factory) {
 	if(!factory || !state.world.factory_is_valid(factory)) return;
-	if(state.world.factory_get_canonical_production(factory)) return;
+	bool already_canonical = state.world.factory_get_canonical_production(factory);
 	auto type = state.world.factory_get_building_type(factory);
 	auto base_workforce = type ? float(state.world.factory_type_get_base_workforce(type)) : 0.0f;
 	auto output = type ? state.world.factory_type_get_output(type) : dcon::commodity_id{};
-	auto size = finite_nonnegative(state.world.factory_get_size(factory));
-	auto technology = finite_nonnegative(state.world.factory_get_technology_scale(factory), 1.0f);
-	state.world.factory_set_productive_capacity(factory, base_workforce > 0.0f ? size / base_workforce : 0.0f);
-	state.world.factory_set_productivity_factor(factory, technology > 0.0f ? technology : 1.0f);
-	state.world.factory_set_target_utilization(factory, 1.0f);
-	state.world.factory_set_actual_utilization(factory, 0.0f);
-	state.world.factory_set_canonical_production(factory, output && !state.world.commodity_get_is_local(output)
-		&& !state.world.commodity_get_money_rgo(output));
+	if(!already_canonical) {
+		auto size = finite_nonnegative(state.world.factory_get_size(factory));
+		auto technology = finite_nonnegative(state.world.factory_get_technology_scale(factory), 1.0f);
+		state.world.factory_set_productive_capacity(factory, base_workforce > 0.0f ? size / base_workforce : 0.0f);
+		state.world.factory_set_productivity_factor(factory, technology > 0.0f ? technology : 1.0f);
+		state.world.factory_set_target_utilization(factory, 1.0f);
+		state.world.factory_set_actual_utilization(factory, 0.0f);
+		state.world.factory_set_canonical_production(factory, output && !state.world.commodity_get_is_local(output)
+			&& !state.world.commodity_get_money_rgo(output));
+	}
 	if(state.world.factory_get_canonical_production(factory) && !state.world.factory_get_payroll_settlement(factory)) {
 		auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
 		dcon::commodity_id settlement{};
