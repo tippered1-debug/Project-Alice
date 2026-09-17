@@ -5415,6 +5415,60 @@ object{
 	}
 }
 
+object{
+	name{ carrier }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{ name{ mode_mask } type{ uint8_t } tag{ save } }
+	property{ name{ service_capacity } type{ float } tag{ save } }
+	property{ name{ committed_capacity } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ freight_request }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ quantity } type{ float } tag{ save } }
+	property{ name{ cargo_units } type{ float } tag{ save } }
+	property{ name{ route_distance } type{ float } tag{ save } }
+	property{ name{ primary_trade_route } type{ dcon::trade_route_id } tag{ save } }
+	property{ name{ required_mode_mask } type{ uint8_t } tag{ save } }
+	property{ name{ route_leg_count } type{ uint8_t } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ freight_offer }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ origin_market } type{ dcon::market_id } tag{ save } }
+	property{ name{ destination_market } type{ dcon::market_id } tag{ save } }
+	property{ name{ mode_mask } type{ uint8_t } tag{ save } }
+	property{ name{ service_capacity } type{ float } tag{ save } }
+	property{ name{ committed_capacity } type{ float } tag{ save } }
+	property{ name{ base_handling_charge } type{ float } tag{ save } }
+	property{ name{ cargo_distance_rate } type{ float } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ freight_contract }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ quantity } type{ float } tag{ save } }
+	property{ name{ cargo_units } type{ float } tag{ save } }
+	property{ name{ agreed_freight_price } type{ float } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
 relationship {
 	name{ local_market }
 	storage_type{ compactable }
@@ -5432,6 +5486,153 @@ relationship {
 		name{ zone }
 		type{ unique }
 	}
+}
+
+relationship{
+	name{ carrier_actor }
+	tag{ save }
+	link{ object{ carrier } name{ carrier } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ carrier_account }
+	tag{ save }
+	link{ object{ carrier } name{ carrier } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ carrier_market_presence }
+	tag{ save }
+	link{ object{ carrier } name{ carrier } type{ unique } }
+	link{ object{ market } name{ market } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_request_requester }
+	tag{ save }
+	link{ object{ freight_request } name{ freight_request } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_request_payer_account }
+	tag{ save }
+	link{ object{ freight_request } name{ freight_request } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_request_commodity }
+	tag{ save }
+	link{ object{ freight_request } name{ freight_request } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_request_source }
+	tag{ save }
+	link{ object{ freight_request } name{ freight_request } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_request_destination }
+	tag{ save }
+	link{ object{ freight_request } name{ freight_request } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_offer_carrier }
+	tag{ save }
+	link{ object{ freight_offer } name{ freight_offer } type{ unique } }
+	link{ object{ carrier } name{ carrier } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_request }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ freight_request } name{ freight_request } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_offer }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ freight_offer } name{ freight_offer } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_requester }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_carrier }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ carrier } name{ carrier } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_payer_account }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_carrier_account }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_commodity }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_source }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_destination }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_payment }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ transaction } name{ transaction } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ freight_contract_shipment }
+	tag{ save }
+	link{ object{ freight_contract } name{ freight_contract } type{ unique } }
+	link{ object{ shipment } name{ shipment } type{ unique } }
+}
+
+relationship{
+	name{ shipment_carrier }
+	tag{ save }
+	link{ object{ shipment } name{ shipment } type{ unique } }
+	link{ object{ carrier } name{ carrier } type{ many } index_storage{ array } }
 }
 
 relationship{
@@ -7754,6 +7955,13 @@ relationship{
 	tag{ save }
 	link{ object{ concrete_trade_fill } name{ concrete_trade_fill } type{ unique } }
 	link{ object{ shipment } name{ shipment } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ concrete_fill_freight_request }
+	tag{ save }
+	link{ object{ concrete_trade_fill } name{ concrete_trade_fill } type{ unique } }
+	link{ object{ freight_request } name{ freight_request } type{ many } index_storage{ array } }
 }
 
 

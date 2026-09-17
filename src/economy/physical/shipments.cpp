@@ -1,4 +1,5 @@
 #include "shipments.hpp"
+#include "freight_market.hpp"
 #include "deposits.hpp"
 #include "inventory.hpp"
 #include "system_state.hpp"
@@ -260,8 +261,26 @@ bool can_dispatch(sys::state& state, dcon::site_id origin, dcon::site_id destina
 	if(!origin || !destination || !commodity || !state.world.site_is_valid(origin)
 		|| !state.world.site_is_valid(destination) || !state.world.commodity_is_valid(commodity)
 		|| !std::isfinite(quantity) || quantity <= 0.0f) return false;
+	route_quote quote;
+	return quote_route(state, origin, destination, quote);
+}
+
+bool quote_route(sys::state& state, dcon::site_id origin, dcon::site_id destination,
+	route_quote& quote) {
+	if(!origin || !destination || !state.world.site_is_valid(origin)
+		|| !state.world.site_is_valid(destination)) return false;
 	std::vector<planned_leg> plan;
-	return plan_route(state, origin, destination, plan);
+	if(!plan_route(state, origin, destination, plan) || plan.empty() || plan.size() > 255)
+		return false;
+	quote = {};
+	quote.route_leg_count = uint8_t(plan.size());
+	for(auto const& leg : plan) {
+		if(!std::isfinite(leg.distance) || leg.distance < 0.0f) return false;
+		quote.distance += leg.distance;
+		quote.required_mode_mask |= uint8_t(1u << uint8_t(leg.mode));
+		if(!quote.primary_trade_route && leg.trade_route) quote.primary_trade_route = leg.trade_route;
+	}
+	return std::isfinite(quote.distance);
 }
 
 dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_id destination,
@@ -384,6 +403,7 @@ void advance(sys::state& state) {
 		auto owner = owner_relation ? state.world.shipment_owner_get_economic_actor(owner_relation) : dcon::economic_actor_id{};
 		inventory::add(state, destination, state.world.shipment_get_commodity(shipment),
 			state.world.shipment_get_remaining_quantity(shipment), owner);
+		freight_market::complete_contract_for_shipment(state, shipment);
 		state.world.delete_shipment(shipment);
 	}
 }

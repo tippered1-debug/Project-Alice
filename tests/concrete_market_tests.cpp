@@ -40,15 +40,19 @@ TEST_CASE("concrete market fills exact orders and records observed price", "[eco
 	REQUIRE(f.state->world.concrete_market_bid_get_status(bid) == uint8_t(economy::physical::concrete_market::order_status::filled));
 	REQUIRE(f.state->world.concrete_market_bid_get_reserved_amount(bid) == Approx(0.0f));
 	REQUIRE(f.state->world.concrete_trade_fill_get_transaction_from_concrete_fill_transaction(fills.front()));
-	REQUIRE(f.state->world.concrete_trade_fill_get_shipment_from_concrete_fill_shipment(fills.front()));
+	REQUIRE_FALSE(f.state->world.concrete_trade_fill_get_shipment_from_concrete_fill_shipment(fills.front()));
+	auto request = f.state->world.concrete_trade_fill_get_freight_request_from_concrete_fill_freight_request(fills.front());
+	REQUIRE(request);
+	REQUIRE(f.state->world.freight_request_get_status(request) == 0);
 	REQUIRE(economy::accounts::balance(*f.state, f.buyer_account) == Approx(600.0f));
 	REQUIRE(economy::accounts::balance(*f.state, f.seller_account) == Approx(400.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.seller) == Approx(10.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.buyer) == Approx(40.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.destination, f.goods, f.buyer) == Approx(0.0f));
 	auto transaction = f.state->world.concrete_trade_fill_get_transaction_from_concrete_fill_transaction(fills.front());
 	REQUIRE(f.state->world.transaction_get_monetary_account_from_transaction_source_account(transaction) == f.buyer_account);
 	REQUIRE(f.state->world.transaction_get_monetary_account_from_transaction_destination_account(transaction) == f.seller_account);
 	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods, {}, 99.0f) == Approx(10.0f));
-	economy::physical::shipments::process_arrivals(*f.state);
-	REQUIRE(economy::physical::inventory::quantity(*f.state, f.destination, f.goods, f.buyer) == Approx(40.0f));
 }
 
 TEST_CASE("concrete market does not cross non-overlapping limits", "[economy][physical][concrete_market]") {
@@ -145,17 +149,18 @@ TEST_CASE("concrete market orders expire and release reservations", "[economy][p
 	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market, f.goods, 20.0f, 10.0f, {}));
 }
 
-TEST_CASE("concrete market fills create physical shipment rather than synthetic goods", "[economy][physical][concrete_market]") {
+TEST_CASE("concrete market fills create pending freight rather than synthetic delivery", "[economy][physical][concrete_market]") {
 	concrete_market_tests::fixture f;
 	economy::physical::inventory::add(*f.state, f.source, f.goods, 5.0f, f.seller);
 	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market, f.goods, 5.0f, 3.0f, {}));
 	REQUIRE(economy::physical::concrete_market::post_bid(*f.state, f.buyer, f.buyer_account, f.destination, f.market, f.goods, 5.0f, 3.0f, {}));
 	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, {}).size() == 1);
-	REQUIRE(f.state->world.shipment_size() == 1);
+	REQUIRE(f.state->world.shipment_size() == 0);
 	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.seller) == Approx(0.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.buyer) == Approx(5.0f));
 }
 
-TEST_CASE("concrete market preflights disconnected delivery atomically",
+TEST_CASE("concrete market records goods ownership even when delivery is disconnected",
 	"[economy][physical][concrete_market]") {
 	concrete_market_tests::fixture f;
 	// Give the sites explicit, different state/market memberships and hubs, but
@@ -189,14 +194,16 @@ TEST_CASE("concrete market preflights disconnected delivery atomically",
 	auto seller_balance = economy::accounts::balance(*f.state, f.seller_account);
 	auto buyer_balance = economy::accounts::balance(*f.state, f.buyer_account);
 
-	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, {}).empty());
-	REQUIRE(f.state->world.transaction_size() == transaction_count);
+	auto fills = economy::physical::concrete_market::match(*f.state, f.market, f.goods, {});
+	REQUIRE(fills.size() == 1);
+	REQUIRE(f.state->world.transaction_size() == transaction_count + 1);
 	REQUIRE(f.state->world.shipment_size() == 0);
-	REQUIRE(economy::accounts::balance(*f.state, f.seller_account) == Approx(seller_balance));
-	REQUIRE(economy::accounts::balance(*f.state, f.buyer_account) == Approx(buyer_balance));
-	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.seller) == Approx(20.0f));
-	REQUIRE(f.state->world.concrete_market_ask_get_remaining_quantity(ask) == Approx(20.0f));
-	REQUIRE(f.state->world.concrete_market_ask_get_reserved_quantity(ask) == Approx(20.0f));
-	REQUIRE(f.state->world.concrete_market_bid_get_remaining_quantity(bid) == Approx(20.0f));
-	REQUIRE(f.state->world.concrete_market_bid_get_reserved_amount(bid) == Approx(240.0f));
+	REQUIRE(economy::accounts::balance(*f.state, f.seller_account) == Approx(seller_balance + 200.0f));
+	REQUIRE(economy::accounts::balance(*f.state, f.buyer_account) == Approx(buyer_balance - 200.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.seller) == Approx(0.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.buyer) == Approx(20.0f));
+	REQUIRE(f.state->world.concrete_market_ask_get_remaining_quantity(ask) == Approx(0.0f));
+	REQUIRE(f.state->world.concrete_market_ask_get_reserved_quantity(ask) == Approx(0.0f));
+	REQUIRE(f.state->world.concrete_market_bid_get_remaining_quantity(bid) == Approx(0.0f));
+	REQUIRE(f.state->world.concrete_market_bid_get_reserved_amount(bid) == Approx(0.0f));
 }

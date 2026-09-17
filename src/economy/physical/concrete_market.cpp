@@ -4,6 +4,7 @@
 #include "exchange.hpp"
 #include "inventory.hpp"
 #include "shipments.hpp"
+#include "freight_market.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -120,11 +121,12 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 			auto quantity = std::min(state.world.concrete_market_bid_get_remaining_quantity(bid), state.world.concrete_market_ask_get_remaining_quantity(ask));
 			quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
 			quantity = std::min(quantity, std::max(0.0f, (accounts::balance(state, account) - reserved_funds(state, account) + state.world.concrete_market_bid_get_reserved_amount(bid)) / price));
-			if(!valid(quantity) || !shipments::can_dispatch(state, source, destination, commodity, quantity)) continue;
+			if(!valid(quantity)) continue;
 			auto transaction = exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
 			if(!transaction) continue;
-			auto shipment = shipments::dispatch(state, source, destination, commodity, quantity, buyer);
-			if(!shipment) continue;
+			auto request = freight_market::create_request(state, buyer, account, source, destination, commodity, quantity);
+			auto contract = request ? freight_market::match_request(state, request) : dcon::freight_contract_id{};
+			auto shipment = contract ? state.world.freight_contract_get_shipment_from_freight_contract_shipment(contract) : dcon::shipment_id{};
 			auto fill = state.world.create_concrete_trade_fill();
 			state.world.concrete_trade_fill_set_quantity(fill, quantity);
 			state.world.concrete_trade_fill_set_execution_price(fill, price);
@@ -132,7 +134,8 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 			state.world.force_create_concrete_fill_bid(fill, bid);
 			state.world.force_create_concrete_fill_ask(fill, ask);
 			state.world.force_create_concrete_fill_transaction(fill, transaction);
-			state.world.force_create_concrete_fill_shipment(fill, shipment);
+			if(request) state.world.force_create_concrete_fill_freight_request(fill, request);
+			if(shipment) state.world.force_create_concrete_fill_shipment(fill, shipment);
 			state.world.concrete_market_bid_set_remaining_quantity(bid, std::max(0.0f, state.world.concrete_market_bid_get_remaining_quantity(bid) - quantity));
 			state.world.concrete_market_bid_set_reserved_amount(bid, state.world.concrete_market_bid_get_remaining_quantity(bid) * state.world.concrete_market_bid_get_limit_price(bid));
 			state.world.concrete_market_ask_set_remaining_quantity(ask, std::max(0.0f, state.world.concrete_market_ask_get_remaining_quantity(ask) - quantity));
