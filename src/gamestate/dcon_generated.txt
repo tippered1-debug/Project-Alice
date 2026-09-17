@@ -5350,6 +5350,69 @@ object{
 		type{ uint32_t }
 		tag{ save }
 	}
+	property{
+		name{ lifecycle }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ current_leg }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ route_leg_count }
+		type{ uint8_t }
+		tag{ save }
+	}
+}
+
+object{
+	name{ shipment_route_leg }
+	storage_type{ erasable }
+	size{ 150000 }
+	tag{ save }
+
+	property{
+		name{ mode }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ trade_route }
+		type{ dcon::trade_route_id }
+		tag{ save }
+	}
+	property{
+		name{ origin_site }
+		type{ dcon::site_id }
+		tag{ save }
+	}
+	property{
+		name{ destination_site }
+		type{ dcon::site_id }
+		tag{ save }
+	}
+	property{
+		name{ sequence }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ distance }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ remaining_transport_work }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ traversal_days }
+		type{ uint32_t }
+		tag{ save }
+	}
 }
 
 relationship {
@@ -6281,6 +6344,13 @@ relationship{
 	tag{ save }
 	link{ object{ shipment } name{ shipment } type{ unique } }
 	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ shipment_route }
+	tag{ save }
+	link{ object{ shipment_route_leg } name{ shipment_route_leg } type{ unique } }
+	link{ object{ shipment } name{ shipment } type{ many } index_storage{ array } }
 }
 
 relationship{

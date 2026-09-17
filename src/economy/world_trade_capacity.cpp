@@ -164,6 +164,15 @@ float nominal_capacity(sys::state const& state, dcon::market_id market,
 		state.world.market_get_max_throughput(market));
 	if(!gamerule::age_of_transformation_enabled(state))
 		return legacy_cap;
+	return canonical_capacity(state, market, mode);
+}
+
+float canonical_capacity(sys::state const& state, dcon::market_id market,
+		transport_mode mode) {
+	if(!market || !state.world.market_is_valid(market))
+		return 0.0f;
+	auto const legacy_cap = finite_nonnegative(
+		state.world.market_get_max_throughput(market));
 	auto const state_instance =
 		state.world.market_get_zone_from_local_market(market);
 	if(!state_instance || !state.world.state_instance_is_valid(state_instance))

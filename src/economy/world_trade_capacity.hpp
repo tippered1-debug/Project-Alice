@@ -53,6 +53,12 @@ capacity_config ruleset_config_for(sys::state const& state);
 float nominal_capacity(sys::state const& state, dcon::market_id market,
 	transport_mode mode);
 
+// Physical capacity primitive for concrete shipments. This path uses only
+// modal infrastructure/throughput state and never reads route.volume, market
+// clearing fill, or aggregate cargo demand.
+float canonical_capacity(sys::state const& state, dcon::market_id market,
+	transport_mode mode);
+
 // State-backed diagnostics/decision API. It derives nominal capacity from the
 // existing market max-throughput cache and transport availability from the
 // same labor/service signals used by trade-route updates.
