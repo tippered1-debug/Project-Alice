@@ -7,8 +7,8 @@ remaining quantity, and lifecycle. Active asks reserve physical stock by
 ledgered order quantity; active bids reserve account capacity by limit value.
 
 Crossing orders are matched deterministically by price and object identity.
-Each fill calls the existing atomic `exchange::purchase` and then dispatches a
-real shipment. The fill records both resulting objects, and observed price is
+Each fill calls the existing atomic account-explicit exchange primitive and
+then dispatches a real shipment. The fill records both resulting objects, and observed price is
 the executed-fill VWAP for the market, commodity, and date. The concrete path's
 `canonical_reference_price` uses the latest prior concrete VWAP first; the old
 aggregate market price is only an explicit bootstrap/reference anchor when no
