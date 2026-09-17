@@ -117,6 +117,29 @@ TEST_CASE("firm agency counts owned output in transit as unsold exposure", "[eco
 	REQUIRE(pipeline.desired_units < healthy.desired_units);
 }
 
+TEST_CASE("firm agency attributes output transit to its factory site", "[economy][firm_agency]") {
+	firm_agency_tests::fixture f;
+	auto healthy = economy::firm_agency::decide_factory(*f.state, f.factory);
+	auto other_source = f.state->world.create_site();
+	REQUIRE(economy::physical::inventory::add(*f.state, other_source, f.output, 100.0f, f.owner) == Approx(100.0f));
+	REQUIRE(economy::physical::shipments::dispatch(*f.state, other_source, f.site, f.output, 100.0f, f.owner));
+	auto decision = economy::firm_agency::decide_factory(*f.state, f.factory);
+	REQUIRE(decision.output_inventory == Approx(0.0f));
+	REQUIRE(decision.desired_units == Approx(healthy.desired_units));
+}
+
+TEST_CASE("firm agency separates procurement and payroll accounts", "[economy][firm_agency]") {
+	firm_agency_tests::fixture f;
+	auto payroll_settlement = f.state->world.create_commodity();
+	auto payroll_account = economy::accounts::open_account(*f.state, f.owner, payroll_settlement);
+	economy::accounts::bootstrap_set_balance(*f.state, payroll_account, 1000.0f);
+	f.state->world.factory_set_payroll_settlement(f.factory, payroll_settlement);
+	f.state->world.monetary_account_set_balance(f.account, 0.0f);
+	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.input, 100.0f, f.owner) == Approx(100.0f));
+	auto decision = economy::firm_agency::decide_factory(*f.state, f.factory);
+	REQUIRE(decision.desired_units > 0.0f);
+}
+
 TEST_CASE("firm agency gives payroll arrears conservative weight", "[economy][firm_agency]") {
 	firm_agency_tests::fixture f;
 	auto healthy = economy::firm_agency::decide_factory(*f.state, f.factory);
@@ -190,6 +213,7 @@ TEST_CASE("firm agency decision is deterministic", "[economy][firm_agency]") {
 
 TEST_CASE("firm agency prefers concrete output price history over legacy price", "[economy][firm_agency]") {
 	firm_agency_tests::fixture f;
+	f.state->current_date = sys::date{10};
 	auto seller = f.state->world.create_economic_actor();
 	auto seller_account = economy::accounts::open_account(*f.state, seller, f.settlement);
 	economy::accounts::bootstrap_set_balance(*f.state, seller_account, 0.0f);
@@ -198,6 +222,7 @@ TEST_CASE("firm agency prefers concrete output price history over legacy price",
 	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, source, f.market, f.output, 2.0f, 40.0f, {}) );
 	REQUIRE(economy::physical::concrete_market::post_bid(*f.state, f.owner, f.account, f.site, f.market, f.output, 2.0f, 40.0f, {}));
 	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.output, {}).size() == 1);
+	f.state->current_date = sys::date{11};
 	f.state->world.market_set_price(f.market, f.output, 1.0f);
 	auto decision = economy::firm_agency::decide_factory(*f.state, f.factory);
 	REQUIRE(decision.expected_unit_revenue == Approx(40.0f));

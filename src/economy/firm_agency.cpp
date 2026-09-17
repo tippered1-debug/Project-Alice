@@ -6,7 +6,8 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/factory_inputs.hpp"
-#include "inventory.hpp"
+#include "economy/physical/inventory.hpp"
+#include "economy/economy_stats.hpp"
 #include "relations/relations.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -39,12 +40,14 @@ float arrears_due(sys::state const& state, dcon::economic_actor_id debtor,
 }
 
 float output_in_transit(sys::state const& state, dcon::economic_actor_id owner,
-	dcon::commodity_id commodity) {
+	dcon::commodity_id commodity, dcon::site_id production_site) {
 	float result = 0.0f;
 	state.world.for_each_shipment([&](auto shipment) {
 		auto ownership = state.world.shipment_get_shipment_owner(shipment);
+		auto origin = state.world.shipment_get_shipment_origin(shipment);
 		if(state.world.shipment_get_commodity(shipment) == commodity && ownership
-			&& state.world.shipment_owner_get_economic_actor(ownership) == owner)
+			&& state.world.shipment_owner_get_economic_actor(ownership) == owner && origin
+			&& state.world.shipment_origin_get_site(origin) == production_site)
 			result += std::max(0.0f, state.world.shipment_get_remaining_quantity(shipment));
 	});
 	return result;
@@ -84,7 +87,7 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 	result.output_inventory = physical::inventory::quantity(state, site, output_commodity, owner);
 	if(auto hub = physical::deposits::market_hub_for(state, market); hub)
 		result.output_inventory += physical::inventory::quantity(state, hub, output_commodity, owner);
-	result.output_inventory += output_in_transit(state, owner, output_commodity);
+	result.output_inventory += output_in_transit(state, owner, output_commodity, site);
 
 	auto const& inputs = state.world.factory_type_get_inputs(type);
 	float input_cost_per_unit = 0.0f;
@@ -109,29 +112,52 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 			/ std::max(result.output_inventory, epsilon), 0.0f, 1.0f);
 
 	auto funding = physical::factory_inputs::procurement_account_for(state, owner);
-	auto settlement = funding.settlement;
 	auto account = funding.account;
-	auto free_cash = account ? std::max(0.0f, accounts::balance(state, account)
+	auto payroll_settlement = state.world.factory_get_payroll_settlement(factory);
+	auto payroll_account = payroll_settlement ? accounts::find_account(state, owner, payroll_settlement) : dcon::monetary_account_id{};
+	auto procurement_cash = account ? std::max(0.0f, accounts::balance(state, account)
 		- physical::concrete_market::reserved_bid_amount(state, account)) : 0.0f;
-	free_cash = std::max(0.0f, free_cash - arrears_due(state, owner, settlement));
-	free_cash *= (1.0f - cash_safety_fraction);
+	auto payroll_cash = payroll_account ? std::max(0.0f, accounts::balance(state, payroll_account)
+		- arrears_due(state, owner, payroll_settlement)) : 0.0f;
+	if(account && payroll_account && account == payroll_account)
+		procurement_cash = payroll_cash = std::max(0.0f, procurement_cash
+			- arrears_due(state, owner, payroll_settlement));
+	procurement_cash *= (1.0f - cash_safety_fraction);
+	payroll_cash *= (1.0f - cash_safety_fraction);
 	result.cash_limited_units = desired;
-	float procurement_cost = 0.0f;
-	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-		auto commodity = inputs.commodity_type[i];
-		if(!commodity) break;
-		if(physical::factory_inputs::ordinary_physical_input(state, commodity)) {
-			auto price = physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
-			auto required = finite_nonnegative(inputs.commodity_amounts[i]) * desired;
-			procurement_cost += std::max(0.0f, physical::factory_inputs::net_demand(state, site, owner, commodity, required)
-				- physical::factory_inputs::active_factory_commitment(state, factory, site, commodity))
-				* finite_nonnegative(price);
+	auto procurement_cost = [&](float units) {
+		float total = 0.0f;
+		for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+			auto commodity = inputs.commodity_type[i];
+			if(!commodity) break;
+			if(physical::factory_inputs::ordinary_physical_input(state, commodity)) {
+				auto price = physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
+				auto required = finite_nonnegative(inputs.commodity_amounts[i]) * units;
+				total += std::max(0.0f, physical::factory_inputs::net_demand(state, site, owner, commodity, required)
+					- physical::factory_inputs::active_factory_commitment(state, factory, site, commodity))
+					* finite_nonnegative(price);
+			}
 		}
+		return total;
+	};
+	auto affordable = [&](float units) {
+		auto procurement = procurement_cost(units);
+		auto payroll = full_payroll(state, factory, province, units, capacity);
+		if(account && payroll_account && account == payroll_account)
+			return procurement + payroll <= procurement_cash + epsilon;
+		return (!account ? procurement <= epsilon : procurement <= procurement_cash + epsilon)
+			&& (!payroll_account ? payroll <= epsilon : payroll <= payroll_cash + epsilon);
+	};
+	if(!affordable(0.0f)) result.cash_limited_units = 0.0f;
+	else {
+		float low = 0.0f, high = desired;
+		for(int i = 0; i < 32; ++i) {
+			auto middle = (low + high) * 0.5f;
+			if(affordable(middle)) low = middle;
+			else high = middle;
+		}
+		result.cash_limited_units = low;
 	}
-	auto required_cash_per_unit = desired > epsilon ? procurement_cost / desired
-		+ result.expected_payroll_cost / capacity : 0.0f;
-	if(required_cash_per_unit > epsilon)
-		result.cash_limited_units = std::min(desired, free_cash / required_cash_per_unit);
 	result.desired_units = std::clamp(std::min(desired, result.cash_limited_units), 0.0f, capacity);
 	result.desired_output = result.desired_units * output_per_unit;
 	result.desired_utilization = capacity > epsilon ? result.desired_units / capacity : 0.0f;
