@@ -7563,6 +7563,129 @@ relationship{
 	}
 }
 
+object{
+	name{ concrete_market_bid }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ original_quantity } type{ float } tag{ save } }
+	property{ name{ remaining_quantity } type{ float } tag{ save } }
+	property{ name{ limit_price } type{ float } tag{ save } }
+	property{ name{ reserved_amount } type{ float } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ purpose } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ concrete_market_ask }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ original_quantity } type{ float } tag{ save } }
+	property{ name{ remaining_quantity } type{ float } tag{ save } }
+	property{ name{ minimum_price } type{ float } tag{ save } }
+	property{ name{ reserved_quantity } type{ float } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ purpose } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ concrete_trade_fill }
+	storage_type{ erasable }
+	size{ 400000 }
+	tag{ save }
+	property{ name{ quantity } type{ float } tag{ save } }
+	property{ name{ execution_price } type{ float } tag{ save } }
+	property{ name{ occurred_on } type{ sys::date } tag{ save } }
+}
+
+relationship{
+	name{ concrete_bid_buyer }
+	tag{ save }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_bid_account }
+	tag{ save }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_bid_destination }
+	tag{ save }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_bid_market }
+	tag{ save }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }
+	link{ object{ market } name{ market } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_bid_commodity }
+	tag{ save }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_bid_factory }
+	tag{ save }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_ask_seller }
+	tag{ save }
+	link{ object{ concrete_market_ask } name{ concrete_market_ask } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_ask_site }
+	tag{ save }
+	link{ object{ concrete_market_ask } name{ concrete_market_ask } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_ask_market }
+	tag{ save }
+	link{ object{ concrete_market_ask } name{ concrete_market_ask } type{ unique } }
+	link{ object{ market } name{ market } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_ask_commodity }
+	tag{ save }
+	link{ object{ concrete_market_ask } name{ concrete_market_ask } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_fill_bid }
+	tag{ save }
+	link{ object{ concrete_trade_fill } name{ concrete_trade_fill } type{ unique } }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_fill_ask }
+	tag{ save }
+	link{ object{ concrete_trade_fill } name{ concrete_trade_fill } type{ unique } }
+	link{ object{ concrete_market_ask } name{ concrete_market_ask } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_fill_transaction }
+	tag{ save }
+	link{ object{ concrete_trade_fill } name{ concrete_trade_fill } type{ unique } }
+	link{ object{ transaction } name{ transaction } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_fill_shipment }
+	tag{ save }
+	link{ object{ concrete_trade_fill } name{ concrete_trade_fill } type{ unique } }
+	link{ object{ shipment } name{ shipment } type{ many } index_storage{ array } }
+}
+
 
 
 

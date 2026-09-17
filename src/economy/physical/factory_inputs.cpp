@@ -5,6 +5,7 @@
 #include "deposits.hpp"
 #include "shipments.hpp"
 #include "exchange.hpp"
+#include "concrete_market.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -83,6 +84,7 @@ float net_demand(sys::state const& state, dcon::site_id destination,
 }
 
 void begin_planning(sys::state& state) {
+	concrete_market::expire(state, state.current_date);
 	planned_orders.assign(state.world.factory_size(), planned_order{});
 }
 
@@ -105,6 +107,17 @@ bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination
 		planned_orders[factory.index()].commodities[quantity_index] = commodity;
 		planned_orders[factory.index()].quantities[quantity_index] = net_demand(
 			state, destination, owner, commodity, required_for(inputs, commodity, input_scale));
+		if(planned_orders[factory.index()].quantities[quantity_index] > 0.0f) {
+			auto settlement = exchange::settlement_for_purchase(state, owner);
+			auto account = settlement ? accounts::find_account(state, owner, settlement) : dcon::monetary_account_id{};
+			auto price = state.world.market_get_price(market, commodity);
+			if(account && std::isfinite(price) && price > 0.0f) {
+				auto bid = concrete_market::post_bid(state, owner, account, destination, market, commodity,
+					planned_orders[factory.index()].quantities[quantity_index], price,
+					concrete_market::order_purpose::factory_input);
+				if(bid) state.world.force_create_concrete_bid_factory(bid, factory);
+			}
+		}
 		++quantity_index;
 	}
 	planned_orders[factory.index()].ready = true;
@@ -141,26 +154,18 @@ void fulfill(sys::state& state) {
 			}
 		if(planned <= 0.0f) continue;
 		(void)required;
-		// Planned quantity is a demand ceiling; physical acquisition is made only
-		// from concrete seller stocks at the hub.
-		auto remaining = planned;
-		auto price = state.world.market_get_price(order.market, commodity);
-		auto settlement = exchange::settlement_for_purchase(state, order.owner);
-		if(!settlement) return;
+		// Planned quantity is represented by a concrete bid. Sellers expose only
+		// real hub inventory as concrete asks; matching performs settlement.
 		for(auto stock : exchange::seller_stocks(state, hub, commodity, order.owner)) {
-			if(remaining <= 0.0f) break;
 			auto seller_relation = state.world.physical_stock_get_physical_stock_owner(stock);
 			auto seller = seller_relation ? state.world.physical_stock_owner_get_economic_actor(seller_relation) : dcon::economic_actor_id{};
 			auto available = inventory::quantity(state, hub, commodity, seller);
-			auto bought = std::min(remaining, available);
-			if(bought <= 0.0f) continue;
-			if(!exchange::purchase(state, hub, commodity, seller, order.owner, bought, price, settlement, state.current_date))
-				continue;
-			if(shipments::dispatch(state, hub, order.destination, commodity, bought, order.owner))
-				remaining -= bought;
-			else
-				break;
+			auto price = state.world.market_get_price(order.market, commodity);
+			if(available > 0.0f && std::isfinite(price) && price > 0.0f)
+				(void)concrete_market::post_ask(state, seller, hub, order.market, commodity,
+					available, price, concrete_market::order_purpose::factory_input);
 		}
+		(void)concrete_market::match(state, order.market, commodity, state.current_date);
 	}
 });
 }
