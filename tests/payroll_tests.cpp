@@ -57,3 +57,90 @@ TEST_CASE("canonical payroll records unpaid arrears without negative cash", "[ec
 	REQUIRE(economy::relations::outstanding_between(*fixture.state,
 		economy::accounts::owner_of(*fixture.state, fixture.operator_account), labor_actor, fixture.settlement) == Approx(40.0f));
 }
+
+TEST_CASE("canonical payroll pays on the first simulation day", "[economy][payroll]") {
+	payroll_fixture fixture;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 500.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	REQUIRE(fixture.state->world.transaction_size() == 1);
+	REQUIRE(fixture.state->world.payroll_event_size() == 1);
+}
+
+TEST_CASE("canonical payroll is idempotent within a day", "[economy][payroll]") {
+	payroll_fixture fixture;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 500.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	REQUIRE(fixture.state->world.transaction_size() == 1);
+	REQUIRE(fixture.state->world.payroll_event_size() == 1);
+}
+
+TEST_CASE("canonical payroll runs again on the next day", "[economy][payroll]") {
+	payroll_fixture fixture;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 500.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	fixture.state->current_date += 1;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 500.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	REQUIRE(fixture.state->world.transaction_size() == 2);
+	REQUIRE(fixture.state->world.payroll_event_size() == 2);
+	REQUIRE(fixture.state->world.factory_get_last_payroll_date(fixture.factory) == fixture.state->current_date);
+}
+
+TEST_CASE("two consecutive payroll days create two current-day claims", "[economy][payroll]") {
+	payroll_fixture fixture;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 500.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	fixture.state->current_date += 1;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 500.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	uint32_t current_claims = 0;
+	fixture.state->world.for_each_payroll_event([&](auto event) {
+		if(fixture.state->world.payroll_event_get_gross_due(event) > 0.0f) ++current_claims;
+	});
+	REQUIRE(current_claims == 2);
+}
+
+TEST_CASE("old payroll arrears are serviced before current payroll", "[economy][payroll]") {
+	payroll_fixture fixture;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 0.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	fixture.state->current_date += 1;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 100.0f));
+	auto transactions_before = fixture.state->world.transaction_size();
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	REQUIRE(fixture.state->world.transaction_size() == transactions_before + 1);
+	REQUIRE(economy::relations::outstanding_between(*fixture.state,
+		economy::accounts::owner_of(*fixture.state, fixture.operator_account),
+		fixture.state->world.province_labor_clearing_get_economic_actor(fixture.state->world.province_get_province_labor_clearing(fixture.province)), fixture.settlement) == Approx(100.0f));
+}
+
+TEST_CASE("arrears repayment event keeps original factory provenance", "[economy][payroll]") {
+	payroll_fixture fixture;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 0.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	fixture.state->current_date += 1;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 100.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	bool found_repayment = false;
+	fixture.state->world.for_each_payroll_event([&](auto event) {
+		if(fixture.state->world.payroll_event_get_gross_due(event) == 0.0f
+			&& fixture.state->world.payroll_event_get_paid(event) > 0.0f) {
+			found_repayment = true;
+			REQUIRE(fixture.state->world.payroll_event_get_factory_from_payroll_event_factory(event) == fixture.factory);
+			REQUIRE(fixture.state->world.payroll_event_get_province_from_payroll_event_province(event) == fixture.province);
+		}
+	});
+	REQUIRE(found_repayment);
+}
+
+TEST_CASE("for_province reconstructs paid payroll categories from events", "[economy][payroll]") {
+	payroll_fixture fixture;
+	REQUIRE(economy::accounts::bootstrap_set_balance(*fixture.state, fixture.operator_account, 500.0f));
+	economy::payroll::settle_factory(*fixture.state, fixture.factory, 1.0f, 1.0f);
+	auto payroll = economy::payroll::for_province(*fixture.state, fixture.province, fixture.state->current_date);
+	REQUIRE(payroll.canonical_factory);
+	REQUIRE(payroll.no_education == Approx(100.0f));
+	REQUIRE(payroll.basic_education == Approx(0.0f));
+	REQUIRE(payroll.high_education == Approx(0.0f));
+}

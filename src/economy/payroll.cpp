@@ -78,7 +78,9 @@ province_payroll for_province(sys::state const& state, dcon::province_id provinc
 }
 
 void settle_factory(sys::state& state, dcon::factory_id factory, float actual_units, float available_units) {
-	if(!factory || !state.world.factory_get_canonical_production(factory) || state.world.factory_get_payroll_initialized(factory)) return;
+	if(!factory || !state.world.factory_get_canonical_production(factory)
+		|| (state.world.factory_get_payroll_initialized(factory)
+			&& state.world.factory_get_last_payroll_date(factory) == state.current_date)) return;
 	auto province = compat::alice::province_for_factory(state, factory);
 	auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
 	auto settlement = state.world.factory_get_payroll_settlement(factory);
@@ -101,17 +103,19 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 	while(remaining_cash > 0.0f) {
 		auto arrears = oldest_arrears(state, operator_actor, labor_actor, settlement);
 		if(!arrears) break;
-		auto requested = std::min(remaining_cash, relations::total_due(state, arrears));
-		if(requested <= 0.0f || !accounts::settle_obligation_payment(state, arrears, operator_account, labor_account, requested, state.current_date)) break;
 		auto original = dcon::payroll_event_id{};
 		state.world.for_each_payroll_event([&](auto event) {
 			if(!original && state.world.payroll_event_get_obligation_from_payroll_event_obligation(event) == arrears) original = event;
 		});
+		auto requested = std::min(remaining_cash, relations::total_due(state, arrears));
+		if(requested <= 0.0f || !accounts::settle_obligation_payment(state, arrears, operator_account, labor_account, requested, state.current_date)) break;
 		float original_due = original ? state.world.payroll_event_get_gross_due(original) : 0.0f;
 		float no = original ? requested * state.world.payroll_event_get_gross_no_education(original) / std::max(original_due, 1.0e-6f) : 0.0f;
 		float basic = original ? requested * state.world.payroll_event_get_gross_basic_education(original) / std::max(original_due, 1.0e-6f) : 0.0f;
 		float high = original ? requested * state.world.payroll_event_get_gross_high_education(original) / std::max(original_due, 1.0e-6f) : 0.0f;
-		record_event(state, factory, province, operator_actor, settlement, arrears, 0.0f, requested, 0.0f, no, basic, high, no, basic, high);
+		auto claim_factory = original ? state.world.payroll_event_get_factory_from_payroll_event_factory(original) : factory;
+		auto claim_province = original ? state.world.payroll_event_get_province_from_payroll_event_province(original) : province;
+		record_event(state, claim_factory, claim_province, operator_actor, settlement, arrears, 0.0f, requested, 0.0f, no, basic, high, no, basic, high);
 		remaining_cash -= requested;
 	}
 	float paid = due > 0.0f ? std::min(due, remaining_cash) : 0.0f;
