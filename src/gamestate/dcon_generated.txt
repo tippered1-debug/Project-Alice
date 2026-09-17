@@ -5679,6 +5679,11 @@ object {
 		type{ float }
 		tag{ save }
 	}	
+	property{ name{ productive_capacity } type{ float } tag{ save } }
+	property{ name{ productivity_factor } type{ float } tag{ save } }
+	property{ name{ target_utilization } type{ float } tag{ save } }
+	property{ name{ actual_utilization } type{ float } tag{ save } }
+	property{ name{ canonical_production } type{ uint8_t } tag{ save } }
 }
 
 relationship{

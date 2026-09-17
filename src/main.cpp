@@ -20,6 +20,7 @@
 #include "economy/physical/factory_inputs.cpp"
 #include "economy/relations/relations.cpp"
 #include "economy/accounts/accounts.cpp"
+#include "economy/industrial_production.cpp"
 #include "economy/capital_projects.cpp"
 #include "economy/information/information.cpp"
 #include "economy/consent/consent.cpp"

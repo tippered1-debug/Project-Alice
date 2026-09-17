@@ -1667,6 +1667,10 @@ void update_single_factory_consumption(
 	float mobilization_impact,
 	bool occupied
 ) {
+	if(state.world.factory_get_canonical_production(f)) {
+		::economy::industrial_production::plan_factory_inputs(state, f, p, m);
+		return;
+	}
 	auto fac = fatten(state.world, f);
 	auto fac_type = fac.get_building_type();
 	assert(fac_type);
@@ -1772,6 +1776,11 @@ void set_initial_factory_values(sys::state& state, dcon::factory_id f) {
 	auto output = state.world.factory_type_get_output_amount(ftid);
 	auto base_workforce = state.world.factory_type_get_base_workforce(ftid);
 	state.world.factory_set_output_per_worker(f, output / base_workforce);
+	state.world.factory_set_productive_capacity(f, state.world.factory_get_size(f) / float(base_workforce));
+	state.world.factory_set_productivity_factor(f, std::max(0.05f, state.world.factory_get_technology_scale(f)));
+	state.world.factory_set_target_utilization(f, 1.0f);
+	state.world.factory_set_actual_utilization(f, 0.0f);
+	state.world.factory_set_canonical_production(f, 1);
 }
 
 uint32_t repair_corrupted_factory_sizes(sys::state& state) {
@@ -1845,6 +1854,10 @@ void update_factories_production(
 ) {
 	// could be done in parallel over markets???
 	state.world.for_each_factory([&](auto factory) {
+		if(state.world.factory_get_canonical_production(factory)) {
+			::economy::industrial_production::produce_factory(state, factory);
+			return;
+		}
 		auto province = ::compat::alice::province_for_factory(state, factory);
 		auto local_state = state.world.province_get_state_membership(province);
 		auto local_market = state.world.state_instance_get_market_from_local_market(local_state);
@@ -2611,6 +2624,7 @@ efficiency consumption scale)
 */
 
 void update_production_consumption(sys::state& state) {
+	::economy::industrial_production::bootstrap_factories(state);
 	::economy::physical::factory_inputs::begin_planning(state);
 	std::vector<ve::vectorizable_buffer<float, dcon::province_id>> buffer_demanded{};
 	std::vector<ve::vectorizable_buffer<float, dcon::province_id>> buffer_consumed_estimation{};

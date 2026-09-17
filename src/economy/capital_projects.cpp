@@ -166,6 +166,13 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		if(!province) return false;
 		auto f = s.world.create_factory();
 		s.world.factory_set_building_type(f, s.world.capital_project_get_factory_type(p));
+		s.world.factory_set_productive_capacity(f, 1.0f);
+		s.world.factory_set_productivity_factor(f, 1.0f);
+		s.world.factory_set_target_utilization(f, 1.0f);
+		s.world.factory_set_actual_utilization(f, 0.0f);
+		auto output = s.world.factory_type_get_output(s.world.capital_project_get_factory_type(p));
+		s.world.factory_set_canonical_production(f, output && !s.world.commodity_get_is_local(output)
+		&& !s.world.commodity_get_money_rgo(output));
 		s.world.force_create_factory_location(f, province);
 		s.world.force_create_factory_site(f, project_site);
 		auto asset = s.world.create_asset();
