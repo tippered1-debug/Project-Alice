@@ -83,6 +83,19 @@ float net_demand(sys::state const& state, dcon::site_id destination,
 		- in_transit_to(state, destination, commodity, owner));
 }
 
+float active_factory_commitment(sys::state const& state, dcon::factory_id factory,
+	dcon::site_id destination, dcon::commodity_id commodity) noexcept {
+	return concrete_market::active_factory_bid_quantity(state, factory, destination, commodity);
+}
+
+procurement_account procurement_account_for(sys::state const& state,
+	dcon::economic_actor_id owner) noexcept {
+	procurement_account result{};
+	result.settlement = exchange::settlement_for_purchase(state, owner);
+	if(result.settlement) result.account = accounts::find_account(state, owner, result.settlement);
+	return result;
+}
+
 void begin_planning(sys::state& state) {
 	concrete_market::expire(state, state.current_date);
 	planned_orders.assign(state.world.factory_size(), planned_order{});
@@ -105,11 +118,13 @@ bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination
 		if(!commodity) break;
 		if(seen_before(inputs, i) || !physical_commodity(state, commodity)) continue;
 		planned_orders[factory.index()].commodities[quantity_index] = commodity;
-		planned_orders[factory.index()].quantities[quantity_index] = net_demand(
-			state, destination, owner, commodity, required_for(inputs, commodity, input_scale));
+		planned_orders[factory.index()].quantities[quantity_index] = std::max(0.0f, net_demand(
+			state, destination, owner, commodity, required_for(inputs, commodity, input_scale))
+			- active_factory_commitment(state, factory, destination, commodity));
 		if(planned_orders[factory.index()].quantities[quantity_index] > 0.0f) {
-			auto settlement = exchange::settlement_for_purchase(state, owner);
-			auto account = settlement ? accounts::find_account(state, owner, settlement) : dcon::monetary_account_id{};
+			auto funding = procurement_account_for(state, owner);
+			auto settlement = funding.settlement;
+			auto account = funding.account;
 			auto price = concrete_market::canonical_reference_price(state, market, commodity, state.current_date);
 			if(account && std::isfinite(price) && price > 0.0f) {
 				auto bid = concrete_market::post_bid(state, owner, account, destination, market, commodity,

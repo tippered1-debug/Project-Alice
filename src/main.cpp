@@ -18,6 +18,7 @@
 #include "economy/physical/freight_market.cpp"
 #include "economy/physical/exchange.cpp"
 #include "economy/physical/concrete_market.cpp"
+#include "economy/firm_agency.cpp"
 #include "economy/physical/factory_output.cpp"
 #include "economy/physical/factory_inputs.cpp"
 #include "economy/relations/relations.cpp"

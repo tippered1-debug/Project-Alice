@@ -13,6 +13,11 @@ struct availability {
 	float physical_ratio = 1.0f;
 };
 
+struct procurement_account {
+	dcon::monetary_account_id account{};
+	dcon::commodity_id settlement{};
+};
+
 availability evaluate(sys::state const&, dcon::site_id, dcon::economic_actor_id,
 	economy::commodity_set const&, dcon::market_id, float input_scale);
 
@@ -26,6 +31,9 @@ void fulfill(sys::state&);
 bool ordinary_physical_input(sys::state const&, dcon::commodity_id) noexcept;
 float net_demand(sys::state const&, dcon::site_id, dcon::economic_actor_id,
 	dcon::commodity_id, float required) noexcept;
+float active_factory_commitment(sys::state const&, dcon::factory_id,
+	dcon::site_id, dcon::commodity_id) noexcept;
+procurement_account procurement_account_for(sys::state const&, dcon::economic_actor_id) noexcept;
 
 bool consume(sys::state&, dcon::site_id, dcon::economic_actor_id,
 	economy::commodity_set const&, float input_scale, float ratio);
