@@ -3,7 +3,7 @@
 Carrier and freight market v1 is the concrete logistics settlement layer. A
 carrier is a persistent economic actor with one exact settlement account,
 supported transport-mode mask, service capacity, committed capacity, status,
-and optional primary market presence. Offers publish route scope, supported
+and optional home/origin market presence. Offers publish route scope, supported
 modes, capacity, and a deterministic handling-plus-distance price basis.
 
 A freight request is created from a concrete movement requirement: requester,
@@ -12,7 +12,9 @@ the current routed-leg quote. It does not read market demand, market fill,
 trade-route volume, congestion, or any other aggregate proxy. A successful
 concrete goods purchase transfers goods ownership at the source immediately;
 the request can remain pending with the buyer-owned stock if no carrier can
-match it. Later matching consumes that stock into the normal routed shipment.
+match it. The regular logistics tick retries pending requests in deterministic
+request-id order; later matching consumes that stock into the normal routed
+shipment.
 
 Matching considers active offers in stable price-then-offer-id order. The
 selected offer and carrier reserve cargo capacity separately from physical

@@ -124,6 +124,15 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 			if(!valid(quantity)) continue;
 			auto transaction = exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
 			if(!transaction) continue;
+			state.world.concrete_market_bid_set_remaining_quantity(bid, std::max(0.0f, state.world.concrete_market_bid_get_remaining_quantity(bid) - quantity));
+			state.world.concrete_market_bid_set_reserved_amount(bid, state.world.concrete_market_bid_get_remaining_quantity(bid) * state.world.concrete_market_bid_get_limit_price(bid));
+			state.world.concrete_market_ask_set_remaining_quantity(ask, std::max(0.0f, state.world.concrete_market_ask_get_remaining_quantity(ask) - quantity));
+			state.world.concrete_market_ask_set_reserved_quantity(ask, state.world.concrete_market_ask_get_remaining_quantity(ask));
+			if(state.world.concrete_market_bid_get_remaining_quantity(bid) <= epsilon) state.world.concrete_market_bid_set_status(bid, uint8_t(order_status::filled));
+			if(state.world.concrete_market_ask_get_remaining_quantity(ask) <= epsilon) state.world.concrete_market_ask_set_status(ask, uint8_t(order_status::filled));
+			// The current bid's consumed reservation is updated before freight
+			// affordability is evaluated, so only genuinely free payer cash is
+			// available for the separate freight payment.
 			auto request = freight_market::create_request(state, buyer, account, source, destination, commodity, quantity);
 			auto contract = request ? freight_market::match_request(state, request) : dcon::freight_contract_id{};
 			auto shipment = contract ? state.world.freight_contract_get_shipment_from_freight_contract_shipment(contract) : dcon::shipment_id{};
@@ -136,12 +145,6 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 			state.world.force_create_concrete_fill_transaction(fill, transaction);
 			if(request) state.world.force_create_concrete_fill_freight_request(fill, request);
 			if(shipment) state.world.force_create_concrete_fill_shipment(fill, shipment);
-			state.world.concrete_market_bid_set_remaining_quantity(bid, std::max(0.0f, state.world.concrete_market_bid_get_remaining_quantity(bid) - quantity));
-			state.world.concrete_market_bid_set_reserved_amount(bid, state.world.concrete_market_bid_get_remaining_quantity(bid) * state.world.concrete_market_bid_get_limit_price(bid));
-			state.world.concrete_market_ask_set_remaining_quantity(ask, std::max(0.0f, state.world.concrete_market_ask_get_remaining_quantity(ask) - quantity));
-			state.world.concrete_market_ask_set_reserved_quantity(ask, state.world.concrete_market_ask_get_remaining_quantity(ask));
-			if(state.world.concrete_market_bid_get_remaining_quantity(bid) <= epsilon) state.world.concrete_market_bid_set_status(bid, uint8_t(order_status::filled));
-			if(state.world.concrete_market_ask_get_remaining_quantity(ask) <= epsilon) state.world.concrete_market_ask_set_status(ask, uint8_t(order_status::filled));
 			result.push_back(fill);
 		}
 	}

@@ -2,6 +2,7 @@
 
 #include "system_state.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "economy/physical/concrete_market.hpp"
 #include "economy/physical/freight_market.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
@@ -30,15 +31,17 @@ struct carrier_fixture {
 	dcon::freight_offer_id offer{};
 };
 
-carrier_fixture add_carrier(fixture& f, float capacity, float charge, uint8_t mode_mask = (1u << 2)) {
+carrier_fixture add_carrier(fixture& f, float capacity, float charge,
+	uint8_t mode_mask = (1u << 2), dcon::market_id presence = {},
+	dcon::market_id offer_origin = {}, dcon::market_id offer_destination = {}) {
 	carrier_fixture result{};
 	result.actor = f.state->world.create_economic_actor();
 	result.account = economy::accounts::open_account(*f.state, result.actor, f.settlement);
 	economy::accounts::bootstrap_set_balance(*f.state, result.account, 0.0f);
 	result.carrier = economy::physical::freight_market::create_carrier(
-		*f.state, result.actor, result.account, capacity, mode_mask);
+		*f.state, result.actor, result.account, capacity, mode_mask, presence);
 	result.offer = economy::physical::freight_market::create_offer(
-		*f.state, result.carrier, {}, {},
+		*f.state, result.carrier, offer_origin, offer_destination,
 		mode_mask, capacity, charge, 0.0f);
 	return result;
 }
@@ -238,4 +241,77 @@ TEST_CASE("carrier service and infrastructure capacity are independent constrain
 	REQUIRE(f.state->world.shipment_is_valid(shipment));
 	REQUIRE(f.state->world.shipment_get_lifecycle(shipment) == 0);
 	REQUIRE(f.state->world.carrier_get_committed_capacity(carrier.carrier) == Approx(150.0f));
+}
+
+TEST_CASE("pending freight requests are matched by the regular pending-request pass",
+	"[economy][physical][freight]") {
+	fixture f;
+	auto request = request_for(f, 6.0f);
+	REQUIRE(request);
+	auto carrier = add_carrier(f, 100.0f, 2.0f);
+	economy::physical::freight_market::process_pending_requests(*f.state);
+	REQUIRE(f.state->world.freight_request_get_status(request)
+		== uint8_t(economy::physical::freight_market::freight_request_status::contracted));
+	dcon::freight_contract_id contract{};
+	f.state->world.freight_request_for_each_freight_contract_request(request,
+		[&](dcon::freight_contract_request_id relation) {
+			contract = f.state->world.freight_contract_request_get_freight_contract(relation);
+		});
+	REQUIRE(contract);
+	REQUIRE(f.state->world.freight_contract_get_shipment_from_freight_contract_shipment(contract));
+	REQUIRE(economy::accounts::balance(*f.state, carrier.account) == Approx(2.0f));
+}
+
+TEST_CASE("freight matching cannot spend cash reserved by an active concrete bid",
+	"[economy][physical][freight]") {
+	fixture f;
+	f.state->world.monetary_account_set_balance(f.payer, 100.0f);
+	auto market = f.state->world.create_market();
+	auto bid = economy::physical::concrete_market::post_bid(
+		*f.state, f.buyer, f.payer, f.destination, market, f.goods, 10.0f, 10.0f, {});
+	REQUIRE(bid);
+	REQUIRE(f.state->world.concrete_market_bid_get_reserved_amount(bid) == Approx(100.0f));
+	auto carrier = add_carrier(f, 100.0f, 2.0f);
+	auto request = request_for(f, 1.0f);
+	REQUIRE_FALSE(economy::physical::freight_market::match_request(*f.state, request));
+	REQUIRE(economy::accounts::balance(*f.state, f.payer) == Approx(100.0f));
+	REQUIRE(f.state->world.freight_offer_get_committed_capacity(carrier.offer) == Approx(0.0f));
+	REQUIRE(f.state->world.carrier_get_committed_capacity(carrier.carrier) == Approx(0.0f));
+	REQUIRE(f.state->world.shipment_size() == 0);
+}
+
+TEST_CASE("carrier home presence permits an explicitly scoped inter-market offer",
+	"[economy][physical][freight][routed-shipment]") {
+	fixture f;
+	auto origin_state = f.state->world.create_state_instance();
+	auto destination_state = f.state->world.create_state_instance();
+	auto origin_market = f.state->world.create_market();
+	auto destination_market = f.state->world.create_market();
+	auto origin_province = f.state->world.create_province();
+	auto destination_province = f.state->world.create_province();
+	f.state->world.force_create_site_location(f.source, origin_province);
+	f.state->world.force_create_site_location(f.destination, destination_province);
+	f.state->world.province_set_state_membership(origin_province, origin_state);
+	f.state->world.province_set_state_membership(destination_province, destination_state);
+	f.state->world.market_set_zone_from_local_market(origin_market, origin_state);
+	f.state->world.market_set_zone_from_local_market(destination_market, destination_state);
+	auto origin_hub = f.state->world.create_site();
+	auto destination_hub = f.state->world.create_site();
+	f.state->world.force_create_site_location(origin_hub, origin_province);
+	f.state->world.force_create_site_location(destination_hub, destination_province);
+	f.state->world.force_create_market_hub_site(origin_market, origin_hub);
+	f.state->world.force_create_market_hub_site(destination_market, destination_hub);
+	auto route = f.state->world.force_create_trade_route(origin_market, destination_market);
+	f.state->world.trade_route_set_is_land_route(route, true);
+	f.state->world.trade_route_set_land_distance(route, 150.0f);
+	f.state->world.trade_route_resize_volume(f.state->world.commodity_size());
+
+	constexpr uint8_t land_and_local = (1u << 0) | (1u << 2);
+	auto carrier = add_carrier(f, 100.0f, 3.0f, land_and_local,
+		origin_market, origin_market, destination_market);
+	auto request = request_for(f, 5.0f);
+	REQUIRE(request);
+	REQUIRE(economy::physical::freight_market::match_request(*f.state, request));
+	REQUIRE(f.state->world.freight_offer_get_origin_market(carrier.offer) == origin_market);
+	REQUIRE(f.state->world.freight_offer_get_destination_market(carrier.offer) == destination_market);
 }

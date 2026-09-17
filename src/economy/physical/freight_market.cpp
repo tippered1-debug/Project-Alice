@@ -18,6 +18,22 @@ constexpr float epsilon = 1.0e-5f;
 bool positive_finite(float value) noexcept { return std::isfinite(value) && value > 0.0f; }
 bool nonnegative_finite(float value) noexcept { return std::isfinite(value) && value >= 0.0f; }
 
+float active_bid_reservations(sys::state const& state, dcon::monetary_account_id account) {
+	float result = 0.0f;
+	state.world.for_each_concrete_market_bid([&](dcon::concrete_market_bid_id bid) {
+		if(state.world.concrete_market_bid_get_status(bid) != 0
+			|| !state.world.concrete_market_bid_get_concrete_bid_account(bid)
+			|| state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) != account)
+			return;
+		result += std::max(0.0f, state.world.concrete_market_bid_get_reserved_amount(bid));
+	});
+	return std::isfinite(result) ? result : 0.0f;
+}
+
+float free_payer_cash(sys::state const& state, dcon::monetary_account_id account) {
+	return std::max(0.0f, accounts::balance(state, account) - active_bid_reservations(state, account));
+}
+
 dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 	if(!site || !state.world.site_is_valid(site)) return {};
 	auto province = state.world.site_get_province_from_site_location(site);
@@ -34,11 +50,13 @@ struct offer_candidate {
 };
 
 bool carrier_has_presence_for(sys::state const& state, dcon::carrier_id carrier,
-	dcon::market_id origin, dcon::market_id destination) {
+	dcon::market_id origin, dcon::market_id /*destination*/) {
 	auto presence = state.world.carrier_get_carrier_market_presence(carrier);
 	if(!presence) return true; // An empty presence set is the v1 open service area.
 	auto market = state.world.carrier_market_presence_get_market(presence);
-	return (!origin || market == origin) && (!destination || market == destination);
+	// Presence identifies the carrier's home/origin availability. An offer's
+	// explicit destination scope controls where that service may end.
+	return !origin || market == origin;
 }
 
 bool offer_matches(sys::state const& state, dcon::freight_offer_id offer,
@@ -175,7 +193,7 @@ dcon::freight_contract_id match_request(sys::state& state, dcon::freight_request
 			quote.required_mode_mask, state.world.freight_request_get_cargo_units(request),
 			price, carrier, carrier_account)
 			&& accounts::settlement_of(state, payer) == accounts::settlement_of(state, carrier_account)
-			&& accounts::balance(state, payer) + epsilon >= price)
+			&& free_payer_cash(state, payer) + epsilon >= price)
 			candidates.push_back({ offer, carrier, carrier_account, price });
 	});
 	std::sort(candidates.begin(), candidates.end(), [](auto const& a, auto const& b) {
@@ -237,6 +255,18 @@ dcon::freight_contract_id match_request(sys::state& state, dcon::freight_request
 	state.world.force_create_shipment_carrier(shipment, selected.carrier);
 	state.world.freight_request_set_status(request, uint8_t(freight_request_status::contracted));
 	return contract;
+}
+
+void process_pending_requests(sys::state& state) {
+	std::vector<dcon::freight_request_id> pending;
+	state.world.for_each_freight_request([&](dcon::freight_request_id request) {
+		if(state.world.freight_request_get_status(request) == uint8_t(freight_request_status::pending))
+			pending.push_back(request);
+	});
+	std::sort(pending.begin(), pending.end(), [](auto a, auto b) { return a.index() < b.index(); });
+	for(auto request : pending) {
+		if(state.world.freight_request_is_valid(request)) match_request(state, request);
+	}
 }
 
 void complete_contract_for_shipment(sys::state& state, dcon::shipment_id shipment) {

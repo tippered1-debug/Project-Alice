@@ -24,6 +24,7 @@ dcon::freight_request_id create_request(sys::state&, dcon::economic_actor_id,
 	dcon::monetary_account_id, dcon::site_id source, dcon::site_id destination,
 	dcon::commodity_id, float quantity);
 dcon::freight_contract_id match_request(sys::state&, dcon::freight_request_id);
+void process_pending_requests(sys::state&);
 void complete_contract_for_shipment(sys::state&, dcon::shipment_id);
 
 } // namespace economy::physical::freight_market
