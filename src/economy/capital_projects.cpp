@@ -170,6 +170,9 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		s.world.factory_set_productivity_factor(f, 1.0f);
 		s.world.factory_set_target_utilization(f, 1.0f);
 		s.world.factory_set_actual_utilization(f, 0.0f);
+		s.world.factory_set_payroll_settlement(f,
+			s.world.monetary_account_get_commodity_from_monetary_account_settlement(
+				s.world.capital_project_get_monetary_account_from_capital_project_account(p)));
 		auto output = s.world.factory_type_get_output(s.world.capital_project_get_factory_type(p));
 		s.world.factory_set_canonical_production(f, output && !s.world.commodity_get_is_local(output)
 		&& !s.world.commodity_get_money_rgo(output));

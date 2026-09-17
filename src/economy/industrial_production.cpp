@@ -7,6 +7,8 @@
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "world/site.hpp"
+#include "economy/payroll.hpp"
+#include "economy/accounts/accounts.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -54,6 +56,18 @@ void bootstrap_factory(sys::state& state, dcon::factory_id factory) {
 	state.world.factory_set_actual_utilization(factory, 0.0f);
 	state.world.factory_set_canonical_production(factory, output && !state.world.commodity_get_is_local(output)
 		&& !state.world.commodity_get_money_rgo(output));
+	if(state.world.factory_get_canonical_production(factory) && !state.world.factory_get_payroll_settlement(factory)) {
+		auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
+		dcon::commodity_id settlement{};
+		bool ambiguous = false;
+		if(operator_actor) state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(operator_actor, [&](auto relation) {
+			auto account = state.world.monetary_account_owner_get_monetary_account(relation);
+			auto candidate = economy::accounts::settlement_of(state, account);
+			if(!settlement) settlement = candidate;
+			else if(candidate != settlement) ambiguous = true;
+		});
+		if(settlement && !ambiguous) state.world.factory_set_payroll_settlement(factory, settlement);
+	}
 }
 
 void bootstrap_factories(sys::state& state) {
@@ -99,6 +113,7 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	state.world.factory_set_actual_utilization(factory, capacity > 0.0f ? std::clamp(actual_units / capacity, 0.0f, 1.0f) : 0.0f);
 	state.world.factory_set_output(factory, actual_output);
 	if(actual_output > 0.0f) physical::factory_output::materialize_and_dispatch(state, factory, actual_output);
+	::economy::payroll::settle_factory(state, factory, actual_units, planned);
 	return actual_output;
 }
 

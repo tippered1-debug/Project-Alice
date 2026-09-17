@@ -14,6 +14,7 @@
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/deposits.hpp"
+#include "economy/payroll.hpp"
 #include "world/site.hpp"
 #include "actors/organizations/organizations.hpp"
 
@@ -1796,7 +1797,10 @@ void set_initial_factory_values(sys::state& state, dcon::factory_id f) {
 	state.world.factory_set_productivity_factor(f, std::max(0.05f, state.world.factory_get_technology_scale(f)));
 	state.world.factory_set_target_utilization(f, 1.0f);
 	state.world.factory_set_actual_utilization(f, 0.0f);
-	state.world.factory_set_canonical_production(f, 1);
+	auto output_commodity = state.world.factory_type_get_output(ftid);
+	state.world.factory_set_canonical_production(f, output_commodity
+		&& !state.world.commodity_get_is_local(output_commodity)
+		&& !state.world.commodity_get_money_rgo(output_commodity));
 }
 
 uint32_t repair_corrupted_factory_sizes(sys::state& state) {
@@ -1868,6 +1872,7 @@ void update_artisan_production(sys::state& state) {
 void update_factories_production(
 	sys::state& state
 ) {
+	::economy::payroll::begin_day(state);
 	// could be done in parallel over markets???
 	state.world.for_each_factory([&](auto factory) {
 		if(state.world.factory_get_canonical_production(factory)) {

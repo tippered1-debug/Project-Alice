@@ -5160,6 +5160,18 @@ object{
 }
 
 object{
+	name{ payroll_event }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ settlement } type{ commodity_id } tag{ save } }
+	property{ name{ gross_due } type{ float } tag{ save } }
+	property{ name{ paid } type{ float } tag{ save } }
+	property{ name{ unpaid } type{ float } tag{ save } }
+	property{ name{ occurred_on } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ capital_project }
 	storage_type{ erasable }
 	size{ 100000 }
@@ -5684,6 +5696,8 @@ object {
 	property{ name{ target_utilization } type{ float } tag{ save } }
 	property{ name{ actual_utilization } type{ float } tag{ save } }
 	property{ name{ canonical_production } type{ uint8_t } tag{ save } }
+	property{ name{ payroll_settlement } type{ commodity_id } tag{ save } }
+	property{ name{ last_payroll_date } type{ sys::date } tag{ save } }
 }
 
 relationship{
@@ -6302,6 +6316,34 @@ relationship{
 	tag{ save }
 	link{ object{ monetary_account } name{ monetary_account } type{ unique } }
 	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ province_labor_clearing }
+	tag{ save }
+	link{ object{ province } name{ province } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ payroll_event_factory }
+	tag{ save }
+	link{ object{ payroll_event } name{ payroll_event } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ payroll_event_operator }
+	tag{ save }
+	link{ object{ payroll_event } name{ payroll_event } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ payroll_event_province }
+	tag{ save }
+	link{ object{ payroll_event } name{ payroll_event } type{ unique } }
+	link{ object{ province } name{ province } type{ many } index_storage{ array } }
 }
 
 relationship{

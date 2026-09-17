@@ -1,4 +1,5 @@
 #include "economy_pops.hpp"
+#include "economy/payroll.hpp"
 #include "economy_production.hpp"
 #include "price.hpp"
 #include "province_templates.hpp"
@@ -1945,8 +1946,17 @@ void update_income_wages(sys::state& state){
 	static auto buffer_primary_workers_wage = state.world.province_make_vectorizable_float_buffer();
 	static auto buffer_high_not_accepted_workers_wage = state.world.province_make_vectorizable_float_buffer();
 	static auto buffer_high_accepted_workers_wage = state.world.province_make_vectorizable_float_buffer();
+	static auto buffer_canonical_primary_wage = state.world.province_make_vectorizable_float_buffer();
+	static auto buffer_canonical_secondary_wage = state.world.province_make_vectorizable_float_buffer();
+	static auto buffer_canonical_factory = state.world.province_make_vectorizable_int_buffer();
 
-	province::ve_parallel_for_each_land_province(state, [&](auto pid) {
+	state.world.for_each_province([&](dcon::province_id pid) {
+		auto canonical_payroll = ::economy::payroll::for_province(state, pid);
+		auto primary_workers = state.world.province_get_demographics(pid, demographics::to_key(state, state.culture_definitions.primary_factory_worker));
+		auto secondary_workers = state.world.province_get_demographics(pid, demographics::to_key(state, state.culture_definitions.secondary_factory_worker));
+		buffer_canonical_primary_wage.set(pid, canonical_payroll.canonical_factory ? (canonical_payroll.no_education + canonical_payroll.basic_education) / std::max(primary_workers, 1.0f) : 0.0f);
+		buffer_canonical_secondary_wage.set(pid, canonical_payroll.canonical_factory ? canonical_payroll.high_education / std::max(secondary_workers, 1.0f) : 0.0f);
+		buffer_canonical_factory.set(pid, canonical_payroll.canonical_factory ? 1 : 0);
 		auto no_education_price = state.world.province_get_labor_price(pid, labor::no_education);
 		auto no_education_sold = state.world.province_get_labor_supply_sold(pid, labor::no_education);
 		auto no_education_wage = no_education_price * no_education_sold;
@@ -2131,14 +2141,18 @@ void update_income_wages(sys::state& state){
 			buffer_rgo_workers_wage.get(province),
 			ve::select(
 				pop_type == state.culture_definitions.primary_factory_worker,
-				buffer_primary_workers_wage.get(province),
+				ve::select(buffer_canonical_factory.get(province) != 0, buffer_canonical_primary_wage.get(province), buffer_primary_workers_wage.get(province)),
 				ve::select(
+					pop_type == state.culture_definitions.secondary_factory_worker,
+					ve::select(buffer_canonical_factory.get(province) != 0, buffer_canonical_secondary_wage.get(province), buffer_high_not_accepted_workers_wage.get(province)),
+					ve::select(
 					accepted && high_education,
 					buffer_high_accepted_workers_wage.get(province),
 					ve::select(
 						high_education,
 						buffer_high_not_accepted_workers_wage.get(province),
 						ve::fp_vector{0.f}
+					)
 					)
 				)
 			)
