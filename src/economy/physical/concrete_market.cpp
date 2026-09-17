@@ -45,6 +45,10 @@ float reserved_funds(sys::state const& state, dcon::monetary_account_id account)
 }
 }
 
+float reserved_bid_amount(sys::state const& state, dcon::monetary_account_id account) {
+	return reserved_funds(state, account);
+}
+
 dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id buyer,
 	dcon::monetary_account_id account, dcon::site_id destination, dcon::market_id market,
 	dcon::commodity_id commodity, float quantity, float limit_price, order_purpose purpose) {
