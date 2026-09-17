@@ -5007,6 +5007,34 @@ object{
 		type{ commodity_id }
 		tag{ save }
 	}
+	property{ name{ original_recoverable_reserves } type{ float } tag{ save } }
+	property{ name{ remaining_recoverable_reserves } type{ float } tag{ save } }
+	property{ name{ grade_or_quality } type{ float } tag{ save } }
+	property{ name{ daily_extraction_capacity } type{ float } tag{ save } }
+	property{ name{ target_daily_extraction } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ legacy_compatibility_deposit } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ resource_extraction_right }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{ name{ valid_from } type{ sys::date } tag{ save } }
+	property{ name{ valid_until } type{ sys::date } tag{ save } }
+	property{ name{ max_daily_quantity } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ extraction_event }
+	storage_type{ erasable }
+	size{ 500000 }
+	tag{ save }
+	property{ name{ commodity } type{ commodity_id } tag{ save } }
+	property{ name{ quantity } type{ float } tag{ save } }
+	property{ name{ date } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -5688,6 +5716,55 @@ relationship{
 	tag{ save }
 	link{ object{ resource_deposit } name{ resource_deposit } type{ unique } }
 	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ resource_deposit_asset }
+	tag{ save }
+	link{ object{ resource_deposit } name{ resource_deposit } type{ unique } }
+	link{ object{ asset } name{ asset } type{ unique } }
+}
+
+relationship{
+	name{ resource_extraction_right_deposit }
+	tag{ save }
+	link{ object{ resource_extraction_right } name{ resource_extraction_right } type{ unique } }
+	link{ object{ resource_deposit } name{ resource_deposit } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ resource_extraction_right_holder }
+	tag{ save }
+	link{ object{ resource_extraction_right } name{ resource_extraction_right } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ resource_extraction_right_granting_nation }
+	tag{ save }
+	link{ object{ resource_extraction_right } name{ resource_extraction_right } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ resource_extraction_right_granting_institution }
+	tag{ save }
+	link{ object{ resource_extraction_right } name{ resource_extraction_right } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ extraction_event_deposit }
+	tag{ save }
+	link{ object{ extraction_event } name{ extraction_event } type{ unique } }
+	link{ object{ resource_deposit } name{ resource_deposit } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ extraction_event_operator }
+	tag{ save }
+	link{ object{ extraction_event } name{ extraction_event } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
 }
 
 relationship{

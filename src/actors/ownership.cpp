@@ -21,6 +21,10 @@ dcon::asset_id asset_for_factory(sys::state const& state, dcon::factory_id facto
 	return factory ? state.world.factory_get_asset_from_factory_asset(factory) : dcon::asset_id{};
 }
 
+dcon::asset_id asset_for_deposit(sys::state const& state, dcon::resource_deposit_id deposit) {
+	return deposit ? state.world.resource_deposit_get_asset_from_resource_deposit_asset(deposit) : dcon::asset_id{};
+}
+
 dcon::economic_actor_id operator_for_deposit(sys::state const& state, dcon::resource_deposit_id deposit) {
 	if(!deposit) return {};
 	return actor_for_organization(state, state.world.resource_deposit_get_organization_from_resource_deposit_operator(deposit));

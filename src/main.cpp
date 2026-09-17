@@ -12,6 +12,7 @@
 #include "actors/ownership.cpp"
 #include "actors/organizations/organizations.cpp"
 #include "economy/physical/deposits.cpp"
+#include "economy/physical/extraction.cpp"
 #include "economy/physical/inventory.cpp"
 #include "economy/physical/shipments.cpp"
 #include "economy/physical/exchange.cpp"

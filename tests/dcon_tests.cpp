@@ -6,6 +6,7 @@
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/physical/extraction.hpp"
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/exchange.hpp"
@@ -281,7 +282,74 @@ TEST_CASE("physical_rgo_arrives_once_at_market_hub", "[economy][physical][integr
 		::economy::physical::shipments::advance(*state);
 	REQUIRE(state->world.shipment_size() == 0);
 	auto expected = 5.0f * (1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage);
-	REQUIRE(::economy::physical::inventory::quantity(*state, ::economy::physical::deposits::market_hub_for(*state, market), commodity, {}) == Approx(expected).epsilon(0.00001));
+	auto deposit = ::economy::physical::deposits::deposit_for(*state, province, commodity);
+	auto operator_actor = ::actors::organizations::operator_actor_for_deposit(*state, deposit);
+	REQUIRE(operator_actor);
+	REQUIRE(::economy::physical::inventory::quantity(*state, ::economy::physical::deposits::market_hub_for(*state, market), commodity, operator_actor) == Approx(expected).epsilon(0.00001));
+}
+
+TEST_CASE("canonical_resource_extraction_is_bounded_and_owner_separate", "[economy][physical][extraction]") {
+	auto state = std::make_unique<sys::state>();
+	auto province = state->world.create_province();
+	auto site = state->world.create_site();
+	state->world.force_create_site_location(site, province);
+	auto commodity = state->world.create_commodity();
+	auto deposit = state->world.create_resource_deposit();
+	state->world.resource_deposit_set_commodity(deposit, commodity);
+	state->world.resource_deposit_set_original_recoverable_reserves(deposit, 100.0f);
+	state->world.resource_deposit_set_remaining_recoverable_reserves(deposit, 100.0f);
+	state->world.resource_deposit_set_grade_or_quality(deposit, 1.0f);
+	state->world.resource_deposit_set_daily_extraction_capacity(deposit, 20.0f);
+	state->world.resource_deposit_set_target_daily_extraction(deposit, 20.0f);
+	state->world.resource_deposit_set_status(deposit, 0);
+	state->world.force_create_resource_deposit_site(deposit, site);
+	auto owner = state->world.create_economic_actor();
+	auto operator_org = ::actors::organizations::create_company(*state);
+	auto operator_actor = ::actors::organizations::actor_for_organization(*state, operator_org);
+	REQUIRE(::actors::organizations::bind_deposit_operator(*state, operator_org, deposit));
+	auto asset = state->world.create_asset();
+	state->world.force_create_resource_deposit_asset(deposit, asset);
+	REQUIRE(::actors::ownership::create_stake(*state, owner, asset, 1.0f, 1.0f, 1.0f));
+	auto right = state->world.create_resource_extraction_right();
+	state->world.resource_extraction_right_set_valid_from(right, sys::date{0});
+	state->world.resource_extraction_right_set_valid_until(right, sys::date{100});
+	state->world.resource_extraction_right_set_max_daily_quantity(right, 20.0f);
+	state->world.resource_extraction_right_set_status(right, 0);
+	state->world.force_create_resource_extraction_right_deposit(right, deposit);
+	state->world.force_create_resource_extraction_right_holder(right, operator_actor);
+	REQUIRE(::economy::physical::extraction::extract_resource(*state, deposit, operator_actor, 10.0f, sys::date{1}) == Approx(10.0f));
+	REQUIRE(state->world.resource_deposit_get_remaining_recoverable_reserves(deposit) == Approx(90.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, operator_actor) == Approx(10.0f));
+	REQUIRE(state->world.extraction_event_size() == 1);
+	REQUIRE(::economy::physical::extraction::extract_resource(*state, deposit, operator_actor, 50.0f, sys::date{1}) == Approx(10.0f));
+	REQUIRE(state->world.resource_deposit_get_remaining_recoverable_reserves(deposit) == Approx(80.0f));
+	REQUIRE(state->world.extraction_event_size() == 2);
+	REQUIRE(::actors::ownership::asset_for_deposit(*state, deposit) == asset);
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, owner) == Approx(0.0f));
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, operator_actor) == Approx(20.0f));
+}
+
+TEST_CASE("canonical_extraction_without_right_has_zero_mutation", "[economy][physical][extraction]") {
+	auto state = std::make_unique<sys::state>();
+	auto province = state->world.create_province();
+	auto site = state->world.create_site();
+	state->world.force_create_site_location(site, province);
+	auto commodity = state->world.create_commodity();
+	auto deposit = state->world.create_resource_deposit();
+	state->world.resource_deposit_set_commodity(deposit, commodity);
+	state->world.resource_deposit_set_remaining_recoverable_reserves(deposit, 7.0f);
+	state->world.resource_deposit_set_daily_extraction_capacity(deposit, 7.0f);
+	state->world.resource_deposit_set_target_daily_extraction(deposit, 7.0f);
+	state->world.resource_deposit_set_status(deposit, 0);
+	state->world.force_create_resource_deposit_site(deposit, site);
+	auto organization = ::actors::organizations::create_company(*state);
+	auto actor = ::actors::organizations::actor_for_organization(*state, organization);
+	REQUIRE(::actors::organizations::bind_deposit_operator(*state, organization, deposit));
+	state->world.force_create_resource_deposit_asset(deposit, state->world.create_asset());
+	REQUIRE(::economy::physical::extraction::extract_resource(*state, deposit, actor, 7.0f, sys::date{1}) == Approx(0.0f));
+	REQUIRE(state->world.resource_deposit_get_remaining_recoverable_reserves(deposit) == Approx(7.0f));
+	REQUIRE(state->world.extraction_event_size() == 0);
+	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, actor) == Approx(0.0f));
 }
 
 TEST_CASE("physical_exchange_settles_concrete_stock_and_cash_atomically", "[economy][physical][exchange]") {
