@@ -2,6 +2,8 @@
 #include "economy/accounts/accounts.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
+#include "economy/physical/concrete_market.hpp"
+#include "economy/physical/shipments.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/relations/relations.hpp"
@@ -103,6 +105,18 @@ TEST_CASE("firm agency responds to unsold output and recovers after sales", "[ec
 	REQUIRE(economy::firm_agency::decide_factory(*f.state, f.factory).desired_units > suppressed.desired_units);
 }
 
+TEST_CASE("firm agency counts owned output in transit as unsold exposure", "[economy][firm_agency]") {
+	firm_agency_tests::fixture f;
+	auto healthy = economy::firm_agency::decide_factory(*f.state, f.factory);
+	auto transit_destination = f.state->world.create_site();
+	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.output, 100.0f, f.owner) == Approx(100.0f));
+	REQUIRE(economy::physical::shipments::dispatch(*f.state, f.site, transit_destination, f.output, 100.0f, f.owner));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.output, f.owner) == Approx(0.0f));
+	auto pipeline = economy::firm_agency::decide_factory(*f.state, f.factory);
+	REQUIRE(pipeline.output_inventory >= 100.0f);
+	REQUIRE(pipeline.desired_units < healthy.desired_units);
+}
+
 TEST_CASE("firm agency gives payroll arrears conservative weight", "[economy][firm_agency]") {
 	firm_agency_tests::fixture f;
 	auto healthy = economy::firm_agency::decide_factory(*f.state, f.factory);
@@ -134,19 +148,57 @@ TEST_CASE("firm agency does not bid for input already owned", "[economy][firm_ag
 	REQUIRE(f.state->world.concrete_market_bid_size() == 0);
 }
 
-TEST_CASE("firm agency counts active procurement reservation as committed cash", "[economy][firm_agency]") {
+TEST_CASE("firm agency treats active procurement as committed rather than duplicate demand", "[economy][firm_agency]") {
 	firm_agency_tests::fixture f;
 	auto bid = economy::physical::concrete_market::post_bid(*f.state, f.owner, f.account, f.site,
 		f.market, f.input, 10.0f, 50.0f, economy::physical::concrete_market::order_purpose::factory_input);
 	REQUIRE(bid);
+	f.state->world.force_create_concrete_bid_factory(bid, f.factory);
 	auto decision = economy::firm_agency::decide_factory(*f.state, f.factory);
-	REQUIRE(decision.cash_limited_units == Approx(0.0f));
+	REQUIRE(decision.cash_limited_units > 0.0f);
+	REQUIRE(economy::physical::factory_inputs::active_factory_commitment(*f.state, f.factory, f.site, f.input) == Approx(10.0f));
+	economy::commodity_set recipe{};
+	recipe.commodity_type[0] = f.input;
+	recipe.commodity_amounts[0] = 1.0f;
+	economy::physical::factory_inputs::begin_planning(*f.state);
+	REQUIRE(economy::physical::factory_inputs::plan(*f.state, f.factory, f.site, f.owner, recipe, f.market, 10.0f));
+	REQUIRE(economy::physical::factory_inputs::planned_quantity(*f.state, f.factory, f.input, -1.0f) == Approx(0.0f));
+	REQUIRE(f.state->world.concrete_market_bid_size() == 1);
 }
 
-TEST_CASE("firm agency decision is deterministic and uses canonical price history", "[economy][firm_agency]") {
+TEST_CASE("firm agency partial procurement commitment leaves only incremental demand", "[economy][firm_agency]") {
+	firm_agency_tests::fixture f;
+	auto bid = economy::physical::concrete_market::post_bid(*f.state, f.owner, f.account, f.site,
+		f.market, f.input, 4.0f, 2.0f, economy::physical::concrete_market::order_purpose::factory_input);
+	REQUIRE(bid);
+	f.state->world.force_create_concrete_bid_factory(bid, f.factory);
+	economy::commodity_set recipe{};
+	recipe.commodity_type[0] = f.input;
+	recipe.commodity_amounts[0] = 1.0f;
+	economy::physical::factory_inputs::begin_planning(*f.state);
+	REQUIRE(economy::physical::factory_inputs::plan(*f.state, f.factory, f.site, f.owner, recipe, f.market, 10.0f));
+	REQUIRE(economy::physical::factory_inputs::planned_quantity(*f.state, f.factory, f.input, -1.0f) == Approx(6.0f));
+}
+
+TEST_CASE("firm agency decision is deterministic", "[economy][firm_agency]") {
 	firm_agency_tests::fixture f;
 	auto first = economy::firm_agency::decide_factory(*f.state, f.factory);
 	auto second = economy::firm_agency::decide_factory(*f.state, f.factory);
 	REQUIRE(second.desired_units == Approx(first.desired_units));
 	REQUIRE(second.expected_gross_margin == Approx(first.expected_gross_margin));
+}
+
+TEST_CASE("firm agency prefers concrete output price history over legacy price", "[economy][firm_agency]") {
+	firm_agency_tests::fixture f;
+	auto seller = f.state->world.create_economic_actor();
+	auto seller_account = economy::accounts::open_account(*f.state, seller, f.settlement);
+	economy::accounts::bootstrap_set_balance(*f.state, seller_account, 0.0f);
+	auto source = f.state->world.create_site();
+	REQUIRE(economy::physical::inventory::add(*f.state, source, f.output, 2.0f, seller) == Approx(2.0f));
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, source, f.market, f.output, 2.0f, 40.0f, {}) );
+	REQUIRE(economy::physical::concrete_market::post_bid(*f.state, f.owner, f.account, f.site, f.market, f.output, 2.0f, 40.0f, {}));
+	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.output, {}).size() == 1);
+	f.state->world.market_set_price(f.market, f.output, 1.0f);
+	auto decision = economy::firm_agency::decide_factory(*f.state, f.factory);
+	REQUIRE(decision.expected_unit_revenue == Approx(40.0f));
 }

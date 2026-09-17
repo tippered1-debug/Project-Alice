@@ -49,6 +49,19 @@ float reserved_bid_amount(sys::state const& state, dcon::monetary_account_id acc
 	return reserved_funds(state, account);
 }
 
+float active_factory_bid_quantity(sys::state const& state, dcon::factory_id factory,
+	dcon::site_id destination, dcon::commodity_id commodity) {
+	float result = 0.0f;
+	state.world.for_each_concrete_market_bid([&](auto bid) {
+		if(state.world.concrete_market_bid_get_status(bid) != active
+			|| state.world.concrete_market_bid_get_factory_from_concrete_bid_factory(bid) != factory
+			|| state.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid) != destination
+			|| state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) != commodity) return;
+		result += std::max(0.0f, state.world.concrete_market_bid_get_remaining_quantity(bid));
+	});
+	return result;
+}
+
 dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id buyer,
 	dcon::monetary_account_id account, dcon::site_id destination, dcon::market_id market,
 	dcon::commodity_id commodity, float quantity, float limit_price, order_purpose purpose) {
