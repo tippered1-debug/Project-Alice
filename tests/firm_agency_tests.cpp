@@ -140,6 +140,22 @@ TEST_CASE("firm agency separates procurement and payroll accounts", "[economy][f
 	REQUIRE(decision.desired_units > 0.0f);
 }
 
+TEST_CASE("firm agency does not use payroll-reserved bids for payroll", "[economy][firm_agency]") {
+	firm_agency_tests::fixture f;
+	auto payroll_settlement = f.state->world.create_commodity();
+	auto payroll_account = economy::accounts::open_account(*f.state, f.owner, payroll_settlement);
+	economy::accounts::bootstrap_set_balance(*f.state, payroll_account, 100.0f);
+	f.state->world.factory_set_payroll_settlement(f.factory, payroll_settlement);
+	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.input, 100.0f, f.owner) == Approx(100.0f));
+	auto reserved = economy::physical::concrete_market::post_bid(*f.state, f.owner, payroll_account,
+		f.site, f.market, f.input, 95.0f, 1.0f,
+		economy::physical::concrete_market::order_purpose::general);
+	REQUIRE(reserved);
+	REQUIRE(economy::physical::concrete_market::reserved_bid_amount(*f.state, payroll_account) == Approx(95.0f));
+	auto decision = economy::firm_agency::decide_factory(*f.state, f.factory);
+	REQUIRE(decision.desired_units == Approx(0.0f));
+}
+
 TEST_CASE("firm agency gives payroll arrears conservative weight", "[economy][firm_agency]") {
 	firm_agency_tests::fixture f;
 	auto healthy = economy::firm_agency::decide_factory(*f.state, f.factory);
@@ -221,7 +237,7 @@ TEST_CASE("firm agency prefers concrete output price history over legacy price",
 	REQUIRE(economy::physical::inventory::add(*f.state, source, f.output, 2.0f, seller) == Approx(2.0f));
 	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, source, f.market, f.output, 2.0f, 40.0f, {}) );
 	REQUIRE(economy::physical::concrete_market::post_bid(*f.state, f.owner, f.account, f.site, f.market, f.output, 2.0f, 40.0f, {}));
-	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.output, {}).size() == 1);
+	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.output, sys::date{10}).size() == 1);
 	f.state->current_date = sys::date{11};
 	f.state->world.market_set_price(f.market, f.output, 1.0f);
 	auto decision = economy::firm_agency::decide_factory(*f.state, f.factory);

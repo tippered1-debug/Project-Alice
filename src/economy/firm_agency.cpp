@@ -118,6 +118,7 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 	auto procurement_cash = account ? std::max(0.0f, accounts::balance(state, account)
 		- physical::concrete_market::reserved_bid_amount(state, account)) : 0.0f;
 	auto payroll_cash = payroll_account ? std::max(0.0f, accounts::balance(state, payroll_account)
+		- physical::concrete_market::reserved_bid_amount(state, payroll_account)
 		- arrears_due(state, owner, payroll_settlement)) : 0.0f;
 	if(account && payroll_account && account == payroll_account)
 		procurement_cash = payroll_cash = std::max(0.0f, procurement_cash
