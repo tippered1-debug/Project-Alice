@@ -5173,6 +5173,10 @@ object{
 	property{ name{ state_funded } type{ uint8_t } tag{ save } }
 	property{ name{ factory_type } type{ factory_type_id } tag{ save } }
 	property{ name{ target_commodity } type{ commodity_id } tag{ save } }
+	property{ name{ planned_reserves } type{ float } tag{ save } }
+	property{ name{ planned_grade } type{ float } tag{ save } }
+	property{ name{ planned_daily_capacity } type{ float } tag{ save } }
+	property{ name{ planned_target_daily_extraction } type{ float } tag{ save } }
 }
 
 object{

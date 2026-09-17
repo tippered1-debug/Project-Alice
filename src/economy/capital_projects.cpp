@@ -5,6 +5,7 @@
 #include "economy/accounts/accounts.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/physical/deposits.hpp"
 #include "governance/finance/finance.hpp"
 #include <algorithm>
 #include <cmath>
@@ -31,12 +32,19 @@ void refresh(sys::state& s, dcon::capital_project_id p) {
 }
 
 dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic_actor_id owner,
-	dcon::organization_id responsible, dcon::site_id project_site, dcon::commodity_id settlement, dcon::factory_type_id type, dcon::commodity_id target_commodity) {
+	dcon::organization_id responsible, dcon::site_id project_site, dcon::commodity_id settlement, dcon::factory_type_id type, dcon::commodity_id target_commodity,
+	float planned_reserves, float planned_grade, float planned_daily_capacity, float planned_target_daily_extraction) {
 	if(!owner || !responsible || !project_site || !settlement || !s.world.economic_actor_is_valid(owner)
 		|| !s.world.organization_is_valid(responsible) || !s.world.site_is_valid(project_site)
 		|| !s.world.commodity_is_valid(settlement) || (kind == project_kind::factory && !type)
+		|| (type && !s.world.factory_type_is_valid(type))
 		|| (kind == project_kind::extraction_site && !target_commodity)
-		|| (target_commodity && !s.world.commodity_is_valid(target_commodity))) return {};
+		|| (target_commodity && !s.world.commodity_is_valid(target_commodity))
+		|| !std::isfinite(planned_reserves) || planned_reserves < 0.0f
+		|| !std::isfinite(planned_grade) || planned_grade < 0.0f
+		|| !std::isfinite(planned_daily_capacity) || planned_daily_capacity < 0.0f
+		|| !std::isfinite(planned_target_daily_extraction) || planned_target_daily_extraction < 0.0f
+		|| (kind == project_kind::extraction_site && planned_reserves <= 0.0f)) return {};
 	auto p = s.world.create_capital_project();
 	s.world.capital_project_set_project_kind(p, uint8_t(kind));
 	s.world.capital_project_set_status(p, uint8_t(status::planned));
@@ -47,6 +55,10 @@ dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic
 	s.world.capital_project_set_state_funded(p, 0);
 	s.world.capital_project_set_factory_type(p, type);
 	s.world.capital_project_set_target_commodity(p, target_commodity);
+	s.world.capital_project_set_planned_reserves(p, planned_reserves);
+	s.world.capital_project_set_planned_grade(p, planned_grade);
+	s.world.capital_project_set_planned_daily_capacity(p, planned_daily_capacity);
+	s.world.capital_project_set_planned_target_daily_extraction(p, planned_target_daily_extraction);
 	s.world.force_create_capital_project_sponsor(p, owner);
 	s.world.force_create_capital_project_responsible(p, responsible);
 	s.world.force_create_capital_project_site(p, project_site);
@@ -101,12 +113,19 @@ dcon::shipment_id deliver_material(sys::state& s, dcon::capital_project_id p, dc
 		|| s.world.capital_project_get_status(p) >= uint8_t(status::completed)) return {};
 	auto seller = accounts::owner_of(s, seller_account);
 	auto project_account = s.world.capital_project_get_monetary_account_from_capital_project_account(p);
-	if(!seller || !project_account || accounts::settlement_of(s, seller_account) != accounts::settlement_of(s, project_account)) return {};
+	if(!seller || !project_account || accounts::settlement_of(s, seller_account) != accounts::settlement_of(s, project_account)
+		|| (price > 0.0f && accounts::balance(s, project_account) < price)) return {};
 	if(physical::inventory::quantity(s, seller_site, c, seller) < amount) return {};
-	if(price > 0.0f && !accounts::transfer(s, project_account, seller_account, price, relations::transaction_kind::purchase, s.current_date)) return {};
-	// Transfer ownership at the seller site, then dispatch the buyer-owned stock.
-	if(!physical::inventory::transfer(s, seller_site, c, seller, sponsor(s, p), amount)) return {};
-	return physical::shipments::dispatch(s, seller_site, site(s, p), c, amount, sponsor(s, p));
+	// Dispatch first: it validates and commits the physical leg, and its owner is
+	// the project sponsor. Cash is transferred only after that leg is guaranteed.
+	auto shipment = physical::shipments::dispatch_transfer(s, seller_site, site(s, p), c, amount, seller, sponsor(s, p));
+	if(!shipment) return {};
+	if(price > 0.0f && !accounts::transfer(s, project_account, seller_account, price, relations::transaction_kind::purchase, s.current_date)) {
+		s.world.delete_shipment(shipment);
+		physical::inventory::add(s, seller_site, c, amount, seller);
+		return {};
+	}
+	return shipment;
 }
 
 float consume(sys::state& s, dcon::capital_project_requirement_id r, float amount) {
@@ -140,24 +159,42 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		s.world.force_create_factory_site(f, site(s,p));
 		auto asset = s.world.create_asset();
 		s.world.force_create_factory_asset(f, asset);
+		if(!actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f)
+			|| !actors::organizations::bind_factory_operator(s, s.world.capital_project_get_organization_from_capital_project_responsible(p), f)) {
+			s.world.delete_factory(f);
+			s.world.delete_asset(asset);
+			return false;
+		}
 		s.world.force_create_capital_project_factory(p, f);
 		s.world.force_create_capital_project_asset(p, asset);
-		actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f);
-		actors::organizations::bind_factory_operator(s, s.world.capital_project_get_organization_from_capital_project_responsible(p), f);
 	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::extraction_site)) {
-		auto d = s.world.create_resource_deposit();
-		s.world.resource_deposit_set_commodity(d, s.world.capital_project_get_target_commodity(p));
-		s.world.force_create_resource_deposit_site(d, site(s,p));
-		s.world.force_create_resource_deposit_operator(d, s.world.capital_project_get_organization_from_capital_project_responsible(p));
+		auto d = physical::deposits::create_deposit(s, site(s,p), s.world.capital_project_get_target_commodity(p),
+			s.world.capital_project_get_planned_reserves(p), s.world.capital_project_get_planned_reserves(p),
+			s.world.capital_project_get_planned_grade(p), s.world.capital_project_get_planned_daily_capacity(p),
+			s.world.capital_project_get_planned_target_daily_extraction(p));
+		if(!d) return false;
+		auto operator_org = s.world.capital_project_get_organization_from_capital_project_responsible(p);
+		if(!operator_org || !actors::organizations::bind_deposit_operator(s, operator_org, d)) {
+			s.world.delete_resource_deposit(d);
+			return false;
+		}
 		auto asset = s.world.create_asset();
+		if(!actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f)) {
+			s.world.delete_resource_deposit(d);
+			s.world.delete_asset(asset);
+			return false;
+		}
 		s.world.force_create_resource_deposit_asset(d, asset);
 		s.world.force_create_capital_project_deposit(p, d);
 		s.world.force_create_capital_project_asset(p, asset);
-		actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f);
 	} else {
 		auto node = s.world.create_infrastructure_node();
 		auto province = s.world.site_get_province_from_site_location(site(s,p));
-		if(province) s.world.infrastructure_node_set_position(node, s.world.province_get_mid_point_b(province));
+		if(!province) {
+			s.world.delete_infrastructure_node(node);
+			return false;
+		}
+		s.world.infrastructure_node_set_position(node, s.world.province_get_mid_point_b(province));
 		s.world.force_create_infrastructure_node_location(node, province);
 		s.world.force_create_capital_project_node(p, node);
 	}
