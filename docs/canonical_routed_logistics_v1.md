@@ -38,9 +38,10 @@ Shipment countdown.
 
 Each active Shipment requests `logistics::cargo_units(profile_for(commodity),
 quantity)`, so commodity cargo weight changes physical capacity consumption.
-Each day, a concrete leg resource is given its physical capacity from the
-existing market/infrastructure capacity primitive. Aggregate route volume and
-market fill are not read. Shipments are allocated by persistent Shipment ID,
+Each day, a concrete leg resource is given its physical capacity from explicit
+railroad, naval-base, and civilian-port infrastructure proxies. Legacy market
+throughput, population, aggregate route volume, and market fill are not read.
+Shipments are allocated by persistent Shipment ID,
 so older queued work is not bypassed nondeterministically. A shipment larger
 than one day's capacity retains `remaining_transport_work` on its leg and is
 admitted over multiple days.
@@ -53,9 +54,13 @@ intermediate bottleneck creates a real queue and cannot be skipped.
 ## Spoilage and conservation
 
 Every active Shipment spoils once per logistics day using the existing
-commodity logistics profile, including queued time. The Shipment retains its
-physical owner throughout transit. At arrival, only its remaining quantity is
-added to the destination inventory and the Shipment identity is removed.
+commodity logistics profile, including queued time. While a leg is queued,
+only its unconsumed `remaining_transport_work` is scaled by that spoilage;
+capacity already consumed is never refunded. A future leg starts with zero
+work and is initialized from the quantity remaining when the preceding leg
+arrives. The Shipment retains its physical owner throughout transit. At
+arrival, only its remaining quantity is added to the destination inventory and
+the Shipment identity is removed.
 Consequently, physical site inventory plus quantities in active Shipments are
 conserved except for explicit profile spoilage or another explicit loss.
 

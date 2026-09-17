@@ -120,7 +120,7 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 			auto quantity = std::min(state.world.concrete_market_bid_get_remaining_quantity(bid), state.world.concrete_market_ask_get_remaining_quantity(ask));
 			quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
 			quantity = std::min(quantity, std::max(0.0f, (accounts::balance(state, account) - reserved_funds(state, account) + state.world.concrete_market_bid_get_reserved_amount(bid)) / price));
-			if(!valid(quantity)) continue;
+			if(!valid(quantity) || !shipments::can_dispatch(state, source, destination, commodity, quantity)) continue;
 			auto transaction = exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
 			if(!transaction) continue;
 			auto shipment = shipments::dispatch(state, source, destination, commodity, quantity, buyer);

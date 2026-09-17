@@ -49,13 +49,16 @@ capacity_config ruleset_config_for(sys::state const& state);
 
 // Modal capacities deliberately exclude unrelated infrastructure: naval bases
 // and civilian ports cannot carry a land route, while railways cannot replace
-// a harbour. The legacy combined max_throughput remains the upper/fallback cap.
+// a harbour. This is the compatibility/nominal API; canonical movement uses
+// canonical_capacity below and does not apply max_throughput as a ceiling.
 float nominal_capacity(sys::state const& state, dcon::market_id market,
 	transport_mode mode);
 
 // Physical capacity primitive for concrete shipments. This path uses only
-// modal infrastructure/throughput state and never reads route.volume, market
-// clearing fill, or aggregate cargo demand.
+// explicit modal infrastructure state: railroad building levels for land and
+// local movement, and naval-base/civilian-port levels for sea movement. It
+// never reads max_throughput, population, route.volume, market clearing fill,
+// or aggregate cargo demand.
 float canonical_capacity(sys::state const& state, dcon::market_id market,
 	transport_mode mode);
 

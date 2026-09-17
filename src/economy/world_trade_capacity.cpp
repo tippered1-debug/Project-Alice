@@ -164,22 +164,12 @@ float nominal_capacity(sys::state const& state, dcon::market_id market,
 		state.world.market_get_max_throughput(market));
 	if(!gamerule::age_of_transformation_enabled(state))
 		return legacy_cap;
-	return canonical_capacity(state, market, mode);
-}
-
-float canonical_capacity(sys::state const& state, dcon::market_id market,
-		transport_mode mode) {
-	if(!market || !state.world.market_is_valid(market))
-		return 0.0f;
-	auto const legacy_cap = finite_nonnegative(
-		state.world.market_get_max_throughput(market));
 	auto const state_instance =
 		state.world.market_get_zone_from_local_market(market);
 	if(!state_instance || !state.world.state_instance_is_valid(state_instance))
 		return legacy_cap;
-	// Small integration fixtures and partially constructed editor states may not
-	// have resized the demographic array yet. Capacity must still fall back to
-	// the explicit market throughput instead of indexing an absent column.
+	// The nominal path is intentionally compatibility-only. Canonical movement
+	// uses physical infrastructure below and never reads these aggregates.
 	auto const population = state.world.state_instance_get_demographics_size()
 		> uint32_t(demographics::total.index())
 		? finite_nonnegative(state.world.state_instance_get_demographics(
@@ -200,9 +190,52 @@ float canonical_capacity(sys::state const& state, dcon::market_id market,
 			+ population / 100.0f;
 		break;
 	}
-	// max_throughput is retained as a compatibility ceiling. A synthetic or old
-	// state with no derived demographics still receives its explicit fallback.
 	return legacy_cap > 0.0f ? std::min(legacy_cap, derived) : derived;
+}
+
+float canonical_capacity(sys::state const& state, dcon::market_id market,
+		transport_mode mode) {
+	if(!market || !state.world.market_is_valid(market))
+		return 0.0f;
+	auto const state_instance =
+		state.world.market_get_zone_from_local_market(market);
+	if(!state_instance || !state.world.state_instance_is_valid(state_instance))
+		return 0.0f;
+	// Canonical capacity is a physical resource budget. It deliberately does
+	// not read market.max_throughput, population, route volume, clearing fill,
+	// or any other nominal/aggregate market value.
+	double railroad = 0.0;
+	double naval_base = 0.0;
+	double port_size = 0.0;
+	state.world.for_each_province([&](dcon::province_id province) {
+		if(state.world.province_get_state_membership(province) != state_instance) return;
+		railroad += state.world.province_get_building_level(
+			province, uint8_t(economy::province_building_type::railroad));
+		naval_base += state.world.province_get_building_level(
+			province, uint8_t(economy::province_building_type::naval_base));
+		if(state.world.province_get_advanced_province_building_max_private_size_size()
+			> uint32_t(advanced_province_buildings::list::civilian_ports)) {
+			port_size += finite_nonnegative(state.world.province_get_advanced_province_building_max_private_size(
+				province, advanced_province_buildings::list::civilian_ports));
+		}
+	});
+	if(!std::isfinite(railroad) || !std::isfinite(naval_base) || !std::isfinite(port_size)) return 0.0f;
+	double derived = 0.0;
+	switch(mode) {
+	case transport_mode::land:
+		derived = 100.0 + 1000.0 * railroad;
+		break;
+	case transport_mode::sea:
+		// Sea movement requires a real port or naval base; there is no synthetic
+		// base capacity for a state with neither.
+		if(naval_base <= 0.0 && port_size <= 0.0) return 0.0f;
+		derived = 8000.0 * naval_base + (port_size > 0.0 ? 100.0 + port_size : 0.0);
+		break;
+	case transport_mode::local:
+		derived = 100.0 + 500.0 * railroad;
+		break;
+	}
+	return std::isfinite(derived) && derived > 0.0 ? float(derived) : 0.0f;
 }
 
 capacity_inputs inputs_for_route(sys::state const& state, dcon::trade_route_id route) {

@@ -154,3 +154,49 @@ TEST_CASE("concrete market fills create physical shipment rather than synthetic 
 	REQUIRE(f.state->world.shipment_size() == 1);
 	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.seller) == Approx(0.0f));
 }
+
+TEST_CASE("concrete market preflights disconnected delivery atomically",
+	"[economy][physical][concrete_market]") {
+	concrete_market_tests::fixture f;
+	// Give the sites explicit, different state/market memberships and hubs, but
+	// provide no trade route between those markets.
+	auto source_state = f.state->world.create_state_instance();
+	auto destination_state = f.state->world.create_state_instance();
+	auto destination_market = f.state->world.create_market();
+	auto source_province = f.state->world.create_province();
+	auto destination_province = f.state->world.create_province();
+	f.state->world.force_create_site_location(f.source, source_province);
+	f.state->world.force_create_site_location(f.destination, destination_province);
+	f.state->world.province_set_state_membership(source_province, source_state);
+	f.state->world.province_set_state_membership(destination_province, destination_state);
+	f.state->world.market_set_zone_from_local_market(f.market, source_state);
+	f.state->world.market_set_zone_from_local_market(destination_market, destination_state);
+	auto source_hub = f.state->world.create_site();
+	auto destination_hub = f.state->world.create_site();
+	f.state->world.force_create_site_location(source_hub, source_province);
+	f.state->world.force_create_site_location(destination_hub, destination_province);
+	f.state->world.force_create_market_hub_site(f.market, source_hub);
+	f.state->world.force_create_market_hub_site(destination_market, destination_hub);
+
+	REQUIRE(economy::physical::inventory::add(*f.state, f.source, f.goods, 20.0f, f.seller) == Approx(20.0f));
+	auto ask = economy::physical::concrete_market::post_ask(
+		*f.state, f.seller, f.source, f.market, f.goods, 20.0f, 10.0f, {});
+	auto bid = economy::physical::concrete_market::post_bid(
+		*f.state, f.buyer, f.buyer_account, f.destination, f.market, f.goods, 20.0f, 12.0f, {});
+	REQUIRE(ask);
+	REQUIRE(bid);
+	auto transaction_count = f.state->world.transaction_size();
+	auto seller_balance = economy::accounts::balance(*f.state, f.seller_account);
+	auto buyer_balance = economy::accounts::balance(*f.state, f.buyer_account);
+
+	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, {}).empty());
+	REQUIRE(f.state->world.transaction_size() == transaction_count);
+	REQUIRE(f.state->world.shipment_size() == 0);
+	REQUIRE(economy::accounts::balance(*f.state, f.seller_account) == Approx(seller_balance));
+	REQUIRE(economy::accounts::balance(*f.state, f.buyer_account) == Approx(buyer_balance));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.source, f.goods, f.seller) == Approx(20.0f));
+	REQUIRE(f.state->world.concrete_market_ask_get_remaining_quantity(ask) == Approx(20.0f));
+	REQUIRE(f.state->world.concrete_market_ask_get_reserved_quantity(ask) == Approx(20.0f));
+	REQUIRE(f.state->world.concrete_market_bid_get_remaining_quantity(bid) == Approx(20.0f));
+	REQUIRE(f.state->world.concrete_market_bid_get_reserved_amount(bid) == Approx(240.0f));
+}

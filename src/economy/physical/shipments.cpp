@@ -62,8 +62,15 @@ bool best_route_mode(sys::state const& state, dcon::trade_route_id route,
 	world_trade::transport_mode& mode, float& distance) {
 	if(!route || !state.world.trade_route_is_valid(route)
 		|| state.world.trade_route_get_is_trade_forbidden(route)) return false;
+	auto market_a = state.world.trade_route_get_connected_markets(route, 0);
+	auto market_b = state.world.trade_route_get_connected_markets(route, 1);
+	if(!market_a || !market_b) return false;
+	auto physically_feasible = [&](world_trade::transport_mode candidate) {
+		return world_trade::canonical_capacity(state, market_a, candidate) > 0.0f
+			&& world_trade::canonical_capacity(state, market_b, candidate) > 0.0f;
+	};
 	bool found = false;
-	if(state.world.trade_route_get_is_land_route(route)) {
+	if(state.world.trade_route_get_is_land_route(route) && physically_feasible(world_trade::transport_mode::land)) {
 		auto candidate = state.world.trade_route_get_land_distance(route);
 		if(finite_route_distance(candidate)) {
 			mode = world_trade::transport_mode::land;
@@ -71,7 +78,7 @@ bool best_route_mode(sys::state const& state, dcon::trade_route_id route,
 			found = true;
 		}
 	}
-	if(state.world.trade_route_get_is_sea_route(route)) {
+	if(state.world.trade_route_get_is_sea_route(route) && physically_feasible(world_trade::transport_mode::sea)) {
 		auto candidate = state.world.trade_route_get_sea_distance(route);
 		if(finite_route_distance(candidate) && (!found || candidate < distance)) {
 			mode = world_trade::transport_mode::sea;
@@ -157,9 +164,8 @@ bool plan_route(sys::state& state, dcon::site_id origin, dcon::site_id destinati
 	if(!origin_market && !destination_market) {
 		result.push_back({ world_trade::transport_mode::local, {}, origin, destination,
 			local_distance(state, origin, destination) });
-		return true;
+		return result.size() <= 255;
 	}
-	if(result.size() > 255) return false;
 	if(!origin_market || !destination_market) return false;
 
 	auto origin_hub = deposits::market_hub_for(state, origin_market);
@@ -179,7 +185,7 @@ bool plan_route(sys::state& state, dcon::site_id origin, dcon::site_id destinati
 		if(destination_hub != destination)
 			result.push_back({ world_trade::transport_mode::local, {}, destination_hub, destination,
 				local_distance(state, destination_hub, destination) });
-		return !result.empty();
+		return !result.empty() && result.size() <= 255;
 	}
 
 	if(!origin_hub || !destination_hub) return false;
@@ -198,7 +204,7 @@ bool plan_route(sys::state& state, dcon::site_id origin, dcon::site_id destinati
 	if(current_hub != destination)
 		result.push_back({ world_trade::transport_mode::local, {}, current_hub, destination,
 			local_distance(state, current_hub, destination) });
-	return !result.empty();
+	return !result.empty() && result.size() <= 255;
 }
 
 float canonical_leg_capacity(sys::state const& state, dcon::shipment_route_leg_id leg) {
@@ -215,9 +221,9 @@ float canonical_leg_capacity(sys::state const& state, dcon::shipment_route_leg_i
 	auto site = state.world.shipment_route_leg_get_origin_site(leg);
 	auto market = market_for_site(state, site);
 	auto capacity = world_trade::canonical_capacity(state, market, mode);
-	// Small editor/test states may not have a market throughput cache yet. They
-	// still get an explicit transitional local resource, never free movement.
-	return capacity > 0.0f ? capacity : 100.0f;
+	// Only sites without a market mapping use the explicit transitional local
+	// resource. A mapped market's zero physical capacity remains zero.
+	return market ? capacity : 100.0f;
 }
 
 uint64_t capacity_key(sys::state const& state, dcon::shipment_route_leg_id leg) {
@@ -249,6 +255,15 @@ uint32_t compatibility_travel_days(float distance) noexcept {
 	return uint32_t(std::max(1.0f, std::ceil(distance / compatibility_distance_units_per_day)));
 }
 
+bool can_dispatch(sys::state& state, dcon::site_id origin, dcon::site_id destination,
+	dcon::commodity_id commodity, float quantity) {
+	if(!origin || !destination || !commodity || !state.world.site_is_valid(origin)
+		|| !state.world.site_is_valid(destination) || !state.world.commodity_is_valid(commodity)
+		|| !std::isfinite(quantity) || quantity <= 0.0f) return false;
+	std::vector<planned_leg> plan;
+	return plan_route(state, origin, destination, plan);
+}
+
 dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_id destination,
 	dcon::commodity_id commodity, float amount, dcon::economic_actor_id owner) {
 	return dispatch_transfer(state, origin, destination, commodity, amount, owner, owner);
@@ -269,12 +284,12 @@ dcon::shipment_id dispatch_transfer(sys::state& state, dcon::site_id origin, dco
 	state.world.shipment_set_remaining_quantity(shipment, removed);
 	state.world.shipment_set_lifecycle(shipment, uint8_t(lifecycle::queued));
 	state.world.shipment_set_current_leg(shipment, 0);
-	state.world.shipment_set_route_leg_count(shipment, uint8_t(std::min<size_t>(255, plan.size())));
+	state.world.shipment_set_route_leg_count(shipment, uint8_t(plan.size()));
 	state.world.force_create_shipment_origin(shipment, origin);
 	state.world.force_create_shipment_destination(shipment, destination);
 	if(buyer) state.world.force_create_shipment_owner(shipment, buyer);
 	auto profile = logistics::profile_for(state, commodity);
-	for(size_t index = 0; index < plan.size() && index < 255; ++index) {
+	for(size_t index = 0; index < plan.size(); ++index) {
 		auto const& planned = plan[index];
 		auto leg = state.world.create_shipment_route_leg();
 		state.world.shipment_route_leg_set_mode(leg, uint8_t(planned.mode));
@@ -284,7 +299,7 @@ dcon::shipment_id dispatch_transfer(sys::state& state, dcon::site_id origin, dco
 		state.world.shipment_route_leg_set_sequence(leg, uint8_t(index));
 		state.world.shipment_route_leg_set_distance(leg, planned.distance);
 		state.world.shipment_route_leg_set_remaining_transport_work(leg,
-			logistics::cargo_units(profile, removed));
+			index == 0 ? logistics::cargo_units(profile, removed) : 0.0f);
 		state.world.shipment_route_leg_set_traversal_days(leg, compatibility_travel_days(planned.distance));
 		state.world.force_create_shipment_route(leg, shipment);
 	}
@@ -315,6 +330,7 @@ void advance(sys::state& state) {
 		if(!state.world.shipment_is_valid(shipment)
 			|| lifecycle(state.world.shipment_get_lifecycle(shipment)) != lifecycle::queued) continue;
 		auto legs = route_legs(state, shipment);
+		auto profile = logistics::profile_for(state, state.world.shipment_get_commodity(shipment));
 		auto current = state.world.shipment_get_current_leg(shipment);
 		if(current >= legs.size()) {
 			state.world.shipment_set_lifecycle(shipment, uint8_t(lifecycle::blocked));
@@ -326,7 +342,11 @@ void advance(sys::state& state) {
 			available_capacity[key] = canonical_leg_capacity(state, leg);
 			initialized_capacity[key] = true;
 		}
+		// Consumed capacity is never refunded. Only the unconsumed work is
+		// reduced with the cargo that spoiled while this leg was queued.
 		auto work = std::max(0.0f, state.world.shipment_route_leg_get_remaining_transport_work(leg));
+		work *= std::max(0.0f, 1.0f - profile.daily_spoilage);
+		state.world.shipment_route_leg_set_remaining_transport_work(leg, work);
 		auto admitted = std::min(work, std::max(0.0f, available_capacity[key]));
 		state.world.shipment_route_leg_set_remaining_transport_work(leg, work - admitted);
 		available_capacity[key] -= admitted;
@@ -346,12 +366,16 @@ void advance(sys::state& state) {
 			continue;
 		}
 		auto legs = route_legs(state, shipment);
+		auto profile = logistics::profile_for(state, state.world.shipment_get_commodity(shipment));
 		auto current = state.world.shipment_get_current_leg(shipment);
 		if(current + 1 < legs.size()) {
+			auto next_leg = legs[current + 1];
+			state.world.shipment_route_leg_set_remaining_transport_work(next_leg,
+				logistics::cargo_units(profile, state.world.shipment_get_remaining_quantity(shipment)));
 			state.world.shipment_set_current_leg(shipment, uint8_t(current + 1));
 			state.world.shipment_set_lifecycle(shipment, uint8_t(lifecycle::queued));
 			state.world.shipment_set_remaining_days(shipment,
-				state.world.shipment_route_leg_get_traversal_days(legs[current + 1]));
+				state.world.shipment_route_leg_get_traversal_days(next_leg));
 			continue;
 		}
 		auto destination_relation = state.world.shipment_get_shipment_destination(shipment);
