@@ -91,6 +91,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "defines_tests.cpp"
 #include "triggers_tests.cpp"
 #include "dcon_tests.cpp"
+#include "industrial_capital_tests.cpp"
 #include "economy_pops_tests.cpp"
 #include "economy_growth_stability_tests.cpp"
 #include "land_ownership_tests.cpp"

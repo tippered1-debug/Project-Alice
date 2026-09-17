@@ -28,6 +28,18 @@ float labor_units(sys::state const& state, dcon::factory_id factory, dcon::provi
 }
 }
 
+bool set_productive_capacity(sys::state& state, dcon::factory_id factory, float capacity) {
+	if(!factory || !state.world.factory_is_valid(factory) || !std::isfinite(capacity) || capacity <= 0.0f) return false;
+	state.world.factory_set_productive_capacity(factory, capacity);
+	return true;
+}
+
+bool set_productivity_factor(sys::state& state, dcon::factory_id factory, float productivity) {
+	if(!factory || !state.world.factory_is_valid(factory) || !std::isfinite(productivity) || productivity <= 0.0f) return false;
+	state.world.factory_set_productivity_factor(factory, productivity);
+	return true;
+}
+
 void bootstrap_factory(sys::state& state, dcon::factory_id factory) {
 	if(!factory || !state.world.factory_is_valid(factory)) return;
 	if(state.world.factory_get_canonical_production(factory)) return;

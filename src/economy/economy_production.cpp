@@ -13,6 +13,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/factory_inputs.hpp"
+#include "economy/physical/deposits.hpp"
 #include "world/site.hpp"
 #include "actors/organizations/organizations.hpp"
 
@@ -1384,6 +1385,11 @@ void update_production_investement_consumption(
 		// FACTORIES
 		for(auto f : state.world.province_get_factory_location(province)) {
 			auto factory = f.get_factory();
+			// Canonical productive capital is changed only by an explicit
+			// industrial operation. Legacy investment remains a compatibility
+			// calculation for legacy factories, never a hidden capital event.
+			if(gamerule::age_of_transformation_enabled(state)
+				&& state.world.factory_get_canonical_production(factory)) continue;
 			auto old = investment_tokens.get(nation);
 			auto factory_tokens = factory_investment_tokens(state, nation, province, factory);
 			investment_tokens.set(nation, old + factory_tokens);
@@ -1410,6 +1416,8 @@ void update_production_investement_consumption(
 		// FACTORY
 		for(auto f : state.world.province_get_factory_location(province)) {
 			auto factory = f.get_factory();
+			if(gamerule::age_of_transformation_enabled(state)
+				&& state.world.factory_get_canonical_production(factory)) continue;
 			auto factory_type = factory.get_building_type();
 			auto output_type = factory_type.get_output();
 			auto size = state.world.factory_get_size(factory);
@@ -1534,6 +1542,12 @@ void update_production_investement_consumption(
 			if (base_output == 0.f) return;
 			auto current_max_size = state.world.province_get_rgo_potential(province, c);
 			if (current_max_size == 0.f) return;
+			// A hand-authored/CapitalProject deposit owns its reserves and
+			// extraction capacity. Only explicitly marked compatibility deposits
+			// participate in the old RGO size/efficiency simulation.
+			auto canonical_deposit = ::economy::physical::deposits::deposit_for(state, province, c);
+			if(canonical_deposit
+				&& !state.world.resource_deposit_get_legacy_compatibility_deposit(canonical_deposit)) return;
 			auto current_size = state.world.province_get_rgo_size(province, c);
 
 			auto local_tokens = rgo_investment_tokens(state, nation, province, c);
@@ -1643,8 +1657,10 @@ void update_production_investement_consumption(
 		auto max_agriculture_size = state.world.province_get_rgo_base_size(province);
 
 		if(total_agriculture > max_agriculture_size) {
-			state.world.for_each_commodity([&](auto c) {
+		state.world.for_each_commodity([&](auto c) {
 				if(state.world.commodity_get_is_mine(c)) return; 
+				auto deposit = ::economy::physical::deposits::deposit_for(state, province, c);
+				if(deposit && !state.world.resource_deposit_get_legacy_compatibility_deposit(deposit)) return;
 				auto size = state.world.province_get_rgo_size(province, c);
 				state.world.province_set_rgo_size(province, c, size * max_agriculture_size / total_agriculture);
 			});
