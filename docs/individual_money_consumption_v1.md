@@ -15,12 +15,21 @@ Each canonical person may have one persistent `home_site`. Autonomous
 purchasing is limited to the market associated with that site. v1 does not
 invent migration or household location rules.
 
+Need fulfillment is persistent within the consumption period. For each need,
+remaining quantity is `desired_quantity_per_period - consumed_this_period -
+owned_usable_inventory`, clamped at zero. `process()` begins a new period from
+the current date and resets `consumed_this_period` once; repeated passes on the
+same date do not reset it.
+
 ## Money and bids
 
-The spending account is selected deterministically from accounts owned by the
-person's economic actor: highest free cash wins, with lowest account ID as the
-tie-break. Free cash is the exact account balance minus active concrete bid
-reservations. If no account exists, no account or money is synthesized.
+For the concrete market and commodity being considered, active seller asks
+define the compatible settlement set. The spending account is selected
+deterministically from the person's accounts in that set: highest free cash
+wins, with lowest account ID as the tie-break. Free cash is the exact account
+balance minus active concrete bid reservations. If no compatible seller
+settlement/account exists, no bid is posted; no account or money is
+synthesized.
 
 For each person with a concrete need, processing is stable by person ID and
 need/commodity ID. It computes unmet quantity from home-site inventory, uses a
@@ -31,8 +40,9 @@ market, commodity, quantity, and limit price. Existing Concrete Market
 matching performs reservations, fills, and exact money transfer; legacy POP
 purchase clearing is not called.
 
-Active reservations therefore prevent double-spending. A bid may remain active
-when no seller is available. No demand aggregate is mutated by this pass.
+Active reservations therefore prevent double-spending. A compatible ask may
+still remain unmatched when its price exceeds the bid limit. No demand
+aggregate is mutated by this pass.
 
 ## Ownership and consumption
 
@@ -40,8 +50,9 @@ A successful local fill transfers seller inventory to the buyer's exact
 economic actor through the existing Concrete Market and inventory APIs. The
 consumption step removes only goods owned by that actor at the person's home
 site. It records the consumed quantity/date and recomputes unmet need. If the
-owned quantity is insufficient, only the owned amount is consumed and the
-remainder stays unmet. Goods owned by another actor cannot satisfy the need.
+owned quantity is insufficient, only the owned amount is consumed,
+`consumed_this_period` increases by that amount, and the remainder stays unmet.
+Goods owned by another actor cannot satisfy the need.
 
 For a remote source, existing Concrete Market/Freight behavior remains in
 charge: the buyer-owned goods stay at source until the existing freight/shipment

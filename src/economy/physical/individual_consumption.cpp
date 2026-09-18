@@ -75,7 +75,29 @@ bool has_active_bid(sys::state const& state, dcon::economic_actor_id actor,
 void refresh_unmet(sys::state& state, dcon::person_commodity_need_id need,
 	dcon::person_id person, dcon::commodity_id commodity, float desired) {
 	auto owned = owned_consumable_quantity(state, person, commodity);
-	state.world.person_commodity_need_set_unmet_quantity(need, std::max(0.0f, desired - owned));
+	auto consumed = std::max(0.0f, state.world.person_commodity_need_get_consumed_this_period(need));
+	state.world.person_commodity_need_set_unmet_quantity(need, std::max(0.0f, desired - consumed - owned));
+}
+
+std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
+	dcon::market_id market, dcon::commodity_id commodity) {
+	std::vector<dcon::commodity_id> result;
+	state.world.for_each_concrete_market_ask([&](auto ask) {
+		if(state.world.concrete_market_ask_get_status(ask)
+			!= uint8_t(concrete_market::order_status::active)
+			|| state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) != market
+			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
+		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
+		state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(seller,
+			[&](auto relation) {
+				auto account = state.world.monetary_account_owner_get_monetary_account(relation);
+				auto settlement = accounts::settlement_of(state, account);
+				if(settlement && state.world.commodity_is_valid(settlement)) result.push_back(settlement);
+			});
+	});
+	sort_ids(result);
+	result.erase(std::unique(result.begin(), result.end()), result.end());
+	return result;
 }
 }
 
@@ -103,6 +125,8 @@ dcon::person_commodity_need_id set_need(sys::state& state, dcon::person_id perso
 		state.world.force_create_person_commodity_need_commodity(need, commodity);
 		state.world.person_commodity_need_set_last_consumed_quantity(need, 0.0f);
 		state.world.person_commodity_need_set_last_consumed_on(need, {});
+		state.world.person_commodity_need_set_consumed_this_period(need, 0.0f);
+		state.world.person_commodity_need_set_consumption_period_start(need, state.current_date);
 	}
 	state.world.person_commodity_need_set_desired_quantity_per_period(need, desired_quantity_per_period);
 	refresh_unmet(state, need, person, commodity, desired_quantity_per_period);
@@ -127,10 +151,28 @@ float unmet_need(sys::state const& state, dcon::person_id person, dcon::commodit
 	auto need = need_for(state, person, commodity);
 	if(!need) return 0.0f;
 	return std::max(0.0f, state.world.person_commodity_need_get_desired_quantity_per_period(need)
+		- std::max(0.0f, state.world.person_commodity_need_get_consumed_this_period(need))
 		- owned_consumable_quantity(state, person, commodity));
 }
 
-dcon::monetary_account_id spending_account(sys::state const& state, dcon::person_id person) {
+void begin_period(sys::state& state, sys::date period) {
+	std::vector<dcon::person_commodity_need_id> needs;
+	state.world.for_each_person_commodity_need([&](auto need) { needs.push_back(need); });
+	sort_ids(needs);
+	for(auto need : needs) {
+		auto started = state.world.person_commodity_need_get_consumption_period_start(need);
+		if(period <= started) continue;
+		state.world.person_commodity_need_set_consumed_this_period(need, 0.0f);
+		state.world.person_commodity_need_set_consumption_period_start(need, period);
+		auto person = state.world.person_commodity_need_get_person_from_person_commodity_need_person(need);
+		auto commodity = state.world.person_commodity_need_get_commodity_from_person_commodity_need_commodity(need);
+		refresh_unmet(state, need, person, commodity,
+			state.world.person_commodity_need_get_desired_quantity_per_period(need));
+	}
+}
+
+dcon::monetary_account_id spending_account(sys::state const& state, dcon::person_id person,
+	dcon::commodity_id settlement) {
 	auto actor = persons::actor_for_person(state, person);
 	if(!actor) return {};
 	std::vector<dcon::monetary_account_id> accounts_for_person;
@@ -142,6 +184,7 @@ dcon::monetary_account_id spending_account(sys::state const& state, dcon::person
 	dcon::monetary_account_id result{};
 	float best_cash = -std::numeric_limits<float>::infinity();
 	for(auto account : accounts_for_person) {
+		if(settlement && accounts::settlement_of(state, account) != settlement) continue;
 		auto cash = free_cash(state, account);
 		if(cash > best_cash || (cash == best_cash && (!result || account.index() < result.index()))) {
 			result = account;
@@ -151,8 +194,8 @@ dcon::monetary_account_id spending_account(sys::state const& state, dcon::person
 	return result;
 }
 
-float spendable_cash(sys::state const& state, dcon::person_id person) {
-	return free_cash(state, spending_account(state, person));
+float spendable_cash(sys::state const& state, dcon::person_id person, dcon::commodity_id settlement) {
+	return free_cash(state, spending_account(state, person, settlement));
 }
 
 float consume_owned_goods(sys::state& state, dcon::person_id person, dcon::commodity_id commodity, float quantity) {
@@ -165,6 +208,8 @@ float consume_owned_goods(sys::state& state, dcon::person_id person, dcon::commo
 	auto consumed = inventory::remove(state, site, commodity, quantity, actor);
 	auto need = need_for(state, person, commodity);
 	if(need) {
+		state.world.person_commodity_need_set_consumed_this_period(need,
+			std::max(0.0f, state.world.person_commodity_need_get_consumed_this_period(need)) + consumed);
 		state.world.person_commodity_need_set_last_consumed_quantity(need, consumed);
 		state.world.person_commodity_need_set_last_consumed_on(need, state.current_date);
 		refresh_unmet(state, need, person, commodity,
@@ -204,7 +249,17 @@ void process_purchase_decisions(sys::state& state) {
 			auto fallback = std::max(0.01f, state.world.commodity_get_cost(commodity));
 			auto price = concrete_market::concrete_reference_price(state, market, commodity, state.current_date, fallback);
 			if(!std::isfinite(price) || price <= 0.0f) continue;
-			auto account = spending_account(state, person);
+			auto account = dcon::monetary_account_id{};
+			auto best_cash = -std::numeric_limits<float>::infinity();
+			for(auto settlement : seller_settlements(state, market, commodity)) {
+				auto candidate = spending_account(state, person, settlement);
+				if(!candidate) continue;
+				auto cash = free_cash(state, candidate);
+				if(cash > best_cash || (cash == best_cash && (!account || candidate.index() < account.index()))) {
+					account = candidate;
+					best_cash = cash;
+				}
+			}
 			auto cash = free_cash(state, account);
 			auto quantity = std::min(unmet, cash / price);
 			if(!std::isfinite(quantity) || quantity <= epsilon) continue;
@@ -240,6 +295,7 @@ void process_consumption(sys::state& state) {
 }
 
 void process(sys::state& state) {
+	begin_period(state, state.current_date);
 	process_purchase_decisions(state);
 	process_consumption(state);
 }

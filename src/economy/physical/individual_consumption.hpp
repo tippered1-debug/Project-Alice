@@ -14,9 +14,12 @@ dcon::person_commodity_need_id set_need(sys::state&, dcon::person_id,
 dcon::person_commodity_need_id add_need(sys::state&, dcon::person_id,
 	dcon::commodity_id, float quantity);
 float unmet_need(sys::state const&, dcon::person_id, dcon::commodity_id);
+void begin_period(sys::state&, sys::date);
 
-dcon::monetary_account_id spending_account(sys::state const&, dcon::person_id);
-float spendable_cash(sys::state const&, dcon::person_id);
+dcon::monetary_account_id spending_account(sys::state const&, dcon::person_id,
+	dcon::commodity_id settlement);
+float spendable_cash(sys::state const&, dcon::person_id,
+	dcon::commodity_id settlement);
 
 float owned_consumable_quantity(sys::state const&, dcon::person_id, dcon::commodity_id);
 float consume_owned_goods(sys::state&, dcon::person_id, dcon::commodity_id, float quantity);

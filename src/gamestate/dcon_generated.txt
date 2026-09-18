@@ -5081,6 +5081,8 @@ object{
 	property{ name{ unmet_quantity } type{ float } tag{ save } }
 	property{ name{ last_consumed_quantity } type{ float } tag{ save } }
 	property{ name{ last_consumed_on } type{ sys::date } tag{ save } }
+	property{ name{ consumed_this_period } type{ float } tag{ save } }
+	property{ name{ consumption_period_start } type{ sys::date } tag{ save } }
 }
 
 object{

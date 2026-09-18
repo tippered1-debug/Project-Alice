@@ -82,12 +82,13 @@ struct fixture {
 TEST_CASE("individual money consumption uses exact account cash and reservations", "[economy][individual_consumption]") {
 	individual_money_consumption_tests::fixture f;
 	using namespace economy::physical::individual_consumption;
+	REQUIRE(f.ask(1.0f, 20.0f));
 	REQUIRE(set_need(*f.state, f.person, f.goods, 1.0f));
 	process_purchase_decisions(*f.state);
 	auto bid = f.bid_for();
 	REQUIRE(bid);
-	REQUIRE(spending_account(*f.state, f.person) == f.person_account);
-	REQUIRE(spendable_cash(*f.state, f.person) == Approx(90.0f));
+	REQUIRE(spending_account(*f.state, f.person, f.settlement) == f.person_account);
+	REQUIRE(spendable_cash(*f.state, f.person, f.settlement) == Approx(90.0f));
 	REQUIRE(f.state->world.concrete_market_bid_get_reserved_amount(bid) == Approx(10.0f));
 	REQUIRE(f.state->world.concrete_market_bid_get_status(bid)
 		== uint8_t(economy::physical::concrete_market::order_status::active));
@@ -98,6 +99,7 @@ TEST_CASE("individual money consumption uses exact account cash and reservations
 TEST_CASE("individual money consumption with zero cash creates no bid", "[economy][individual_consumption]") {
 	individual_money_consumption_tests::fixture f;
 	economy::accounts::bootstrap_set_balance(*f.state, f.person_account, 0.0f);
+	REQUIRE(f.ask());
 	REQUIRE(economy::physical::individual_consumption::set_need(*f.state, f.person, f.goods, 1.0f));
 	economy::physical::individual_consumption::process_purchase_decisions(*f.state);
 	REQUIRE(f.state->world.concrete_market_bid_size() == 0);
@@ -144,6 +146,7 @@ TEST_CASE("individual consumption removes only owned goods and retains unmet qua
 TEST_CASE("different concrete balances produce different bids under identical aggregate observations", "[economy][individual_consumption]") {
 	individual_money_consumption_tests::fixture f;
 	auto poorer = f.make_person(0.0f);
+	REQUIRE(f.ask(1.0f, 20.0f));
 	REQUIRE(economy::physical::individual_consumption::set_need(*f.state, f.person, f.goods, 1.0f));
 	REQUIRE(economy::physical::individual_consumption::set_need(*f.state, poorer, f.goods, 1.0f));
 	for(auto probability : {0.0f, 1.0f}) f.state->world.market_set_expected_probability_to_buy(f.market, f.goods, probability);
@@ -160,6 +163,7 @@ TEST_CASE("aggregate POP savings and needs observations do not change canonical 
 		f.state->world.market_set_expected_probability_to_buy(f.market, f.goods, probability);
 		auto pop_type = f.state->world.create_pop_type();
 		f.state->world.market_set_satisfied_ratio_of_max_life_needs(f.market, pop_type, satisfaction);
+		REQUIRE(f.ask(1.0f, 20.0f));
 		REQUIRE(economy::physical::individual_consumption::set_need(*f.state, f.person, f.goods, 1.0f));
 		economy::physical::individual_consumption::process_purchase_decisions(*f.state);
 		return f.state->world.concrete_market_bid_get_original_quantity(f.bid_for());
@@ -169,6 +173,7 @@ TEST_CASE("aggregate POP savings and needs observations do not change canonical 
 
 TEST_CASE("individual purchase and consumption are deterministic and create no synthetic goods", "[economy][individual_consumption]") {
 	individual_money_consumption_tests::fixture f;
+	REQUIRE(f.ask(1.0f, 20.0f));
 	REQUIRE(economy::physical::individual_consumption::set_need(*f.state, f.person, f.goods, 1.0f));
 	auto persons_before = f.state->world.person_size();
 	auto actors_before = f.state->world.economic_actor_size();
@@ -186,6 +191,7 @@ TEST_CASE("individual purchase and consumption are deterministic and create no s
 TEST_CASE("identical concrete state produces identical individual bid", "[economy][individual_consumption]") {
 	auto bid_quantity = [] {
 		individual_money_consumption_tests::fixture f;
+		REQUIRE(f.ask(1.0f, 20.0f));
 		REQUIRE(economy::physical::individual_consumption::set_need(*f.state, f.person, f.goods, 1.0f));
 		economy::physical::individual_consumption::process_purchase_decisions(*f.state);
 		return f.state->world.concrete_market_bid_get_original_quantity(f.bid_for());
@@ -219,4 +225,57 @@ TEST_CASE("wage to individual purchase ownership and consumption closes without 
 	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.output, worker_actor) == Approx(0.0f));
 	REQUIRE(economy::physical::individual_consumption::last_consumed_amount(*f.state, worker, f.output) == Approx(1.0f));
 	REQUIRE(economy::physical::individual_consumption::unmet_need(*f.state, worker, f.output) == Approx(0.0f));
+}
+
+TEST_CASE("individual full consumption remains satisfied during the period", "[economy][individual_consumption]") {
+	individual_money_consumption_tests::fixture f;
+	using namespace economy::physical::individual_consumption;
+	REQUIRE(economy::physical::inventory::add(*f.state, f.home, f.goods, 1.0f, f.person_actor) == Approx(1.0f));
+	REQUIRE(set_need(*f.state, f.person, f.goods, 1.0f));
+	REQUIRE(consume_owned_goods(*f.state, f.person, f.goods, 1.0f) == Approx(1.0f));
+	REQUIRE(unmet_need(*f.state, f.person, f.goods) == Approx(0.0f));
+	process_consumption(*f.state);
+	REQUIRE(unmet_need(*f.state, f.person, f.goods) == Approx(0.0f));
+}
+
+TEST_CASE("individual partial consumption leaves the exact remainder", "[economy][individual_consumption]") {
+	individual_money_consumption_tests::fixture f;
+	using namespace economy::physical::individual_consumption;
+	REQUIRE(economy::physical::inventory::add(*f.state, f.home, f.goods, 1.0f, f.person_actor) == Approx(1.0f));
+	REQUIRE(set_need(*f.state, f.person, f.goods, 2.0f));
+	REQUIRE(consume_owned_goods(*f.state, f.person, f.goods, 1.0f) == Approx(1.0f));
+	REQUIRE(unmet_need(*f.state, f.person, f.goods) == Approx(1.0f));
+}
+
+TEST_CASE("individual consumption period reset restores the next period need", "[economy][individual_consumption]") {
+	individual_money_consumption_tests::fixture f;
+	using namespace economy::physical::individual_consumption;
+	REQUIRE(economy::physical::inventory::add(*f.state, f.home, f.goods, 1.0f, f.person_actor) == Approx(1.0f));
+	REQUIRE(set_need(*f.state, f.person, f.goods, 1.0f));
+	REQUIRE(consume_owned_goods(*f.state, f.person, f.goods, 1.0f) == Approx(1.0f));
+	REQUIRE(unmet_need(*f.state, f.person, f.goods) == Approx(0.0f));
+	begin_period(*f.state, sys::date{1});
+	REQUIRE(unmet_need(*f.state, f.person, f.goods) == Approx(1.0f));
+}
+
+TEST_CASE("individual purchases use a seller-compatible settlement account", "[economy][individual_consumption]") {
+	individual_money_consumption_tests::fixture f;
+	using namespace economy::physical::individual_consumption;
+	auto other_settlement = f.state->world.create_commodity();
+	auto incompatible_account = economy::accounts::open_account(*f.state, f.person_actor, other_settlement);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, f.person_account, 0.0f));
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, incompatible_account, 1000.0f));
+	REQUIRE(f.ask());
+	REQUIRE(set_need(*f.state, f.person, f.goods, 1.0f));
+	REQUIRE(spending_account(*f.state, f.person, f.settlement) == f.person_account);
+	REQUIRE(spending_account(*f.state, f.person, other_settlement) == incompatible_account);
+	process_purchase_decisions(*f.state);
+	REQUIRE_FALSE(f.bid_for());
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, f.person_account, 100.0f));
+	process_purchase_decisions(*f.state);
+	auto bid = f.bid_for();
+	REQUIRE(bid);
+	REQUIRE(f.state->world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) == f.person_account);
+	REQUIRE(economy::accounts::balance(*f.state, incompatible_account) == Approx(1000.0f));
+	REQUIRE(economy::accounts::balance(*f.state, f.person_account) == Approx(90.0f));
 }
