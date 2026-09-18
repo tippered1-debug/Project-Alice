@@ -266,3 +266,119 @@ TEST_CASE("job matching ignores aggregate labor mutations and creates no synthet
 	REQUIRE(f.state->world.transaction_size() == transactions_before);
 	REQUIRE(economy::physical::concrete_labor::active_workers_for_factory(*f.state, f.factory).size() == 1);
 }
+
+TEST_CASE("individual job search chooses the highest wage offer", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	auto lower = f.offer(1, 2.0f);
+	auto higher = f.offer(1, 5.0f);
+	auto worker = f.person();
+	economy::physical::job_market::process_job_search(*f.state);
+	auto applications = economy::physical::job_market::applications_for_person(*f.state, worker);
+	REQUIRE(applications.size() == 1);
+	REQUIRE(f.state->world.job_application_get_job_offer_from_job_application_offer(applications.front()) == higher);
+	REQUIRE(f.state->world.job_offer_get_openings(lower) == 1);
+}
+
+TEST_CASE("individual job search breaks equal wage ties by offer id", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	auto first = f.offer(1, 5.0f);
+	auto second = f.offer(1, 5.0f);
+	auto worker = f.person();
+	economy::physical::job_market::process_job_search(*f.state);
+	auto applications = economy::physical::job_market::applications_for_person(*f.state, worker);
+	REQUIRE(applications.size() == 1);
+	REQUIRE(f.state->world.job_application_get_job_offer_from_job_application_offer(applications.front()) == first);
+	REQUIRE(first.index() < second.index());
+}
+
+TEST_CASE("individual job search skips active workers and does not duplicate pending applications", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	auto job = f.offer(1);
+	auto worker = f.person();
+	economy::physical::job_market::process_job_search(*f.state);
+	economy::physical::job_market::process_job_search(*f.state);
+	REQUIRE(economy::physical::job_market::applications_for_person(*f.state, worker).size() == 1);
+
+	auto employed = f.hire();
+	auto employed_person = f.state->world.employment_contract_get_person_from_employment_contract_person(employed);
+	REQUIRE(economy::physical::job_market::applications_for_person(*f.state, employed_person).empty());
+	(void)job;
+}
+
+TEST_CASE("individual job search can retry after a closed or expired offer", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	auto closed = f.offer(1);
+	auto closed_worker = f.person();
+	REQUIRE(economy::physical::job_market::close_job_offer(*f.state, closed));
+	auto replacement = f.offer(1, 3.0f);
+	economy::physical::job_market::process_job_search(*f.state);
+	auto closed_apps = economy::physical::job_market::applications_for_person(*f.state, closed_worker);
+	REQUIRE(closed_apps.size() == 1);
+	REQUIRE(f.state->world.job_application_get_job_offer_from_job_application_offer(closed_apps.front()) == replacement);
+
+	auto expires = f.offer(1, 2.0f, {}, f.state->current_date + 1);
+	auto expired_worker = f.person();
+	f.state->current_date += 2;
+	auto later = f.offer(1, 4.0f);
+	economy::physical::job_market::process_job_search(*f.state);
+	auto expired_apps = economy::physical::job_market::applications_for_person(*f.state, expired_worker);
+	REQUIRE(expired_apps.size() == 1);
+	REQUIRE(f.state->world.job_application_get_job_offer_from_job_application_offer(expired_apps.front()) == later);
+	(void)expires;
+}
+
+TEST_CASE("individual search application is accepted by existing concrete matching", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	auto job = f.offer(1, 7.0f);
+	auto worker = f.person();
+	economy::physical::job_market::process_job_search(*f.state);
+	auto applications = economy::physical::job_market::applications_for_person(*f.state, worker);
+	REQUIRE(applications.size() == 1);
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(f.state->world.job_application_get_status(applications.front())
+		== uint8_t(economy::physical::job_market::application_status::accepted));
+	REQUIRE(economy::physical::concrete_labor::active_workers_for_factory(*f.state, f.factory).size() == 1);
+	REQUIRE(f.state->world.job_offer_get_openings(job) == 0);
+}
+
+TEST_CASE("individual search is independent of aggregate labor mutations and creates no synthetic state", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	auto lower = f.offer(1, 2.0f);
+	auto higher = f.offer(1, 6.0f);
+	auto worker = f.person();
+	auto persons_before = f.state->world.person_size();
+	auto contracts_before = f.state->world.employment_contract_size();
+	auto transactions_before = f.state->world.transaction_size();
+	auto labor_clearing_before = f.state->world.province_get_province_labor_clearing(f.province);
+	f.state->world.province_set_labor_demand_satisfaction(f.province, economy::labor::no_education, 0.0f);
+	f.state->world.province_set_labor_supply(f.province, economy::labor::no_education, 0.0f);
+	economy::physical::job_market::process_job_search(*f.state);
+	REQUIRE(f.state->world.job_application_get_job_offer_from_job_application_offer(
+		economy::physical::job_market::applications_for_person(*f.state, worker).front()) == higher);
+	REQUIRE(f.state->world.person_size() == persons_before);
+	REQUIRE(f.state->world.employment_contract_size() == contracts_before);
+	REQUIRE(f.state->world.transaction_size() == transactions_before);
+	REQUIRE(f.state->world.province_get_province_labor_clearing(f.province) == labor_clearing_before);
+	REQUIRE(f.state->world.job_offer_get_openings(lower) == 1);
+}
+
+TEST_CASE("factory vacancy and individual search are visible in the same economy tick", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	(void)f.person();
+	economy::physical::job_market::process(*f.state);
+	REQUIRE(economy::physical::concrete_labor::labor_supplied_to_factory(*f.state, f.factory) > 0.0f);
+	std::vector<dcon::job_offer_id> offers;
+	f.state->world.for_each_job_offer([&](auto offer) { offers.push_back(offer); });
+	REQUIRE(offers.size() == 1);
+	REQUIRE(f.state->world.job_offer_get_wage_rate(offers.front()) > 0.0f);
+}
+
+TEST_CASE("automatic vacancy inherits the active concrete occupation wage", "[economy][job_market][job_search]") {
+	individual_concrete_labor_tests::fixture f;
+	f.hire(1.0f, 9.0f);
+	economy::physical::job_market::process_factory_vacancies(*f.state);
+	std::vector<dcon::job_offer_id> offers;
+	f.state->world.for_each_job_offer([&](auto offer) { offers.push_back(offer); });
+	REQUIRE(offers.size() == 1);
+	REQUIRE(f.state->world.job_offer_get_wage_rate(offers.front()) == Approx(9.0f));
+}

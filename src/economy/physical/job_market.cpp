@@ -97,6 +97,29 @@ bool duplicate_application(sys::state const& state, dcon::person_id person, dcon
 	});
 	return result;
 }
+
+struct wage_offer_terms {
+	float wage_rate = 1.0f;
+	uint16_t pay_period_days = 1;
+};
+
+wage_offer_terms wage_offer_for_factory(sys::state const& state, dcon::factory_id factory, uint8_t occupation) {
+	for(auto contract : concrete_labor::active_contracts_for_factory(state, factory)) {
+		if(state.world.employment_contract_get_occupation(contract) != occupation) continue;
+		auto wage = state.world.employment_contract_get_wage_rate(contract);
+		auto period = state.world.employment_contract_get_pay_period_days(contract);
+		if(std::isfinite(wage) && wage >= 0.0f && period != 0) return {wage, period};
+	}
+
+	// A new concrete vacancy has no contract from which to inherit terms. Use a
+	// deterministic factory-specific bootstrap: ten percent of expected unit
+	// revenue, with a small concrete floor, paid daily. This is intentionally
+	// independent of provincial aggregate labor wages and can be replaced by a
+	// richer firm wage policy later.
+	auto expected_revenue = firm_agency::decide_factory(state, factory).expected_unit_revenue;
+	auto bootstrap = std::isfinite(expected_revenue) ? expected_revenue * 0.10f : 0.0f;
+	return {std::max(1.0f, bootstrap), 1};
+}
 }
 
 dcon::job_offer_id post_job_offer(sys::state& state, dcon::economic_actor_id employer,
@@ -271,13 +294,59 @@ void process_factory_vacancies(sys::state& state) {
 		if(!std::isfinite(shortage) || shortage <= epsilon) return;
 		auto openings = uint32_t(std::ceil(shortage));
 		if(openings == 0) return;
-		(void)post_job_offer(state, employer, factory, site, 0, 1.0f, 1.0f, 1,
+		auto terms = wage_offer_for_factory(state, factory, 0);
+		(void)post_job_offer(state, employer, factory, site, 0, 1.0f, terms.wage_rate, terms.pay_period_days,
 			payer, openings, state.current_date);
 	});
 }
 
+void process_job_search(sys::state& state) {
+	auto offers = all_offers(state);
+	for(auto offer : offers) refresh_offer(state, offer);
+
+	std::vector<dcon::job_offer_id> candidates;
+	for(auto offer : offers) {
+		if(open_for_application(state, offer) && state.world.job_offer_get_openings(offer) > 0)
+			candidates.push_back(offer);
+	}
+
+	std::vector<dcon::person_id> people;
+	state.world.for_each_person([&](auto person) { people.push_back(person); });
+	sort_ids(people);
+	for(auto person : people) {
+		if(!state.world.person_get_alive(person) || concrete_labor::person_has_active_contract(state, person)) continue;
+
+		bool blocked_by_pending = false;
+		for(auto application : applications_for_person(state, person)) {
+			if(state.world.job_application_get_status(application) != uint8_t(application_status::pending)) continue;
+			auto offer = state.world.job_application_get_job_offer_from_job_application_offer(application);
+			if(open_for_application(state, offer)) {
+				blocked_by_pending = true;
+				continue;
+			}
+			state.world.job_application_set_status(application, uint8_t(application_status::rejected));
+		}
+		if(blocked_by_pending) continue;
+
+		dcon::job_offer_id best{};
+		for(auto offer : candidates) {
+			if(!accepts_worker(state, person, offer)) continue;
+			if(!best) {
+				best = offer;
+				continue;
+			}
+			auto wage = state.world.job_offer_get_wage_rate(offer);
+			auto best_wage = state.world.job_offer_get_wage_rate(best);
+			if(wage > best_wage
+				|| (wage == best_wage && offer.index() < best.index())) best = offer;
+		}
+		if(best) (void)submit_job_application(state, person, best, state.current_date);
+	}
+}
+
 void process(sys::state& state) {
 	process_factory_vacancies(state);
+	process_job_search(state);
 	process_pending_applications(state);
 }
 

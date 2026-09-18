@@ -31,6 +31,7 @@ std::vector<dcon::job_application_id> applications_for_person(sys::state const&,
 
 void process_pending_applications(sys::state&);
 void process_factory_vacancies(sys::state&);
+void process_job_search(sys::state&);
 void process(sys::state&);
 
 } // namespace economy::physical::job_market
