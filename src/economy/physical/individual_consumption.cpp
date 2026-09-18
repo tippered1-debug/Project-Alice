@@ -289,7 +289,14 @@ void process_consumption(sys::state& state) {
 		for(auto need : needs_for(state, person)) {
 			auto commodity = state.world.person_commodity_need_get_commodity_from_person_commodity_need_commodity(need);
 			auto desired = state.world.person_commodity_need_get_desired_quantity_per_period(need);
-			if(commodity && desired > 0.0f) (void)consume_owned_goods(state, person, commodity, desired);
+			auto consumed = std::max(0.0f,
+				state.world.person_commodity_need_get_consumed_this_period(need));
+			auto remaining_to_consume = std::max(0.0f, desired - consumed);
+			if(commodity && remaining_to_consume > 0.0f) {
+				auto owned = std::max(0.0f, owned_consumable_quantity(state, person, commodity));
+				(void)consume_owned_goods(state, person, commodity,
+					std::min(remaining_to_consume, owned));
+			}
 		}
 	}
 }

@@ -238,6 +238,18 @@ TEST_CASE("individual full consumption remains satisfied during the period", "[e
 	REQUIRE(unmet_need(*f.state, f.person, f.goods) == Approx(0.0f));
 }
 
+TEST_CASE("individual process consumption does not exceed the period need", "[economy][individual_consumption]") {
+	individual_money_consumption_tests::fixture f;
+	using namespace economy::physical::individual_consumption;
+	REQUIRE(economy::physical::inventory::add(*f.state, f.home, f.goods, 3.0f, f.person_actor) == Approx(3.0f));
+	auto need = set_need(*f.state, f.person, f.goods, 1.0f);
+	process_consumption(*f.state);
+	process_consumption(*f.state);
+	REQUIRE(f.state->world.person_commodity_need_get_consumed_this_period(need) == Approx(1.0f));
+	REQUIRE(unmet_need(*f.state, f.person, f.goods) == Approx(0.0f));
+	REQUIRE(owned_consumable_quantity(*f.state, f.person, f.goods) == Approx(2.0f));
+}
+
 TEST_CASE("individual partial consumption leaves the exact remainder", "[economy][individual_consumption]") {
 	individual_money_consumption_tests::fixture f;
 	using namespace economy::physical::individual_consumption;
