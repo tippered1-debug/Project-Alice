@@ -20,7 +20,9 @@ struct payroll_fixture {
 		factory = state->world.create_factory();
 		state->world.factory_set_building_type(factory, type);
 		state->world.force_create_factory_location(factory, province);
-		state->world.factory_set_canonical_production(factory, 1);
+		// This fixture intentionally exercises the explicit legacy aggregate
+		// payroll branch. Canonical no-contract behavior is covered separately.
+		state->world.factory_set_canonical_production(factory, 0);
 		state->world.factory_set_payroll_settlement(factory, settlement);
 		state->world.factory_set_unqualified_employment(factory, 1.0f);
 		state->world.province_set_labor_price(province, economy::labor::no_education, 100.0f);

@@ -120,6 +120,19 @@ TEST_CASE("canonical production is constrained by concrete labor, not aggregate 
 	REQUIRE(second_output == Approx(first_output));
 }
 
+TEST_CASE("canonical factory without contracts has zero canonical payroll", "[economy][labor][concrete]") {
+	individual_concrete_labor_tests::fixture f;
+	REQUIRE(f.state->world.factory_get_canonical_production(f.factory));
+	REQUIRE(economy::physical::concrete_labor::contracts_for_factory(*f.state, f.factory).empty());
+	REQUIRE_FALSE(f.state->world.province_get_province_labor_clearing(f.province));
+	REQUIRE(economy::industrial_production::produce_factory(*f.state, f.factory) == Approx(0.0f));
+	economy::payroll::settle_factory(*f.state, f.factory, 0.0f, 0.0f);
+	REQUIRE_FALSE(f.state->world.province_get_province_labor_clearing(f.province));
+	REQUIRE(f.state->world.transaction_size() == 0);
+	REQUIRE(f.state->world.obligation_size() == 0);
+	REQUIRE(f.state->world.payroll_event_size() == 0);
+}
+
 TEST_CASE("concrete wage settlement uses exact receiver and records arrears", "[economy][labor][concrete]") {
 	individual_concrete_labor_tests::fixture f;
 	auto contract = f.hire(1.0f, 100.0f);
