@@ -36,6 +36,7 @@
 #include "governance/law/law.cpp"
 #include "governance/governance.cpp"
 #include "persons/persons.cpp"
+#include "persons/population_materialization.cpp"
 #include "governance/actions/actions.cpp"
 #include "dcon_oos_reporter_generated.cpp"
 #ifndef INCREMENTAL

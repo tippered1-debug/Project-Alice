@@ -5070,6 +5070,20 @@ object{
 	property{ name{ birth_date } type{ sys::date } tag{ save } }
 	property{ name{ death_date } type{ sys::date } tag{ save } }
 	property{ name{ alive } type{ uint8_t } tag{ save } }
+	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ source_population_ordinal } type{ uint32_t } tag{ save } }
+	property{ name{ source_pop_type } type{ pop_type_id } tag{ save } }
+	property{ name{ source_culture } type{ culture_id } tag{ save } }
+	property{ name{ source_religion } type{ religion_id } tag{ save } }
+}
+
+object{
+	name{ population_materialization }
+	storage_type{ erasable }
+	size{ 300000 }
+	tag{ save }
+	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ materialized_person_count } type{ uint32_t } tag{ save } }
 }
 
 object{
