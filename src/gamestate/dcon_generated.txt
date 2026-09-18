@@ -5087,6 +5087,30 @@ object{
 }
 
 object{
+	name{ job_offer }
+	storage_type{ erasable }
+	size{ 300000 }
+	tag{ save }
+	property{ name{ occupation } type{ uint8_t } tag{ save } }
+	property{ name{ labor_capacity } type{ float } tag{ save } }
+	property{ name{ wage_rate } type{ float } tag{ save } }
+	property{ name{ pay_period_days } type{ uint16_t } tag{ save } }
+	property{ name{ openings } type{ uint32_t } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ expires_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ job_application }
+	storage_type{ erasable }
+	size{ 1000000 }
+	tag{ save }
+	property{ name{ applied_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
 	name{ office_tenure }
 	storage_type{ erasable }
 	size{ 200000 }
@@ -6461,6 +6485,55 @@ relationship{
 	tag{ save }
 	link{ object{ employment_contract } name{ employment_contract } type{ unique } }
 	link{ object{ obligation } name{ obligation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_offer_employer }
+	tag{ save }
+	link{ object{ job_offer } name{ job_offer } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_offer_factory }
+	tag{ save }
+	link{ object{ job_offer } name{ job_offer } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_offer_site }
+	tag{ save }
+	link{ object{ job_offer } name{ job_offer } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_offer_payer_account }
+	tag{ save }
+	link{ object{ job_offer } name{ job_offer } type{ unique } }
+	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_offer_application }
+	tag{ save }
+	link{ object{ job_offer } name{ job_offer } type{ unique } }
+	link{ object{ job_application } name{ job_application } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_application_person }
+	tag{ save }
+	link{ object{ job_application } name{ job_application } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_application_offer }
+	tag{ save }
+	link{ object{ job_application } name{ job_application } type{ unique } }
+	link{ object{ job_offer } name{ job_offer } type{ many } index_storage{ array } }
 }
 
 relationship{

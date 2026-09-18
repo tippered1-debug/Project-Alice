@@ -36,6 +36,7 @@
 #include "gamerule.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/freight_market.hpp"
+#include "economy/physical/job_market.hpp"
 #include <vector>
 #include <algorithm>
 #include <cstdio>
@@ -4352,6 +4353,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		::economy::physical::freight_market::process_pending_requests(state);
 		::economy::physical::shipments::process_arrivals(state);
 	}
+
+	::economy::physical::job_market::process(state);
 
 	update_factories_production(state);
 

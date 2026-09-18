@@ -138,6 +138,16 @@ std::vector<dcon::person_id> active_workers_for_factory(sys::state const& state,
 	return result;
 }
 
+bool person_has_active_contract(sys::state const& state, dcon::person_id person) {
+	if(!person || !state.world.person_is_valid(person)) return false;
+	bool result = false;
+	state.world.person_for_each_employment_contract_person_as_person(person, [&](auto relation) {
+		if(result) return;
+		result = active_on(state, state.world.employment_contract_person_get_employment_contract(relation));
+	});
+	return result;
+}
+
 float labor_supplied_to_factory(sys::state const& state, dcon::factory_id factory) {
 	float result = 0.0f;
 	for(auto contract : active_contracts_for_factory(state, factory)) {

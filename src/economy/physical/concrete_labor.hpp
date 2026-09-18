@@ -24,6 +24,7 @@ bool terminate_employment_contract(sys::state&, dcon::employment_contract_id, sy
 std::vector<dcon::employment_contract_id> contracts_for_factory(sys::state const&, dcon::factory_id);
 std::vector<dcon::employment_contract_id> active_contracts_for_factory(sys::state const&, dcon::factory_id);
 std::vector<dcon::person_id> active_workers_for_factory(sys::state const&, dcon::factory_id);
+bool person_has_active_contract(sys::state const&, dcon::person_id);
 float labor_supplied_to_factory(sys::state const&, dcon::factory_id);
 float wage_due(sys::state const&, dcon::employment_contract_id);
 float wage_due_for_factory(sys::state const&, dcon::factory_id);

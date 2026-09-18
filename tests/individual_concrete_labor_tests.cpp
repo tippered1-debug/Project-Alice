@@ -6,6 +6,7 @@
 #include "economy/industrial_production.hpp"
 #include "economy/payroll.hpp"
 #include "economy/physical/concrete_labor.hpp"
+#include "economy/physical/job_market.hpp"
 #include "persons/persons.hpp"
 
 namespace individual_concrete_labor_tests {
@@ -71,6 +72,18 @@ struct fixture {
 		return economy::physical::concrete_labor::create_employment_contract(*state, person, employer,
 			workplace_factory, world::site::site_for_factory(*state, workplace_factory), 0,
 			capacity, wage, 1, payer, worker_account, state->current_date);
+	}
+
+	dcon::person_id person() {
+		return persons::create_person(*state, sys::date{0});
+	}
+
+	dcon::job_offer_id offer(uint32_t openings, float wage = 1.0f,
+		dcon::factory_id workplace_factory = dcon::factory_id{}, sys::date expires_on = {}) {
+		if(!workplace_factory) workplace_factory = factory;
+		return economy::physical::job_market::post_job_offer(*state, employer, workplace_factory,
+			world::site::site_for_factory(*state, workplace_factory), 0, 1.0f, wage, 1,
+			payer, openings, state->current_date, expires_on);
 	}
 };
 }
@@ -156,4 +169,100 @@ TEST_CASE("concrete wage settlement uses exact receiver and records arrears", "[
 	REQUIRE(economy::accounts::balance(*f.state, exact_worker) == Approx(100.0f));
 	REQUIRE(f.state->world.transaction_size() == transactions_before);
 	REQUIRE(economy::relations::outstanding_between(*f.state, f.employer, worker_actor, f.settlement) == Approx(100.0f));
+}
+
+TEST_CASE("factory posts concrete job and accepted application creates exact contract", "[economy][job_market]") {
+	individual_concrete_labor_tests::fixture f;
+	auto job = f.offer(1, 25.0f);
+	auto worker = f.person();
+	REQUIRE((job && worker));
+	auto worker_actor = persons::actor_for_person(*f.state, worker);
+	auto first_account = economy::accounts::open_account(*f.state, worker_actor, f.settlement);
+	auto second_account = economy::accounts::open_account(*f.state, worker_actor, f.settlement);
+	auto expected_worker_account = first_account.index() < second_account.index() ? first_account : second_account;
+	auto application = economy::physical::job_market::submit_job_application(*f.state, worker, job, f.state->current_date);
+	REQUIRE(application);
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(f.state->world.job_application_get_status(application)
+		== uint8_t(economy::physical::job_market::application_status::accepted));
+	auto contracts = economy::physical::concrete_labor::contracts_for_factory(*f.state, f.factory);
+	REQUIRE(contracts.size() == 1);
+	auto contract = contracts.front();
+	REQUIRE(f.state->world.employment_contract_get_person_from_employment_contract_person(contract) == worker);
+	REQUIRE(f.state->world.employment_contract_get_economic_actor_from_employment_contract_employer(contract) == f.employer);
+	REQUIRE(f.state->world.employment_contract_get_factory_from_employment_contract_factory(contract) == f.factory);
+	REQUIRE(f.state->world.employment_contract_get_site_from_employment_contract_site(contract) == f.site);
+	REQUIRE(f.state->world.employment_contract_get_monetary_account_from_employment_contract_payer_account(contract) == f.payer);
+	REQUIRE(f.state->world.employment_contract_get_monetary_account_from_employment_contract_worker_account(contract)
+		== expected_worker_account);
+	REQUIRE(economy::physical::concrete_labor::labor_supplied_to_factory(*f.state, f.factory) == Approx(1.0f));
+	REQUIRE(f.state->world.job_offer_get_openings(job) == 0);
+}
+
+TEST_CASE("job matching fills openings in stable application order", "[economy][job_market]") {
+	individual_concrete_labor_tests::fixture f;
+	auto job = f.offer(2);
+	auto first_person = f.person();
+	auto second_person = f.person();
+	auto third_person = f.person();
+	auto first = economy::physical::job_market::submit_job_application(*f.state, first_person, job, f.state->current_date);
+	auto second = economy::physical::job_market::submit_job_application(*f.state, second_person, job, f.state->current_date);
+	auto third = economy::physical::job_market::submit_job_application(*f.state, third_person, job, f.state->current_date);
+	REQUIRE((first && second && third));
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(f.state->world.job_application_get_status(first) == uint8_t(economy::physical::job_market::application_status::accepted));
+	REQUIRE(f.state->world.job_application_get_status(second) == uint8_t(economy::physical::job_market::application_status::accepted));
+	REQUIRE(f.state->world.job_application_get_status(third) == uint8_t(economy::physical::job_market::application_status::pending));
+	REQUIRE(economy::physical::concrete_labor::active_workers_for_factory(*f.state, f.factory).size() == 2);
+	REQUIRE(f.state->world.job_offer_get_openings(job) == 0);
+}
+
+TEST_CASE("job matching prevents incompatible double employment", "[economy][job_market]") {
+	individual_concrete_labor_tests::fixture f;
+	auto first_job = f.offer(1);
+	auto second_job = f.offer(1);
+	auto worker = f.person();
+	auto first = economy::physical::job_market::submit_job_application(*f.state, worker, first_job, f.state->current_date);
+	auto second = economy::physical::job_market::submit_job_application(*f.state, worker, second_job, f.state->current_date);
+	REQUIRE((first && second));
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(f.state->world.job_application_get_status(first) == uint8_t(economy::physical::job_market::application_status::accepted));
+	REQUIRE(f.state->world.job_application_get_status(second) == uint8_t(economy::physical::job_market::application_status::rejected));
+	REQUIRE(economy::physical::concrete_labor::active_workers_for_factory(*f.state, f.factory).size() == 1);
+}
+
+TEST_CASE("closed, expired, and full offers do not hire until reopened", "[economy][job_market]") {
+	individual_concrete_labor_tests::fixture f;
+	auto closed = f.offer(1);
+	REQUIRE(economy::physical::job_market::close_job_offer(*f.state, closed));
+	REQUIRE_FALSE(economy::physical::job_market::submit_job_application(*f.state, f.person(), closed, f.state->current_date));
+	auto expired = f.offer(1, 1.0f, {}, f.state->current_date);
+	f.state->current_date += 1;
+	REQUIRE_FALSE(economy::physical::job_market::submit_job_application(*f.state, f.person(), expired, f.state->current_date));
+	auto full = f.offer(0);
+	auto pending = economy::physical::job_market::submit_job_application(*f.state, f.person(), full, f.state->current_date);
+	REQUIRE(pending);
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(f.state->world.job_application_get_status(pending) == uint8_t(economy::physical::job_market::application_status::pending));
+	REQUIRE(economy::physical::job_market::add_job_offer_openings(*f.state, full, 1));
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(f.state->world.job_application_get_status(pending) == uint8_t(economy::physical::job_market::application_status::accepted));
+}
+
+TEST_CASE("job matching ignores aggregate labor mutations and creates no synthetic worker money", "[economy][job_market]") {
+	individual_concrete_labor_tests::fixture f;
+	auto job = f.offer(1);
+	auto worker = f.person();
+	auto application = economy::physical::job_market::submit_job_application(*f.state, worker, job, f.state->current_date);
+	REQUIRE(application);
+	auto persons_before = f.state->world.person_size();
+	auto transactions_before = f.state->world.transaction_size();
+	f.state->world.province_set_labor_demand_satisfaction(f.province, economy::labor::no_education, 0.0f);
+	f.state->world.province_set_labor_supply(f.province, economy::labor::no_education, 0.0f);
+	economy::physical::job_market::process(*f.state);
+	REQUIRE(f.state->world.job_application_get_status(application)
+		== uint8_t(economy::physical::job_market::application_status::accepted));
+	REQUIRE(f.state->world.person_size() == persons_before);
+	REQUIRE(f.state->world.transaction_size() == transactions_before);
+	REQUIRE(economy::physical::concrete_labor::active_workers_for_factory(*f.state, f.factory).size() == 1);
 }
