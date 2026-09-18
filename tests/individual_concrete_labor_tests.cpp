@@ -24,7 +24,7 @@ struct fixture {
 	dcon::monetary_account_id payer{};
 
 	fixture() {
-		state->current_date = sys::date{0};
+		state->current_date = sys::date{30000};
 		province = state->world.create_province();
 		zone = state->world.create_state_instance();
 		market = state->world.create_market();
@@ -75,7 +75,7 @@ struct fixture {
 	}
 
 	dcon::person_id person() {
-		return persons::create_person(*state, sys::date{0});
+		return persons::create_person(*state, state->current_date - 20 * 365);
 	}
 
 	dcon::job_offer_id offer(uint32_t openings, float wage = 1.0f,

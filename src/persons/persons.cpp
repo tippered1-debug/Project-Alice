@@ -20,6 +20,15 @@ dcon::economic_actor_id actor_for_person(sys::state const& s, dcon::person_id p)
 	return p ? s.world.person_get_economic_actor_from_person_actor(p) : dcon::economic_actor_id{};
 }
 
+bool is_work_eligible(sys::state const& s, dcon::person_id person) {
+	if(!person || !s.world.person_is_valid(person) || !s.world.person_get_alive(person)) return false;
+	auto birth_date = s.world.person_get_birth_date(person);
+	if(!birth_date || !s.current_date || s.current_date < birth_date) return false;
+	auto age_days = s.current_date.to_raw_value() - birth_date.to_raw_value();
+	return age_days >= policy::minimum_working_age_days
+		&& age_days < policy::maximum_working_age_days;
+}
+
 dcon::office_tenure_id active_tenure_for(sys::state const& s, dcon::office_id office) {
 	dcon::office_tenure_id result{};
 	if(!office) return result;

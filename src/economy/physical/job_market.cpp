@@ -42,7 +42,7 @@ bool open_for_application(sys::state const& state, dcon::job_offer_id offer) {
 }
 
 bool accepts_worker(sys::state const& state, dcon::person_id person, dcon::job_offer_id offer) {
-	if(!person || !state.world.person_is_valid(person) || !state.world.person_get_alive(person)
+	if(!persons::is_work_eligible(state, person)
 		|| !open_for_application(state, offer)) return false;
 	auto factory = state.world.job_offer_get_factory_from_job_offer_factory(offer);
 	auto workplace = state.world.job_offer_get_site_from_job_offer_site(offer);

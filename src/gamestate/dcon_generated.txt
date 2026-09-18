@@ -5084,6 +5084,7 @@ object{
 	tag{ save }
 	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
 	property{ name{ materialized_person_count } type{ uint32_t } tag{ save } }
+	property{ name{ bootstrap_version } type{ uint32_t } tag{ save } }
 }
 
 object{
@@ -6484,6 +6485,20 @@ relationship{
 	tag{ save }
 	link{ object{ person_commodity_need } name{ person_commodity_need } type{ unique } }
 	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ population_materialization_source }
+	tag{ save }
+	link{ object{ population_materialization } name{ population_materialization } type{ unique } }
+	link{ object{ pop } name{ pop } type{ unique } }
+}
+
+relationship{
+ name{ population_materialization_person }
+ tag{ save }
+ link{ object{ population_materialization } name{ population_materialization } type{ many } index_storage{ array } }
+ link{ object{ person } name{ person } type{ unique } }
 }
 
 relationship{

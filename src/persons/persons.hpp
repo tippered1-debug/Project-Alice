@@ -8,10 +8,16 @@ namespace sys { class state; }
 
 namespace persons {
 
+namespace policy {
+inline constexpr int32_t minimum_working_age_days = 14 * 365;
+inline constexpr int32_t maximum_working_age_days = 65 * 365;
+}
+
 // Low-level structural occupancy primitives. Normal governance commands must
 // use governance::actions authorization APIs.
 dcon::person_id create_person(sys::state&, sys::date birth_date);
 dcon::economic_actor_id actor_for_person(sys::state const&, dcon::person_id);
+bool is_work_eligible(sys::state const&, dcon::person_id);
 dcon::office_tenure_id appoint_person(sys::state&, dcon::person_id, dcon::office_id, sys::date);
 bool remove_from_office(sys::state&, dcon::office_id, sys::date);
 dcon::person_id occupant_of(sys::state const&, dcon::office_id);
