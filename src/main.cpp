@@ -20,6 +20,7 @@
 #include "economy/physical/concrete_market.cpp"
 #include "economy/physical/concrete_labor.cpp"
 #include "economy/physical/job_market.cpp"
+#include "economy/physical/individual_consumption.cpp"
 #include "economy/firm_agency.cpp"
 #include "economy/physical/factory_output.cpp"
 #include "economy/physical/factory_inputs.cpp"

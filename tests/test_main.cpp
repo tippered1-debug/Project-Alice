@@ -104,6 +104,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "freight_market_tests.cpp"
 #include "firm_agency_tests.cpp"
 #include "individual_concrete_labor_tests.cpp"
+#include "individual_money_consumption_tests.cpp"
 #include "commodity_logistics_tests.cpp"
 #include "investment_ranking_tests.cpp"
 #include "market_access_tests.cpp"

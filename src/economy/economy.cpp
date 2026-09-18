@@ -37,6 +37,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/freight_market.hpp"
 #include "economy/physical/job_market.hpp"
+#include "economy/physical/individual_consumption.hpp"
 #include <vector>
 #include <algorithm>
 #include <cstdio>
@@ -2995,22 +2996,44 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	auto demand_paid_education = state.world.pop_make_vectorizable_float_buffer();
 	auto satisfaction_from_subsistence = state.world.pop_make_vectorizable_float_buffer();
 
-	pops::update_consumption(
-		state,
-		invention_count,
-		potential_ratio_life,
-		potential_ratio_housing,
-		potential_ratio_everyday,
-		potential_ratio_luxury,
-		potential_ratio_education_public,
-		potential_ratio_education_private,
-		demand_life,
-		demand_housing,
-		demand_everyday,
-		demand_luxury,
-		demand_paid_education,
-		satisfaction_from_subsistence
-	);
+	if(!gamerule::age_of_transformation_enabled(state)) {
+		// Legacy POP consumption remains available for the classic ruleset. The
+		// transformed canonical path is person/account/inventory based and must
+		// not let POP savings or aggregate need weights create consumer demand.
+		pops::update_consumption(
+			state,
+			invention_count,
+			potential_ratio_life,
+			potential_ratio_housing,
+			potential_ratio_everyday,
+			potential_ratio_luxury,
+			potential_ratio_education_public,
+			potential_ratio_education_private,
+			demand_life,
+			demand_housing,
+			demand_everyday,
+			demand_luxury,
+			demand_paid_education,
+			satisfaction_from_subsistence
+		);
+	} else {
+		// Keep the legacy post-clearing bookkeeping well-defined while its
+		// aggregate consumer inputs are disabled for the transformed ruleset.
+		state.world.for_each_pop([&](auto pop) {
+			potential_ratio_life.set(pop, 0.0f);
+			potential_ratio_housing.set(pop, 0.0f);
+			potential_ratio_everyday.set(pop, 0.0f);
+			potential_ratio_luxury.set(pop, 0.0f);
+			potential_ratio_education_public.set(pop, 0.0f);
+			potential_ratio_education_private.set(pop, 0.0f);
+			demand_life.set(pop, 0.0f);
+			demand_housing.set(pop, 0.0f);
+			demand_everyday.set(pop, 0.0f);
+			demand_luxury.set(pop, 0.0f);
+			demand_paid_education.set(pop, 0.0f);
+			satisfaction_from_subsistence.set(pop, 0.0f);
+		});
+	}
 #ifndef NDEBUG
 	pops::debug_check_pop_savings_phase(state, "after_update_consumption");
 #endif
@@ -4357,6 +4380,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	::economy::physical::job_market::process(state);
 
 	update_factories_production(state);
+	if(gamerule::age_of_transformation_enabled(state))
+		::economy::physical::individual_consumption::process(state);
 
 	set_profile_point(state, "factories production");
 

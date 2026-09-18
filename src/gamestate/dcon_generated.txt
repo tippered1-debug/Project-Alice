@@ -5073,6 +5073,17 @@ object{
 }
 
 object{
+	name{ person_commodity_need }
+	storage_type{ erasable }
+	size{ 1000000 }
+	tag{ save }
+	property{ name{ desired_quantity_per_period } type{ float } tag{ save } }
+	property{ name{ unmet_quantity } type{ float } tag{ save } }
+	property{ name{ last_consumed_quantity } type{ float } tag{ save } }
+	property{ name{ last_consumed_on } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ employment_contract }
 	storage_type{ erasable }
 	size{ 300000 }
@@ -6436,6 +6447,27 @@ relationship{
 	tag{ save }
 	link{ object{ person } name{ person } type{ unique } }
 	link{ object{ economic_actor } name{ economic_actor } type{ unique } }
+}
+
+relationship{
+	name{ person_home_site }
+	tag{ save }
+	link{ object{ person } name{ person } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ person_commodity_need_person }
+	tag{ save }
+	link{ object{ person_commodity_need } name{ person_commodity_need } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ person_commodity_need_commodity }
+	tag{ save }
+	link{ object{ person_commodity_need } name{ person_commodity_need } type{ unique } }
+	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
 }
 
 relationship{

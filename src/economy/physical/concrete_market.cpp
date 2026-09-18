@@ -182,6 +182,16 @@ float observed_price(sys::state const& state, dcon::market_id market, dcon::comm
 
 float canonical_reference_price(sys::state const& state, dcon::market_id market,
 	dcon::commodity_id commodity, sys::date date, float fallback) {
+	auto concrete = concrete_reference_price(state, market, commodity, date, -1.0f);
+	if(concrete >= 0.0f) return concrete;
+	// Compatibility anchor: this is the only legacy aggregate price read by
+	// the legacy market path, and it is never written back.
+	auto reference = state.world.market_get_price(market, commodity);
+	return valid(reference) ? reference : fallback;
+}
+
+float concrete_reference_price(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date, float fallback) {
 	float quantity = 0.0f, value = 0.0f;
 	sys::date latest{};
 	bool found = false;
@@ -197,10 +207,7 @@ float canonical_reference_price(sys::state const& state, dcon::market_id market,
 		}
 	});
 	if(quantity > epsilon) return value / quantity;
-	// Compatibility anchor: this is the only legacy aggregate price read by
-	// the canonical physical order path, and it is never written back.
-	auto reference = state.world.market_get_price(market, commodity);
-	return valid(reference) ? reference : fallback;
+	return fallback;
 }
 
 void expire(sys::state& state, sys::date date) {
