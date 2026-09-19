@@ -13,6 +13,13 @@ enum class freight_contract_status : uint8_t { accepted = 0, fulfilled = 1, canc
 
 constexpr uint8_t mode_bit(uint8_t mode) noexcept { return uint8_t(1u << mode); }
 
+struct offer_quote {
+	dcon::freight_offer_id offer{};
+	dcon::carrier_id carrier{};
+	dcon::monetary_account_id carrier_account{};
+	float price = 0.0f;
+};
+
 dcon::carrier_id create_carrier(sys::state&, dcon::economic_actor_id,
 	dcon::monetary_account_id, float service_capacity, uint8_t mode_mask,
 	dcon::market_id market_presence = {});
@@ -26,5 +33,10 @@ dcon::freight_request_id create_request(sys::state&, dcon::economic_actor_id,
 dcon::freight_contract_id match_request(sys::state&, dcon::freight_request_id);
 void process_pending_requests(sys::state&);
 void complete_contract_for_shipment(sys::state&, dcon::shipment_id);
+bool quote_offer(sys::state const&, dcon::freight_offer_id, dcon::market_id origin_market,
+	dcon::market_id destination_market, uint8_t required_modes, float cargo_units,
+	float route_distance, offer_quote&);
+bool reserve_capacity(sys::state&, dcon::freight_offer_id, dcon::carrier_id, float cargo_units);
+void release_capacity(sys::state&, dcon::freight_offer_id, dcon::carrier_id, float cargo_units);
 
 } // namespace economy::physical::freight_market

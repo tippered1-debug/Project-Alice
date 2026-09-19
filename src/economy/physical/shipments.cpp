@@ -10,6 +10,8 @@
 #include "world_trade_capacity.hpp"
 #include "actors/ownership.hpp"
 #include "economy/physical/extraction.hpp"
+#include "exact_person_goods.hpp"
+#include "exact_person_freight.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -248,6 +250,40 @@ std::vector<dcon::shipment_route_leg_id> route_legs(sys::state const& state, dco
 	return result;
 }
 
+dcon::shipment_id create_shipment_from_plan(sys::state& state,
+	dcon::site_id origin, dcon::site_id destination, dcon::commodity_id commodity,
+	float amount, dcon::economic_actor_id owner, std::vector<planned_leg> const& plan) {
+	if(plan.empty() || !std::isfinite(amount) || amount <= 0.0f) return {};
+	auto shipment = state.world.create_shipment();
+	state.world.shipment_set_commodity(shipment, commodity);
+	state.world.shipment_set_remaining_quantity(shipment, amount);
+	state.world.shipment_set_lifecycle(shipment, uint8_t(lifecycle::queued));
+	state.world.shipment_set_current_leg(shipment, 0);
+	state.world.shipment_set_route_leg_count(shipment, uint8_t(plan.size()));
+	state.world.force_create_shipment_origin(shipment, origin);
+	state.world.force_create_shipment_destination(shipment, destination);
+	if(owner) state.world.force_create_shipment_owner(shipment, owner);
+	auto profile = logistics::profile_for(state, commodity);
+	for(size_t index = 0; index < plan.size(); ++index) {
+		auto const& planned = plan[index];
+		auto leg = state.world.create_shipment_route_leg();
+		state.world.shipment_route_leg_set_mode(leg, uint8_t(planned.mode));
+		state.world.shipment_route_leg_set_trade_route(leg, planned.trade_route);
+		state.world.shipment_route_leg_set_origin_site(leg, planned.origin);
+		state.world.shipment_route_leg_set_destination_site(leg, planned.destination);
+		state.world.shipment_route_leg_set_sequence(leg, uint8_t(index));
+		state.world.shipment_route_leg_set_distance(leg, planned.distance);
+		state.world.shipment_route_leg_set_remaining_transport_work(leg,
+			index == 0 ? logistics::cargo_units(profile, amount) : 0.0f);
+		state.world.shipment_route_leg_set_traversal_days(leg, compatibility_travel_days(planned.distance));
+		state.world.force_create_shipment_route(leg, shipment);
+	}
+	if(auto legs = route_legs(state, shipment); !legs.empty())
+		state.world.shipment_set_remaining_days(shipment,
+			state.world.shipment_route_leg_get_traversal_days(legs.front()));
+	return shipment;
+}
+
 } // namespace
 
 uint32_t compatibility_travel_days(float distance) noexcept {
@@ -298,34 +334,28 @@ dcon::shipment_id dispatch_transfer(sys::state& state, dcon::site_id origin, dco
 	auto removed = inventory::remove(state, origin, commodity, amount, seller);
 	if(removed <= 0.0f)
 		return dcon::shipment_id{};
-	auto shipment = state.world.create_shipment();
-	state.world.shipment_set_commodity(shipment, commodity);
-	state.world.shipment_set_remaining_quantity(shipment, removed);
-	state.world.shipment_set_lifecycle(shipment, uint8_t(lifecycle::queued));
-	state.world.shipment_set_current_leg(shipment, 0);
-	state.world.shipment_set_route_leg_count(shipment, uint8_t(plan.size()));
-	state.world.force_create_shipment_origin(shipment, origin);
-	state.world.force_create_shipment_destination(shipment, destination);
-	if(buyer) state.world.force_create_shipment_owner(shipment, buyer);
-	auto profile = logistics::profile_for(state, commodity);
-	for(size_t index = 0; index < plan.size(); ++index) {
-		auto const& planned = plan[index];
-		auto leg = state.world.create_shipment_route_leg();
-		state.world.shipment_route_leg_set_mode(leg, uint8_t(planned.mode));
-		state.world.shipment_route_leg_set_trade_route(leg, planned.trade_route);
-		state.world.shipment_route_leg_set_origin_site(leg, planned.origin);
-		state.world.shipment_route_leg_set_destination_site(leg, planned.destination);
-		state.world.shipment_route_leg_set_sequence(leg, uint8_t(index));
-		state.world.shipment_route_leg_set_distance(leg, planned.distance);
-		state.world.shipment_route_leg_set_remaining_transport_work(leg,
-			index == 0 ? logistics::cargo_units(profile, removed) : 0.0f);
-		state.world.shipment_route_leg_set_traversal_days(leg, compatibility_travel_days(planned.distance));
-		state.world.force_create_shipment_route(leg, shipment);
+	auto shipment = create_shipment_from_plan(state, origin, destination, commodity, removed, buyer, plan);
+	if(!shipment) inventory::add(state, origin, commodity, removed, seller);
+	return shipment;
+}
+
+dcon::shipment_id dispatch_exact(sys::state& state, persons::exact_population::person_key owner,
+	dcon::site_id origin, dcon::site_id destination, dcon::commodity_id commodity,
+	float amount, uint64_t exact_contract_id) {
+	if(!persons::exact_population::exists(state, owner) || !origin || !destination || origin == destination
+		|| !commodity || !std::isfinite(amount) || amount <= 0.0f) return {};
+	std::vector<planned_leg> plan;
+	if(!plan_route(state, origin, destination, plan)) return {};
+	auto removed = exact_person_goods::remove_stock(state, owner, origin, commodity, amount);
+	if(removed != amount) {
+		if(removed > 0.0f) exact_person_goods::add_stock(state, owner, origin, commodity, removed);
+		return {};
 	}
-	if(!plan.empty()) {
-		auto legs = route_legs(state, shipment);
-		if(!legs.empty()) state.world.shipment_set_remaining_days(shipment,
-			state.world.shipment_route_leg_get_traversal_days(legs.front()));
+	auto shipment = create_shipment_from_plan(state, origin, destination, commodity, removed, {}, plan);
+	if(!shipment || !exact_person_freight::register_shipment_owner(state, shipment, owner, exact_contract_id)) {
+		if(shipment) state.world.delete_shipment(shipment);
+		exact_person_goods::add_stock(state, owner, origin, commodity, removed);
+		return {};
 	}
 	return shipment;
 }
@@ -399,6 +429,12 @@ void advance(sys::state& state) {
 		}
 		auto destination_relation = state.world.shipment_get_shipment_destination(shipment);
 		auto destination = state.world.shipment_destination_get_site(destination_relation);
+		if(exact_person_freight::is_external_shipment(state, shipment)) {
+			exact_person_freight::complete_external_shipment(state, shipment,
+				state.world.shipment_get_remaining_quantity(shipment));
+			state.world.delete_shipment(shipment);
+			continue;
+		}
 		auto owner_relation = state.world.shipment_get_shipment_owner(shipment);
 		auto owner = owner_relation ? state.world.shipment_owner_get_economic_actor(owner_relation) : dcon::economic_actor_id{};
 		inventory::add(state, destination, state.world.shipment_get_commodity(shipment),

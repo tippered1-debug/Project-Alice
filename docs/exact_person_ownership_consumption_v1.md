@@ -13,11 +13,11 @@ market, commodity, quantity, limit, reservation, and status. Exact bids are
 matched in the existing concrete market order stream; equal-date cross-kind
 ties place DCON bids before exact bids, then use the stable ID.
 
-An exact fill is local-only in v1: the DCON ask source site must equal the
-exact bid destination/home site. A successful fill atomically transfers exact
-money to the seller's real DCON account and real seller inventory to sparse
-exact stock. It records the mixed transaction ID and exact fill ID. Failed
-validation changes neither side.
+An exact fill atomically transfers exact money to the seller's real DCON
+account and real seller inventory to sparse exact stock at the ask source
+site. Local fills complete ownership immediately. Remote fills create an
+exact freight request for the already-owned source stock; freight is a
+separate physical event described in `exact_person_freight_v1.md`.
 
 Free exact cash is the account balance less active exact-bid reservations.
 Canceled or expired bids release their reservation without moving balances.
@@ -41,9 +41,8 @@ Snapshot dependencies are:
 Registering a million logical persons remains O(1) with respect to economic
 records; only activated accounts, needs, bids, stock, and fills are allocated.
 
-The remaining blocker before exact freight is remote physical delivery:
-exact-person freight requests and shipments are intentionally not implemented,
-so remote asks cannot fill or teleport goods in this version.
+Remote physical delivery is now handled by the separate Exact Person Freight
+v1 sparse request/contract and existing routed Shipment infrastructure.
 
 The existing `accounts::cash_inflow`, `cash_outflow`, and
 `operating_cash_flow` helpers remain DCON-Transaction observations. Mixed

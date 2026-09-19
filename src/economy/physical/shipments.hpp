@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dcon_generated.hpp"
+#include "persons/exact_population.hpp"
 
 namespace sys { class state; }
 
@@ -25,6 +26,9 @@ dcon::shipment_id dispatch(sys::state&, dcon::site_id origin, dcon::site_id dest
 dcon::shipment_id dispatch_transfer(sys::state&, dcon::site_id origin, dcon::site_id destination,
 	dcon::commodity_id commodity, float quantity, dcon::economic_actor_id seller,
 	dcon::economic_actor_id buyer);
+dcon::shipment_id dispatch_exact(sys::state&, persons::exact_population::person_key owner,
+	dcon::site_id origin, dcon::site_id destination, dcon::commodity_id commodity,
+	float quantity, uint64_t exact_contract_id);
 void advance(sys::state&);
 void process_arrivals(sys::state&);
 void process_rgo_output(sys::state&);

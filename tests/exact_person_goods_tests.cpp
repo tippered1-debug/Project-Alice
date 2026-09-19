@@ -2,6 +2,7 @@
 
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/concrete_market.hpp"
+#include "economy/physical/exact_person_freight.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/job_market.hpp"
@@ -34,7 +35,7 @@ TEST_CASE("exact consumption is capped by remaining period need", "[economy][exa
 	REQUIRE(economy::physical::exact_person_goods::unmet_need(*f.state, key, f.output) == Approx(0.0f));
 }
 
-TEST_CASE("exact remote asks do not teleport goods", "[economy][exact][goods][local]") {
+TEST_CASE("exact remote asks create source stock and pending freight", "[economy][exact][goods][freight]") {
 	individual_concrete_labor_tests::fixture f;
 	auto key = exact_person_goods_tests::worker(f);
 	f.state->world.commodity_set_cost(f.output, 2.0f);
@@ -51,10 +52,13 @@ TEST_CASE("exact remote asks do not teleport goods", "[economy][exact][goods][lo
 	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, key, f.output, 1.0f));
 	REQUIRE(economy::physical::exact_person_goods::post_bid(*f.state, key, account, f.site, f.market, f.output, 1.0f, 2.0f));
 	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.output, f.state->current_date).empty());
-	REQUIRE(economy::exact_person_economy::balance(*f.state, account) == Approx(10.0f));
-	REQUIRE(economy::accounts::balance(*f.state, seller_account) == Approx(0.0f));
-	REQUIRE(economy::physical::inventory::quantity(*f.state, remote, f.output, seller) == Approx(1.0f));
-	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 0);
+	REQUIRE(economy::exact_person_economy::balance(*f.state, account) == Approx(8.0f));
+	REQUIRE(economy::accounts::balance(*f.state, seller_account) == Approx(2.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, remote, f.output, seller) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, key, remote, f.output)
+		== Approx(1.0f));
+	REQUIRE(economy::physical::exact_person_freight::request_count(*f.state) == 1);
+	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 1);
 }
 
 TEST_CASE("exact worker wage purchases and consumes real seller goods", "[economy][exact][goods][causal]") {

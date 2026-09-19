@@ -46,19 +46,16 @@ aggregate is mutated by this pass.
 
 ## Ownership and consumption
 
-A successful local fill transfers seller inventory to the buyer's exact
-economic actor through the existing Concrete Market and inventory APIs. The
-consumption step removes only goods owned by that actor at the person's home
-site. It records the consumed quantity/date and recomputes unmet need. If the
-owned quantity is insufficient, only the owned amount is consumed,
-`consumed_this_period` increases by that amount, and the remainder stays unmet.
-Goods owned by another actor cannot satisfy the need.
-
-For a remote source, existing Concrete Market/Freight behavior remains in
-charge: the buyer-owned goods stay at source until the existing freight/shipment
-path delivers them. v1 does not teleport goods or create a parallel consumer
-logistics system. Autonomous consumers are intended for goods already
-reachable at their local home site/market.
+A successful fill transfers seller inventory to the buyer's exact economic
+actor through the existing Concrete Market and inventory APIs. Local fills
+complete ownership at home; remote fills record ownership at the ask source and
+create an Exact Person Freight request. The buyer-owned goods stay at source
+until the existing routed shipment path delivers them. Consumption removes only
+goods owned by that actor at the person's home site. It records the consumed
+quantity/date and recomputes unmet need. If the owned quantity is insufficient,
+only the owned amount is consumed, `consumed_this_period` increases by that
+amount, and the remainder stays unmet. Goods owned by another actor cannot
+satisfy the need.
 
 ## POP cutover and derived statistics
 

@@ -95,6 +95,7 @@ std::optional<bid_record> bid(sys::state const&, uint64_t id);
 std::optional<fill_record> fill(sys::state const&, uint64_t id);
 uint64_t bid_count(sys::state const&);
 uint64_t fill_count(sys::state const&);
+float reserved_bid_amount(sys::state const&, uint64_t exact_account_id);
 
 uint64_t post_bid(sys::state&, person_key, economy::exact_person_economy::account_ref,
 	dcon::site_id destination, dcon::market_id, dcon::commodity_id,

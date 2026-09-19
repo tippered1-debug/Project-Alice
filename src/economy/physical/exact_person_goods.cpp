@@ -3,6 +3,7 @@
 #include "accounts/accounts.hpp"
 #include "economy/relations/relations.hpp"
 #include "concrete_market.hpp"
+#include "exact_person_freight.hpp"
 #include "inventory.hpp"
 #include "system_state.hpp"
 
@@ -112,13 +113,12 @@ bool active_equivalent_bid(sys::state const& state, person_key owner, dcon::site
 }
 
 std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
-	dcon::market_id market, dcon::commodity_id commodity, dcon::site_id destination) {
+	dcon::market_id market, dcon::commodity_id commodity) {
 	std::vector<dcon::commodity_id> result;
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)
 			|| state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) != market
-			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity
-			|| state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask) != destination) return;
+			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 		state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(seller, [&](auto relation) {
 			auto account = state.world.monetary_account_owner_get_monetary_account(relation);
@@ -269,7 +269,7 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 	auto market = state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask);
 	auto commodity = state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask);
 	auto price = state.world.concrete_market_ask_get_minimum_price(ask);
-	if(!source || source != bid->destination || market != bid->market || commodity != bid->commodity
+	if(!source || market != bid->market || commodity != bid->commodity
 		|| !seller || !positive_finite(price) || price > bid->limit_price
 		|| !positive_finite(bid->remaining_quantity)) return 0;
 	using namespace economy::exact_person_economy;
@@ -286,16 +286,16 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 	if(!positive_finite(quantity) || quantity * price > free + epsilon) return 0;
 	auto fill_id = next_id(ensure_store(state)->next_fill_id);
 	if(!fill_id) return 0;
-	if(add_stock(state, bid->buyer, bid->destination, commodity, quantity) != quantity) return 0;
+	if(add_stock(state, bid->buyer, source, commodity, quantity) != quantity) return 0;
 	if(inventory::remove(state, source, commodity, quantity, seller) != quantity) {
-		remove_stock(state, bid->buyer, bid->destination, commodity, quantity);
+		remove_stock(state, bid->buyer, source, commodity, quantity);
 		return 0;
 	}
 	auto transfer = transfer_with_result(state, buyer_account, account_ref::from_dcon(seller_account),
 		quantity * price, relations::transaction_kind::purchase, date);
 	if(!transfer.success) {
 		inventory::add(state, source, commodity, quantity, seller);
-		remove_stock(state, bid->buyer, bid->destination, commodity, quantity);
+		remove_stock(state, bid->buyer, source, commodity, quantity);
 		return 0;
 	}
 	bid->remaining_quantity = std::max(0.0f, bid->remaining_quantity - quantity);
@@ -311,6 +311,9 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 	fill.execution_price = price; fill.source = source; fill.destination = bid->destination;
 	fill.market = market; fill.commodity = commodity; fill.occurred_on = date;
 	ensure_store(state)->fills.push_back(fill);
+	if(source != bid->destination)
+		(void)exact_person_freight::create_request(state, bid->buyer, source, bid->destination,
+			commodity, quantity, fill_id);
 	return fill_id;
 }
 
@@ -333,14 +336,19 @@ bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commod
 	auto site = persons::exact_population::home_site(state, buyer);
 	auto market = market_for_site(state, site);
 	auto record = need_for(state, buyer, commodity);
-	if(!site || !market || !record || refresh_unmet(state, *record) <= epsilon
+	if(!site || !market || !record
 		|| active_equivalent_bid(state, buyer, site, commodity)) return false;
+	auto home_stock = stock_quantity(state, buyer, site, commodity);
+	auto incoming = exact_person_freight::incoming_quantity(state, buyer, site, commodity);
+	auto remaining_to_acquire = std::max(0.0f, record->desired_quantity_per_period
+		- std::max(0.0f, record->consumed_this_period) - home_stock - incoming);
+	if(remaining_to_acquire <= epsilon) return false;
 	auto price = concrete_market::concrete_reference_price(state, market, commodity, state.current_date,
 		std::max(0.01f, state.world.commodity_get_cost(commodity)));
 	if(!positive_finite(price)) return false;
 	economy::exact_person_economy::account_ref selected{};
 	float best_cash = -std::numeric_limits<float>::infinity();
-	for(auto settlement : seller_settlements(state, market, commodity, site))
+	for(auto settlement : seller_settlements(state, market, commodity))
 		for(auto candidate : economy::exact_person_economy::accounts_for_person(state, buyer))
 			if(economy::exact_person_economy::settlement_of(state, candidate) == settlement) {
 				auto cash = economy::exact_person_economy::balance(state, candidate)
@@ -350,7 +358,7 @@ bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commod
 				}
 			}
 	if(!selected || best_cash <= epsilon) return false;
-	auto quantity = std::min(record->unmet_quantity, best_cash / price);
+	auto quantity = std::min(remaining_to_acquire, best_cash / price);
 	auto id = post_bid(state, buyer, selected, site, market, commodity, quantity, price);
 	if(!id) return false;
 	(void)concrete_market::match(state, market, commodity, state.current_date);
@@ -399,6 +407,10 @@ float concrete_reference_price(sys::state const& state, dcon::market_id market, 
 
 uint64_t bid_count(sys::state const& state) { return uint64_t(ensure_store(state)->bids.size()); }
 uint64_t fill_count(sys::state const& state) { return uint64_t(ensure_store(state)->fills.size()); }
+
+float reserved_bid_amount(sys::state const& state, uint64_t exact_account_id) {
+	return reserved_exact(state, exact_account_id);
+}
 
 goods_snapshot export_snapshot(sys::state const& state) {
 	goods_snapshot result; result.version = snapshot_version;
