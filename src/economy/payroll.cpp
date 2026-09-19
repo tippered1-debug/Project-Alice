@@ -6,6 +6,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/concrete_labor.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "economy/economy_stats.hpp"
 
 #include <algorithm>
@@ -85,10 +86,11 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 	// below is retained only for explicitly non-canonical factories. A canonical
 	// factory with no contracts has zero canonical payroll.
 	auto contracts = physical::concrete_labor::contracts_for_factory(state, factory);
+	auto exact_contracts = exact_person_economy::active_contracts_for_factory(state, factory);
 	if(state.world.factory_get_canonical_production(factory)) {
 		if(state.world.factory_get_payroll_initialized(factory)
 			&& state.world.factory_get_last_payroll_date(factory) == state.current_date) return;
-		if(!contracts.empty()) {
+		if(!contracts.empty() || !exact_contracts.empty()) {
 			auto province = compat::alice::province_for_factory(state, factory);
 			auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
 			for(auto contract : physical::concrete_labor::active_contracts_for_factory(state, factory)) {
@@ -97,6 +99,17 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 				auto result = physical::concrete_labor::settle_contract_wage(state, contract);
 				if(province && operator_actor && settlement) {
 					record_event(state, factory, province, operator_actor, settlement, result.obligation,
+						result.due, result.paid, result.unpaid, result.due, 0.0f, 0.0f,
+						result.paid, 0.0f, 0.0f);
+				}
+			}
+			for(auto contract : exact_contracts) {
+				auto exact_record = exact_person_economy::contract(state, contract);
+				if(!exact_record) continue;
+				auto settlement = accounts::settlement_of(state, exact_record->payer_account);
+				auto result = exact_person_economy::settle_contract_wage(state, contract);
+				if(province && operator_actor && settlement) {
+					record_event(state, factory, province, operator_actor, settlement, {},
 						result.due, result.paid, result.unpaid, result.due, 0.0f, 0.0f,
 						result.paid, 0.0f, 0.0f);
 				}

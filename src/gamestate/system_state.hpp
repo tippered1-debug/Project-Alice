@@ -47,6 +47,10 @@ namespace persons {
 struct exact_population_store;
 }
 
+namespace economy {
+struct exact_person_economy_store;
+}
+
 // this header will eventually contain the highest-level objects
 // that represent the overall state of the program
 // it will also include the game state itself eventually as a member
@@ -745,6 +749,9 @@ struct alignas(64) state {
 	// Exact mass-population identity is kept outside DCON. The store is lazily
 	// created by persons::exact_population and does not allocate economic actors.
 	mutable std::shared_ptr<persons::exact_population_store> exact_population;
+	// Sparse economic state for exact persons. It is separate from the DCON
+	// economy and is created only when an exact person participates.
+	mutable std::shared_ptr<economy::exact_person_economy_store> exact_person_economy;
 
 	// scenario data
 

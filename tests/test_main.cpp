@@ -107,6 +107,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "individual_money_consumption_tests.cpp"
 #include "population_materialization_tests.cpp"
 #include "exact_population_tests.cpp"
+#include "exact_person_economy_tests.cpp"
 #include "commodity_logistics_tests.cpp"
 #include "investment_ranking_tests.cpp"
 #include "market_access_tests.cpp"

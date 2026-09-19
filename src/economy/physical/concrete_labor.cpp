@@ -3,6 +3,7 @@
 #include "accounts/accounts.hpp"
 #include "concrete_market.hpp"
 #include "economy/relations/relations.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -154,6 +155,7 @@ float labor_supplied_to_factory(sys::state const& state, dcon::factory_id factor
 		auto amount = state.world.employment_contract_get_labor_capacity(contract);
 		if(std::isfinite(amount) && amount > 0.0f) result += amount;
 	}
+	result += economy::exact_person_economy::labor_supplied_to_factory(state, factory);
 	return std::isfinite(result) ? result : 0.0f;
 }
 
@@ -170,6 +172,7 @@ float wage_due(sys::state const& state, dcon::employment_contract_id contract) {
 float wage_due_for_factory(sys::state const& state, dcon::factory_id factory) {
 	float result = 0.0f;
 	for(auto contract : active_contracts_for_factory(state, factory)) result += wage_due(state, contract);
+	result += economy::exact_person_economy::wage_due_for_factory(state, factory);
 	return std::isfinite(result) ? result : 0.0f;
 }
 

@@ -136,7 +136,9 @@ registration_result add_descriptor(sys::state& state, cell_descriptor descriptor
 }
 
 exact_person_override* mutable_override(sys::state& state, person_key key) {
-	return &ensure_store(state)->overrides[key];
+	auto& override = ensure_store(state)->overrides[key];
+	override.key = key;
+	return &override;
 }
 
 exact_person_override const* find_override(sys::state const& state, person_key key) {

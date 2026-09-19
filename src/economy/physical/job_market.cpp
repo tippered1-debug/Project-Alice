@@ -4,6 +4,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "concrete_labor.hpp"
 #include "economy/firm_agency.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -109,6 +110,12 @@ wage_offer_terms wage_offer_for_factory(sys::state const& state, dcon::factory_i
 		auto wage = state.world.employment_contract_get_wage_rate(contract);
 		auto period = state.world.employment_contract_get_pay_period_days(contract);
 		if(std::isfinite(wage) && wage >= 0.0f && period != 0) return {wage, period};
+	}
+	for(auto contract_id : economy::exact_person_economy::active_contracts_for_factory(state, factory)) {
+		auto contract = economy::exact_person_economy::contract(state, contract_id);
+		if(!contract || contract->occupation != occupation) continue;
+		if(std::isfinite(contract->wage_rate) && contract->wage_rate >= 0.0f && contract->pay_period_days != 0)
+			return {contract->wage_rate, contract->pay_period_days};
 	}
 
 	// A new concrete vacancy has no contract from which to inherit terms. Use a
@@ -273,6 +280,7 @@ void process_pending_applications(sys::state& state) {
 			state.world.job_offer_set_openings(offer, state.world.job_offer_get_openings(offer) - 1);
 		}
 	}
+	economy::exact_person_economy::process_pending_applications(state);
 }
 
 void process_factory_vacancies(sys::state& state) {

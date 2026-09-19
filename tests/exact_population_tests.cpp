@@ -174,7 +174,10 @@ TEST_CASE("exact catalog snapshot restores sealed descriptors and overlays", "[p
 	REQUIRE(persons::exact_population::register_population_cell(*f.state, f.pop, f.home).result
 		== persons::exact_population::status::created);
 	person_key key{uint32_t(f.pop.index()) + 1u, 1};
+	auto other_site = f.state->world.create_site();
+	f.state->world.force_create_site_location(other_site, f.province);
 	REQUIRE(persons::exact_population::set_alive(*f.state, key, false));
+	REQUIRE(persons::exact_population::set_home_site(*f.state, key, other_site));
 	auto bridge = persons::exact_population::materialize_legacy_person_bridge(*f.state, key);
 	auto snapshot = persons::exact_population::export_snapshot(*f.state);
 	persons::exact_population::clear_store(*f.state);
@@ -182,5 +185,6 @@ TEST_CASE("exact catalog snapshot restores sealed descriptors and overlays", "[p
 	REQUIRE(persons::exact_population::import_snapshot(*f.state, snapshot));
 	REQUIRE(persons::exact_population::exists(*f.state, key));
 	REQUIRE_FALSE(persons::exact_population::alive(*f.state, key));
+	REQUIRE(persons::exact_population::home_site(*f.state, key) == other_site);
 	REQUIRE(persons::exact_population::legacy_person_for_exact_person(*f.state, key) == bridge);
 }
