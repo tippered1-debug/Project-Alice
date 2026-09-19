@@ -84,7 +84,7 @@ void cancel_request(sys::state&, uint64_t request_id);
 
 bool register_shipment_owner(sys::state&, dcon::shipment_id, person_key, uint64_t contract_id);
 bool is_external_shipment(sys::state const&, dcon::shipment_id);
-void complete_external_shipment(sys::state&, dcon::shipment_id, float surviving_quantity);
+bool complete_external_shipment(sys::state&, dcon::shipment_id, float surviving_quantity);
 
 freight_snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, freight_snapshot const&);

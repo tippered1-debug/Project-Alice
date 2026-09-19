@@ -146,11 +146,12 @@ float add_stock(sys::state& state, person_key owner, dcon::site_id site,
 	if(!persons::exact_population::exists(state, owner) || !site || !state.world.site_is_valid(site)
 		|| !commodity || !state.world.commodity_is_valid(commodity) || !positive_finite(amount)) return 0.0f;
 	auto record = stock_for(state, owner, site, commodity);
+	auto current = record ? record->quantity : 0.0f;
+	if(!nonnegative_finite(current) || amount > std::numeric_limits<float>::max() - current) return 0.0f;
 	if(!record) {
 		record = &ensure_store(state)->stocks.emplace_back();
 		record->owner = owner; record->site = site; record->commodity = commodity;
 	}
-	if(!nonnegative_finite(record->quantity) || amount > std::numeric_limits<float>::max() - record->quantity) return 0.0f;
 	record->quantity += amount;
 	return amount;
 }

@@ -430,9 +430,9 @@ void advance(sys::state& state) {
 		auto destination_relation = state.world.shipment_get_shipment_destination(shipment);
 		auto destination = state.world.shipment_destination_get_site(destination_relation);
 		if(exact_person_freight::is_external_shipment(state, shipment)) {
-			exact_person_freight::complete_external_shipment(state, shipment,
-				state.world.shipment_get_remaining_quantity(shipment));
-			state.world.delete_shipment(shipment);
+			if(exact_person_freight::complete_external_shipment(state, shipment,
+				state.world.shipment_get_remaining_quantity(shipment)))
+				state.world.delete_shipment(shipment);
 			continue;
 		}
 		auto owner_relation = state.world.shipment_get_shipment_owner(shipment);

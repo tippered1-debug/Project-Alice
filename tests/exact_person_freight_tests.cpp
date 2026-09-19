@@ -10,6 +10,8 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/relations/relations.hpp"
 
+#include <limits>
+
 namespace exact_person_freight_tests {
 
 using person_key = persons::exact_population::person_key;
@@ -180,6 +182,51 @@ TEST_CASE("exact freight matches existing carrier and reuses routed shipment lif
 	REQUIRE(f.state->world.freight_offer_get_committed_capacity(carrier.offer) == Approx(0.0f));
 }
 
+TEST_CASE("failed exact arrival preserves shipment and is retryable", "[economy][exact][freight][arrival]") {
+	exact_person_freight_tests::fixture f;
+	f.remote_purchase();
+	auto carrier = exact_person_freight_tests::add_carrier(f, f.settlement);
+	economy::physical::freight_market::process_pending_requests(*f.state);
+	auto contract = economy::physical::exact_person_freight::contract(*f.state, 1);
+	REQUIRE(contract);
+	REQUIRE(contract->shipment);
+	auto shipment = contract->shipment;
+	auto request = economy::physical::exact_person_freight::request(*f.state, 1);
+	REQUIRE(request);
+	auto remaining = f.state->world.shipment_get_remaining_quantity(shipment);
+	REQUIRE_FALSE(economy::physical::exact_person_freight::complete_external_shipment(*f.state,
+		shipment, std::numeric_limits<float>::quiet_NaN()));
+	REQUIRE(f.state->world.shipment_is_valid(shipment));
+	REQUIRE(f.state->world.shipment_get_remaining_quantity(shipment) == Approx(remaining));
+	REQUIRE(economy::physical::exact_person_freight::contract(*f.state, 1)->status
+		== economy::physical::exact_person_freight::contract_status::accepted);
+	REQUIRE(economy::physical::exact_person_freight::request(*f.state, 1)->status
+		== economy::physical::exact_person_freight::request_status::contracted);
+	REQUIRE(economy::physical::exact_person_freight::shipment_owner_count(*f.state) == 1);
+	REQUIRE(f.state->world.carrier_get_committed_capacity(carrier.carrier) > 0.0f);
+	REQUIRE(f.state->world.freight_offer_get_committed_capacity(carrier.offer) > 0.0f);
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, f.worker,
+		f.destination, f.goods) == Approx(0.0f));
+	for(int day = 0; day < 20 && f.state->world.shipment_is_valid(shipment); ++day)
+		economy::physical::shipments::advance(*f.state);
+	REQUIRE_FALSE(f.state->world.shipment_is_valid(shipment));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, f.worker,
+		f.destination, f.goods) > 0.0f);
+	auto delivered = economy::physical::exact_person_goods::stock_quantity(*f.state, f.worker,
+		f.destination, f.goods);
+	REQUIRE_FALSE(economy::physical::exact_person_freight::complete_external_shipment(*f.state,
+		shipment, delivered));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, f.worker,
+		f.destination, f.goods) == Approx(delivered));
+	REQUIRE(economy::physical::exact_person_freight::contract(*f.state, 1)->status
+		== economy::physical::exact_person_freight::contract_status::fulfilled);
+	REQUIRE(economy::physical::exact_person_freight::request(*f.state, 1)->status
+		== economy::physical::exact_person_freight::request_status::fulfilled);
+	REQUIRE(economy::physical::exact_person_freight::shipment_owner_count(*f.state) == 0);
+	REQUIRE(f.state->world.carrier_get_committed_capacity(carrier.carrier) == Approx(0.0f));
+	REQUIRE(f.state->world.freight_offer_get_committed_capacity(carrier.offer) == Approx(0.0f));
+}
+
 TEST_CASE("exact freight payer settlement and free cash are enforced", "[economy][exact][freight][money]") {
 	exact_person_freight_tests::fixture f;
 	f.remote_purchase();
@@ -236,6 +283,44 @@ TEST_CASE("exact freight snapshot restores active external shipment mapping", "[
 	REQUIRE(economy::physical::exact_person_freight::contract_count(*f.state) == 1);
 	REQUIRE(economy::physical::exact_person_freight::shipment_owner_count(*f.state) == 1);
 	(void)carrier;
+}
+
+TEST_CASE("exact freight snapshot rejects broken shipment ownership", "[economy][exact][freight][persistence]") {
+	exact_person_freight_tests::fixture f;
+	f.remote_purchase();
+	exact_person_freight_tests::add_carrier(f, f.settlement);
+	economy::physical::freight_market::process_pending_requests(*f.state);
+	auto valid = economy::physical::exact_person_freight::export_snapshot(*f.state);
+	persons::exact_population::cell_descriptor descriptor;
+	descriptor.source_population_cell = 2;
+	descriptor.literal_count = 1;
+	descriptor.bootstrap_base_day = f.state->current_date.to_raw_value() - 1;
+	descriptor.home_site = f.destination;
+	REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, descriptor).result
+		== persons::exact_population::status::created);
+
+	auto missing_owner = valid;
+	missing_owner.shipment_owners.clear();
+	economy::physical::exact_person_freight::clear_store(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_freight::import_snapshot(*f.state, missing_owner));
+	REQUIRE(economy::physical::exact_person_freight::import_snapshot(*f.state, valid));
+
+	auto wrong_owner = valid;
+	wrong_owner.shipment_owners.front().owner = {2, 0};
+	economy::physical::exact_person_freight::clear_store(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_freight::import_snapshot(*f.state, wrong_owner));
+	REQUIRE(economy::physical::exact_person_freight::import_snapshot(*f.state, valid));
+
+	auto wrong_contract = valid;
+	wrong_contract.shipment_owners.front().contract_id = 999;
+	economy::physical::exact_person_freight::clear_store(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_freight::import_snapshot(*f.state, wrong_contract));
+	REQUIRE(economy::physical::exact_person_freight::import_snapshot(*f.state, valid));
+
+	auto wrong_payment = valid;
+	wrong_payment.contracts.front().agreed_freight_price += 1.0f;
+	economy::physical::exact_person_freight::clear_store(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_freight::import_snapshot(*f.state, wrong_payment));
 }
 
 TEST_CASE("million logical persons do not allocate exact freight state", "[economy][exact][freight][scale]") {
