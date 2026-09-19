@@ -43,6 +43,10 @@ namespace ui {
 struct lua_scripted_element;
 }
 
+namespace persons {
+struct exact_population_store;
+}
+
 // this header will eventually contain the highest-level objects
 // that represent the overall state of the program
 // it will also include the game state itself eventually as a member
@@ -738,6 +742,9 @@ struct ui_cache {
 /// </summary>
 struct alignas(64) state {
 	dcon::data_container world; // Holds data regarding the game world. Also contains user locales.
+	// Exact mass-population identity is kept outside DCON. The store is lazily
+	// created by persons::exact_population and does not allocate economic actors.
+	mutable std::shared_ptr<persons::exact_population_store> exact_population;
 
 	// scenario data
 
