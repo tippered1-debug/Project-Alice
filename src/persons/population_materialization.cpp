@@ -165,28 +165,59 @@ std::vector<dcon::person_id> materialize_population_cell(sys::state& state, dcon
 	return materialize_population_cell_with_status(state, pop, home_site).persons;
 }
 
-std::vector<dcon::person_id> materialize_initial_population(sys::state& state) {
+initial_population_materialization_result materialize_initial_population_with_status(sys::state& state) {
+	initial_population_materialization_result result;
 	std::vector<dcon::pop_id> pops;
 	state.world.for_each_pop([&](auto pop) { pops.push_back(pop); });
 	sort_ids(pops);
+	bool has_version_mismatch = false;
+	state.world.for_each_population_materialization([&](auto marker) {
+		if(state.world.population_materialization_get_bootstrap_version(marker) != bootstrap_semantics_version)
+			has_version_mismatch = true;
+	});
+	if(has_version_mismatch) {
+		result.status = materialization_status::version_mismatch;
+		return result;
+	}
 	uint64_t pending_count = 0;
 	for(auto pop : pops) {
 		if(marker_for(state, pop)) continue;
 		uint32_t count = 0;
-		if(!literal_count(state, pop, count)
-			|| pending_count > std::numeric_limits<uint64_t>::max() - count) return {};
+		if(!literal_count(state, pop, count)) {
+			result.status = materialization_status::overflow;
+			return result;
+		}
+		if(pending_count > std::numeric_limits<uint64_t>::max() - count) {
+			result.status = materialization_status::overflow;
+			return result;
+		}
 		pending_count += count;
 	}
 	if(state.world.person_size() > supported_person_capacity
 		|| state.world.economic_actor_size() > supported_economic_actor_capacity
 		|| pending_count > supported_person_capacity - state.world.person_size()
-		|| pending_count > supported_economic_actor_capacity - state.world.economic_actor_size()) return {};
-	std::vector<dcon::person_id> result;
-	for(auto pop : pops) {
-		auto persons = materialize_population_cell(state, pop);
-		result.insert(result.end(), persons.begin(), persons.end());
+		|| pending_count > supported_economic_actor_capacity - state.world.economic_actor_size()) {
+		result.status = materialization_status::capacity_exceeded;
+		return result;
 	}
+	bool created = false;
+	for(auto pop : pops) {
+		auto cell = materialize_population_cell_with_status(state, pop);
+		if(cell.status != materialization_status::created
+			&& cell.status != materialization_status::already_materialized) {
+			result.persons.clear();
+			result.status = cell.status;
+			return result;
+		}
+		created = created || cell.status == materialization_status::created;
+		result.persons.insert(result.persons.end(), cell.persons.begin(), cell.persons.end());
+	}
+	result.status = created ? materialization_status::created : materialization_status::already_materialized;
 	return result;
+}
+
+std::vector<dcon::person_id> materialize_initial_population(sys::state& state) {
+	return materialize_initial_population_with_status(state).persons;
 }
 
 population_estimate estimate_initial_population(sys::state const& state) {

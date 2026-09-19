@@ -170,6 +170,25 @@ TEST_CASE("materialization version mismatch does not append or duplicate", "[pop
 	REQUIRE(f.state->world.economic_actor_size() == actors_before);
 }
 
+TEST_CASE("world materialization aborts before mixing v2 and v3 cells", "[population][materialization]") {
+	population_materialization_tests::fixture f;
+	auto existing = persons::population_materialization::materialize_population_cell(*f.state, f.pop);
+	auto marker = f.state->world.pop_get_population_materialization_from_population_materialization_source(f.pop);
+	f.state->world.population_materialization_set_bootstrap_version(marker, 2);
+	auto second_pop = f.state->world.create_pop();
+	f.state->world.force_create_pop_location(second_pop, f.province);
+	f.state->world.pop_set_size(second_pop, 1.0f);
+	auto persons_before = f.state->world.person_size();
+	auto actors_before = f.state->world.economic_actor_size();
+	auto result = persons::population_materialization::materialize_initial_population_with_status(*f.state);
+	REQUIRE(result.status == persons::population_materialization::materialization_status::version_mismatch);
+	REQUIRE(result.persons.empty());
+	REQUIRE(f.state->world.person_size() == persons_before);
+	REQUIRE(f.state->world.economic_actor_size() == actors_before);
+	REQUIRE(persons::population_materialization::materialize_population_cell(*f.state, f.pop) == existing);
+	REQUIRE(f.state->world.pop_get_population_materialization_from_population_materialization_source(second_pop) == dcon::population_materialization_id{});
+}
+
 TEST_CASE("capacity failure does not partially materialize a POP cell", "[population][materialization]") {
 	population_materialization_tests::fixture f;
 	f.state->world.pop_set_size(f.pop, 20000.0f);

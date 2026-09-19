@@ -81,7 +81,10 @@ policy; POP employment and labor aggregates are irrelevant.
 
 The persisted marker stores `bootstrap_version`. A matching marker returns its
 indexed persons; a version mismatch returns `version_mismatch` and never
-appends or duplicates. Marker lookup uses the indexed POP-to-marker relation.
+appends or duplicates. Both cell materialization and the status-returning
+world-level `materialize_initial_population_with_status` API enforce this
+before allocation; the world-level API scans every existing marker first, so a
+v2/v3 mixture cannot be produced. Marker lookup uses the indexed POP-to-marker relation.
 Marker-person lookup uses the indexed DCON relation and preserves ordinal
 ordering. Neither canonical lookup scans every marker or every person.
 

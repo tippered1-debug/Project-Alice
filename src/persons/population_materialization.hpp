@@ -35,6 +35,11 @@ struct cell_materialization_result {
 	materialization_status status = materialization_status::invalid_source;
 };
 
+struct initial_population_materialization_result {
+	std::vector<dcon::person_id> persons;
+	materialization_status status = materialization_status::invalid_source;
+};
+
 struct population_estimate {
 	uint64_t source_population_cells = 0;
 	double source_population_units = 0.0;
@@ -61,6 +66,7 @@ cell_materialization_result materialize_population_cell_with_status(sys::state&,
 	dcon::site_id home_site = {});
 std::vector<dcon::person_id> materialize_population_cell(sys::state&, dcon::pop_id,
 	dcon::site_id home_site = {});
+initial_population_materialization_result materialize_initial_population_with_status(sys::state&);
 std::vector<dcon::person_id> materialize_initial_population(sys::state&);
 population_estimate estimate_initial_population(sys::state const&);
 materialization_measurement measure_initial_population_materialization(sys::state&);
