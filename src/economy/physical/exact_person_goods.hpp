@@ -75,6 +75,11 @@ struct goods_snapshot {
 	std::vector<fill_record> fills;
 };
 
+struct price_observation {
+	float quantity = 0.0f;
+	float value = 0.0f;
+};
+
 float stock_quantity(sys::state const&, person_key, dcon::site_id, dcon::commodity_id);
 float add_stock(sys::state&, person_key, dcon::site_id, dcon::commodity_id, float);
 float remove_stock(sys::state&, person_key, dcon::site_id, dcon::commodity_id, float);
@@ -103,6 +108,8 @@ void process_purchase_decisions(sys::state&, person_key);
 
 float observed_price(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);
 float concrete_reference_price(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);
+price_observation observation_for_date(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);
+std::optional<sys::date> latest_fill_date(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date query_date);
 
 goods_snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, goods_snapshot const&);

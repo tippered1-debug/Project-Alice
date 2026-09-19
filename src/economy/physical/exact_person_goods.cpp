@@ -112,17 +112,19 @@ bool active_equivalent_bid(sys::state const& state, person_key owner, dcon::site
 }
 
 std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
-	dcon::market_id market, dcon::commodity_id commodity) {
+	dcon::market_id market, dcon::commodity_id commodity, dcon::site_id destination) {
 	std::vector<dcon::commodity_id> result;
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)
 			|| state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) != market
-			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
+			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity
+			|| state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask) != destination) return;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 		state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(seller, [&](auto relation) {
 			auto account = state.world.monetary_account_owner_get_monetary_account(relation);
 			auto settlement = accounts::settlement_of(state, account);
-			if(settlement) result.push_back(settlement);
+			if(account && state.world.monetary_account_is_valid(account) && settlement
+				&& state.world.commodity_is_valid(settlement)) result.push_back(settlement);
 		});
 	});
 	std::sort(result.begin(), result.end(), [](auto a, auto b) { return a.index() < b.index(); });
@@ -338,7 +340,7 @@ bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commod
 	if(!positive_finite(price)) return false;
 	economy::exact_person_economy::account_ref selected{};
 	float best_cash = -std::numeric_limits<float>::infinity();
-	for(auto settlement : seller_settlements(state, market, commodity))
+	for(auto settlement : seller_settlements(state, market, commodity, site))
 		for(auto candidate : economy::exact_person_economy::accounts_for_person(state, buyer))
 			if(economy::exact_person_economy::settlement_of(state, candidate) == settlement) {
 				auto cash = economy::exact_person_economy::balance(state, candidate)
@@ -360,13 +362,29 @@ void process_purchase_decisions(sys::state& state, person_key buyer) {
 		if(record.owner == buyer) (void)process_purchase_decision(state, buyer, record.commodity);
 }
 
-float observed_price(sys::state const& state, dcon::market_id market, dcon::commodity_id commodity, sys::date date) {
-	float quantity = 0.0f, value = 0.0f;
+price_observation observation_for_date(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date) {
+	price_observation result;
 	for(auto const& fill : ensure_store(state)->fills)
 		if(fill.market == market && fill.commodity == commodity && fill.occurred_on == date) {
-			quantity += fill.quantity; value += fill.quantity * fill.execution_price;
+			result.quantity += fill.quantity;
+			result.value += fill.quantity * fill.execution_price;
 		}
-	return quantity > epsilon ? value / quantity : 0.0f;
+	return result;
+}
+
+float observed_price(sys::state const& state, dcon::market_id market, dcon::commodity_id commodity, sys::date date) {
+	auto result = observation_for_date(state, market, commodity, date);
+	return result.quantity > epsilon ? result.value / result.quantity : 0.0f;
+}
+
+std::optional<sys::date> latest_fill_date(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date query_date) {
+	std::optional<sys::date> result;
+	for(auto const& fill : ensure_store(state)->fills)
+		if(fill.market == market && fill.commodity == commodity && fill.occurred_on < query_date
+			&& (!result || fill.occurred_on > *result)) result = fill.occurred_on;
+	return result;
 }
 
 float concrete_reference_price(sys::state const& state, dcon::market_id market, dcon::commodity_id commodity, sys::date date) {

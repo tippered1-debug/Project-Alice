@@ -44,3 +44,10 @@ records; only activated accounts, needs, bids, stock, and fills are allocated.
 The remaining blocker before exact freight is remote physical delivery:
 exact-person freight requests and shipments are intentionally not implemented,
 so remote asks cannot fill or teleport goods in this version.
+
+The existing `accounts::cash_inflow`, `cash_outflow`, and
+`operating_cash_flow` helpers remain DCON-Transaction observations. Mixed
+exact-person sales update the real seller DCON account and the exact mixed
+transaction ledger, but do not synthesize a DCON buyer or DCON Transaction.
+Those helpers therefore do not yet report mixed exact sales; a unified
+accounting/statistics observation path is deferred to that milestone.

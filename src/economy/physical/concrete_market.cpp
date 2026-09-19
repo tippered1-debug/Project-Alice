@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 namespace economy::physical::concrete_market {
@@ -205,10 +206,9 @@ float observed_price(sys::state const& state, dcon::market_id market, dcon::comm
 		value += state.world.concrete_trade_fill_get_quantity(fill) * state.world.concrete_trade_fill_get_execution_price(fill);
 	});
 	if(state.exact_person_goods) {
-		// The exact store owns its ledger. An exact fill is a concrete observed
-		// transaction and is preferred when it is the only observed fill.
-		auto exact_price = exact_person_goods::observed_price(state, market, commodity, date);
-		if(valid(exact_price) && quantity <= epsilon) return exact_price;
+		auto exact = exact_person_goods::observation_for_date(state, market, commodity, date);
+		quantity += exact.quantity;
+		value += exact.value;
 	}
 	return quantity > epsilon ? value / quantity : fallback;
 }
@@ -226,24 +226,32 @@ float canonical_reference_price(sys::state const& state, dcon::market_id market,
 float concrete_reference_price(sys::state const& state, dcon::market_id market,
 	dcon::commodity_id commodity, sys::date date, float fallback) {
 	float quantity = 0.0f, value = 0.0f;
-	sys::date latest{};
-	bool found = false;
+	std::optional<sys::date> latest;
 	state.world.for_each_concrete_trade_fill([&](auto fill) {
 		auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
 		auto bid = state.world.concrete_trade_fill_get_concrete_market_bid_from_concrete_fill_bid(fill);
 		if(!bid || occurred >= date || state.world.concrete_market_bid_get_market_from_concrete_bid_market(bid) != market
 			|| state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) != commodity) return;
-		if(!found || occurred > latest) { found = true; latest = occurred; quantity = 0.0f; value = 0.0f; }
-		if(occurred == latest) {
+		if(!latest || occurred > *latest) { latest = occurred; quantity = 0.0f; value = 0.0f; }
+		if(occurred == *latest) {
 			quantity += state.world.concrete_trade_fill_get_quantity(fill);
 			value += state.world.concrete_trade_fill_get_quantity(fill) * state.world.concrete_trade_fill_get_execution_price(fill);
 		}
 	});
-	if(quantity > epsilon) return value / quantity;
 	if(state.exact_person_goods) {
-		auto exact = exact_person_goods::concrete_reference_price(state, market, commodity, date);
-		if(exact >= 0.0f) return exact;
+		auto exact_latest = exact_person_goods::latest_fill_date(state, market, commodity, date);
+		if(exact_latest && (!latest || *exact_latest > *latest)) {
+			latest = exact_latest;
+			quantity = 0.0f;
+			value = 0.0f;
+		}
+		if(exact_latest && latest && *exact_latest == *latest) {
+			auto exact = exact_person_goods::observation_for_date(state, market, commodity, *latest);
+			quantity += exact.quantity;
+			value += exact.value;
+		}
 	}
+	if(quantity > epsilon) return value / quantity;
 	return fallback;
 }
 

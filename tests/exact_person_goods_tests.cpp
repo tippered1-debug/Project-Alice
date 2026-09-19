@@ -142,6 +142,131 @@ TEST_CASE("exact purchase selects only a seller-compatible settlement account", 
 	REQUIRE(economy::exact_person_economy::balance(*f.state, incompatible) == Approx(100.0f));
 }
 
+TEST_CASE("remote seller settlement cannot poison local exact purchase selection", "[economy][exact][goods][settlement][local]") {
+	individual_concrete_labor_tests::fixture f;
+	auto key = exact_person_goods_tests::worker(f);
+	f.state->world.commodity_set_cost(f.output, 2.0f);
+	auto local_seller = f.state->world.create_economic_actor();
+	auto local_account = economy::accounts::open_account(*f.state, local_seller, f.settlement);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, local_account, 0.0f));
+	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.output, 1.0f, local_seller) == Approx(1.0f));
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, local_seller, f.site, f.market,
+		f.output, 1.0f, 2.0f, {}));
+	auto remote = f.state->world.create_site();
+	auto remote_seller = f.state->world.create_economic_actor();
+	auto remote_settlement = f.state->world.create_commodity();
+	auto remote_account = economy::accounts::open_account(*f.state, remote_seller, remote_settlement);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, remote_account, 0.0f));
+	REQUIRE(economy::physical::inventory::add(*f.state, remote, f.output, 1.0f, remote_seller) == Approx(1.0f));
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, remote_seller, remote, f.market,
+		f.output, 1.0f, 1.0f, {}));
+	auto local_money = economy::exact_person_economy::open_account(*f.state, key, f.settlement);
+	auto remote_money = economy::exact_person_economy::open_account(*f.state, key, remote_settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, local_money, 2.0f));
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, remote_money, 100.0f));
+	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, key, f.output, 1.0f));
+	REQUIRE(economy::physical::exact_person_goods::process_purchase_decision(*f.state, key, f.output));
+	REQUIRE(economy::exact_person_economy::balance(*f.state, local_money) == Approx(0.0f));
+	REQUIRE(economy::exact_person_economy::balance(*f.state, remote_money) == Approx(100.0f));
+	REQUIRE(economy::accounts::balance(*f.state, local_account) == Approx(2.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, remote, f.output, remote_seller) == Approx(1.0f));
+	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 1);
+	REQUIRE(economy::physical::exact_person_goods::fill(*f.state, 1)->source == f.site);
+}
+
+namespace exact_price_history_tests {
+
+void dcon_fill(concrete_market_tests::fixture& f, sys::date date, float quantity, float price) {
+	f.state->current_date = date;
+	REQUIRE(economy::physical::inventory::add(*f.state, f.source, f.goods, quantity, f.seller) == Approx(quantity));
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market,
+		f.goods, quantity, price, {}));
+	REQUIRE(economy::physical::concrete_market::post_bid(*f.state, f.buyer, f.buyer_account, f.source,
+		f.market, f.goods, quantity, price, {}));
+	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, date).size() == 1);
+}
+
+void exact_fill(concrete_market_tests::fixture& f, uint32_t cell, sys::date date,
+	float quantity, float price) {
+	f.state->current_date = date;
+	persons::exact_population::cell_descriptor descriptor;
+	descriptor.source_population_cell = cell;
+	descriptor.literal_count = 1;
+	descriptor.bootstrap_base_day = date.to_raw_value() - 1;
+	descriptor.home_site = f.source;
+	REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, descriptor).result
+		== persons::exact_population::status::created);
+	persons::exact_population::person_key key{cell, 0};
+	auto account = economy::exact_person_economy::open_account(*f.state, key, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, account, quantity * price));
+	auto seller = f.state->world.create_economic_actor();
+	auto seller_account = economy::accounts::open_account(*f.state, seller, f.settlement);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, seller_account, 0.0f));
+	REQUIRE(economy::physical::inventory::add(*f.state, f.source, f.goods, quantity, seller) == Approx(quantity));
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, f.source, f.market,
+		f.goods, quantity, price, {}));
+	REQUIRE(economy::physical::exact_person_goods::post_bid(*f.state, key, account, f.source, f.market,
+		f.goods, quantity, price));
+	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, date).empty());
+	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 1);
+}
+
+}
+
+TEST_CASE("exact-only observed price contributes to concrete history", "[economy][exact][price]") {
+	concrete_market_tests::fixture f;
+	exact_price_history_tests::exact_fill(f, 700, sys::date{10}, 2.0f, 15.0f);
+	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods,
+		sys::date{10}, 0.0f) == Approx(15.0f));
+}
+
+TEST_CASE("same-date DCON and exact fills form one observed VWAP", "[economy][exact][price]") {
+	concrete_market_tests::fixture f;
+	exact_price_history_tests::dcon_fill(f, sys::date{11}, 1.0f, 10.0f);
+	exact_price_history_tests::exact_fill(f, 701, sys::date{11}, 3.0f, 20.0f);
+	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods,
+		sys::date{11}, 0.0f) == Approx(17.5f));
+}
+
+TEST_CASE("concrete reference uses latest eligible fill date across both ledgers", "[economy][exact][price]") {
+	concrete_market_tests::fixture f;
+	exact_price_history_tests::dcon_fill(f, sys::date{10}, 1.0f, 10.0f);
+	exact_price_history_tests::exact_fill(f, 702, sys::date{11}, 1.0f, 15.0f);
+	REQUIRE(economy::physical::concrete_market::concrete_reference_price(*f.state, f.market, f.goods,
+		sys::date{12}, 0.0f) == Approx(15.0f));
+}
+
+TEST_CASE("latest concrete reference mixes same-day DCON and exact fills only", "[economy][exact][price]") {
+	concrete_market_tests::fixture f;
+	exact_price_history_tests::exact_fill(f, 703, sys::date{10}, 1.0f, 8.0f);
+	exact_price_history_tests::dcon_fill(f, sys::date{11}, 1.0f, 10.0f);
+	exact_price_history_tests::exact_fill(f, 704, sys::date{11}, 3.0f, 20.0f);
+	REQUIRE(economy::physical::concrete_market::concrete_reference_price(*f.state, f.market, f.goods,
+		sys::date{12}, 0.0f) == Approx(17.5f));
+}
+
+TEST_CASE("unfilled and expired exact bids do not affect concrete prices", "[economy][exact][price]") {
+	concrete_market_tests::fixture f;
+	persons::exact_population::cell_descriptor descriptor;
+	descriptor.source_population_cell = 705;
+	descriptor.literal_count = 1;
+	descriptor.bootstrap_base_day = 9;
+	descriptor.home_site = f.source;
+	REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, descriptor).result
+		== persons::exact_population::status::created);
+	auto key = persons::exact_population::person_key{705, 0};
+	auto account = economy::exact_person_economy::open_account(*f.state, key, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, account, 10.0f));
+	REQUIRE(economy::physical::exact_person_goods::post_bid(*f.state, key, account, f.source, f.market,
+		f.goods, 1.0f, 10.0f));
+	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods,
+		f.state->current_date, 99.0f) == Approx(99.0f));
+	f.state->current_date += 1;
+	economy::physical::concrete_market::expire(*f.state, f.state->current_date);
+	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods,
+		f.state->current_date, 99.0f) == Approx(99.0f));
+}
+
 TEST_CASE("exact goods snapshot preserves sparse orders and fills", "[economy][exact][goods][persistence]") {
 	individual_concrete_labor_tests::fixture f;
 	auto key = exact_person_goods_tests::worker(f);
