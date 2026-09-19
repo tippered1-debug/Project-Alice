@@ -28,10 +28,17 @@ uint32_t source_cell_key(dcon::pop_id pop) {
 bool literal_count(sys::state const& state, dcon::pop_id pop, uint32_t& count) {
 	auto size = state.world.pop_get_size(pop);
 	if(!std::isfinite(size) || size < 0.0f) return false;
-	auto integral = std::floor(double(size));
+	auto integral = std::floor(double(size) * double(literal_person_multiplier));
 	if(integral > double(std::numeric_limits<uint32_t>::max())) return false;
 	count = uint32_t(integral);
 	return true;
+}
+
+bool capacity_available(sys::state const& state, uint32_t count) {
+	return state.world.person_size() <= supported_person_capacity
+		&& state.world.economic_actor_size() <= supported_economic_actor_capacity
+		&& count <= supported_person_capacity - state.world.person_size()
+		&& count <= supported_economic_actor_capacity - state.world.economic_actor_size();
 }
 
 dcon::population_materialization_id marker_for(sys::state const& state, dcon::pop_id pop) {
@@ -96,11 +103,12 @@ uint64_t stable_age_hash(person_key key) {
 
 }
 
-sys::date bootstrap_birth_date(sys::date current_date, person_key key) {
-	if(!current_date) return {};
-	auto age_days = synthetic_minimum_age_days + uint32_t(stable_age_hash(key) % synthetic_age_span_days);
-	if(current_date.to_raw_value() <= int32_t(age_days)) return {};
-	return current_date - int32_t(age_days);
+uint32_t bootstrap_age_days(person_key key) {
+	return synthetic_minimum_age_days + uint32_t(stable_age_hash(key) % synthetic_age_span_days);
+}
+
+birth_day_index_t bootstrap_birth_day(sys::date current_date, person_key key) {
+	return (current_date ? current_date.to_raw_value() - 1 : 0) - birth_day_index_t(bootstrap_age_days(key));
 }
 
 cell_materialization_result materialize_population_cell_with_status(sys::state& state, dcon::pop_id pop,
@@ -121,6 +129,10 @@ cell_materialization_result materialize_population_cell_with_status(sys::state& 
 		result.status = materialization_status::overflow;
 		return result;
 	}
+	if(!capacity_available(state, count)) {
+		result.status = materialization_status::capacity_exceeded;
+		return result;
+	}
 	if(home_site && !state.world.site_is_valid(home_site)) {
 		result.status = materialization_status::invalid_home_site;
 		return result;
@@ -139,7 +151,7 @@ cell_materialization_result materialize_population_cell_with_status(sys::state& 
 	result.persons.reserve(count);
 	for(uint32_t ordinal = 0; ordinal < count; ++ordinal) {
 		person_key key{source_cell, ordinal};
-		auto person = create_person(state, bootstrap_birth_date(state.current_date, key));
+		auto person = create_person_with_birth_day(state, bootstrap_birth_day(state.current_date, key));
 		initialize_person(state, person, pop, source_cell, ordinal, site);
 		state.world.force_create_population_materialization_person(marker, person);
 		result.persons.push_back(person);
@@ -157,6 +169,18 @@ std::vector<dcon::person_id> materialize_initial_population(sys::state& state) {
 	std::vector<dcon::pop_id> pops;
 	state.world.for_each_pop([&](auto pop) { pops.push_back(pop); });
 	sort_ids(pops);
+	uint64_t pending_count = 0;
+	for(auto pop : pops) {
+		if(marker_for(state, pop)) continue;
+		uint32_t count = 0;
+		if(!literal_count(state, pop, count)
+			|| pending_count > std::numeric_limits<uint64_t>::max() - count) return {};
+		pending_count += count;
+	}
+	if(state.world.person_size() > supported_person_capacity
+		|| state.world.economic_actor_size() > supported_economic_actor_capacity
+		|| pending_count > supported_person_capacity - state.world.person_size()
+		|| pending_count > supported_economic_actor_capacity - state.world.economic_actor_size()) return {};
 	std::vector<dcon::person_id> result;
 	for(auto pop : pops) {
 		auto persons = materialize_population_cell(state, pop);
@@ -175,7 +199,7 @@ population_estimate estimate_initial_population(sys::state const& state) {
 			return;
 		}
 		result.source_population_units += double(size);
-		auto literal = std::floor(double(size));
+		auto literal = std::floor(double(size) * double(literal_person_multiplier));
 		if(literal > double(std::numeric_limits<uint64_t>::max())
 			|| result.intended_literal_persons > std::numeric_limits<uint64_t>::max() - uint64_t(literal)) {
 			result.overflow = true;
@@ -185,6 +209,9 @@ population_estimate estimate_initial_population(sys::state const& state) {
 		result.intended_literal_persons += count;
 		result.intended_economic_actors += count;
 		result.largest_source_cell = std::max(result.largest_source_cell, count);
+		if(result.intended_literal_persons > supported_person_capacity - std::min<uint64_t>(supported_person_capacity, state.world.person_size())
+			|| result.intended_economic_actors > supported_economic_actor_capacity - std::min<uint64_t>(supported_economic_actor_capacity, state.world.economic_actor_size()))
+			result.capacity_exceeded = true;
 	});
 	return result;
 }
@@ -213,7 +240,7 @@ materialization_measurement measure_synthetic_population_materialization(sys::st
 	state.world.force_create_site_location(site, province);
 	auto pop = state.world.create_pop();
 	state.world.force_create_pop_location(pop, province);
-	state.world.pop_set_size(pop, float(count));
+	state.world.pop_set_size(pop, float(count) / float(literal_person_multiplier));
 	auto persons_before = state.world.person_size();
 	auto actors_before = state.world.economic_actor_size();
 	auto started = std::chrono::steady_clock::now();

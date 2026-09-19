@@ -5068,6 +5068,8 @@ object{
 	size{ 100000 }
 	tag{ save }
 	property{ name{ birth_date } type{ sys::date } tag{ save } }
+	property{ name{ birth_day_index } type{ int32_t } tag{ save } }
+	property{ name{ birth_day_known } type{ uint8_t } tag{ save } }
 	property{ name{ death_date } type{ sys::date } tag{ save } }
 	property{ name{ alive } type{ uint8_t } tag{ save } }
 	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }

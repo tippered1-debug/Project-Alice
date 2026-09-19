@@ -1,5 +1,11 @@
 # Population Materialization Foundation v1
 
+This v1 note is superseded for population-unit and birth-time semantics by
+`population_semantics_scale_gate_v1.md`. In particular, v3 treats inherited
+Victoria II POP size as adult-male/workforce units and bootstraps
+`floor(pop.size * 4)` literal persons; the signed persisted
+`person.birth_day_index` is authoritative for age.
+
 This milestone introduces literal individual population bootstrap. One
 materialized row is one person. There is no weight, represented population,
 household weight, agent size, or representative-agent field.
@@ -7,8 +13,9 @@ household weight, agent size, or representative-agent field.
 ## Bootstrap identity and idempotency
 
 `persons::population_materialization::materialize_population_cell(state, pop)`
-reads a legacy POP cell once. For a finite non-negative POP size `N`, v1 uses
-`floor(N)` and creates exactly `N` persons. Each generated person stores the
+reads a legacy POP cell once. For a finite non-negative inherited POP size
+`N`, the current v3 semantics use `floor(N * 4)` and create exactly that many
+literal persons. Each generated person stores the
 stable key:
 
 `PersonKey = { source_population_cell, ordinal }`

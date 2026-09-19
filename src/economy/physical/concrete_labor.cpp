@@ -72,7 +72,7 @@ dcon::employment_contract_id create_employment_contract(sys::state& state, dcon:
 		|| !std::isfinite(labor_capacity) || labor_capacity <= 0.0f
 		|| !std::isfinite(wage_rate) || wage_rate < 0.0f || pay_period_days == 0
 		|| !payer_account || !worker_account
-		|| start_date < state.world.person_get_birth_date(person)) return {};
+		|| !persons::born_on_or_before(state, person, start_date)) return {};
 	if(!workplace) workplace = world::site::site_for_factory(state, factory);
 	if(!workplace || !state.world.site_is_valid(workplace)) return {};
 	auto worker_actor = persons::actor_for_person(state, person);

@@ -4,11 +4,21 @@
 #include "governance/governance.hpp"
 #include "system_state.hpp"
 
+#include <limits>
+
 namespace persons {
 
-dcon::person_id create_person(sys::state& s, sys::date birth_date) {
+dcon::person_id create_person_with_birth_day(sys::state& s, birth_day_index_t birth_day) {
 	auto p = s.world.create_person();
-	s.world.person_set_birth_date(p, birth_date);
+	s.world.person_set_birth_day_index(p, birth_day);
+	s.world.person_set_birth_day_known(p, uint8_t(1));
+	// sys::date is retained as a save/API compatibility mirror. It cannot
+	// represent dates before the simulation base, so the signed index above is
+	// authoritative for all age-sensitive behavior.
+	if(birth_day >= 0 && birth_day <= int32_t(std::numeric_limits<uint16_t>::max() - 1))
+		s.world.person_set_birth_date(p, sys::date{uint16_t(birth_day)});
+	else
+		s.world.person_set_birth_date(p, sys::date{});
 	s.world.person_set_alive(p, uint8_t(1));
 	auto actor = s.world.create_economic_actor();
 	s.world.economic_actor_set_kind(actor, uint8_t(actors::ownership::actor_kind::person));
@@ -16,17 +26,53 @@ dcon::person_id create_person(sys::state& s, sys::date birth_date) {
 	return p;
 }
 
+dcon::person_id create_person(sys::state& s, sys::date birth_date) {
+	if(!birth_date) {
+		auto p = create_person_with_birth_day(s, 0);
+		s.world.person_set_birth_day_known(p, uint8_t(0));
+		s.world.person_set_birth_date(p, sys::date{});
+		return p;
+	}
+	return create_person_with_birth_day(s, birth_date.to_raw_value() - 1);
+}
+
 dcon::economic_actor_id actor_for_person(sys::state const& s, dcon::person_id p) {
 	return p ? s.world.person_get_economic_actor_from_person_actor(p) : dcon::economic_actor_id{};
 }
 
+birth_day_index_t birth_day_index(sys::state const& s, dcon::person_id person) {
+	if(!person || !s.world.person_is_valid(person)) return 0;
+	if(s.world.person_get_birth_day_known(person)) return s.world.person_get_birth_day_index(person);
+	// Legacy saves may predate the signed field. Derive it once from the
+	// compatibility mirror; new persons always use the signed field above.
+	auto legacy_date = s.world.person_get_birth_date(person);
+	return legacy_date ? legacy_date.to_raw_value() - 1 : 0;
+}
+
+bool has_birth_day(sys::state const& s, dcon::person_id person) {
+	return person && s.world.person_is_valid(person)
+		&& (s.world.person_get_birth_day_known(person) || bool(s.world.person_get_birth_date(person)));
+}
+
+int32_t age_days(sys::state const& s, dcon::person_id person) {
+	if(!has_birth_day(s, person) || !s.current_date) return -1;
+	return (s.current_date.to_raw_value() - 1) - birth_day_index(s, person);
+}
+
+int32_t age_years(sys::state const& s, dcon::person_id person) {
+	auto days = age_days(s, person);
+	return days < 0 ? -1 : days / 365;
+}
+
+bool born_on_or_before(sys::state const& s, dcon::person_id person, sys::date date) {
+	return has_birth_day(s, person) && bool(date)
+		&& (date.to_raw_value() - 1) >= birth_day_index(s, person);
+}
+
 bool is_work_eligible(sys::state const& s, dcon::person_id person) {
 	if(!person || !s.world.person_is_valid(person) || !s.world.person_get_alive(person)) return false;
-	auto birth_date = s.world.person_get_birth_date(person);
-	if(!birth_date || !s.current_date || s.current_date < birth_date) return false;
-	auto age_days = s.current_date.to_raw_value() - birth_date.to_raw_value();
-	return age_days >= policy::minimum_working_age_days
-		&& age_days < policy::maximum_working_age_days;
+	auto age = age_days(s, person);
+	return age >= policy::minimum_working_age_days && age < policy::maximum_working_age_days;
 }
 
 dcon::office_tenure_id active_tenure_for(sys::state const& s, dcon::office_id office) {
@@ -40,7 +86,7 @@ dcon::office_tenure_id active_tenure_for(sys::state const& s, dcon::office_id of
 }
 
 dcon::office_tenure_id appoint_person(sys::state& s, dcon::person_id person, dcon::office_id office, sys::date date) {
-	if(!person || !office || !s.world.person_get_alive(person) || date < s.world.person_get_birth_date(person)) return {};
+	if(!person || !office || !s.world.person_get_alive(person) || !born_on_or_before(s, person, date)) return {};
 	if(auto active = active_tenure_for(s, office)) {
 		auto occupant = s.world.office_tenure_get_person_from_office_tenure_person(active);
 		return occupant == person ? active : dcon::office_tenure_id{};
@@ -103,7 +149,7 @@ bool person_has_authority(sys::state const& s, dcon::person_id person, governanc
 }
 
 bool mark_dead(sys::state& s, dcon::person_id person, sys::date date) {
-	if(!person || !s.world.person_get_alive(person) || date < s.world.person_get_birth_date(person)) return false;
+	if(!person || !s.world.person_get_alive(person) || !born_on_or_before(s, person, date)) return false;
 	auto offices = active_offices_of(s, person);
 	for(auto office : offices) {
 		auto tenure = active_tenure_for(s, office);

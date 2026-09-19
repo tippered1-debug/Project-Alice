@@ -43,9 +43,9 @@ TEST_CASE("population materialization creates exact literal persons", "[populati
 	population_materialization_tests::fixture f;
 	auto before_actors = f.state->world.economic_actor_size();
 	auto generated = persons::population_materialization::materialize_population_cell(*f.state, f.pop);
-	REQUIRE(generated.size() == 3);
-	REQUIRE(f.state->world.person_size() == 3);
-	REQUIRE(f.state->world.economic_actor_size() == before_actors + 3);
+	REQUIRE(generated.size() == 12);
+	REQUIRE(f.state->world.person_size() == 12);
+	REQUIRE(f.state->world.economic_actor_size() == before_actors + 12);
 	REQUIRE(f.state->world.monetary_account_size() == 0);
 	REQUIRE(f.state->world.physical_stock_size() == 0);
 	REQUIRE(f.state->world.employment_contract_size() == 0);
@@ -66,7 +66,7 @@ TEST_CASE("materialized persons have unique stable source keys and no weights", 
 		REQUIRE(f.state->world.person_get_source_culture(generated[ordinal]) == f.culture);
 		REQUIRE(f.state->world.person_get_source_religion(generated[ordinal]) == f.religion);
 	}
-	REQUIRE(keys.size() == 3);
+	REQUIRE(keys.size() == 12);
 }
 
 TEST_CASE("materialization ordering is deterministic", "[population][materialization]") {
@@ -80,17 +80,19 @@ TEST_CASE("materialization ordering is deterministic", "[population][materializa
 			== persons::population_materialization::key_for_person(*second.state, second_persons[i]).ordinal);
 		REQUIRE(first.state->world.person_get_birth_date(first_persons[i])
 			== second.state->world.person_get_birth_date(second_persons[i]));
+		REQUIRE(persons::birth_day_index(*first.state, first_persons[i])
+			== persons::birth_day_index(*second.state, second_persons[i]));
 	}
 	REQUIRE(first.state->world.person_get_birth_date(first_persons.front()) != first.state->current_date);
 }
 
-TEST_CASE("population estimate is allocation-free and has no hidden multiplier", "[population][materialization]") {
+TEST_CASE("population estimate is allocation-free and applies the v3 multiplier", "[population][materialization]") {
 	population_materialization_tests::fixture f;
 	auto estimate = persons::population_materialization::estimate_initial_population(*f.state);
 	REQUIRE(estimate.source_population_cells == 1);
 	REQUIRE(estimate.source_population_units == Approx(3.0));
-	REQUIRE(estimate.intended_literal_persons == 3);
-	REQUIRE(estimate.intended_economic_actors == 3);
+	REQUIRE(estimate.intended_literal_persons == 12);
+	REQUIRE(estimate.intended_economic_actors == 12);
 	REQUIRE(f.state->world.person_size() == 0);
 	REQUIRE(f.state->world.economic_actor_size() == 0);
 }
@@ -116,6 +118,7 @@ TEST_CASE("repeated materialization is idempotent", "[population][materializatio
 	auto persons_before = f.state->world.person_size();
 	auto actors_before = f.state->world.economic_actor_size();
 	auto second = persons::population_materialization::materialize_population_cell(*f.state, f.pop);
+	REQUIRE(second.size() == 12);
 	REQUIRE(second == first);
 	REQUIRE(f.state->world.person_size() == persons_before);
 	REQUIRE(f.state->world.economic_actor_size() == actors_before);
@@ -137,7 +140,7 @@ TEST_CASE("legacy POP size mutation does not rematerialize a completed cell", "[
 	f.state->world.pop_set_size(f.pop, 99.0f);
 	auto persons_before = f.state->world.person_size();
 	auto generated = persons::population_materialization::materialize_population_cell(*f.state, f.pop);
-	REQUIRE(generated.size() == 3);
+	REQUIRE(generated.size() == 12);
 	REQUIRE(f.state->world.person_size() == persons_before);
 }
 
@@ -167,6 +170,54 @@ TEST_CASE("materialization version mismatch does not append or duplicate", "[pop
 	REQUIRE(f.state->world.economic_actor_size() == actors_before);
 }
 
+TEST_CASE("capacity failure does not partially materialize a POP cell", "[population][materialization]") {
+	population_materialization_tests::fixture f;
+	f.state->world.pop_set_size(f.pop, 20000.0f);
+	auto persons_before = f.state->world.person_size();
+	auto actors_before = f.state->world.economic_actor_size();
+	auto markers_before = f.state->world.population_materialization_size();
+	auto sites_before = f.state->world.site_size();
+	auto result = persons::population_materialization::materialize_population_cell_with_status(*f.state, f.pop);
+	REQUIRE(result.status == persons::population_materialization::materialization_status::capacity_exceeded);
+	REQUIRE(result.persons.empty());
+	REQUIRE(f.state->world.person_size() == persons_before);
+	REQUIRE(f.state->world.economic_actor_size() == actors_before);
+	REQUIRE(f.state->world.population_materialization_size() == markers_before);
+	REQUIRE(f.state->world.site_size() == sites_before);
+}
+
+TEST_CASE("pre-base bootstrap persons have signed canonical birth days", "[population][materialization][persons]") {
+	population_materialization_tests::fixture f;
+	f.state->current_date = sys::date{0};
+	auto generated = persons::population_materialization::materialize_population_cell(*f.state, f.pop);
+	REQUIRE(generated.size() == 12);
+	for(uint32_t ordinal = 0; ordinal < generated.size(); ++ordinal) {
+		auto person = generated[ordinal];
+		REQUIRE(persons::has_birth_day(*f.state, person));
+		REQUIRE(persons::birth_day_index(*f.state, person) < 0);
+		REQUIRE(persons::age_days(*f.state, person)
+			== int32_t(persons::population_materialization::bootstrap_age_days({1, ordinal})));
+		REQUIRE(persons::age_days(*f.state, person) >= 5 * 365);
+		REQUIRE(persons::age_days(*f.state, person) <= 84 * 365 - 1);
+	}
+}
+
+TEST_CASE("individual age boundaries use signed birth days", "[population][persons][job_market]") {
+	population_materialization_tests::fixture f;
+	f.state->current_date = sys::date{0};
+	auto make_age = [&](int32_t years) {
+		return persons::create_person_with_birth_day(*f.state, -years * 365);
+	};
+	REQUIRE(persons::age_years(*f.state, make_age(13)) == 13);
+	REQUIRE_FALSE(persons::is_work_eligible(*f.state, make_age(13)));
+	REQUIRE(persons::is_work_eligible(*f.state, make_age(14)));
+	REQUIRE(persons::is_work_eligible(*f.state, make_age(64)));
+	REQUIRE_FALSE(persons::is_work_eligible(*f.state, make_age(65)));
+	REQUIRE(persons::age_days(*f.state, make_age(40)) == 40 * 365);
+	f.state->current_date += 1;
+	REQUIRE(persons::age_days(*f.state, make_age(40)) == 40 * 365 + 1);
+}
+
 TEST_CASE("legacy POP savings mutation cannot alter individual account state", "[population][materialization]") {
 	population_materialization_tests::fixture f;
 	auto generated = persons::population_materialization::materialize_population_cell(*f.state, f.pop);
@@ -186,7 +237,7 @@ TEST_CASE("legacy POP employment and satisfaction mutations do not create indivi
 	f.state->world.pop_set_uemployment(f.pop, uint8_t(1));
 	f.state->world.pop_set_satisfaction(f.pop, 0.0f);
 	(void)persons::population_materialization::materialize_population_cell(*f.state, f.pop);
-	REQUIRE(f.state->world.person_size() == 3);
+	REQUIRE(f.state->world.person_size() == 12);
 	REQUIRE(f.state->world.employment_contract_size() == 0);
 	REQUIRE(f.state->world.person_commodity_need_size() == 0);
 }
@@ -224,6 +275,17 @@ TEST_CASE("underage persons cannot apply for individual jobs", "[population][job
 	REQUIRE_FALSE(economy::physical::job_market::submit_job_application(*f.state, child, job, f.state->current_date));
 	economy::physical::job_market::process_job_search(*f.state);
 	REQUIRE(economy::physical::job_market::applications_for_person(*f.state, child).empty());
+}
+
+TEST_CASE("pre-base-born eligible persons can enter job search", "[population][job_market]") {
+	individual_concrete_labor_tests::fixture f;
+	f.state->current_date = sys::date{0};
+	auto person = persons::create_person_with_birth_day(*f.state, -20 * 365);
+	auto job = f.offer(1, 25.0f);
+	REQUIRE(persons::is_work_eligible(*f.state, person));
+	REQUIRE(economy::physical::job_market::submit_job_application(*f.state, person, job, f.state->current_date));
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(economy::physical::job_market::applications_for_person(*f.state, person).size() == 1);
 }
 
 TEST_CASE("aggregate labor mutations do not change concrete person eligibility", "[population][job_market]") {
@@ -269,9 +331,9 @@ TEST_CASE("materialized person receives exact wage and uses individual consumpti
 TEST_CASE("materialization measurement reports sparse exact-person storage", "[population][materialization][benchmark]") {
 	population_materialization_tests::fixture f;
 	auto measurement = persons::population_materialization::measure_initial_population_materialization(*f.state);
-	REQUIRE(measurement.persons_created == 3);
-	REQUIRE(measurement.persons_total == 3);
-	REQUIRE(measurement.economic_actors_total == 3);
+	REQUIRE(measurement.persons_created == 12);
+	REQUIRE(measurement.persons_total == 12);
+	REQUIRE(measurement.economic_actors_total == 12);
 	REQUIRE(measurement.materialization_markers == 1);
 	REQUIRE(measurement.elapsed_microseconds >= 0);
 }

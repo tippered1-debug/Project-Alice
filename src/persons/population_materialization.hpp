@@ -9,7 +9,10 @@ namespace sys { class state; }
 
 namespace persons::population_materialization {
 
-inline constexpr uint32_t bootstrap_semantics_version = 2;
+inline constexpr uint32_t bootstrap_semantics_version = 3;
+inline constexpr uint32_t literal_person_multiplier = 4;
+inline constexpr uint32_t supported_person_capacity = 100000;
+inline constexpr uint32_t supported_economic_actor_capacity = 50000;
 
 struct person_key {
 	uint32_t source_population_cell = 0;
@@ -23,7 +26,8 @@ enum class materialization_status : uint8_t {
 	invalid_source,
 	invalid_home_site,
 	missing_home_province,
-	overflow
+	overflow,
+	capacity_exceeded
 };
 
 struct cell_materialization_result {
@@ -38,6 +42,8 @@ struct population_estimate {
 	uint64_t intended_economic_actors = 0;
 	uint64_t largest_source_cell = 0;
 	uint32_t semantics_version = bootstrap_semantics_version;
+	bool intended_literal_persons_known = true;
+	bool capacity_exceeded = false;
 	bool overflow = false;
 };
 
@@ -60,7 +66,8 @@ population_estimate estimate_initial_population(sys::state const&);
 materialization_measurement measure_initial_population_materialization(sys::state&);
 materialization_measurement measure_synthetic_population_materialization(sys::state&, uint32_t);
 materialization_status materialization_status_for_population_cell(sys::state const&, dcon::pop_id);
-sys::date bootstrap_birth_date(sys::date, person_key);
+uint32_t bootstrap_age_days(person_key);
+persons::birth_day_index_t bootstrap_birth_day(sys::date, person_key);
 
 person_key key_for_person(sys::state const&, dcon::person_id);
 bool is_materialized_person(sys::state const&, dcon::person_id);
