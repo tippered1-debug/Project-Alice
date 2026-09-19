@@ -257,12 +257,36 @@ float balance(sys::state const& state, account_ref ref) {
 	return 0.0f;
 }
 
+bool set_balance(sys::state& state, account_ref ref, float amount) {
+	if(!std::isfinite(amount) || amount < 0.0f || !valid_account_ref(state, ref)) return false;
+	if(ref.kind == account_kind::dcon) {
+		state.world.monetary_account_set_balance(ref.dcon_account, amount);
+		return true;
+	}
+	if(auto account = exact_account(state, ref.exact_account_id)) {
+		account->balance = amount;
+		return true;
+	}
+	return false;
+}
+
 uint64_t account_count(sys::state const& state) {
 	return uint64_t(ensure_store(state)->accounts.size());
 }
 
-bool transfer(sys::state& state, account_ref source, account_ref destination, float amount,
+std::vector<account_ref> accounts_for_person(sys::state const& state, person_key owner) {
+	std::vector<account_ref> result;
+	for(auto const& account : ensure_store(state)->accounts)
+		if(account.owner == owner) result.push_back(account_ref::from_exact(account.id));
+	std::sort(result.begin(), result.end(), [](auto left, auto right) {
+		return left.exact_account_id < right.exact_account_id;
+	});
+	return result;
+}
+
+transfer_result transfer_with_result(sys::state& state, account_ref source, account_ref destination, float amount,
 	relations::transaction_kind kind, sys::date timestamp) {
+	transfer_result result;
 	auto source_balance = balance(state, source);
 	auto destination_balance = balance(state, destination);
 	if(!valid_account_ref(state, source) || !valid_account_ref(state, destination)
@@ -270,12 +294,15 @@ bool transfer(sys::state& state, account_ref source, account_ref destination, fl
 		|| settlement_of(state, source) != settlement_of(state, destination)
 		|| !std::isfinite(source_balance) || !std::isfinite(destination_balance)
 		|| source_balance < amount
-		|| amount > std::numeric_limits<float>::max() - destination_balance) return false;
-	if(source.kind == account_kind::dcon && destination.kind == account_kind::dcon)
-		return bool(accounts::transfer(state, source.dcon_account, destination.dcon_account, amount, kind, timestamp));
+		|| amount > std::numeric_limits<float>::max() - destination_balance) return result;
+	if(source.kind == account_kind::dcon && destination.kind == account_kind::dcon) {
+		result.dcon_transaction_id = accounts::transfer(state, source.dcon_account, destination.dcon_account, amount, kind, timestamp);
+		result.success = bool(result.dcon_transaction_id);
+		return result;
+	}
 	auto store = ensure_store(state);
 	auto transaction_id = next_id(store->next_transaction_id);
-	if(transaction_id == 0) return false;
+	if(transaction_id == 0) return result;
 	if(source.kind == account_kind::exact) {
 		auto account = exact_account(state, source.exact_account_id);
 		account->balance -= amount;
@@ -297,7 +324,14 @@ bool transfer(sys::state& state, account_ref source, account_ref destination, fl
 	record.kind = kind;
 	record.timestamp = timestamp;
 	store->transactions.push_back(record);
-	return true;
+	result.success = true;
+	result.exact_transaction_id = transaction_id;
+	return result;
+}
+
+bool transfer(sys::state& state, account_ref source, account_ref destination, float amount,
+	relations::transaction_kind kind, sys::date timestamp) {
+	return transfer_with_result(state, source, destination, amount, kind, timestamp).success;
 }
 
 uint64_t transaction_count(sys::state const& state) {
@@ -308,6 +342,13 @@ std::optional<transaction_record> latest_transaction(sys::state const& state) {
 	auto store = ensure_store(state);
 	return store->transactions.empty() ? std::nullopt
 		: std::optional<transaction_record>(store->transactions.back());
+}
+
+std::optional<transaction_record> transaction(sys::state const& state, uint64_t transaction_id) {
+	if(transaction_id == 0) return std::nullopt;
+	for(auto const& record : ensure_store(state)->transactions)
+		if(record.id == transaction_id) return record;
+	return std::nullopt;
 }
 
 uint64_t submit_application(sys::state& state, person_key worker, dcon::job_offer_id offer, sys::date applied_on) {
@@ -464,9 +505,11 @@ wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
 			- physical::concrete_market::reserved_bid_amount(state, record->payer_account));
 		auto requested = record->unpaid_wages + result.due;
 		result.paid = std::min(requested, available);
-		if(result.paid > epsilon && transfer(state, payer, worker, result.paid,
-			relations::transaction_kind::payroll, state.current_date)) {
-			result.transaction_id = ensure_store(state)->transactions.back().id;
+		if(result.paid > epsilon) {
+			auto transfer_result = transfer_with_result(state, payer, worker, result.paid,
+				relations::transaction_kind::payroll, state.current_date);
+			if(transfer_result.success) result.transaction_id = transfer_result.exact_transaction_id;
+			else result.paid = 0.0f;
 		} else {
 			result.paid = 0.0f;
 		}

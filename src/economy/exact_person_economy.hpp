@@ -80,6 +80,12 @@ struct transaction_record {
 	sys::date timestamp{};
 };
 
+struct transfer_result {
+	bool success = false;
+	uint64_t exact_transaction_id = 0;
+	dcon::transaction_id dcon_transaction_id{};
+};
+
 struct wage_settlement {
 	float due = 0.0f;
 	float paid = 0.0f;
@@ -111,13 +117,17 @@ dcon::commodity_id settlement_of(sys::state const&, account_ref);
 float balance(sys::state const&, account_ref);
 bool set_balance(sys::state&, account_ref, float);
 uint64_t account_count(sys::state const&);
+std::vector<account_ref> accounts_for_person(sys::state const&, person_key);
 
 // Transfers touching an exact account are recorded in the exact ledger. This
 // narrow primitive also supports DCON-to-DCON by delegating to normal accounts.
 bool transfer(sys::state&, account_ref source, account_ref destination, float amount,
 	relations::transaction_kind, sys::date timestamp);
+transfer_result transfer_with_result(sys::state&, account_ref source, account_ref destination,
+	float amount, relations::transaction_kind, sys::date timestamp);
 uint64_t transaction_count(sys::state const&);
 std::optional<transaction_record> latest_transaction(sys::state const&);
+std::optional<transaction_record> transaction(sys::state const&, uint64_t transaction_id);
 
 uint64_t submit_application(sys::state&, person_key, dcon::job_offer_id, sys::date applied_on);
 bool withdraw_application(sys::state&, uint64_t application_id);
