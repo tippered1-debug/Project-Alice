@@ -5,6 +5,7 @@
 #include "concrete_labor.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/causal_order.hpp"
 #include "labor_dynamics.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
@@ -202,6 +203,8 @@ dcon::job_application_id submit_job_application(sys::state& state, dcon::person_
 	state.world.force_create_job_application_person(application, person);
 	state.world.force_create_job_application_offer(application, offer);
 	state.world.force_create_job_offer_application(offer, application);
+	if(economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::job_application,
+		uint64_t(application.index())) == 0) return {};
 	return application;
 }
 
@@ -255,34 +258,64 @@ std::vector<dcon::job_application_id> applications_for_person(sys::state const& 
 }
 
 void process_pending_applications(sys::state& state) {
+	struct candidate {
+		bool exact = false;
+		dcon::job_application_id legacy{};
+		uint64_t exact_id = 0;
+		dcon::job_offer_id offer{};
+		sys::date applied_on{};
+		uint64_t causal_sequence = 0;
+		uint64_t stable_id = 0;
+	};
+	for(auto offer : all_offers(state)) refresh_offer(state, offer);
+	std::vector<candidate> pending;
 	for(auto offer : all_offers(state)) {
-		refresh_offer(state, offer);
-		if(!open_for_application(state, offer) || state.world.job_offer_get_openings(offer) == 0) continue;
 		for(auto application : pending_applications(state, offer)) {
-			if(state.world.job_offer_get_openings(offer) == 0) break;
-			auto person = state.world.job_application_get_person_from_job_application_person(application);
-			if(!accepts_worker(state, person, offer)) {
-				state.world.job_application_set_status(application, uint8_t(application_status::rejected));
-				continue;
-			}
-			auto payer = state.world.job_offer_get_monetary_account_from_job_offer_payer_account(offer);
-			auto worker_account = worker_account_for(state, person, accounts::settlement_of(state, payer));
-			auto contract = concrete_labor::create_employment_contract(state, person,
-				state.world.job_offer_get_economic_actor_from_job_offer_employer(offer),
-				state.world.job_offer_get_factory_from_job_offer_factory(offer),
-				state.world.job_offer_get_site_from_job_offer_site(offer),
-				state.world.job_offer_get_occupation(offer), state.world.job_offer_get_labor_capacity(offer),
-				state.world.job_offer_get_wage_rate(offer), state.world.job_offer_get_pay_period_days(offer),
-				payer, worker_account, state.current_date);
-			if(!contract) {
-				state.world.job_application_set_status(application, uint8_t(application_status::rejected));
-				continue;
-			}
-			state.world.job_application_set_status(application, uint8_t(application_status::accepted));
-			state.world.job_offer_set_openings(offer, state.world.job_offer_get_openings(offer) - 1);
+			pending.push_back({false, application, 0, offer,
+				state.world.job_application_get_applied_on(application),
+				economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::job_application,
+					uint64_t(application.index())), uint64_t(application.index())});
+		}
+		for(auto id : economy::exact_person_economy::applications_for_offer(state, offer)) {
+			auto application = economy::exact_person_economy::application(state, id);
+			if(application && application->status == economy::exact_person_economy::application_status::pending)
+				pending.push_back({true, {}, id, offer, application->applied_on, application->causal_sequence, id});
 		}
 	}
-	economy::exact_person_economy::process_pending_applications(state);
+	std::sort(pending.begin(), pending.end(), [](auto const& left, auto const& right) {
+		if(economy::causal_order::before({left.applied_on, left.causal_sequence},
+			{right.applied_on, right.causal_sequence})) return true;
+		if(economy::causal_order::before({right.applied_on, right.causal_sequence},
+			{left.applied_on, left.causal_sequence})) return false;
+		return left.stable_id < right.stable_id;
+	});
+	for(auto const& item : pending) {
+		if(!item.offer || !open_for_application(state, item.offer) || state.world.job_offer_get_openings(item.offer) == 0) continue;
+		if(item.exact) {
+			(void)economy::exact_person_economy::accept_pending_application(state, item.exact_id);
+			continue;
+		}
+		auto application = item.legacy;
+		auto person = state.world.job_application_get_person_from_job_application_person(application);
+		if(!accepts_worker(state, person, item.offer)) {
+			state.world.job_application_set_status(application, uint8_t(application_status::rejected));
+			continue;
+		}
+		auto payer = state.world.job_offer_get_monetary_account_from_job_offer_payer_account(item.offer);
+		auto worker_account = worker_account_for(state, person, accounts::settlement_of(state, payer));
+		auto contract = concrete_labor::create_employment_contract(state, person,
+			state.world.job_offer_get_economic_actor_from_job_offer_employer(item.offer),
+			state.world.job_offer_get_factory_from_job_offer_factory(item.offer),
+			state.world.job_offer_get_site_from_job_offer_site(item.offer),
+			state.world.job_offer_get_occupation(item.offer), state.world.job_offer_get_labor_capacity(item.offer),
+			state.world.job_offer_get_wage_rate(item.offer), state.world.job_offer_get_pay_period_days(item.offer),
+			payer, worker_account, state.current_date);
+		if(!contract) state.world.job_application_set_status(application, uint8_t(application_status::rejected));
+		else {
+			state.world.job_application_set_status(application, uint8_t(application_status::accepted));
+			state.world.job_offer_set_openings(item.offer, state.world.job_offer_get_openings(item.offer) - 1);
+		}
+	}
 }
 
 void process_factory_vacancies(sys::state& state) {

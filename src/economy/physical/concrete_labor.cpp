@@ -4,6 +4,7 @@
 #include "concrete_market.hpp"
 #include "economy/relations/relations.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/causal_order.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -97,6 +98,8 @@ dcon::employment_contract_id create_employment_contract(sys::state& state, dcon:
 	state.world.force_create_employment_contract_site(contract, workplace);
 	state.world.force_create_employment_contract_payer_account(contract, payer_account);
 	state.world.force_create_employment_contract_worker_account(contract, worker_account);
+	if(economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::employment_contract,
+		uint64_t(contract.index())) == 0) return {};
 	return contract;
 }
 

@@ -49,6 +49,7 @@ struct exact_population_store;
 
 namespace economy {
 struct exact_person_economy_store;
+struct causal_order_store;
 namespace physical {
 struct exact_person_goods_store;
 struct exact_person_freight_store;
@@ -757,6 +758,7 @@ struct alignas(64) state {
 	// Sparse economic state for exact persons. It is separate from the DCON
 	// economy and is created only when an exact person participates.
 	mutable std::shared_ptr<economy::exact_person_economy_store> exact_person_economy;
+	mutable std::shared_ptr<economy::causal_order_store> causal_order;
 	mutable std::shared_ptr<economy::physical::exact_person_goods_store> exact_person_goods;
 	mutable std::shared_ptr<economy::physical::exact_person_freight_store> exact_person_freight;
 	// Sparse labor-separation history and events. This does not allocate one

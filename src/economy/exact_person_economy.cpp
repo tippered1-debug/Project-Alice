@@ -3,6 +3,7 @@
 #include "accounts/accounts.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/physical/concrete_market.hpp"
+#include "economy/causal_order.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
 
@@ -163,6 +164,8 @@ uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::j
 	record.payer_account = payer;
 	record.worker_account_id = worker_account.exact_account_id;
 	record.start_date = state.current_date;
+	record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::employment_contract);
+	if(record.causal_sequence == 0) return 0;
 	if(!valid_date_or_current(state, record.start_date)
 		|| !std::isfinite(record.labor_capacity) || record.labor_capacity <= 0.0f
 		|| !std::isfinite(record.wage_rate) || record.wage_rate < 0.0f
@@ -373,6 +376,8 @@ uint64_t submit_application(sys::state& state, person_key worker, dcon::job_offe
 	record.worker = worker;
 	record.offer = offer;
 	record.applied_on = applied_on;
+	record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::job_application);
+	if(record.causal_sequence == 0) return 0;
 	store->applications.push_back(record);
 	return record.id;
 }
@@ -408,29 +413,37 @@ std::vector<uint64_t> applications_for_offer(sys::state const& state, dcon::job_
 	return result;
 }
 
+bool accept_pending_application(sys::state& state, uint64_t id) {
+	auto record = application(state, id);
+	if(!record || record->status != application_status::pending) return false;
+	if(!accepts_exact_worker(state, record->worker, record->offer)) {
+		for(auto& mutable_record : ensure_store(state)->applications)
+			if(mutable_record.id == id) mutable_record.status = application_status::rejected;
+		return false;
+	}
+	auto contract_id = create_contract_for_offer(state, record->worker, record->offer);
+	if(contract_id == 0) {
+		for(auto& mutable_record : ensure_store(state)->applications)
+			if(mutable_record.id == id) mutable_record.status = application_status::rejected;
+		return false;
+	}
+	for(auto& mutable_record : ensure_store(state)->applications)
+		if(mutable_record.id == id) mutable_record.status = application_status::accepted;
+	state.world.job_offer_set_openings(record->offer, state.world.job_offer_get_openings(record->offer) - 1);
+	return true;
+}
+
 void process_pending_applications(sys::state& state) {
 	std::vector<uint64_t> pending;
 	for(auto const& application : ensure_store(state)->applications)
 		if(application.status == application_status::pending) pending.push_back(application.id);
-	sort_ids(pending);
-	for(auto id : pending) {
-		auto record = application(state, id);
-		if(!record || record->status != application_status::pending) continue;
-		if(!accepts_exact_worker(state, record->worker, record->offer)) {
-			for(auto& mutable_record : ensure_store(state)->applications)
-				if(mutable_record.id == id) mutable_record.status = application_status::rejected;
-			continue;
-		}
-		auto contract_id = create_contract_for_offer(state, record->worker, record->offer);
-		if(contract_id == 0) {
-			for(auto& mutable_record : ensure_store(state)->applications)
-				if(mutable_record.id == id) mutable_record.status = application_status::rejected;
-			continue;
-		}
-		for(auto& mutable_record : ensure_store(state)->applications)
-			if(mutable_record.id == id) mutable_record.status = application_status::accepted;
-		state.world.job_offer_set_openings(record->offer, state.world.job_offer_get_openings(record->offer) - 1);
-	}
+	std::sort(pending.begin(), pending.end(), [&](uint64_t left, uint64_t right) {
+		auto a = application(state, left); auto b = application(state, right);
+		if(causal_order::before({a->applied_on, a->causal_sequence}, {b->applied_on, b->causal_sequence})) return true;
+		if(causal_order::before({b->applied_on, b->causal_sequence}, {a->applied_on, a->causal_sequence})) return false;
+		return left < right;
+	});
+	for(auto id : pending) (void)accept_pending_application(state, id);
 }
 
 void process_job_search_for_exact_person(sys::state& state, person_key worker) {
@@ -663,16 +676,19 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 		candidate->accounts.push_back(record);
 		candidate->next_account_id = std::max(candidate->next_account_id, record.id + 1);
 	}
-	for(auto const& record : snapshot.applications) {
+	for(auto record : snapshot.applications) {
 		if(record.id == 0 || !persons::exact_population::exists(state, record.worker)
 			|| !record.offer || !state.world.job_offer_is_valid(record.offer)
 			|| uint8_t(record.status) > uint8_t(application_status::withdrawn)) return false;
 		for(auto const& existing : candidate->applications)
 			if(existing.id == record.id) return false;
+		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::job_application);
+		if(record.causal_sequence == 0) return false;
+		causal_order::observe(state, record.causal_sequence);
 		candidate->applications.push_back(record);
 		candidate->next_application_id = std::max(candidate->next_application_id, record.id + 1);
 	}
-	for(auto const& record : snapshot.contracts) {
+	for(auto record : snapshot.contracts) {
 		if(record.id == 0 || !persons::exact_population::exists(state, record.worker)
 			|| !record.employer || !state.world.economic_actor_is_valid(record.employer)
 			|| !record.factory || !state.world.factory_is_valid(record.factory)
@@ -689,6 +705,9 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 		for(auto const& existing : candidate->contracts)
 			if(existing.id == record.id || (existing.worker == record.worker && existing.status == contract_status::active
 				&& record.status == contract_status::active)) return false;
+		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::employment_contract);
+		if(record.causal_sequence == 0) return false;
+		causal_order::observe(state, record.causal_sequence);
 		candidate->contracts.push_back(record);
 		candidate->next_contract_id = std::max(candidate->next_contract_id, record.id + 1);
 	}

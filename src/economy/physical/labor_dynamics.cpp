@@ -3,6 +3,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/causal_order.hpp"
 #include "economy/firm_agency.hpp"
 #include "concrete_labor.hpp"
 #include "job_market.hpp"
@@ -120,13 +121,14 @@ struct candidate {
 	float capacity = 0.0f;
 	float daily_cost = 0.0f;
 	sys::date start{};
+	uint64_t causal_sequence = 0;
 	uint64_t stable_id = 0;
 };
 
 bool candidate_before(candidate const& left, candidate const& right) {
 	if(left.daily_cost != right.daily_cost) return left.daily_cost > right.daily_cost;
 	if(left.start != right.start) return left.start > right.start;
-	if(left.kind != right.kind) return left.kind == contract_kind::legacy;
+	if(left.causal_sequence != right.causal_sequence) return left.causal_sequence < right.causal_sequence;
 	return left.stable_id < right.stable_id;
 }
 
@@ -195,14 +197,17 @@ void process_factory_labor_dynamics(sys::state& state) {
 				auto wage = state.world.employment_contract_get_wage_rate(contract);
 				if(!std::isfinite(capacity) || capacity <= epsilon || !std::isfinite(wage) || period == 0) continue;
 				candidates.push_back({contract_kind::legacy, contract, 0, capacity,
-					wage * capacity / float(period), state.world.employment_contract_get_start_date(contract), uint64_t(contract.index())});
+					wage * capacity / float(period), state.world.employment_contract_get_start_date(contract),
+					economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::employment_contract,
+						uint64_t(contract.index())), uint64_t(contract.index())});
 			}
 			for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
 				auto record = exact_person_economy::contract(state, contract_id);
 				if(!record || !std::isfinite(record->labor_capacity) || record->labor_capacity <= epsilon
 					|| !std::isfinite(record->wage_rate) || record->pay_period_days == 0) continue;
 				candidates.push_back({contract_kind::exact, {}, contract_id, record->labor_capacity,
-					record->wage_rate * record->labor_capacity / float(record->pay_period_days), record->start_date, contract_id});
+					record->wage_rate * record->labor_capacity / float(record->pay_period_days), record->start_date,
+					record->causal_sequence, contract_id});
 			}
 			std::sort(candidates.begin(), candidates.end(), candidate_before);
 			for(auto const& candidate : candidates) {

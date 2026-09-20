@@ -278,9 +278,13 @@ TEST_CASE("exact goods snapshot preserves sparse orders and fills", "[economy][e
 	REQUIRE(economy::exact_person_economy::set_balance(*f.state, account, 5.0f));
 	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, key, f.output, 1.0f));
 	REQUIRE(economy::physical::exact_person_goods::add_stock(*f.state, key, f.site, f.output, 1.0f) == Approx(1.0f));
+	REQUIRE(economy::physical::exact_person_goods::post_bid(*f.state, key, account, f.site, f.market, f.output, 1.0f, 5.0f));
+	auto sequence = economy::physical::exact_person_goods::active_bids(*f.state, f.market, f.output).front().causal_sequence;
+	REQUIRE(sequence > 0);
 	auto snapshot = economy::physical::exact_person_goods::export_snapshot(*f.state);
 	economy::physical::exact_person_goods::clear_store(*f.state);
 	REQUIRE(economy::physical::exact_person_goods::import_snapshot(*f.state, snapshot));
 	REQUIRE(economy::physical::exact_person_goods::need(*f.state, key, f.output));
 	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, key, f.site, f.output) == Approx(1.0f));
+	REQUIRE(economy::physical::exact_person_goods::active_bids(*f.state, f.market, f.output).front().causal_sequence == sequence);
 }

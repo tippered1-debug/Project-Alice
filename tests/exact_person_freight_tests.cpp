@@ -98,23 +98,47 @@ struct carrier_info {
 	dcon::freight_offer_id offer{};
 };
 
-carrier_info add_carrier(sys::state& state, dcon::commodity_id settlement, float charge = 2.0f) {
+carrier_info add_carrier(sys::state& state, dcon::commodity_id settlement, float charge = 2.0f,
+	float capacity = 100.0f) {
 	carrier_info result;
 	result.actor = state.world.create_economic_actor();
 	result.account = economy::accounts::open_account(state, result.actor, settlement);
 	REQUIRE(economy::accounts::bootstrap_set_balance(state, result.account, 0.0f));
 	constexpr uint8_t local = 1u << 2;
 	result.carrier = economy::physical::freight_market::create_carrier(state, result.actor,
-		result.account, 100.0f, local);
+		result.account, capacity, local);
 	result.offer = economy::physical::freight_market::create_offer(state, result.carrier,
-		{}, {}, local, 100.0f, charge, 0.0f);
+		{}, {}, local, capacity, charge, 0.0f);
 	REQUIRE(result.carrier);
 	REQUIRE(result.offer);
 	return result;
 }
 
-carrier_info add_carrier(fixture& f, dcon::commodity_id settlement, float charge = 2.0f) {
-	return add_carrier(*f.state, settlement, charge);
+TEST_CASE("freight requests share representation-neutral causal ordering", "[economy][freight][ordering]") {
+	exact_person_freight_tests::fixture f;
+	auto carrier = exact_person_freight_tests::add_carrier(*f.state, f.settlement, 2.0f, 1.0f);
+	economy::physical::exact_person_goods::add_stock(*f.state, f.worker, f.source, f.goods, 1.0f);
+	auto exact_account = f.worker_account(10.0f);
+	auto exact_request = economy::physical::exact_person_freight::create_request(*f.state, f.worker,
+		f.source, f.destination, f.goods, 1.0f, 0);
+	REQUIRE(exact_request);
+	economy::physical::inventory::add(*f.state, f.source, f.goods, 1.0f, f.seller);
+	(void)exact_account;
+	// A legacy request is created after the exact request; one carrier capacity
+	// must therefore be consumed by the exact request first.
+	auto legacy_request = economy::physical::freight_market::create_request(*f.state,
+		f.seller, f.seller_account, f.source, f.destination, f.goods, 1.0f);
+	REQUIRE(legacy_request);
+	economy::physical::freight_market::process_pending_requests(*f.state);
+	REQUIRE(economy::physical::exact_person_freight::contract_count(*f.state) == 1);
+	REQUIRE(f.state->world.freight_request_get_status(legacy_request)
+		== uint8_t(economy::physical::freight_market::freight_request_status::pending));
+	(void)carrier;
+}
+
+carrier_info add_carrier(fixture& f, dcon::commodity_id settlement, float charge = 2.0f,
+	float capacity = 100.0f) {
+	return add_carrier(*f.state, settlement, charge, capacity);
 }
 
 }

@@ -5,6 +5,7 @@
 #include "common_types.cpp"
 #include "lua_alice_api.cpp"
 #include "system_state.cpp"
+#include "economy/causal_order.cpp"
 #include "world/spatial.cpp"
 #include "world/site.cpp"
 #include "world/infrastructure.cpp"

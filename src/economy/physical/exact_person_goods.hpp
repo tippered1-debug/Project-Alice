@@ -47,11 +47,12 @@ struct bid_record {
 	float limit_price = 0.0f;
 	float reserved_amount = 0.0f;
 	sys::date created_on{};
+	uint64_t causal_sequence = 0;
 	order_status status = order_status::active;
 	order_purpose purpose = order_purpose::general;
 };
 
-struct bid_reference { uint64_t id = 0; sys::date created_on{}; };
+struct bid_reference { uint64_t id = 0; sys::date created_on{}; uint64_t causal_sequence = 0; };
 
 struct fill_record {
 	uint64_t id = 0;

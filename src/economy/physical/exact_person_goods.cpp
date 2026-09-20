@@ -1,6 +1,7 @@
 #include "exact_person_goods.hpp"
 
 #include "accounts/accounts.hpp"
+#include "economy/causal_order.hpp"
 #include "economy/relations/relations.hpp"
 #include "concrete_market.hpp"
 #include "exact_person_freight.hpp"
@@ -240,6 +241,8 @@ uint64_t post_bid(sys::state& state, person_key buyer, economy::exact_person_eco
 	record.original_quantity = quantity; record.remaining_quantity = quantity;
 	record.limit_price = limit_price; record.reserved_amount = quantity * limit_price;
 	record.created_on = state.current_date; record.purpose = purpose;
+	record.causal_sequence = economy::causal_order::allocate(state, economy::causal_order::event_kind::goods_bid);
+	if(!record.causal_sequence) return 0;
 	ensure_store(state)->bids.push_back(record);
 	return id;
 }
@@ -253,9 +256,10 @@ std::vector<bid_reference> active_bids(sys::state const& state, dcon::market_id 
 	std::vector<bid_reference> result;
 	for(auto const& bid : ensure_store(state)->bids)
 		if(bid.status == order_status::active && bid.market == market && bid.commodity == commodity)
-			result.push_back({bid.id, bid.created_on});
+			result.push_back({bid.id, bid.created_on, bid.causal_sequence});
 	std::sort(result.begin(), result.end(), [](auto const& left, auto const& right) {
-		return left.created_on == right.created_on ? left.id < right.id : left.created_on < right.created_on;
+		return economy::causal_order::before({left.created_on, left.causal_sequence},
+			{right.created_on, right.causal_sequence});
 	});
 	return result;
 }
@@ -434,7 +438,7 @@ bool import_snapshot(sys::state& state, goods_snapshot const& snapshot) {
 			|| !nonnegative_finite(record.consumed_this_period) || !nonnegative_finite(record.unmet_quantity)) return false;
 		candidate->needs.push_back(record);
 	}
-	for(auto const& record : snapshot.bids) {
+	for(auto record : snapshot.bids) {
 		if(!record.id || !persons::exact_population::exists(state, record.buyer)
 			|| !economy::exact_person_economy::account_exists(state,
 				economy::exact_person_economy::account_ref::from_exact(record.exact_account_id))
@@ -446,6 +450,9 @@ bool import_snapshot(sys::state& state, goods_snapshot const& snapshot) {
 			|| record.remaining_quantity > record.original_quantity + epsilon
 			|| !positive_finite(record.limit_price) || !nonnegative_finite(record.reserved_amount)
 			|| uint8_t(record.status) > uint8_t(order_status::filled)) return false;
+		if(record.causal_sequence == 0) record.causal_sequence = economy::causal_order::allocate(state, economy::causal_order::event_kind::goods_bid);
+		if(record.causal_sequence == 0) return false;
+		economy::causal_order::observe(state, record.causal_sequence);
 		candidate->bids.push_back(record); candidate->next_bid_id = std::max(candidate->next_bid_id, record.id + 1);
 	}
 	for(auto const& record : snapshot.fills) {

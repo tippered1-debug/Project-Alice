@@ -2,6 +2,7 @@
 #include "exact_person_freight.hpp"
 
 #include "accounts/accounts.hpp"
+#include "economy/causal_order.hpp"
 #include "commodity_logistics.hpp"
 #include "inventory.hpp"
 #include "shipments.hpp"
@@ -195,6 +196,8 @@ dcon::freight_request_id create_request(sys::state& state, dcon::economic_actor_
 	state.world.force_create_freight_request_commodity(request, commodity);
 	state.world.force_create_freight_request_source(request, source);
 	state.world.force_create_freight_request_destination(request, destination);
+	if(economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::freight_request,
+		uint64_t(request.index())) == 0) return {};
 	return request;
 }
 
@@ -278,16 +281,36 @@ dcon::freight_contract_id match_request(sys::state& state, dcon::freight_request
 }
 
 void process_pending_requests(sys::state& state) {
-	std::vector<dcon::freight_request_id> pending;
+	struct candidate {
+		bool exact = false;
+		dcon::freight_request_id legacy{};
+		uint64_t exact_id = 0;
+		sys::date created_on{};
+		uint64_t causal_sequence = 0;
+		uint64_t stable_id = 0;
+	};
+	std::vector<candidate> pending;
 	state.world.for_each_freight_request([&](dcon::freight_request_id request) {
 		if(state.world.freight_request_get_status(request) == uint8_t(freight_request_status::pending))
-			pending.push_back(request);
+			pending.push_back({false, request, 0, state.world.freight_request_get_created_on(request),
+				economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::freight_request,
+					uint64_t(request.index())), uint64_t(request.index())});
 	});
-	std::sort(pending.begin(), pending.end(), [](auto a, auto b) { return a.index() < b.index(); });
-	for(auto request : pending) {
-		if(state.world.freight_request_is_valid(request)) match_request(state, request);
+	for(auto id : exact_person_freight::pending_request_ids(state)) {
+		auto request = exact_person_freight::request(state, id);
+		if(request) pending.push_back({true, {}, id, request->created_on, request->causal_sequence, id});
 	}
-	exact_person_freight::process_pending_requests(state);
+	std::sort(pending.begin(), pending.end(), [](auto const& left, auto const& right) {
+		if(economy::causal_order::before({left.created_on, left.causal_sequence},
+			{right.created_on, right.causal_sequence})) return true;
+		if(economy::causal_order::before({right.created_on, right.causal_sequence},
+			{left.created_on, left.causal_sequence})) return false;
+		return left.stable_id < right.stable_id;
+	});
+	for(auto const& item : pending) {
+		if(item.exact) (void)exact_person_freight::match_request(state, item.exact_id);
+		else if(state.world.freight_request_is_valid(item.legacy)) (void)match_request(state, item.legacy);
+	}
 }
 
 void complete_contract_for_shipment(sys::state& state, dcon::shipment_id shipment) {

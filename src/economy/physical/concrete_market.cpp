@@ -1,6 +1,7 @@
 #include "concrete_market.hpp"
 
 #include "accounts/accounts.hpp"
+#include "economy/causal_order.hpp"
 #include "exchange.hpp"
 #include "inventory.hpp"
 #include "shipments.hpp"
@@ -80,6 +81,8 @@ dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id
 	state.world.concrete_market_bid_set_created_on(bid, state.current_date);
 	state.world.concrete_market_bid_set_status(bid, active);
 	state.world.concrete_market_bid_set_purpose(bid, uint8_t(purpose));
+	if(!economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::goods_bid,
+		uint64_t(bid.index()))) return {};
 	state.world.force_create_concrete_bid_buyer(bid, buyer);
 	state.world.force_create_concrete_bid_account(bid, account);
 	state.world.force_create_concrete_bid_destination(bid, destination);
@@ -116,6 +119,8 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 		dcon::concrete_market_bid_id dcon_bid{};
 		uint64_t exact_bid = 0;
 		sys::date created_on{};
+		uint64_t causal_sequence = 0;
+		uint64_t stable_id = 0;
 	};
 	std::vector<candidate_bid> bids;
 	std::vector<dcon::concrete_market_ask_id> asks;
@@ -123,19 +128,23 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 		if(state.world.concrete_market_bid_get_status(bid) == active
 			&& state.world.concrete_market_bid_get_market_from_concrete_bid_market(bid) == market
 			&& state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) == commodity)
-			bids.push_back({false, bid, 0, state.world.concrete_market_bid_get_created_on(bid)});
+			bids.push_back({false, bid, 0, state.world.concrete_market_bid_get_created_on(bid),
+				economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::goods_bid,
+					uint64_t(bid.index())), uint64_t(bid.index())});
 	});
 	for(auto bid : exact_person_goods::active_bids(state, market, commodity))
-		bids.push_back({true, {}, bid.id, bid.created_on});
+		bids.push_back({true, {}, bid.id, bid.created_on, bid.causal_sequence, bid.id});
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask) == active
 			&& state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) == market
 			&& state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) == commodity) asks.push_back(ask);
 	});
 	std::sort(bids.begin(), bids.end(), [&](auto const& a, auto const& b) {
-		if(a.created_on != b.created_on) return a.created_on < b.created_on;
-		if(a.exact != b.exact) return !a.exact; // DCON wins an equal-date cross-kind tie.
-		return a.exact ? a.exact_bid < b.exact_bid : a.dcon_bid.index() < b.dcon_bid.index();
+		if(economy::causal_order::before({a.created_on, a.causal_sequence},
+			{b.created_on, b.causal_sequence})) return true;
+		if(economy::causal_order::before({b.created_on, b.causal_sequence},
+			{a.created_on, a.causal_sequence})) return false;
+		return a.stable_id < b.stable_id;
 	});
 	std::sort(asks.begin(), asks.end(), [&](auto a, auto b) { auto ap = state.world.concrete_market_ask_get_minimum_price(a), bp = state.world.concrete_market_ask_get_minimum_price(b); return ap == bp ? a.index() < b.index() : ap < bp; });
 	std::vector<dcon::concrete_trade_fill_id> result;

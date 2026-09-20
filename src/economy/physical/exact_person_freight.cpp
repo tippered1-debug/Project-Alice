@@ -1,5 +1,6 @@
 #include "exact_person_freight.hpp"
 
+#include "economy/causal_order.hpp"
 #include "accounts/accounts.hpp"
 #include "commodity_logistics.hpp"
 #include "economy/exact_person_economy.hpp"
@@ -132,6 +133,8 @@ uint64_t create_request(sys::state& state, person_key requester, dcon::site_id s
 	record.commodity = commodity; record.quantity = quantity;
 	record.cargo_units = logistics::cargo_units(profile, quantity);
 	record.created_on = state.current_date; record.originating_fill_id = originating_fill_id;
+	record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::freight_request);
+	if(record.causal_sequence == 0) return 0;
 	shipments::route_quote quote;
 	if(shipments::quote_route(state, source, destination, quote)) {
 		record.route_distance = quote.distance; record.primary_trade_route = quote.primary_trade_route;
@@ -228,11 +231,20 @@ uint64_t match_request(sys::state& state, uint64_t request_id) {
 
 void process_pending_requests(sys::state& state) {
 	if(!state.exact_person_freight) return;
-	std::vector<uint64_t> pending;
-	for(auto const& request : ensure_store(state)->requests)
-		if(request.status == request_status::pending) pending.push_back(request.id);
-	std::sort(pending.begin(), pending.end());
-	for(auto id : pending) (void)match_request(state, id);
+	for(auto id : pending_request_ids(state)) (void)match_request(state, id);
+}
+
+std::vector<uint64_t> pending_request_ids(sys::state const& state) {
+	std::vector<uint64_t> result;
+	for(auto const& record : ensure_store(state)->requests)
+		if(record.status == request_status::pending) result.push_back(record.id);
+	std::sort(result.begin(), result.end(), [&](uint64_t left, uint64_t right) {
+		auto a = request(state, left); auto b = request(state, right);
+		if(causal_order::before({a->created_on, a->causal_sequence}, {b->created_on, b->causal_sequence})) return true;
+		if(causal_order::before({b->created_on, b->causal_sequence}, {a->created_on, a->causal_sequence})) return false;
+		return left < right;
+	});
+	return result;
 }
 
 void cancel_request(sys::state& state, uint64_t request_id) {
@@ -308,7 +320,7 @@ freight_snapshot export_snapshot(sys::state const& state) {
 bool import_snapshot(sys::state& state, freight_snapshot const& snapshot) {
 	if(snapshot.version != snapshot_version) return false;
 	auto candidate = std::make_shared<exact_person_freight_store>();
-	for(auto const& record : snapshot.requests) {
+	for(auto record : snapshot.requests) {
 		if(!record.id || !persons::exact_population::exists(state, record.requester) || !record.source || !record.destination
 			|| !state.world.site_is_valid(record.source) || !state.world.site_is_valid(record.destination)
 			|| record.source == record.destination || !record.commodity || !state.world.commodity_is_valid(record.commodity)
@@ -316,6 +328,9 @@ bool import_snapshot(sys::state& state, freight_snapshot const& snapshot) {
 			|| uint8_t(record.status) > uint8_t(request_status::canceled)
 			|| std::any_of(candidate->requests.begin(), candidate->requests.end(),
 				[&](auto const& existing) { return existing.id == record.id; })) return false;
+		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::freight_request);
+		if(record.causal_sequence == 0) return false;
+		causal_order::observe(state, record.causal_sequence);
 		candidate->requests.push_back(record); candidate->next_request_id = std::max(candidate->next_request_id, record.id + 1);
 	}
 	for(auto const& record : snapshot.contracts) {

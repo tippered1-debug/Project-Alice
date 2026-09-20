@@ -1,7 +1,10 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "economy/causal_order.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/exact_person_economy.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 
 namespace concrete_market_tests {
 struct fixture {
@@ -53,6 +56,42 @@ TEST_CASE("concrete market fills exact orders and records observed price", "[eco
 	REQUIRE(f.state->world.transaction_get_monetary_account_from_transaction_source_account(transaction) == f.buyer_account);
 	REQUIRE(f.state->world.transaction_get_monetary_account_from_transaction_destination_account(transaction) == f.seller_account);
 	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.goods, {}, 99.0f) == Approx(10.0f));
+}
+
+TEST_CASE("concrete market orders both representations by causal sequence", "[economy][physical][concrete_market][ordering]") {
+	concrete_market_tests::fixture f;
+	persons::exact_population::cell_descriptor descriptor;
+	descriptor.source_population_cell = 901;
+	descriptor.literal_count = 1;
+	descriptor.bootstrap_base_day = 0;
+	REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, descriptor).result
+		== persons::exact_population::status::created);
+	economy::physical::inventory::add(*f.state, f.source, f.goods, 1.0f, f.seller);
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.seller, f.source, f.market,
+		f.goods, 1.0f, 10.0f, {}));
+	auto exact_key = persons::exact_population::person_key{901, 0};
+	auto exact_account = economy::exact_person_economy::open_account(*f.state, exact_key, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, exact_account, 10.0f));
+	REQUIRE(economy::physical::exact_person_goods::post_bid(*f.state, exact_key, exact_account,
+		f.destination, f.market, f.goods, 1.0f, 10.0f));
+	auto legacy_bid = economy::physical::concrete_market::post_bid(*f.state, f.buyer,
+		f.buyer_account, f.destination, f.market, f.goods, 1.0f, 10.0f, {});
+	REQUIRE(legacy_bid);
+	(void)economy::physical::concrete_market::match(*f.state, f.market, f.goods, f.state->current_date);
+	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 1);
+	REQUIRE(f.state->world.concrete_market_bid_get_status(legacy_bid)
+		== uint8_t(economy::physical::concrete_market::order_status::active));
+}
+
+TEST_CASE("causal ordering is monotonic and date-first", "[economy][ordering][determinism]") {
+	auto state = std::make_unique<sys::state>();
+	state->current_date = sys::date{10};
+	auto first = economy::causal_order::allocate(*state, economy::causal_order::event_kind::goods_bid);
+	auto second = economy::causal_order::allocate(*state, economy::causal_order::event_kind::job_application);
+	REQUIRE(first > 0);
+	REQUIRE(second > first);
+	REQUIRE(economy::causal_order::before({sys::date{9}, second}, {sys::date{10}, first}));
+	REQUIRE_FALSE(economy::causal_order::before({sys::date{10}, second}, {sys::date{10}, first}));
 }
 
 TEST_CASE("concrete market does not cross non-overlapping limits", "[economy][physical][concrete_market]") {

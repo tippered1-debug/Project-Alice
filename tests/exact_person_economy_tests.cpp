@@ -127,6 +127,22 @@ TEST_CASE("exact worker can apply, hire, supply labor, and receive wages without
 	REQUIRE(transaction->destination == worker_account);
 }
 
+TEST_CASE("job applications share representation-neutral causal ordering", "[economy][job_market][ordering]") {
+	individual_concrete_labor_tests::fixture f;
+	auto exact_worker = exact_person_economy_tests::register_anchor(f);
+	auto exact_application_offer = f.offer(1, 10.0f);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, exact_worker,
+		exact_application_offer, f.state->current_date));
+	auto legacy_worker = f.person();
+	auto legacy_application = economy::physical::job_market::submit_job_application(*f.state,
+		legacy_worker, exact_application_offer, f.state->current_date);
+	REQUIRE(legacy_application);
+	economy::physical::job_market::process_pending_applications(*f.state);
+	REQUIRE(economy::exact_person_economy::active_contracts_for_person(*f.state, exact_worker).size() == 1);
+	REQUIRE(f.state->world.job_application_get_status(legacy_application)
+		== uint8_t(economy::physical::job_market::application_status::pending));
+}
+
 TEST_CASE("mixed exact transfer validates atomically and cannot mint money", "[economy][exact][money]") {
 	individual_concrete_labor_tests::fixture f;
 	auto worker = exact_person_economy_tests::register_anchor(f);

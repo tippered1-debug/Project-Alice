@@ -49,6 +49,7 @@ struct application_record {
 	person_key worker{};
 	dcon::job_offer_id offer{};
 	sys::date applied_on{};
+	uint64_t causal_sequence = 0;
 	application_status status = application_status::pending;
 };
 
@@ -68,6 +69,7 @@ struct contract_record {
 	contract_status status = contract_status::active;
 	sys::date end_date{};
 	float unpaid_wages = 0.0f;
+	uint64_t causal_sequence = 0;
 };
 
 struct transaction_record {
@@ -144,6 +146,7 @@ std::optional<application_record> application(sys::state const&, uint64_t applic
 std::vector<uint64_t> applications_for_person(sys::state const&, person_key);
 std::vector<uint64_t> applications_for_offer(sys::state const&, dcon::job_offer_id);
 void process_pending_applications(sys::state&);
+bool accept_pending_application(sys::state&, uint64_t application_id);
 void process_job_search_for_exact_person(sys::state&, person_key);
 
 std::optional<contract_record> contract(sys::state const&, uint64_t contract_id);

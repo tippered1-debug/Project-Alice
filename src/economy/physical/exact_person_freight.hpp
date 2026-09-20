@@ -26,6 +26,7 @@ struct request_record {
 	float quantity = 0.0f;
 	float cargo_units = 0.0f;
 	sys::date created_on{};
+	uint64_t causal_sequence = 0;
 	float route_distance = 0.0f;
 	uint8_t required_mode_mask = 0;
 	dcon::trade_route_id primary_trade_route{};
@@ -80,6 +81,7 @@ uint64_t shipment_owner_count(sys::state const&);
 
 uint64_t match_request(sys::state&, uint64_t request_id);
 void process_pending_requests(sys::state&);
+std::vector<uint64_t> pending_request_ids(sys::state const&);
 void cancel_request(sys::state&, uint64_t request_id);
 
 bool register_shipment_owner(sys::state&, dcon::shipment_id, person_key, uint64_t contract_id);
