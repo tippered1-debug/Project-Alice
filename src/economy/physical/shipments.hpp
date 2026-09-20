@@ -32,5 +32,6 @@ dcon::shipment_id dispatch_exact(sys::state&, persons::exact_population::person_
 void advance(sys::state&);
 void process_arrivals(sys::state&);
 void process_rgo_output(sys::state&);
+void process_legacy_rgo_output(sys::state&);
 
 } // namespace economy::physical::shipments

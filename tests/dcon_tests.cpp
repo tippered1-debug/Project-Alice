@@ -351,7 +351,7 @@ TEST_CASE("capital_project_completion_failure_leaves_no_target_or_ownership", "[
 	REQUIRE(state->world.ownership_stake_size() == stakes_before);
 }
 
-TEST_CASE("physical_rgo_arrives_once_at_market_hub", "[economy][physical][integration]") {
+TEST_CASE("canonical_rgo_bootstrap_isolated_from_legacy_output", "[economy][physical][integration]") {
 	auto state = std::make_unique<sys::state>();
 	state->force_age_of_transformation_ruleset = true;
 	state->world.create_province(); // Keep the test province non-null for hub bootstrap.
@@ -382,20 +382,23 @@ TEST_CASE("physical_rgo_arrives_once_at_market_hub", "[economy][physical][integr
 	REQUIRE(!state->world.commodity_get_money_rgo(commodity));
 
 	::economy::physical::deposits::bootstrap(*state);
-	REQUIRE(::economy::physical::deposits::extraction_site_for(*state, province, commodity));
+	auto deposit = ::economy::physical::deposits::deposit_for(*state, province, commodity);
+	REQUIRE(deposit);
+	REQUIRE_FALSE(state->world.resource_deposit_get_legacy_compatibility_deposit(deposit));
+	auto extraction_site = ::economy::physical::deposits::extraction_site_for(*state, province, commodity);
+	auto operator_actor = ::actors::ownership::operator_for_deposit(*state, deposit);
+	auto inventory_before = ::economy::physical::inventory::quantity(*state, extraction_site, commodity, operator_actor);
+	auto remaining = state->world.resource_deposit_get_remaining_recoverable_reserves(deposit);
 	::economy::physical::shipments::process_rgo_output(*state);
-	REQUIRE(state->world.shipment_size() == 1);
+	REQUIRE(state->world.shipment_size() == 0);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));
 	REQUIRE(state->world.market_get_supply(market, commodity) == Approx(0.0f));
-
-	while(state->world.shipment_size() != 0)
-		::economy::physical::shipments::advance(*state);
+	REQUIRE(::economy::physical::inventory::quantity(*state, extraction_site, commodity, operator_actor) == Approx(inventory_before));
+	state->world.province_set_rgo_output(province, commodity, 999.0f);
+	::economy::physical::shipments::process_rgo_output(*state);
 	REQUIRE(state->world.shipment_size() == 0);
-	auto expected = 5.0f * (1.0f - economy::logistics::profile_for(*state, commodity).daily_spoilage);
-	auto deposit = ::economy::physical::deposits::deposit_for(*state, province, commodity);
-	auto operator_actor = ::actors::organizations::operator_actor_for_deposit(*state, deposit);
-	REQUIRE(operator_actor);
-	REQUIRE(::economy::physical::inventory::quantity(*state, ::economy::physical::deposits::market_hub_for(*state, market), commodity, operator_actor) == Approx(expected).epsilon(0.00001));
+	REQUIRE(state->world.resource_deposit_get_remaining_recoverable_reserves(deposit) == Approx(remaining));
+	REQUIRE(::economy::physical::inventory::quantity(*state, extraction_site, commodity, operator_actor) == Approx(inventory_before));
 }
 
 TEST_CASE("canonical_resource_extraction_is_bounded_and_owner_separate", "[economy][physical][extraction]") {
@@ -584,6 +587,8 @@ TEST_CASE("physical_factory_inputs_use_operator_stock_and_bottleneck_ratio", "[e
 	// The second input is the bottleneck: 1 / 4 = 0.25, so production is capped at 25%.
 	auto availability = ::economy::physical::factory_inputs::evaluate(*state, site, owner, inputs, {}, 1.0f);
 	REQUIRE(availability.active);
+	REQUIRE(availability.fully_canonical);
+	REQUIRE(availability.legacy_ratio == Approx(1.0f));
 	REQUIRE(availability.physical_ratio == Approx(0.25f));
 	REQUIRE(::economy::physical::factory_inputs::consume(*state, site, owner, inputs, 1.0f, availability.physical_ratio));
 	REQUIRE(::economy::physical::inventory::quantity(*state, site, first, owner) == Approx(1.5f));
@@ -605,6 +610,7 @@ TEST_CASE("physical_factory_inputs_full_and_half_supply_consume_once", "[economy
 	inputs.commodity_amounts[0] = 2.0f;
 	REQUIRE(::economy::physical::inventory::add(*state, site, commodity, 2.0f, owner) == Approx(2.0f));
 	auto full = ::economy::physical::factory_inputs::evaluate(*state, site, owner, inputs, {}, 1.0f);
+	REQUIRE(full.fully_canonical);
 	REQUIRE(full.physical_ratio == Approx(1.0f));
 	REQUIRE(::economy::physical::factory_inputs::consume(*state, site, owner, inputs, 1.0f, 1.0f));
 	REQUIRE(::economy::physical::inventory::quantity(*state, site, commodity, owner) == Approx(0.0f));
@@ -625,6 +631,7 @@ TEST_CASE("physical_factory_inputs_leave_local_and_missing_structure_on_legacy_p
 	inputs.commodity_amounts[0] = 1.0f;
 	auto local = ::economy::physical::factory_inputs::evaluate(*state, {}, {}, inputs, {}, 1.0f);
 	REQUIRE_FALSE(local.active);
+	REQUIRE_FALSE(local.fully_canonical);
 	REQUIRE(local.physical_ratio == Approx(1.0f));
 	auto ordinary = state->world.create_commodity();
 	state->world.commodity_set_is_local(ordinary, false);
@@ -654,6 +661,7 @@ TEST_CASE("physical_factory_input_procurement_bridges_market_to_factory_site", "
 	state->world.market_resize_stockpile(state->world.commodity_size());
 	state->world.market_resize_actual_probability_to_buy(state->world.commodity_size());
 	state->world.market_resize_price(state->world.commodity_size());
+	state->world.commodity_set_cost(commodity, 5.0f);
 	state->world.market_set_price(market, commodity, 5.0f);
 	state->world.commodity_set_is_local(commodity, false);
 	state->world.commodity_set_money_rgo(commodity, false);
@@ -732,7 +740,7 @@ TEST_CASE("local_rgo_keeps_legacy_supply_in_physical_mode", "[economy][physical]
 	state->world.province_set_rgo_output(province, commodity, 3.0f);
 
 	::economy::physical::deposits::bootstrap(*state);
-	::economy::physical::shipments::process_rgo_output(*state);
+	::economy::physical::shipments::process_legacy_rgo_output(*state);
 	REQUIRE(state->world.market_get_supply(market, commodity) == Approx(3.0f));
 	REQUIRE(state->world.shipment_size() == 0);
 	REQUIRE(state->world.market_get_stockpile(market, commodity) == Approx(0.0f));

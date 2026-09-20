@@ -24,6 +24,8 @@ float canonical_reference_price(sys::state const&, dcon::market_id, dcon::commod
 	sys::date, float fallback = 0.0f);
 float concrete_reference_price(sys::state const&, dcon::market_id, dcon::commodity_id,
 	sys::date, float fallback = 0.0f);
+float legacy_compatibility_reference_price(sys::state const&, dcon::market_id,
+	dcon::commodity_id, sys::date, float fallback = 0.0f);
 float reserved_bid_amount(sys::state const&, dcon::monetary_account_id);
 float active_factory_bid_quantity(sys::state const&, dcon::factory_id,
 	dcon::site_id, dcon::commodity_id);

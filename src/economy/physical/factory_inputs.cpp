@@ -185,19 +185,23 @@ void fulfill(sys::state& state) {
 });
 }
 
-availability evaluate(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,
-	economy::commodity_set const& inputs, dcon::market_id market, float input_scale) {
+availability evaluate_impl(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,
+	economy::commodity_set const& inputs, dcon::market_id market, float input_scale,
+	bool allow_legacy_clearing) {
 	availability result{};
 	if(!std::isfinite(input_scale) || input_scale < 0.0f)
 		return result;
 
 	result.legacy_ratio = 1.0f;
 	result.physical_ratio = 1.0f;
+	result.fully_canonical = true;
 	bool has_physical = false;
+	bool has_input = false;
 	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
 		auto commodity = inputs.commodity_type[i];
 		if(!commodity) break;
 		if(seen_before(inputs, i)) continue;
+		has_input = true;
 		if(physical_commodity(state, commodity)) {
 			has_physical = true;
 			if(input_scale > 0.0f) {
@@ -207,13 +211,30 @@ availability evaluate(sys::state const& state, dcon::site_id site, dcon::economi
 						std::clamp(inventory::quantity(state, site, commodity, owner) / required, 0.0f, 1.0f));
 			}
 		} else if(market) {
-			result.legacy_ratio = std::min(result.legacy_ratio,
-				std::clamp(market_clearing::fill(state, market, commodity,
-					market_clearing::demand_class::intermediate), 0.0f, 1.0f));
+			result.fully_canonical = false;
+			if(allow_legacy_clearing)
+				result.legacy_ratio = std::min(result.legacy_ratio,
+					std::clamp(market_clearing::fill(state, market, commodity,
+						market_clearing::demand_class::intermediate), 0.0f, 1.0f));
 		}
+		else result.fully_canonical = false;
 	}
-	result.active = has_physical && site && owner;
+	// An empty recipe is fully canonical and needs no stock.  A recipe with
+	// only legacy/local inputs remains available solely to the compatibility
+	// evaluator; canonical production must never call market_clearing::fill.
+	result.active = site && owner && (!has_input || has_physical);
 	return result;
+}
+
+availability evaluate(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,
+	economy::commodity_set const& inputs, dcon::market_id market, float input_scale) {
+	return evaluate_impl(state, site, owner, inputs, market, input_scale, false);
+}
+
+availability evaluate_legacy_compatibility(sys::state const& state, dcon::site_id site,
+	dcon::economic_actor_id owner, economy::commodity_set const& inputs, dcon::market_id market,
+	float input_scale) {
+	return evaluate_impl(state, site, owner, inputs, market, input_scale, true);
 }
 
 bool consume(sys::state& state, dcon::site_id site, dcon::economic_actor_id owner,

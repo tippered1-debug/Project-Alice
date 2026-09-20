@@ -99,7 +99,11 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	auto planned = std::min(desired, labor_units(state, factory));
 	auto market = state.world.state_instance_get_market_from_local_market(state.world.province_get_state_membership(province));
 	auto available = physical::factory_inputs::evaluate(state, site, owner, state.world.factory_type_get_inputs(type), market, planned);
-	auto ratio = available.active ? std::min(available.physical_ratio, available.legacy_ratio) : available.legacy_ratio;
+	// A canonical factory is allowed to consume only concrete inputs.  Recipes
+	// with unsupported legacy-only inputs remain on the compatibility path and
+	// cannot silently scale canonical physical output.
+	if(!available.active || !available.fully_canonical) return 0.0f;
+	auto ratio = available.physical_ratio;
 	if(!std::isfinite(ratio)) ratio = 0.0f;
 	auto actual_units = std::clamp(planned * std::clamp(ratio, 0.0f, 1.0f), 0.0f, capacity);
 	auto actual_output = actual_units * std::max(0.0f, state.world.factory_type_get_output_amount(type)) * productivity;

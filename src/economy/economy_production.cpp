@@ -1724,7 +1724,9 @@ void update_single_factory_consumption(
 		&& ::economy::physical::factory_inputs::plan(state, fac.id, physical_input_site, physical_input_owner,
 			direct_inputs, m,
 			input_multiplier * employment_units * throughput_multiplier);
-	auto physical_inputs = ::economy::physical::factory_inputs::evaluate(
+	// This is the explicit non-canonical compatibility path.  Its legacy
+	// aggregate fill is intentionally isolated from canonical production.
+	auto physical_inputs = ::economy::physical::factory_inputs::evaluate_legacy_compatibility(
 		state, physical_input_site, physical_input_owner, direct_inputs, m,
 		input_multiplier * employment_units * throughput_multiplier);
 	if(physical_inputs_ready && physical_inputs.active)
