@@ -70,8 +70,8 @@ void process_arrivals(sys::state& state) {
 }
 
 void process_rgo_output(sys::state& state) {
-	// Canonical deposits are the source of truth. Their output never reads
-	// province.rgo_output; legacy RGO is handled in the compatibility branch.
+	// Canonical deposits are the only source of canonical extraction.  In
+	// particular this path never consults province.rgo_output.
 	state.world.for_each_resource_deposit([&](dcon::resource_deposit_id deposit) {
 		if(state.world.resource_deposit_get_legacy_compatibility_deposit(deposit)) return;
 		auto commodity = state.world.resource_deposit_get_commodity(deposit);
@@ -90,7 +90,12 @@ void process_rgo_output(sys::state& state) {
 			// leaves the operator stock at the extraction site for a later retry.
 		}
 	});
+}
 
+void process_legacy_rgo_output(sys::state& state) {
+	// Explicit compatibility boundary.  This is retained for old callers that
+	// still consume the Alice RGO aggregate; it must never be called by the
+	// canonical physical production path.
 	state.world.for_each_province([&](dcon::province_id province) {
 		auto zone = state.world.province_get_state_membership(province);
 		auto market = state.world.state_instance_get_market_from_local_market(zone);

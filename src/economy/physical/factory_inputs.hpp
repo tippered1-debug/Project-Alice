@@ -9,6 +9,7 @@ namespace economy::physical::factory_inputs {
 
 struct availability {
 	bool active = false;
+	bool fully_canonical = false;
 	float legacy_ratio = 1.0f;
 	float physical_ratio = 1.0f;
 };
@@ -19,6 +20,8 @@ struct procurement_account {
 };
 
 availability evaluate(sys::state const&, dcon::site_id, dcon::economic_actor_id,
+	economy::commodity_set const&, dcon::market_id, float input_scale);
+availability evaluate_legacy_compatibility(sys::state const&, dcon::site_id, dcon::economic_actor_id,
 	economy::commodity_set const&, dcon::market_id, float input_scale);
 
 void begin_planning(sys::state&);

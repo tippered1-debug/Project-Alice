@@ -17,20 +17,22 @@ dcon::site_id make_site(sys::state& state, dcon::province_id province) {
 	return site;
 }
 
-void initialize_legacy_deposit(sys::state& state, dcon::resource_deposit_id deposit, dcon::province_id province) {
-	if(!deposit || state.world.resource_deposit_get_legacy_compatibility_deposit(deposit)) return;
-	auto commodity = state.world.resource_deposit_get_commodity(deposit);
-	if(!commodity || state.world.commodity_get_rgo_amount(commodity) <= 0.0f
-		|| state.world.province_get_rgo_size(province, commodity) <= 0.0f
-		|| state.world.resource_deposit_get_remaining_recoverable_reserves(deposit) > 0.0f)
-		return;
-	// Repair only the unmistakable pre-foundation/legacy shape: no initialized
-	// reserves and a matching Alice RGO source. Hand-authored canonical deposits
-	// with explicit reserves are never rewritten.
-	auto snapshot = std::max(1.0f, state.world.province_get_rgo_size(province, commodity));
-	auto daily = std::max(1.0f, state.world.commodity_get_rgo_amount(commodity));
-	initialize_deposit(state, deposit, state.world.resource_deposit_get_site_from_resource_deposit_site(deposit),
-		commodity, snapshot, snapshot, 1.0f, daily, daily, 0, true);
+struct bootstrap_calibration {
+	float reserves = 0.0f;
+	float daily_capacity = 0.0f;
+	float target = 0.0f;
+};
+
+bootstrap_calibration calibrate_legacy_signals(float rgo_size, float rgo_amount) {
+	// These legacy values are scenario signals, not geological tonnes.  The
+	// conversion is performed only while creating a missing canonical deposit;
+	// runtime extraction uses the resulting deposit state exclusively.
+	constexpr float reserve_scale = 1000.0f;
+	auto size_signal = std::max(0.0f, std::isfinite(rgo_size) ? rgo_size : 0.0f);
+	auto amount_signal = std::max(0.0f, std::isfinite(rgo_amount) ? rgo_amount : 0.0f);
+	auto reserves = std::max(1.0f, size_signal * reserve_scale);
+	auto daily = std::max(1.0f, amount_signal);
+	return { reserves, daily, std::min(reserves, daily) };
 }
 
 bool asset_has_owner(sys::state const& state, dcon::asset_id asset) {
@@ -51,7 +53,7 @@ dcon::economic_actor_id create_legacy_placeholder_owner(sys::state& state) {
 	return actor;
 }
 
-void ensure_legacy_asset_and_operator(sys::state& state, dcon::resource_deposit_id deposit) {
+void ensure_asset_and_operator(sys::state& state, dcon::resource_deposit_id deposit) {
 	auto organization = actors::organizations::operator_organization_for_deposit(state, deposit);
 	if(!organization) {
 		organization = actors::organizations::create_company(state);
@@ -149,19 +151,26 @@ void bootstrap(sys::state& state) {
 				return;
 			auto existing = deposit_for(state, province, commodity);
 			if(existing) {
-				initialize_legacy_deposit(state, existing, province);
+				// Existing deposits are already canonical runtime state (or an
+				// explicitly marked compatibility deposit). Never re-read mutable
+				// province RGO values to repair or overwrite them.
 				if(state.world.resource_deposit_get_legacy_compatibility_deposit(existing))
-					ensure_legacy_asset_and_operator(state, existing);
+					ensure_asset_and_operator(state, existing);
 				return;
 			}
 			auto site = make_site(state, province);
-		// This is an explicitly marked compatibility snapshot. RGO size is not
-		// interpreted as geological tonnes by the canonical extraction path.
-			auto legacy_capacity = std::max(1.0f, state.world.province_get_rgo_size(province, commodity));
-			auto daily = std::max(1.0f, state.world.commodity_get_rgo_amount(commodity));
-			auto deposit = create_deposit(state, site, commodity, legacy_capacity, legacy_capacity, 1.0f, daily, daily, 0, true);
+			auto calibration = calibrate_legacy_signals(
+				state.world.province_get_rgo_size(province, commodity),
+				state.world.commodity_get_rgo_amount(commodity));
+			// Local and money RGO have no canonical physical extraction path in
+			// this layer, so they remain explicitly compatibility-only. Ordinary
+			// commodities become canonical deposits owned by their runtime state.
+			auto compatibility = state.world.commodity_get_is_local(commodity)
+				|| state.world.commodity_get_money_rgo(commodity);
+			auto deposit = create_deposit(state, site, commodity, calibration.reserves,
+				calibration.reserves, 1.0f, calibration.daily_capacity, calibration.target, 0, compatibility);
 			if(!deposit) return;
-		ensure_legacy_asset_and_operator(state, deposit);
+			ensure_asset_and_operator(state, deposit);
 		});
 	});
 

@@ -123,6 +123,7 @@ TEST_CASE("concrete market observed price falls back without fills", "[economy][
 
 TEST_CASE("concrete reference price prefers prior concrete VWAP", "[economy][physical][concrete_market]") {
 	concrete_market_tests::fixture f;
+	f.state->world.commodity_set_cost(f.goods, 2.0f);
 	f.state->world.market_set_price(f.market, f.goods, 2.0f);
 	REQUIRE(economy::physical::concrete_market::canonical_reference_price(*f.state, f.market, f.goods, sys::date{1}) == Approx(2.0f));
 	economy::physical::inventory::add(*f.state, f.source, f.goods, 5.0f, f.seller);
@@ -131,6 +132,19 @@ TEST_CASE("concrete reference price prefers prior concrete VWAP", "[economy][phy
 	REQUIRE(economy::physical::concrete_market::match(*f.state, f.market, f.goods, {}).size() == 1);
 	f.state->world.market_set_price(f.market, f.goods, 999.0f);
 	REQUIRE(economy::physical::concrete_market::canonical_reference_price(*f.state, f.market, f.goods, sys::date{1}) == Approx(10.0f));
+}
+
+TEST_CASE("canonical reference price ignores mutable legacy market price", "[economy][physical][concrete_market]") {
+	concrete_market_tests::fixture f;
+	f.state->world.commodity_set_cost(f.goods, 7.0f);
+	f.state->world.market_set_price(f.market, f.goods, 1.0f);
+	auto low = economy::physical::concrete_market::canonical_reference_price(*f.state, f.market, f.goods, {});
+	f.state->world.market_set_price(f.market, f.goods, 100000.0f);
+	auto high = economy::physical::concrete_market::canonical_reference_price(*f.state, f.market, f.goods, {});
+	REQUIRE(low == Approx(7.0f));
+	REQUIRE(high == Approx(7.0f));
+	REQUIRE(economy::physical::concrete_market::legacy_compatibility_reference_price(
+		*f.state, f.market, f.goods, {}) == Approx(100000.0f));
 }
 
 TEST_CASE("concrete market orders expire and release reservations", "[economy][physical][concrete_market]") {

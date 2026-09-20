@@ -174,8 +174,8 @@ float observed_price(sys::state const& state, dcon::market_id market, dcon::comm
 	return quantity > epsilon ? value / quantity : fallback;
 }
 
-float canonical_reference_price(sys::state const& state, dcon::market_id market,
-	dcon::commodity_id commodity, sys::date date, float fallback) {
+float concrete_history_reference_price(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date) {
 	float quantity = 0.0f, value = 0.0f;
 	sys::date latest{};
 	bool found = false;
@@ -190,11 +190,27 @@ float canonical_reference_price(sys::state const& state, dcon::market_id market,
 			value += state.world.concrete_trade_fill_get_quantity(fill) * state.world.concrete_trade_fill_get_execution_price(fill);
 		}
 	});
-	if(quantity > epsilon) return value / quantity;
-	// Compatibility anchor: this is the only legacy aggregate price read by
-	// the canonical physical order path, and it is never written back.
+	return quantity > epsilon ? value / quantity : 0.0f;
+}
+
+float canonical_reference_price(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date, float fallback) {
+	if(auto history = concrete_history_reference_price(state, market, commodity, date);
+		valid(history)) return history;
+	// The canonical fallback is immutable scenario/bootstrap cost.  In
+	// particular, it must not observe mutable legacy market equilibrium state.
+	if(valid(fallback)) return fallback;
+	auto bootstrap_cost = commodity ? state.world.commodity_get_cost(commodity) : 0.0f;
+	return valid(bootstrap_cost) ? bootstrap_cost : 0.0f;
+}
+
+float legacy_compatibility_reference_price(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date, float fallback) {
+	if(auto history = concrete_history_reference_price(state, market, commodity, date);
+		valid(history)) return history;
 	auto reference = state.world.market_get_price(market, commodity);
-	return valid(reference) ? reference : fallback;
+	if(valid(reference)) return reference;
+	return valid(fallback) ? fallback : 0.0f;
 }
 
 void expire(sys::state& state, sys::date date) {

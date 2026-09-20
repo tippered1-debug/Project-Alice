@@ -4,6 +4,8 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/industrial_production.hpp"
+#include "economy/market_clearing.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/relations/relations.hpp"
@@ -37,6 +39,8 @@ struct fixture {
 			state->world.commodity_set_money_rgo(commodity, false);
 		}
 		state->world.market_resize_price(state->world.commodity_size());
+		state->world.commodity_set_cost(input, 2.0f);
+		state->world.commodity_set_cost(output, 10.0f);
 		state->world.market_set_price(market, input, 2.0f);
 		state->world.market_set_price(market, output, 10.0f);
 		auto type = state->world.create_factory_type();
@@ -63,6 +67,7 @@ struct fixture {
 		economy::accounts::bootstrap_set_balance(*state, account, 1000.0f);
 		state->world.factory_set_canonical_production(factory, 1);
 		state->world.factory_set_payroll_settlement(factory, settlement);
+		state->world.province_resize_labor_price(economy::labor::total);
 		state->world.province_set_labor_price(province, economy::labor::no_education, 1.0f);
 		state->world.province_set_labor_price(province, economy::labor::basic_education, 1.0f);
 		state->world.province_set_labor_price(province, economy::labor::high_education, 1.0f);
@@ -81,9 +86,49 @@ TEST_CASE("firm agency chooses positive production for profitable financed facto
 TEST_CASE("firm agency reduces production at negative expected margin", "[economy][firm_agency]") {
 	firm_agency_tests::fixture f;
 	auto healthy = economy::firm_agency::decide_factory(*f.state, f.factory);
-	f.state->world.market_set_price(f.market, f.input, 20.0f);
+	f.state->world.commodity_set_cost(f.input, 20.0f);
 	auto negative = economy::firm_agency::decide_factory(*f.state, f.factory);
 	REQUIRE(negative.desired_units < healthy.desired_units);
+}
+
+TEST_CASE("firm agency decisions ignore mutable legacy market prices", "[economy][firm_agency]") {
+	firm_agency_tests::fixture f;
+	auto baseline = economy::firm_agency::decide_factory(*f.state, f.factory);
+	f.state->world.market_set_price(f.market, f.input, 100000.0f);
+	f.state->world.market_set_price(f.market, f.output, 0.001f);
+	auto mutated = economy::firm_agency::decide_factory(*f.state, f.factory);
+	REQUIRE(mutated.desired_units == Approx(baseline.desired_units));
+	REQUIRE(mutated.expected_gross_margin == Approx(baseline.expected_gross_margin));
+	REQUIRE(mutated.expected_unit_revenue == Approx(baseline.expected_unit_revenue));
+}
+
+TEST_CASE("canonical factory output ignores legacy intermediate clearing", "[economy][firm_agency][physical]") {
+	auto run = [](float supply, bool stocked) {
+		firm_agency_tests::fixture f;
+		f.state->force_age_of_transformation_ruleset = true;
+		for(auto labor_type : {economy::labor::no_education, economy::labor::basic_education,
+			economy::labor::high_education})
+			f.state->world.province_set_labor_demand_satisfaction(f.province, labor_type, 1.0f);
+		if(stocked)
+			REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.input, 10.0f, f.owner) == Approx(10.0f));
+		economy::market_clearing::begin_day(*f.state);
+		economy::market_clearing::record(*f.state, f.market, f.input,
+			economy::market_clearing::demand_class::intermediate, 1.0f);
+		(void)economy::market_clearing::settle(*f.state, f.market, f.input, supply, 1.0f, 1.0f);
+		return economy::industrial_production::produce_factory(*f.state, f.factory);
+	};
+
+	// The legacy ledger varies from empty to fully supplied, while physical
+	// stock is held constant. Canonical output must not change.
+	auto no_clearing = run(0.0f, true);
+	auto quarter_clearing = run(0.25f, true);
+	auto full_clearing = run(1.0f, true);
+	REQUIRE(no_clearing == Approx(quarter_clearing));
+	REQUIRE(no_clearing == Approx(full_clearing));
+
+	// Physical inventory, unlike the legacy aggregate, remains causal.
+	REQUIRE(run(0.0f, false) == Approx(0.0f));
+	REQUIRE(run(0.0f, true) > 0.0f);
 }
 
 TEST_CASE("firm agency budgets production against free cash", "[economy][firm_agency]") {

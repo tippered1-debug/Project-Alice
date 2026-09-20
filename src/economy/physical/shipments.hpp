@@ -17,5 +17,6 @@ dcon::shipment_id dispatch_transfer(sys::state&, dcon::site_id origin, dcon::sit
 void advance(sys::state&);
 void process_arrivals(sys::state&);
 void process_rgo_output(sys::state&);
+void process_legacy_rgo_output(sys::state&);
 
 } // namespace economy::physical::shipments
