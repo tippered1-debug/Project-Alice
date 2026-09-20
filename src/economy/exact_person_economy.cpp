@@ -22,6 +22,8 @@ struct exact_person_economy_store {
 	std::vector<exact_person_economy::application_record> applications;
 	std::vector<exact_person_economy::contract_record> contracts;
 	std::vector<exact_person_economy::transaction_record> transactions;
+	std::vector<std::pair<exact_person_economy::person_key, sys::date>> last_separation_dates;
+	std::vector<exact_person_economy::person_key> displaced_workers;
 	uint64_t next_account_id = 1;
 	uint64_t next_application_id = 1;
 	uint64_t next_contract_id = 1;
@@ -119,6 +121,7 @@ bool accepts_exact_worker(sys::state const& state, person_key worker, dcon::job_
 		&& persons::exact_population::alive(state, worker)
 		&& is_work_eligible(state, worker)
 		&& is_labor_force_participant(state, worker)
+		&& !separated_on_date(state, worker, state.current_date)
 		&& offer_open(state, offer)
 		&& !person_has_active_contract(state, worker);
 }
@@ -188,6 +191,14 @@ bool is_labor_force_participant(sys::state const& state, person_key worker) {
 	if(auto it = store->participation_overrides.find(worker); it != store->participation_overrides.end())
 		return it->second;
 	return persons::exact_population::is_source_workforce_anchor(state, worker) && is_work_eligible(state, worker);
+}
+
+bool is_unemployed(sys::state const& state, person_key worker) {
+	return persons::exact_population::exists(state, worker)
+		&& persons::exact_population::alive(state, worker)
+		&& is_work_eligible(state, worker)
+		&& is_labor_force_participant(state, worker)
+		&& !person_has_active_contract(state, worker);
 }
 
 bool set_labor_force_participation(sys::state& state, person_key worker, bool participating) {
@@ -453,6 +464,14 @@ std::vector<uint64_t> active_contracts_for_factory(sys::state const& state, dcon
 	return result;
 }
 
+std::vector<uint64_t> contracts_for_factory(sys::state const& state, dcon::factory_id factory) {
+	std::vector<uint64_t> result;
+	for(auto const& record : ensure_store(state)->contracts)
+		if(record.factory == factory) result.push_back(record.id);
+	sort_ids(result);
+	return result;
+}
+
 std::vector<uint64_t> active_contracts_for_person(sys::state const& state, person_key worker) {
 	std::vector<uint64_t> result;
 	for(auto const& record : ensure_store(state)->contracts)
@@ -490,31 +509,47 @@ float wage_due_for_factory(sys::state const& state, dcon::factory_id factory) {
 	return std::isfinite(result) ? result : 0.0f;
 }
 
+float unpaid_wages_for_factory(sys::state const& state, dcon::factory_id factory) {
+	float result = 0.0f;
+	for(auto const& record : ensure_store(state)->contracts)
+		if(record.factory == factory && std::isfinite(record.unpaid_wages) && record.unpaid_wages > 0.0f)
+			result += record.unpaid_wages;
+	return std::isfinite(result) ? result : 0.0f;
+}
+
 wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
 	wage_settlement result;
 	auto record = contract(state, contract_id);
 	if(!record) return result;
-	result.due = wage_due(state, contract_id);
-	if(result.due <= epsilon) return result;
+	result.current_due = wage_due(state, contract_id);
+	result.due = result.current_due;
+	result.arrears_before = std::max(0.0f, record->unpaid_wages);
+	if(!std::isfinite(result.arrears_before)) result.arrears_before = 0.0f;
+	auto requested = result.arrears_before + result.current_due;
+	if(!std::isfinite(requested) || requested <= epsilon) return result;
 	auto payer = account_ref::from_dcon(record->payer_account);
 	auto worker = account_ref::from_exact(record->worker_account_id);
 	if(!account_exists(state, payer) || !account_exists(state, worker)) {
-		result.unpaid = record->unpaid_wages + result.due;
+		result.arrears_after = result.arrears_before + result.current_due;
 	} else {
 		auto available = std::max(0.0f, balance(state, payer)
 			- physical::concrete_market::reserved_bid_amount(state, record->payer_account));
-		auto requested = record->unpaid_wages + result.due;
-		result.paid = std::min(requested, available);
-		if(result.paid > epsilon) {
-			auto transfer_result = transfer_with_result(state, payer, worker, result.paid,
+		result.total_transferred = std::min(requested, available);
+		if(result.total_transferred > epsilon) {
+			auto transfer_result = transfer_with_result(state, payer, worker, result.total_transferred,
 				relations::transaction_kind::payroll, state.current_date);
 			if(transfer_result.success) result.transaction_id = transfer_result.exact_transaction_id;
-			else result.paid = 0.0f;
+			else result.total_transferred = 0.0f;
 		} else {
-			result.paid = 0.0f;
+			result.total_transferred = 0.0f;
 		}
-		result.unpaid = std::max(0.0f, requested - result.paid);
+		result.arrears_repaid = std::min(result.arrears_before, result.total_transferred);
+		result.current_paid = std::min(result.current_due,
+			std::max(0.0f, result.total_transferred - result.arrears_repaid));
+		result.arrears_after = std::max(0.0f, result.arrears_before - result.arrears_repaid);
 	}
+	result.paid = result.total_transferred;
+	result.unpaid = result.arrears_after + std::max(0.0f, result.current_due - result.current_paid);
 	for(auto& mutable_record : ensure_store(state)->contracts)
 		if(mutable_record.id == contract_id) mutable_record.unpaid_wages = result.unpaid;
 	return result;
@@ -532,6 +567,51 @@ bool end_contract(sys::state& state, uint64_t contract_id, contract_status new_s
 	return false;
 }
 
+bool separated_on_date(sys::state const& state, person_key worker, sys::date date) {
+	if(!date) return false;
+	for(auto const& [key, separated] : ensure_store(state)->last_separation_dates)
+		if(key == worker) return separated == date;
+	return false;
+}
+
+void note_separation(sys::state& state, person_key worker, sys::date date) {
+	if(!persons::exact_population::exists(state, worker) || !date) return;
+	for(auto& [key, separated] : ensure_store(state)->last_separation_dates)
+		if(key == worker) { separated = date; return; }
+	ensure_store(state)->last_separation_dates.emplace_back(worker, date);
+}
+
+void enqueue_displaced_worker(sys::state& state, person_key worker) {
+	if(!persons::exact_population::exists(state, worker)) return;
+	for(auto existing : ensure_store(state)->displaced_workers)
+		if(existing == worker) return;
+	ensure_store(state)->displaced_workers.push_back(worker);
+	std::sort(ensure_store(state)->displaced_workers.begin(), ensure_store(state)->displaced_workers.end(),
+		[](auto left, auto right) {
+			return left.source_population_cell == right.source_population_cell
+				? left.ordinal < right.ordinal : left.source_population_cell < right.source_population_cell;
+		});
+}
+
+void remove_displaced_worker(sys::state& state, person_key worker) {
+	auto& queue = ensure_store(state)->displaced_workers;
+	queue.erase(std::remove(queue.begin(), queue.end(), worker), queue.end());
+}
+
+std::vector<person_key> displaced_workers(sys::state const& state) {
+	return ensure_store(state)->displaced_workers;
+}
+
+bool withdraw_pending_applications(sys::state& state, person_key worker) {
+	bool changed = false;
+	for(auto& application : ensure_store(state)->applications)
+		if(application.worker == worker && application.status == application_status::pending) {
+			application.status = application_status::withdrawn;
+			changed = true;
+		}
+	return changed;
+}
+
 economy_snapshot export_snapshot(sys::state const& state) {
 	economy_snapshot result;
 	result.version = snapshot_version;
@@ -542,10 +622,21 @@ economy_snapshot export_snapshot(sys::state const& state) {
 	result.applications = store->applications;
 	result.contracts = store->contracts;
 	result.transactions = store->transactions;
+	result.last_separation_dates = store->last_separation_dates;
+	result.displaced_workers = store->displaced_workers;
 	std::sort(result.participation_overrides.begin(), result.participation_overrides.end(), [](auto const& left, auto const& right) {
 		return left.first.source_population_cell == right.first.source_population_cell
 			? left.first.ordinal < right.first.ordinal
 			: left.first.source_population_cell < right.first.source_population_cell;
+	});
+	std::sort(result.last_separation_dates.begin(), result.last_separation_dates.end(), [](auto const& left, auto const& right) {
+		return left.first.source_population_cell == right.first.source_population_cell
+			? left.first.ordinal < right.first.ordinal
+			: left.first.source_population_cell < right.first.source_population_cell;
+	});
+	std::sort(result.displaced_workers.begin(), result.displaced_workers.end(), [](auto left, auto right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.ordinal < right.ordinal : left.source_population_cell < right.source_population_cell;
 	});
 	return result;
 }
@@ -625,6 +716,21 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 			if(existing.id == record.id) return false;
 		candidate->transactions.push_back(record);
 		candidate->next_transaction_id = std::max(candidate->next_transaction_id, record.id + 1);
+	}
+	for(auto const& [worker, date] : snapshot.last_separation_dates) {
+		if(!persons::exact_population::exists(state, worker) || !date
+			|| (state.current_date && date > state.current_date)
+			|| std::any_of(candidate->last_separation_dates.begin(), candidate->last_separation_dates.end(),
+				[&](auto const& existing) { return existing.first == worker; })) return false;
+		candidate->last_separation_dates.emplace_back(worker, date);
+	}
+	for(auto worker : snapshot.displaced_workers) {
+		if(!persons::exact_population::exists(state, worker)
+			|| std::any_of(candidate->displaced_workers.begin(), candidate->displaced_workers.end(),
+				[&](auto existing) { return existing == worker; })
+			|| std::any_of(candidate->contracts.begin(), candidate->contracts.end(),
+				[&](auto const& record) { return record.worker == worker && record.status == contract_status::active; })) return false;
+		candidate->displaced_workers.push_back(worker);
 	}
 	state.exact_person_economy = std::move(candidate);
 	return true;

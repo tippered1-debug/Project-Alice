@@ -90,6 +90,12 @@ struct wage_settlement {
 	float due = 0.0f;
 	float paid = 0.0f;
 	float unpaid = 0.0f;
+	float current_due = 0.0f;
+	float arrears_before = 0.0f;
+	float current_paid = 0.0f;
+	float arrears_repaid = 0.0f;
+	float arrears_after = 0.0f;
+	float total_transferred = 0.0f;
 	uint64_t transaction_id = 0;
 };
 
@@ -102,10 +108,13 @@ struct economy_snapshot {
 	std::vector<application_record> applications;
 	std::vector<contract_record> contracts;
 	std::vector<transaction_record> transactions;
+	std::vector<std::pair<person_key, sys::date>> last_separation_dates;
+	std::vector<person_key> displaced_workers;
 };
 
 bool is_work_eligible(sys::state const&, person_key);
 bool is_labor_force_participant(sys::state const&, person_key);
+bool is_unemployed(sys::state const&, person_key);
 bool set_labor_force_participation(sys::state&, person_key, bool);
 uint64_t participation_override_count(sys::state const&);
 
@@ -139,13 +148,22 @@ void process_job_search_for_exact_person(sys::state&, person_key);
 
 std::optional<contract_record> contract(sys::state const&, uint64_t contract_id);
 std::vector<uint64_t> active_contracts_for_factory(sys::state const&, dcon::factory_id);
+std::vector<uint64_t> contracts_for_factory(sys::state const&, dcon::factory_id);
 std::vector<uint64_t> active_contracts_for_person(sys::state const&, person_key);
 bool person_has_active_contract(sys::state const&, person_key);
 float labor_supplied_to_factory(sys::state const&, dcon::factory_id);
 float wage_due(sys::state const&, uint64_t contract_id);
 float wage_due_for_factory(sys::state const&, dcon::factory_id);
+float unpaid_wages_for_factory(sys::state const&, dcon::factory_id);
 wage_settlement settle_contract_wage(sys::state&, uint64_t contract_id);
 bool end_contract(sys::state&, uint64_t contract_id, contract_status, sys::date end_date);
+
+bool separated_on_date(sys::state const&, person_key, sys::date);
+void note_separation(sys::state&, person_key, sys::date);
+void enqueue_displaced_worker(sys::state&, person_key);
+void remove_displaced_worker(sys::state&, person_key);
+std::vector<person_key> displaced_workers(sys::state const&);
+bool withdraw_pending_applications(sys::state&, person_key);
 
 economy_snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, economy_snapshot const&);

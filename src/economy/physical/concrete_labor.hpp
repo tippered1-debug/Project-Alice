@@ -25,15 +25,23 @@ std::vector<dcon::employment_contract_id> contracts_for_factory(sys::state const
 std::vector<dcon::employment_contract_id> active_contracts_for_factory(sys::state const&, dcon::factory_id);
 std::vector<dcon::person_id> active_workers_for_factory(sys::state const&, dcon::factory_id);
 bool person_has_active_contract(sys::state const&, dcon::person_id);
+bool is_unemployed(sys::state const&, dcon::person_id);
 float labor_supplied_to_factory(sys::state const&, dcon::factory_id);
 float wage_due(sys::state const&, dcon::employment_contract_id);
 float wage_due_for_factory(sys::state const&, dcon::factory_id);
 float wage_cost_for_factory(sys::state const&, dcon::factory_id, float production_units, float production_capacity);
+float unpaid_wages(sys::state const&, dcon::employment_contract_id);
 
 struct wage_settlement {
 	float due = 0.0f;
 	float paid = 0.0f;
 	float unpaid = 0.0f;
+	float current_due = 0.0f;
+	float arrears_before = 0.0f;
+	float current_paid = 0.0f;
+	float arrears_repaid = 0.0f;
+	float arrears_after = 0.0f;
+	float total_transferred = 0.0f;
 	dcon::obligation_id obligation{};
 };
 

@@ -5,6 +5,7 @@
 #include "concrete_labor.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "labor_dynamics.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -48,7 +49,8 @@ bool accepts_worker(sys::state const& state, dcon::person_id person, dcon::job_o
 	auto factory = state.world.job_offer_get_factory_from_job_offer_factory(offer);
 	auto workplace = state.world.job_offer_get_site_from_job_offer_site(offer);
 	return factory && state.world.factory_is_valid(factory) && workplace && state.world.site_is_valid(workplace)
-		&& !concrete_labor::person_has_active_contract(state, person);
+		&& !concrete_labor::person_has_active_contract(state, person)
+		&& !labor_dynamics::legacy_separated_on_date(state, person, state.current_date);
 }
 
 dcon::monetary_account_id worker_account_for(sys::state& state, dcon::person_id person,
@@ -353,6 +355,7 @@ void process_job_search(sys::state& state) {
 }
 
 void process(sys::state& state) {
+	labor_dynamics::process_displaced_job_search(state);
 	process_factory_vacancies(state);
 	process_job_search(state);
 	process_pending_applications(state);

@@ -37,6 +37,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/freight_market.hpp"
 #include "economy/physical/job_market.hpp"
+#include "economy/physical/labor_dynamics.hpp"
 #include "economy/physical/individual_consumption.hpp"
 #include <vector>
 #include <algorithm>
@@ -4380,6 +4381,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	::economy::physical::job_market::process(state);
 
 	update_factories_production(state);
+	::economy::physical::labor_dynamics::process_factory_labor_dynamics(state);
 	if(gamerule::age_of_transformation_enabled(state))
 		::economy::physical::individual_consumption::process(state);
 

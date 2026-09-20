@@ -5,6 +5,7 @@
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/concrete_labor.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
@@ -111,10 +112,12 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 		- physical::concrete_market::reserved_bid_amount(state, account)) : 0.0f;
 	auto payroll_cash = payroll_account ? std::max(0.0f, accounts::balance(state, payroll_account)
 		- physical::concrete_market::reserved_bid_amount(state, payroll_account)
-		- arrears_due(state, owner, payroll_settlement)) : 0.0f;
+		- arrears_due(state, owner, payroll_settlement)
+		- exact_person_economy::unpaid_wages_for_factory(state, factory)) : 0.0f;
 	if(account && payroll_account && account == payroll_account)
 		procurement_cash = payroll_cash = std::max(0.0f, procurement_cash
-			- arrears_due(state, owner, payroll_settlement));
+			- arrears_due(state, owner, payroll_settlement)
+			- exact_person_economy::unpaid_wages_for_factory(state, factory));
 	procurement_cash *= (1.0f - cash_safety_fraction);
 	payroll_cash *= (1.0f - cash_safety_fraction);
 	result.cash_limited_units = desired;

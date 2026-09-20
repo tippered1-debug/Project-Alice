@@ -86,21 +86,28 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 	// below is retained only for explicitly non-canonical factories. A canonical
 	// factory with no contracts has zero canonical payroll.
 	auto contracts = physical::concrete_labor::contracts_for_factory(state, factory);
-	auto exact_contracts = exact_person_economy::active_contracts_for_factory(state, factory);
+	auto exact_contracts = exact_person_economy::contracts_for_factory(state, factory);
 	if(state.world.factory_get_canonical_production(factory)) {
 		if(state.world.factory_get_payroll_initialized(factory)
 			&& state.world.factory_get_last_payroll_date(factory) == state.current_date) return;
 		if(!contracts.empty() || !exact_contracts.empty()) {
 			auto province = compat::alice::province_for_factory(state, factory);
 			auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
-			for(auto contract : physical::concrete_labor::active_contracts_for_factory(state, factory)) {
+			for(auto contract : contracts) {
 				auto settlement = accounts::settlement_of(state,
 					state.world.employment_contract_get_monetary_account_from_employment_contract_payer_account(contract));
 				auto result = physical::concrete_labor::settle_contract_wage(state, contract);
 				if(province && operator_actor && settlement) {
-					record_event(state, factory, province, operator_actor, settlement, result.obligation,
-						result.due, result.paid, result.unpaid, result.due, 0.0f, 0.0f,
-						result.paid, 0.0f, 0.0f);
+					if(result.current_due > 1.0e-6f)
+						record_event(state, factory, province, operator_actor, settlement, result.obligation,
+							result.current_due, result.current_paid,
+							std::max(0.0f, result.current_due - result.current_paid),
+							result.current_due, 0.0f, 0.0f,
+							result.current_paid, 0.0f, 0.0f);
+					if(result.arrears_repaid > 1.0e-6f)
+						record_event(state, factory, province, operator_actor, settlement, result.obligation,
+							0.0f, result.arrears_repaid, 0.0f, 0.0f, 0.0f, 0.0f,
+							0.0f, 0.0f, 0.0f);
 				}
 			}
 			for(auto contract : exact_contracts) {
@@ -109,9 +116,15 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 				auto settlement = accounts::settlement_of(state, exact_record->payer_account);
 				auto result = exact_person_economy::settle_contract_wage(state, contract);
 				if(province && operator_actor && settlement) {
-					record_event(state, factory, province, operator_actor, settlement, {},
-						result.due, result.paid, result.unpaid, result.due, 0.0f, 0.0f,
-						result.paid, 0.0f, 0.0f);
+					if(result.current_due > 1.0e-6f)
+						record_event(state, factory, province, operator_actor, settlement, {},
+							result.current_due, result.current_paid,
+							std::max(0.0f, result.current_due - result.current_paid),
+							result.current_due, 0.0f, 0.0f, result.current_paid, 0.0f, 0.0f);
+					if(result.arrears_repaid > 1.0e-6f)
+						record_event(state, factory, province, operator_actor, settlement, {},
+							0.0f, result.arrears_repaid, 0.0f, 0.0f, 0.0f, 0.0f,
+							0.0f, 0.0f, 0.0f);
 				}
 			}
 			state.world.factory_set_last_payroll_date(factory, state.current_date);

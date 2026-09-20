@@ -176,6 +176,18 @@ float wage_due_for_factory(sys::state const& state, dcon::factory_id factory) {
 	return std::isfinite(result) ? result : 0.0f;
 }
 
+bool is_unemployed(sys::state const& state, dcon::person_id person) {
+	return person && state.world.person_is_valid(person) && state.world.person_get_alive(person)
+		&& persons::is_work_eligible(state, person) && !person_has_active_contract(state, person);
+}
+
+float unpaid_wages(sys::state const& state, dcon::employment_contract_id contract) {
+	auto obligation = active_wage_obligation(state, contract);
+	if(!obligation) return 0.0f;
+	auto result = relations::total_due(state, obligation);
+	return std::isfinite(result) && result > 0.0f ? result : 0.0f;
+}
+
 float wage_cost_for_factory(sys::state const& state, dcon::factory_id factory, float production_units, float production_capacity) {
 	if(!std::isfinite(production_units) || !std::isfinite(production_capacity) || production_capacity <= epsilon) return 0.0f;
 	return wage_due_for_factory(state, factory) * std::clamp(production_units / production_capacity, 0.0f, 1.0f);
@@ -183,22 +195,38 @@ float wage_cost_for_factory(sys::state const& state, dcon::factory_id factory, f
 
 wage_settlement settle_contract_wage(sys::state& state, dcon::employment_contract_id contract) {
 	wage_settlement result{};
-	result.due = wage_due(state, contract);
-	if(result.due <= epsilon) return result;
+	if(!contract || !state.world.employment_contract_is_valid(contract)) return result;
+	result.current_due = wage_due(state, contract);
+	result.due = result.current_due;
+	result.arrears_before = unpaid_wages(state, contract);
+	if(result.arrears_before <= epsilon && result.current_due <= epsilon) return result;
 	auto payer = state.world.employment_contract_get_monetary_account_from_employment_contract_payer_account(contract);
 	auto worker = state.world.employment_contract_get_monetary_account_from_employment_contract_worker_account(contract);
-	if(!payer || !worker) { result.unpaid = result.due; result.obligation = ensure_wage_obligation(state, contract, result.unpaid); return result; }
-	auto available = free_cash(state, payer);
-	if(auto arrears = active_wage_obligation(state, contract); arrears && available > epsilon) {
-		auto repayment = std::min(available, std::max(0.0f, relations::total_due(state, arrears)));
-		if(repayment > epsilon && accounts::settle_obligation_payment(state, arrears, payer, worker, repayment, state.current_date))
-			available -= repayment;
+	if(!payer || !worker) {
+		result.arrears_after = result.arrears_before + result.current_due;
+	} else {
+		auto available = free_cash(state, payer);
+		if(auto arrears = active_wage_obligation(state, contract); arrears && available > epsilon) {
+			auto repayment = std::min(available, result.arrears_before);
+			if(repayment > epsilon && accounts::settle_obligation_payment(state, arrears, payer, worker,
+				repayment, state.current_date)) {
+				result.arrears_repaid = repayment;
+				result.total_transferred += repayment;
+				available = free_cash(state, payer);
+			}
+		}
+		result.current_paid = std::min(result.current_due, available);
+		if(result.current_paid > epsilon && !accounts::transfer(state, payer, worker, result.current_paid,
+			relations::transaction_kind::payroll, state.current_date)) result.current_paid = 0.0f;
+		result.total_transferred += result.current_paid;
+		result.arrears_after = std::max(0.0f, result.arrears_before - result.arrears_repaid);
 	}
-	result.paid = std::min(result.due, available);
-	if(result.paid > epsilon && !accounts::transfer(state, payer, worker, result.paid,
-		relations::transaction_kind::payroll, state.current_date)) result.paid = 0.0f;
-	result.unpaid = std::max(0.0f, result.due - result.paid);
-	result.obligation = ensure_wage_obligation(state, contract, result.unpaid);
+	result.paid = result.total_transferred;
+	result.unpaid = result.arrears_after + std::max(0.0f, result.current_due - result.current_paid);
+	if(result.current_due > result.current_paid + epsilon)
+		result.obligation = ensure_wage_obligation(state, contract, result.current_due - result.current_paid);
+	else
+		result.obligation = active_wage_obligation(state, contract);
 	return result;
 }
 

@@ -40,6 +40,7 @@
 #include "economy/exact_person_economy.cpp"
 #include "economy/physical/exact_person_goods.cpp"
 #include "economy/physical/exact_person_freight.cpp"
+#include "economy/physical/labor_dynamics.cpp"
 #include "persons/population_materialization.cpp"
 #include "governance/actions/actions.cpp"
 #include "dcon_oos_reporter_generated.cpp"
