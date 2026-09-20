@@ -68,6 +68,7 @@ struct fixture {
 		state->world.factory_set_canonical_production(factory, 1);
 		state->world.factory_set_payroll_settlement(factory, settlement);
 		state->world.province_resize_labor_price(economy::labor::total);
+		state->world.province_resize_labor_demand_satisfaction(economy::labor::total);
 		state->world.province_set_labor_price(province, economy::labor::no_education, 1.0f);
 		state->world.province_set_labor_price(province, economy::labor::basic_education, 1.0f);
 		state->world.province_set_labor_price(province, economy::labor::high_education, 1.0f);
@@ -100,6 +101,31 @@ TEST_CASE("firm agency decisions ignore mutable legacy market prices", "[economy
 	REQUIRE(mutated.desired_units == Approx(baseline.desired_units));
 	REQUIRE(mutated.expected_gross_margin == Approx(baseline.expected_gross_margin));
 	REQUIRE(mutated.expected_unit_revenue == Approx(baseline.expected_unit_revenue));
+}
+
+TEST_CASE("canonical procurement ignores mutable legacy market prices", "[economy][firm_agency][physical]") {
+	auto run = [](float legacy_price) {
+		firm_agency_tests::fixture f;
+		auto hub = f.state->world.create_site();
+		f.state->world.force_create_market_hub_site(f.market, hub);
+		f.state->world.market_set_price(f.market, f.input, legacy_price);
+		economy::physical::factory_inputs::begin_planning(*f.state);
+		REQUIRE(economy::physical::factory_inputs::plan(*f.state, f.factory, f.site, f.owner,
+			f.state->world.factory_type_get_inputs(f.state->world.factory_get_building_type(f.factory)),
+			f.market, 4.0f));
+		dcon::concrete_market_bid_id bid{};
+		f.state->world.for_each_concrete_market_bid([&](auto candidate) { bid = candidate; });
+		REQUIRE(bid);
+		return std::pair{
+			f.state->world.concrete_market_bid_get_remaining_quantity(bid),
+			f.state->world.concrete_market_bid_get_limit_price(bid)};
+	};
+
+	auto low = run(1.0f);
+	auto high = run(100000.0f);
+	REQUIRE(low.first == Approx(high.first));
+	REQUIRE(low.second == Approx(high.second));
+	REQUIRE(low.second == Approx(2.0f));
 }
 
 TEST_CASE("canonical factory output ignores legacy intermediate clearing", "[economy][firm_agency][physical]") {
