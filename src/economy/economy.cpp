@@ -4378,10 +4378,9 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		::economy::physical::shipments::process_arrivals(state);
 	}
 
-	::economy::physical::job_market::process(state);
-
 	update_factories_production(state);
 	::economy::physical::labor_dynamics::process_factory_labor_dynamics(state);
+	::economy::physical::job_market::process(state);
 	if(gamerule::age_of_transformation_enabled(state))
 		::economy::physical::individual_consumption::process(state);
 

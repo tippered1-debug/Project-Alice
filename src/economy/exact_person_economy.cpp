@@ -529,7 +529,8 @@ wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
 	if(!std::isfinite(requested) || requested <= epsilon) return result;
 	auto payer = account_ref::from_dcon(record->payer_account);
 	auto worker = account_ref::from_exact(record->worker_account_id);
-	if(!account_exists(state, payer) || !account_exists(state, worker)) {
+	auto valid_accounts = account_exists(state, payer) && account_exists(state, worker);
+	if(!valid_accounts) {
 		result.arrears_after = result.arrears_before + result.current_due;
 	} else {
 		auto available = std::max(0.0f, balance(state, payer)
@@ -549,7 +550,9 @@ wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
 		result.arrears_after = std::max(0.0f, result.arrears_before - result.arrears_repaid);
 	}
 	result.paid = result.total_transferred;
-	result.unpaid = result.arrears_after + std::max(0.0f, result.current_due - result.current_paid);
+	result.unpaid = valid_accounts
+		? result.arrears_after + std::max(0.0f, result.current_due - result.current_paid)
+		: result.arrears_after;
 	for(auto& mutable_record : ensure_store(state)->contracts)
 		if(mutable_record.id == contract_id) mutable_record.unpaid_wages = result.unpaid;
 	return result;
