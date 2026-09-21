@@ -69,6 +69,7 @@ struct contract_record {
 	contract_status status = contract_status::active;
 	sys::date end_date{};
 	float unpaid_wages = 0.0f;
+	sys::date arrears_since{};
 	uint64_t causal_sequence = 0;
 };
 

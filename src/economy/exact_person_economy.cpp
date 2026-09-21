@@ -566,8 +566,16 @@ wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
 	result.unpaid = valid_accounts
 		? result.arrears_after + std::max(0.0f, result.current_due - result.current_paid)
 		: result.arrears_after;
-	for(auto& mutable_record : ensure_store(state)->contracts)
-		if(mutable_record.id == contract_id) mutable_record.unpaid_wages = result.unpaid;
+	for(auto& mutable_record : ensure_store(state)->contracts) {
+		if(mutable_record.id != contract_id) continue;
+		if(result.unpaid > epsilon) {
+			if(!mutable_record.arrears_since)
+				mutable_record.arrears_since = state.current_date ? state.current_date : mutable_record.start_date;
+		} else {
+			mutable_record.arrears_since = {};
+		}
+		mutable_record.unpaid_wages = result.unpaid;
+	}
 	return result;
 }
 
@@ -707,6 +715,7 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 				&& record.status == contract_status::active)) return false;
 		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::employment_contract);
 		if(record.causal_sequence == 0) return false;
+		if(record.unpaid_wages > epsilon && !record.arrears_since) record.arrears_since = record.start_date;
 		causal_order::observe(state, record.causal_sequence);
 		candidate->contracts.push_back(record);
 		candidate->next_contract_id = std::max(candidate->next_contract_id, record.id + 1);

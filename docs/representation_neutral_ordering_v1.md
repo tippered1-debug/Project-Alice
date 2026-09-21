@@ -26,6 +26,14 @@ legacy-first layoff tie-break). Existing economic price, wage, freight, and
 labor policy rules remain responsible for eligibility and economic priority;
 causal ordering only resolves otherwise competing events.
 
+Job-market orchestration creates and refreshes the offer universe before the
+sparse exact displaced-worker queue or the DCON population searches it. Their
+applications then enter one pending queue, so a newly created vacancy is not
+representation-dependent. Canonical payroll likewise creates one logical wage
+claim queue. Claims with arrears precede claims with only current wages; older
+arrears precede newer arrears; equivalent claims use the shared causal
+sequence. Settlement still dispatches to the existing DCON or exact ledger.
+
 Ordering state is currently an isolated state-side service. The normal save
 pipeline still requires the existing exact snapshot boundaries to persist
 sparse records; a future DCON save integration must serialize the auxiliary

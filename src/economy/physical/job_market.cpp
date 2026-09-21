@@ -388,8 +388,11 @@ void process_job_search(sys::state& state) {
 }
 
 void process(sys::state& state) {
-	labor_dynamics::process_displaced_job_search(state);
+	for(auto offer : all_offers(state)) refresh_offer(state, offer);
 	process_factory_vacancies(state);
+	// Vacancies must exist before either representation searches. The exact
+	// search remains sparse: it only visits the displaced-worker queue.
+	labor_dynamics::process_displaced_job_search(state);
 	process_job_search(state);
 	process_pending_applications(state);
 }
