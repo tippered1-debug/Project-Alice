@@ -530,7 +530,43 @@ float unpaid_wages_for_factory(sys::state const& state, dcon::factory_id factory
 	return std::isfinite(result) ? result : 0.0f;
 }
 
-wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
+wage_settlement settle_contract_arrears_only(sys::state& state, uint64_t contract_id) {
+	wage_settlement result;
+	auto record = contract(state, contract_id);
+	if(!record) return result;
+	result.arrears_before = std::max(0.0f, record->unpaid_wages);
+	if(!std::isfinite(result.arrears_before) || result.arrears_before <= epsilon) {
+		result.arrears_after = 0.0f;
+		return result;
+	}
+	auto payer = account_ref::from_dcon(record->payer_account);
+	auto worker = account_ref::from_exact(record->worker_account_id);
+	if(account_exists(state, payer) && account_exists(state, worker)) {
+		auto available = std::max(0.0f, balance(state, payer)
+			- physical::concrete_market::reserved_bid_amount(state, record->payer_account));
+		result.total_transferred = std::min(result.arrears_before, available);
+		if(result.total_transferred > epsilon) {
+			auto transfer_result = transfer_with_result(state, payer, worker, result.total_transferred,
+				relations::transaction_kind::payroll, state.current_date);
+			if(transfer_result.success) result.transaction_id = transfer_result.exact_transaction_id;
+			else result.total_transferred = 0.0f;
+		} else result.total_transferred = 0.0f;
+		result.arrears_repaid = result.total_transferred;
+	}
+	result.paid = result.total_transferred;
+	result.arrears_after = std::max(0.0f, result.arrears_before - result.arrears_repaid);
+	result.unpaid = result.arrears_after;
+	for(auto& mutable_record : ensure_store(state)->contracts) {
+		if(mutable_record.id != contract_id) continue;
+		mutable_record.unpaid_wages = result.unpaid;
+		if(result.unpaid <= epsilon) mutable_record.arrears_since = {};
+		else if(!mutable_record.arrears_since)
+			mutable_record.arrears_since = state.current_date ? state.current_date : mutable_record.start_date;
+	}
+	return result;
+}
+
+wage_settlement settle_current_contract_wage_only(sys::state& state, uint64_t contract_id) {
 	wage_settlement result;
 	auto record = contract(state, contract_id);
 	if(!record) return result;
@@ -538,45 +574,47 @@ wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
 	result.due = result.current_due;
 	result.arrears_before = std::max(0.0f, record->unpaid_wages);
 	if(!std::isfinite(result.arrears_before)) result.arrears_before = 0.0f;
-	auto requested = result.arrears_before + result.current_due;
-	if(!std::isfinite(requested) || requested <= epsilon) return result;
+	if(!std::isfinite(result.current_due) || result.current_due <= epsilon) {
+		result.arrears_after = result.arrears_before;
+		result.unpaid = result.arrears_after;
+		return result;
+	}
 	auto payer = account_ref::from_dcon(record->payer_account);
 	auto worker = account_ref::from_exact(record->worker_account_id);
-	auto valid_accounts = account_exists(state, payer) && account_exists(state, worker);
-	if(!valid_accounts) {
-		result.arrears_after = result.arrears_before + result.current_due;
-	} else {
+	if(account_exists(state, payer) && account_exists(state, worker)) {
 		auto available = std::max(0.0f, balance(state, payer)
 			- physical::concrete_market::reserved_bid_amount(state, record->payer_account));
-		result.total_transferred = std::min(requested, available);
-		if(result.total_transferred > epsilon) {
-			auto transfer_result = transfer_with_result(state, payer, worker, result.total_transferred,
+		result.current_paid = std::min(result.current_due, available);
+		if(result.current_paid > epsilon) {
+			auto transfer_result = transfer_with_result(state, payer, worker, result.current_paid,
 				relations::transaction_kind::payroll, state.current_date);
 			if(transfer_result.success) result.transaction_id = transfer_result.exact_transaction_id;
-			else result.total_transferred = 0.0f;
-		} else {
-			result.total_transferred = 0.0f;
-		}
-		result.arrears_repaid = std::min(result.arrears_before, result.total_transferred);
-		result.current_paid = std::min(result.current_due,
-			std::max(0.0f, result.total_transferred - result.arrears_repaid));
-		result.arrears_after = std::max(0.0f, result.arrears_before - result.arrears_repaid);
+			else result.current_paid = 0.0f;
+		} else result.current_paid = 0.0f;
 	}
-	result.paid = result.total_transferred;
-	result.unpaid = valid_accounts
-		? result.arrears_after + std::max(0.0f, result.current_due - result.current_paid)
-		: result.arrears_after;
+	result.total_transferred = result.current_paid;
+	result.paid = result.current_paid;
+	result.arrears_after = result.arrears_before + std::max(0.0f, result.current_due - result.current_paid);
+	result.unpaid = result.arrears_after;
 	for(auto& mutable_record : ensure_store(state)->contracts) {
 		if(mutable_record.id != contract_id) continue;
-		if(result.unpaid > epsilon) {
-			if(!mutable_record.arrears_since)
-				mutable_record.arrears_since = state.current_date ? state.current_date : mutable_record.start_date;
-		} else {
-			mutable_record.arrears_since = {};
-		}
 		mutable_record.unpaid_wages = result.unpaid;
+		if(result.unpaid <= epsilon) mutable_record.arrears_since = {};
+		else if(!mutable_record.arrears_since)
+			mutable_record.arrears_since = state.current_date ? state.current_date : mutable_record.start_date;
 	}
 	return result;
+}
+
+wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
+	auto arrears = settle_contract_arrears_only(state, contract_id);
+	auto current = settle_current_contract_wage_only(state, contract_id);
+	current.arrears_before = arrears.arrears_before;
+	current.arrears_repaid = arrears.arrears_repaid;
+	current.total_transferred += arrears.total_transferred;
+	current.paid = current.total_transferred;
+	current.transaction_id = current.transaction_id ? current.transaction_id : arrears.transaction_id;
+	return current;
 }
 
 bool end_contract(sys::state& state, uint64_t contract_id, contract_status new_status, sys::date end_date) {

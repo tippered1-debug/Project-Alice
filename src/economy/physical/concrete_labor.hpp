@@ -46,5 +46,7 @@ struct wage_settlement {
 };
 
 wage_settlement settle_contract_wage(sys::state&, dcon::employment_contract_id);
+wage_settlement settle_contract_arrears_only(sys::state&, dcon::employment_contract_id);
+wage_settlement settle_current_contract_wage_only(sys::state&, dcon::employment_contract_id);
 
 } // namespace economy::physical::concrete_labor

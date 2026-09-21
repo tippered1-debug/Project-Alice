@@ -197,35 +197,69 @@ float wage_cost_for_factory(sys::state const& state, dcon::factory_id factory, f
 }
 
 wage_settlement settle_contract_wage(sys::state& state, dcon::employment_contract_id contract) {
+	auto arrears = settle_contract_arrears_only(state, contract);
+	auto current = settle_current_contract_wage_only(state, contract);
+	current.arrears_before = arrears.arrears_before;
+	current.arrears_repaid = arrears.arrears_repaid;
+	current.total_transferred += arrears.total_transferred;
+	current.paid = current.total_transferred;
+	current.obligation = current.obligation ? current.obligation : arrears.obligation;
+	return current;
+}
+
+wage_settlement settle_contract_arrears_only(sys::state& state, dcon::employment_contract_id contract) {
+	wage_settlement result{};
+	if(!contract || !state.world.employment_contract_is_valid(contract)) return result;
+	result.arrears_before = unpaid_wages(state, contract);
+	if(!std::isfinite(result.arrears_before) || result.arrears_before <= epsilon) {
+		result.arrears_after = 0.0f;
+		return result;
+	}
+	auto payer = state.world.employment_contract_get_monetary_account_from_employment_contract_payer_account(contract);
+	auto worker = state.world.employment_contract_get_monetary_account_from_employment_contract_worker_account(contract);
+	if(payer && worker) {
+		auto obligation = active_wage_obligation(state, contract);
+		if(!obligation) obligation = ensure_wage_obligation(state, contract, result.arrears_before);
+		auto available = free_cash(state, payer);
+		auto repayment = std::min(result.arrears_before, available);
+		if(obligation && repayment > epsilon
+			&& accounts::settle_obligation_payment(state, obligation, payer, worker, repayment, state.current_date)) {
+			result.arrears_repaid = repayment;
+		}
+		result.obligation = active_wage_obligation(state, contract);
+	}
+	result.total_transferred = result.arrears_repaid;
+	result.paid = result.arrears_repaid;
+	result.arrears_after = std::max(0.0f, result.arrears_before - result.arrears_repaid);
+	result.unpaid = result.arrears_after;
+	return result;
+}
+
+wage_settlement settle_current_contract_wage_only(sys::state& state, dcon::employment_contract_id contract) {
 	wage_settlement result{};
 	if(!contract || !state.world.employment_contract_is_valid(contract)) return result;
 	result.current_due = wage_due(state, contract);
 	result.due = result.current_due;
 	result.arrears_before = unpaid_wages(state, contract);
-	if(result.arrears_before <= epsilon && result.current_due <= epsilon) return result;
+	if(!std::isfinite(result.arrears_before)) result.arrears_before = 0.0f;
+	if(result.current_due <= epsilon) {
+		result.arrears_after = result.arrears_before;
+		result.unpaid = result.arrears_after;
+		result.obligation = active_wage_obligation(state, contract);
+		return result;
+	}
 	auto payer = state.world.employment_contract_get_monetary_account_from_employment_contract_payer_account(contract);
 	auto worker = state.world.employment_contract_get_monetary_account_from_employment_contract_worker_account(contract);
-	if(!payer || !worker) {
-		result.arrears_after = result.arrears_before + result.current_due;
-	} else {
+	if(payer && worker) {
 		auto available = free_cash(state, payer);
-		if(auto arrears = active_wage_obligation(state, contract); arrears && available > epsilon) {
-			auto repayment = std::min(available, result.arrears_before);
-			if(repayment > epsilon && accounts::settle_obligation_payment(state, arrears, payer, worker,
-				repayment, state.current_date)) {
-				result.arrears_repaid = repayment;
-				result.total_transferred += repayment;
-				available = free_cash(state, payer);
-			}
-		}
 		result.current_paid = std::min(result.current_due, available);
 		if(result.current_paid > epsilon && !accounts::transfer(state, payer, worker, result.current_paid,
 			relations::transaction_kind::payroll, state.current_date)) result.current_paid = 0.0f;
-		result.total_transferred += result.current_paid;
-		result.arrears_after = std::max(0.0f, result.arrears_before - result.arrears_repaid);
 	}
-	result.paid = result.total_transferred;
-	result.unpaid = result.arrears_after + std::max(0.0f, result.current_due - result.current_paid);
+	result.total_transferred = result.current_paid;
+	result.paid = result.current_paid;
+	result.arrears_after = result.arrears_before + std::max(0.0f, result.current_due - result.current_paid);
+	result.unpaid = result.arrears_after;
 	if(result.current_due > result.current_paid + epsilon)
 		result.obligation = ensure_wage_obligation(state, contract, result.current_due - result.current_paid);
 	else

@@ -85,16 +85,15 @@ sys::date legacy_arrears_since(sys::state const& state, dcon::employment_contrac
 	return state.world.employment_contract_get_start_date(contract);
 }
 
-bool claim_before(wage_claim const& left, wage_claim const& right) {
-	constexpr float epsilon = 1.0e-6f;
-	bool left_has_arrears = left.arrears > epsilon;
-	bool right_has_arrears = right.arrears > epsilon;
-	if(left_has_arrears != right_has_arrears) return left_has_arrears;
-	if(left_has_arrears && left.arrears_since != right.arrears_since)
-		return left.arrears_since < right.arrears_since;
+bool causal_claim_before(wage_claim const& left, wage_claim const& right) {
 	if(economy::causal_order::before({{}, left.causal_sequence}, {{}, right.causal_sequence})) return true;
 	if(economy::causal_order::before({{}, right.causal_sequence}, {{}, left.causal_sequence})) return false;
 	return left.stable_id < right.stable_id;
+}
+
+bool arrears_claim_before(wage_claim const& left, wage_claim const& right) {
+	if(left.arrears_since != right.arrears_since) return left.arrears_since < right.arrears_since;
+	return causal_claim_before(left, right);
 }
 }
 
@@ -127,6 +126,7 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 		if(!contracts.empty() || !exact_contracts.empty()) {
 			auto province = compat::alice::province_for_factory(state, factory);
 			auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
+			auto build_claims = [&]() {
 			std::vector<wage_claim> claims;
 			// Include terminated contracts with surviving arrears: their current
 			// due is zero, but the existing debt must remain repayable.
@@ -145,31 +145,54 @@ void settle_factory(sys::state& state, dcon::factory_id factory, float actual_un
 					std::max(0.0f, exact_record->unpaid_wages), exact_record->arrears_since,
 					accounts::settlement_of(state, exact_record->payer_account), exact_record->causal_sequence, contract});
 			}
-			std::sort(claims.begin(), claims.end(), claim_before);
-			for(auto const& claim : claims) {
+			return claims;
+		};
+		constexpr float epsilon = 1.0e-6f;
+		// Phase A: globally settle arrears, with no current wage payment.
+		auto arrears_claims = build_claims();
+		arrears_claims.erase(std::remove_if(arrears_claims.begin(), arrears_claims.end(),
+			[](auto const& claim) { return claim.arrears <= 1.0e-6f; }), arrears_claims.end());
+		std::sort(arrears_claims.begin(), arrears_claims.end(), arrears_claim_before);
+		for(auto const& claim : arrears_claims) {
+			float repaid = 0.0f;
+			dcon::obligation_id obligation{};
+			if(claim.exact) {
+				auto result = exact_person_economy::settle_contract_arrears_only(state, claim.exact_contract);
+				repaid = result.arrears_repaid;
+			} else {
+				auto result = physical::concrete_labor::settle_contract_arrears_only(state, claim.legacy_contract);
+				repaid = result.arrears_repaid; obligation = result.obligation;
+			}
+			if(repaid > epsilon && province && operator_actor && claim.settlement)
+				record_event(state, factory, province, operator_actor, claim.settlement, obligation,
+					0.0f, repaid, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+		}
+		bool arrears_remaining = false;
+		for(auto const& claim : build_claims())
+			if(claim.arrears > epsilon) { arrears_remaining = true; break; }
+		// Phase B is entered only after every eligible arrears claim is clear.
+		if(!arrears_remaining) {
+			auto current_claims = build_claims();
+			current_claims.erase(std::remove_if(current_claims.begin(), current_claims.end(),
+				[](auto const& claim) { return claim.current_due <= 1.0e-6f; }), current_claims.end());
+			std::sort(current_claims.begin(), current_claims.end(), causal_claim_before);
+			for(auto const& claim : current_claims) {
 				float current_due = 0.0f;
 				float current_paid = 0.0f;
-				float arrears_repaid = 0.0f;
 				dcon::obligation_id obligation{};
 				if(claim.exact) {
-					auto result = exact_person_economy::settle_contract_wage(state, claim.exact_contract);
+					auto result = exact_person_economy::settle_current_contract_wage_only(state, claim.exact_contract);
 					current_due = result.current_due; current_paid = result.current_paid;
-					arrears_repaid = result.arrears_repaid;
 				} else {
-					auto result = physical::concrete_labor::settle_contract_wage(state, claim.legacy_contract);
-					current_due = result.current_due; current_paid = result.current_paid;
-					arrears_repaid = result.arrears_repaid; obligation = result.obligation;
+					auto result = physical::concrete_labor::settle_current_contract_wage_only(state, claim.legacy_contract);
+					current_due = result.current_due; current_paid = result.current_paid; obligation = result.obligation;
 				}
-				if(province && operator_actor && claim.settlement) {
-					if(current_due > 1.0e-6f)
-						record_event(state, factory, province, operator_actor, claim.settlement, obligation,
-							current_due, current_paid, std::max(0.0f, current_due - current_paid),
-							current_due, 0.0f, 0.0f, current_paid, 0.0f, 0.0f);
-					if(arrears_repaid > 1.0e-6f)
-						record_event(state, factory, province, operator_actor, claim.settlement, obligation,
-							0.0f, arrears_repaid, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-				}
+				if(current_due > epsilon && province && operator_actor && claim.settlement)
+					record_event(state, factory, province, operator_actor, claim.settlement, obligation,
+						current_due, current_paid, std::max(0.0f, current_due - current_paid),
+						current_due, 0.0f, 0.0f, current_paid, 0.0f, 0.0f);
 			}
+		}
 			state.world.factory_set_last_payroll_date(factory, state.current_date);
 			state.world.factory_set_payroll_initialized(factory, 1);
 			return;

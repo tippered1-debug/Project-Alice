@@ -160,6 +160,8 @@ float wage_due(sys::state const&, uint64_t contract_id);
 float wage_due_for_factory(sys::state const&, dcon::factory_id);
 float unpaid_wages_for_factory(sys::state const&, dcon::factory_id);
 wage_settlement settle_contract_wage(sys::state&, uint64_t contract_id);
+wage_settlement settle_contract_arrears_only(sys::state&, uint64_t contract_id);
+wage_settlement settle_current_contract_wage_only(sys::state&, uint64_t contract_id);
 bool end_contract(sys::state&, uint64_t contract_id, contract_status, sys::date end_date);
 
 bool separated_on_date(sys::state const&, person_key, sys::date);

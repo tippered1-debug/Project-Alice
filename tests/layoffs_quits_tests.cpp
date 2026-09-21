@@ -222,6 +222,105 @@ TEST_CASE("mixed representation arrears use oldest debt before current wages", "
 	run(false);
 }
 
+TEST_CASE("canonical payroll clears every representation's arrears before current wages", "[economy][labor][payroll][arrears][ordering]") {
+	auto run = [](bool exact_has_smaller_arrears) {
+		individual_concrete_labor_tests::fixture f;
+		dcon::employment_contract_id legacy_contract{};
+		uint64_t exact_contract_id = 0;
+		if(exact_has_smaller_arrears) {
+			legacy_contract = f.hire(1.0f, 10.0f);
+			f.state->world.monetary_account_set_balance(f.payer, 0.0f);
+			economy::payroll::settle_factory(*f.state, f.factory, 1.0f, 1.0f);
+			f.state->current_date += 1;
+			auto exact_worker = exact_person_economy_tests::register_anchor(f);
+			auto offer = f.offer(1, 10.0f);
+			REQUIRE(economy::exact_person_economy::submit_application(*f.state, exact_worker, offer, f.state->current_date));
+			economy::physical::job_market::process_pending_applications(*f.state);
+			exact_contract_id = economy::exact_person_economy::active_contracts_for_person(*f.state, exact_worker).front();
+			f.state->world.monetary_account_set_balance(f.payer, 0.0f);
+			auto current = economy::exact_person_economy::settle_current_contract_wage_only(*f.state, exact_contract_id);
+			REQUIRE(current.unpaid == Approx(10.0f));
+			f.state->world.monetary_account_set_balance(f.payer, 2.0f);
+			auto partial = economy::exact_person_economy::settle_contract_arrears_only(*f.state, exact_contract_id);
+			REQUIRE(partial.arrears_repaid == Approx(2.0f));
+		} else {
+			auto exact_worker = exact_person_economy_tests::register_anchor(f);
+			auto offer = f.offer(1, 10.0f);
+			REQUIRE(economy::exact_person_economy::submit_application(*f.state, exact_worker, offer, f.state->current_date));
+			economy::physical::job_market::process_pending_applications(*f.state);
+			exact_contract_id = economy::exact_person_economy::active_contracts_for_person(*f.state, exact_worker).front();
+			f.state->world.monetary_account_set_balance(f.payer, 0.0f);
+			economy::payroll::settle_factory(*f.state, f.factory, 1.0f, 1.0f);
+			f.state->current_date += 1;
+			legacy_contract = f.hire(1.0f, 10.0f);
+			f.state->world.monetary_account_set_balance(f.payer, 0.0f);
+			auto current = economy::physical::concrete_labor::settle_current_contract_wage_only(*f.state, legacy_contract);
+			REQUIRE(current.unpaid == Approx(10.0f));
+			f.state->world.monetary_account_set_balance(f.payer, 2.0f);
+			auto partial = economy::physical::concrete_labor::settle_contract_arrears_only(*f.state, legacy_contract);
+			REQUIRE(partial.arrears_repaid == Approx(2.0f));
+		}
+		f.state->world.monetary_account_set_balance(f.payer, 15.0f);
+		economy::payroll::settle_factory(*f.state, f.factory, 1.0f, 1.0f);
+
+		auto exact_record = economy::exact_person_economy::contract(*f.state, exact_contract_id);
+		REQUIRE(exact_record);
+		if(exact_has_smaller_arrears) {
+			REQUIRE(economy::physical::concrete_labor::unpaid_wages(*f.state, legacy_contract) == Approx(0.0f));
+			REQUIRE(exact_record->unpaid_wages == Approx(3.0f));
+		} else {
+			REQUIRE(economy::physical::concrete_labor::unpaid_wages(*f.state, legacy_contract) == Approx(3.0f));
+			REQUIRE(exact_record->unpaid_wages == Approx(0.0f));
+		}
+		f.state->world.for_each_payroll_event([&](auto event) {
+			if(f.state->world.payroll_event_get_occurred_on(event) == f.state->current_date)
+				REQUIRE(f.state->world.payroll_event_get_gross_due(event) == Approx(0.0f));
+		});
+	};
+	run(true);
+	run(false);
+}
+
+TEST_CASE("partial canonical arrears repayment blocks current wages", "[economy][labor][payroll][arrears]") {
+	auto run = [](bool exact_worker) {
+		individual_concrete_labor_tests::fixture f;
+		dcon::employment_contract_id legacy_contract{};
+		economy::exact_person_economy::person_key exact_key{};
+		uint64_t exact_contract_id = 0;
+		if(exact_worker) {
+			exact_key = exact_person_economy_tests::register_anchor(f);
+			auto offer = f.offer(1, 10.0f);
+			REQUIRE(economy::exact_person_economy::submit_application(*f.state, exact_key, offer, f.state->current_date));
+			economy::physical::job_market::process_pending_applications(*f.state);
+			exact_contract_id = economy::exact_person_economy::active_contracts_for_person(*f.state, exact_key).front();
+		} else {
+			legacy_contract = f.hire(1.0f, 10.0f);
+		}
+		f.state->world.monetary_account_set_balance(f.payer, 0.0f);
+		economy::payroll::settle_factory(*f.state, f.factory, 1.0f, 1.0f);
+		f.state->current_date += 1;
+		f.state->world.monetary_account_set_balance(f.payer, 4.0f);
+		economy::payroll::settle_factory(*f.state, f.factory, 1.0f, 1.0f);
+		if(exact_worker) {
+			auto record = economy::exact_person_economy::contract(*f.state, exact_contract_id);
+			REQUIRE(record);
+			REQUIRE(record->unpaid_wages == Approx(6.0f));
+			auto account = economy::exact_person_economy::account_ref::from_exact(record->worker_account_id);
+			REQUIRE(economy::exact_person_economy::balance(*f.state, account) == Approx(4.0f));
+		} else {
+			REQUIRE(economy::physical::concrete_labor::unpaid_wages(*f.state, legacy_contract) == Approx(6.0f));
+			auto account = f.state->world.employment_contract_get_monetary_account_from_employment_contract_worker_account(legacy_contract);
+			REQUIRE(economy::accounts::balance(*f.state, account) == Approx(4.0f));
+		}
+		f.state->world.for_each_payroll_event([&](auto event) {
+			if(f.state->world.payroll_event_get_occurred_on(event) == f.state->current_date)
+				REQUIRE(f.state->world.payroll_event_get_gross_due(event) == Approx(0.0f));
+		});
+	};
+	run(false);
+	run(true);
+}
+
 TEST_CASE("exact displacement cooldown and queue survive the isolated snapshot", "[economy][labor][persistence]") {
 	individual_concrete_labor_tests::fixture f;
 	auto worker = exact_person_economy_tests::register_anchor(f);

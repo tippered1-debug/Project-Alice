@@ -29,10 +29,21 @@ causal ordering only resolves otherwise competing events.
 Job-market orchestration creates and refreshes the offer universe before the
 sparse exact displaced-worker queue or the DCON population searches it. Their
 applications then enter one pending queue, so a newly created vacancy is not
-representation-dependent. Canonical payroll likewise creates one logical wage
-claim queue. Claims with arrears precede claims with only current wages; older
-arrears precede newer arrears; equivalent claims use the shared causal
-sequence. Settlement still dispatches to the existing DCON or exact ledger.
+representation-dependent.
+
+Canonical payroll uses one logical wage-claim queue with two global phases:
+
+1. Phase A settles arrears only for all DCON and exact claims. Older
+   `arrears_since` dates precede newer dates; equal dates use the shared causal
+   sequence and stable object identifier.
+2. Phase B is entered only after every arrears claim is clear. It settles
+   current wages only, ordered by the shared causal sequence and stable object
+   identifier. If Phase A cannot clear all arrears, no current wage is paid in
+   that payroll call.
+
+Events distinguish arrears repayment (`gross_due == 0`) from current wage due;
+settlement still dispatches to the existing DCON or exact ledger, including
+terminated contracts with surviving arrears.
 
 Ordering state is currently an isolated state-side service. The normal save
 pipeline still requires the existing exact snapshot boundaries to persist
