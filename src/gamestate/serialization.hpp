@@ -190,7 +190,13 @@ inline uint8_t const* deserialize(uint8_t const* ptr_in, ankerl::unordered_dense
 	return ptr_in + sizeof(uint32_t) + sizeof(vec.values()[0]) * length;
 }
 
-constexpr inline uint32_t save_file_version = 45;
+// Version 46 changed the handwritten scenario/save sections. Version 47 added
+// per-commodity directional cargo-in-transit arrays to each trade route.
+// Version 48 persists the monthly land and industry collateral valuations used
+// by producer-credit bankruptcy. Keep older files out of the deserializer: the
+// legacy readers do not have enough bounds information to reject these layout
+// mismatches safely.
+constexpr inline uint32_t save_file_version = 48;
 constexpr inline uint32_t scenario_file_version = 139 + save_file_version;
 
 struct scenario_header {
@@ -237,6 +243,7 @@ uint8_t* write_compressed_section(uint8_t* ptr_out, uint8_t const* ptr_in, uint3
 // Note: these functions are for read / writing the *uncompressed* data
 uint8_t const* read_scenario_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields = false);
 uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields = false);
+void migrate_legacy_army_supply_fields(sys::state& state, dcon::load_record const& loaded);
 uint8_t* write_scenario_section(uint8_t* ptr_in, sys::state& state, bool exclude_local_handwritten_fields = false);
 uint8_t* write_save_section(uint8_t* ptr_in, sys::state& state, bool exclude_local_handwritten_fields = false);
 struct scenario_size {

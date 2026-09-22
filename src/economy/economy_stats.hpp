@@ -1,4 +1,5 @@
 #pragma once
+#include "market_clearing.hpp"
 
 #include "dcon_generated_ids.hpp"
 // #include "adaptive_ve.hpp"
@@ -66,7 +67,8 @@ void register_demand(
 	sys::state& state,
 	dcon::market_id s,
 	dcon::commodity_id commodity_type,
-	float amount
+	float amount,
+	market_clearing::demand_class category = market_clearing::demand_class::other
 	//economy_reason reason
 );
 
@@ -74,21 +76,24 @@ void register_demand(
 	sys::state& state,
 	ve::contiguous_tags<dcon::market_id> s,
 	dcon::commodity_id commodity_type,
-	ve::fp_vector amount
+	ve::fp_vector amount,
+	market_clearing::demand_class category = market_clearing::demand_class::other
 	//economy_reason reason
 );
 void register_demand(
 	sys::state& state,
 	ve::partial_contiguous_tags<dcon::market_id> s,
 	dcon::commodity_id commodity_type,
-	ve::fp_vector amount
+	ve::fp_vector amount,
+	market_clearing::demand_class category = market_clearing::demand_class::other
 	//economy_reason reason
 );
 void register_demand(
 	sys::state& state,
 	ve::tagged_vector<dcon::market_id> s,
 	dcon::commodity_id commodity_type,
-	ve::fp_vector amount
+	ve::fp_vector amount,
+	market_clearing::demand_class category = market_clearing::demand_class::other
 	//economy_reason reason
 );
 

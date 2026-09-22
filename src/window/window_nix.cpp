@@ -136,6 +136,31 @@ static void glfw_error_callback(int error, char const* description) {
 	emit_error_message(std::string{ "Glfw Error " } + std::to_string(error) + std::string{ description }, false);
 }
 
+// GLFW reports pointer positions in logical window points, while the game
+// renders and stores its viewport size in framebuffer pixels. On Retina
+// displays those spaces differ, which otherwise makes hover, tooltips and
+// clicks land away from the visible cursor.
+static void get_cursor_position_in_framebuffer(GLFWwindow* window, int32_t& x, int32_t& y) {
+	double logical_x = 0.0;
+	double logical_y = 0.0;
+	glfwGetCursorPos(window, &logical_x, &logical_y);
+
+	int window_width = 0;
+	int window_height = 0;
+	int framebuffer_width = 0;
+	int framebuffer_height = 0;
+	glfwGetWindowSize(window, &window_width, &window_height);
+	glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
+
+	if(window_width > 0 && window_height > 0) {
+		logical_x *= double(framebuffer_width) / double(window_width);
+		logical_y *= double(framebuffer_height) / double(window_height);
+	}
+
+	x = logical_x > 0.0 ? int32_t(std::round(logical_x)) : 0;
+	y = logical_y > 0.0 ? int32_t(std::round(logical_y)) : 0;
+}
+
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 	sys::state* state = (sys::state*)glfwGetWindowUserPointer(window);
 
@@ -167,11 +192,12 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 	}
 }
 
-static void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+static void cursor_position_callback(GLFWwindow* window, double, double) {
 	sys::state* state = (sys::state*)glfwGetWindowUserPointer(window);
 
-	int32_t x = (xpos > 0 ? (int32_t)std::round(xpos) : 0);
-	int32_t y = (ypos > 0 ? (int32_t)std::round(ypos) : 0);
+	int32_t x = 0;
+	int32_t y = 0;
+	get_cursor_position_in_framebuffer(window, x, y);
 	state->on_mouse_move(x, y, get_current_modifiers(window));
 
 	if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
@@ -184,10 +210,9 @@ static void cursor_position_callback(GLFWwindow* window, double xpos, double ypo
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	sys::state* state = (sys::state*)glfwGetWindowUserPointer(window);
 
-	double xpos, ypos;
-	glfwGetCursorPos(window, &xpos, &ypos);
-	int32_t x = (xpos > 0 ? (int32_t)std::round(xpos) : 0);
-	int32_t y = (ypos > 0 ? (int32_t)std::round(ypos) : 0);
+	int32_t x = 0;
+	int32_t y = 0;
+	get_cursor_position_in_framebuffer(window, x, y);
 
 	switch(action) {
 	case GLFW_PRESS:
@@ -220,10 +245,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
 	sys::state* state = (sys::state*)glfwGetWindowUserPointer(window);
 
-	double xpos, ypos;
-	glfwGetCursorPos(window, &xpos, &ypos);
-	int32_t x = (xpos > 0 ? (int32_t)std::round(xpos) : 0);
-	int32_t y = (ypos > 0 ? (int32_t)std::round(ypos) : 0);
+	int32_t x = 0;
+	int32_t y = 0;
+	get_cursor_position_in_framebuffer(window, x, y);
 
 	sys::on_mouse_wheel(*state, x, y, get_current_modifiers(window), (float)yoffset);
 	state->mouse_x_position = x;
@@ -296,10 +320,24 @@ void create_window(sys::state& game_state, creation_parameters const& params) {
 		emit_error_message("Failed to init glfw\n", true);
 
 	glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
+	#ifdef __APPLE__
+	// Alice currently uses window coordinates for UI layout and mouse input.
+	// Keep the framebuffer at the same size on Retina displays so rendering,
+	// hit testing, and the configured UI scale all use one coordinate space.
+	glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#else
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+#endif
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); // 3.2+ only
+#ifndef NDEBUG
 	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+#else
+	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_FALSE);
+#endif
 	//glfwWindowHint(GLFW_SAMPLES, game_state.user_settings.antialias_level);
 
 	// Create window with graphics context
@@ -332,7 +370,14 @@ void create_window(sys::state& game_state, creation_parameters const& params) {
 		game_state.win_ptr->in_fullscreen=true;
 	}
 
+	glfwMakeContextCurrent(window);
+
 	ogl::initialize_opengl(game_state);
+	if(!params.borderless_fullscreen && params.initial_state == window_state::maximized) {
+		glfwMaximizeWindow(window);
+	} else if(params.initial_state == window_state::minimized) {
+		glfwIconifyWindow(window);
+	}
 
 	sound::initialize_sound_system(game_state);
 	sound::start_music(game_state, game_state.user_settings.master_volume * game_state.user_settings.music_volume);
@@ -356,12 +401,51 @@ void create_window(sys::state& game_state, creation_parameters const& params) {
 		sound::update_music_track(game_state);
 	}
 
+	for(auto* cursor : game_state.win_ptr->cursors) {
+		if(cursor)
+			glfwDestroyCursor(cursor);
+	}
 	glfwDestroyWindow(window);
 	glfwTerminate();
 }
 
 void change_cursor(sys::state& state, cursor_type type) {
-	//TODO: Implement on linux
+	if(!state.win_ptr || !state.win_ptr->window)
+		return;
+
+	if(type == cursor_type::normal_cancel_busy)
+		type = cursor_type::normal;
+
+	auto const index = uint8_t(type);
+	if(index >= std::size(state.win_ptr->cursors))
+		return;
+
+	if(!state.win_ptr->cursors[index]) {
+		int shape = GLFW_ARROW_CURSOR;
+		switch(type) {
+		case cursor_type::drag_select:
+			shape = GLFW_CROSSHAIR_CURSOR;
+			break;
+		case cursor_type::hostile_move:
+		case cursor_type::friendly_move:
+			shape = GLFW_POINTING_HAND_CURSOR;
+			break;
+		case cursor_type::no_move:
+			shape = GLFW_NOT_ALLOWED_CURSOR;
+			break;
+		case cursor_type::text:
+			shape = GLFW_IBEAM_CURSOR;
+			break;
+		case cursor_type::normal:
+		case cursor_type::busy:
+		case cursor_type::normal_cancel_busy:
+			break;
+		}
+		state.win_ptr->cursors[index] = glfwCreateStandardCursor(shape);
+	}
+
+	glfwSetInputMode(state.win_ptr->window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+	glfwSetCursor(state.win_ptr->window, state.win_ptr->cursors[index]);
 }
 
 void emit_error_message(std::string const& content, bool fatal) {

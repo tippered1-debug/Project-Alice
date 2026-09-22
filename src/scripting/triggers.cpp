@@ -1418,8 +1418,25 @@ TRIGGER_FUNCTION(tf_primary_culture_pop) {
 	return compare_values_eq(tval[0], ws.world.nation_get_primary_culture(nations::owner_of_pop(ws, to_pop(primary_slot))),
 			trigger::payload(tval[1]).cul_id);
 }
+// nation_get_accepted_cultures indexes a bit vector row by the culture's index,
+// and dcon indices are value - 1, so a null culture selects row -1 and reads the
+// memory in front of the array. That is an out-of-bounds read: it returns
+// whatever happens to be there, which makes runs irreproducible, and when the
+// address is far enough out it is a bus error. A province with no pops has no
+// dominant culture, so this is reachable from ordinary event evaluation.
+inline bool culture_is_on_accepted_list(sys::state const& ws, dcon::nation_id n, dcon::culture_id c) {
+	if(!n || !c)
+		return false;
+	return ws.world.nation_get_accepted_cultures(n, c);
+}
+
 TRIGGER_FUNCTION(tf_accepted_culture) {
-	auto is_accepted = ws.world.nation_get_accepted_cultures(to_nation(primary_slot), trigger::payload(tval[1]).cul_id);
+	auto const culture = trigger::payload(tval[1]).cul_id;
+	auto is_accepted = ve::apply(
+			[&ws, culture](dcon::nation_id n) {
+				return culture_is_on_accepted_list(ws, n, culture);
+			},
+			to_nation(primary_slot));
 	return compare_to_true(tval[0], is_accepted);
 }
 TRIGGER_FUNCTION(tf_culture_pop) {
@@ -3017,7 +3034,7 @@ template<typename N, typename C>
 auto internal_tf_culture_accepted(sys::state& ws, N nids, C cids) {
 	return ve::apply(
 		[&ws](dcon::nation_id n, dcon::culture_id c) {
-			return ws.world.nation_get_accepted_cultures(n, c);
+			return culture_is_on_accepted_list(ws, n, c);
 		}, nids, cids);
 }
 
@@ -3093,10 +3110,7 @@ TRIGGER_FUNCTION(tf_is_accepted_culture_pop) {
 	auto owner = nations::owner_of_pop(ws, to_pop(primary_slot));
 	auto is_accepted = ve::apply(
 			[&ws](dcon::nation_id n, dcon::culture_id c) {
-				if(n)
-					return ws.world.nation_get_accepted_cultures(n, c);
-				else
-					return false;
+				return culture_is_on_accepted_list(ws, n, c);
 			},
 			owner, ws.world.pop_get_culture(to_pop(primary_slot)));
 	return compare_to_true(tval[0], is_accepted);
@@ -3105,10 +3119,7 @@ TRIGGER_FUNCTION(tf_is_accepted_culture_province) {
 	auto owner = ws.world.province_get_nation_from_province_ownership(to_prov(primary_slot));
 	auto is_accepted = ve::apply(
 			[&ws](dcon::nation_id n, dcon::culture_id c) {
-				if(n)
-					return ws.world.nation_get_accepted_cultures(n, c);
-				else
-					return false;
+				return culture_is_on_accepted_list(ws, n, c);
 			},
 			owner, ws.world.province_get_dominant_culture(to_prov(primary_slot)));
 	return compare_to_true(tval[0], is_accepted);
@@ -3117,10 +3128,7 @@ TRIGGER_FUNCTION(tf_is_accepted_culture_state) {
 	auto owner = ws.world.state_instance_get_nation_from_state_ownership(to_state(primary_slot));
 	auto is_accepted = ve::apply(
 			[&ws](dcon::nation_id n, dcon::culture_id c) {
-				if(n)
-					return ws.world.nation_get_accepted_cultures(n, c);
-				else
-					return false;
+				return culture_is_on_accepted_list(ws, n, c);
 			},
 			owner, ws.world.state_instance_get_dominant_culture(to_state(primary_slot)));
 	return compare_to_true(tval[0], is_accepted);
@@ -5829,6 +5837,8 @@ return_type CALLTYPE test_trigger_generic(uint16_t const* tval, sys::state& ws, 
 #undef TRIGGER_FUNCTION
 
 float evaluate_multiplicative_modifier(sys::state& state, dcon::value_modifier_key modifier, int32_t primary, int32_t this_slot, int32_t from_slot) {
+	if(!modifier || size_t(modifier.index()) >= state.value_modifiers.size())
+		return 0.0f;
 	auto base = state.value_modifiers[modifier];
 	float product = base.factor;
 	for(uint32_t i = 0; i < base.segments_count && product != 0; ++i) {
@@ -5843,6 +5853,8 @@ float evaluate_multiplicative_modifier(sys::state& state, dcon::value_modifier_k
 	return product;
 }
 float evaluate_additive_modifier(sys::state& state, dcon::value_modifier_key modifier, int32_t primary, int32_t this_slot, int32_t from_slot) {
+	if(!modifier || size_t(modifier.index()) >= state.value_modifiers.size())
+		return 0.0f;
 	auto base = state.value_modifiers[modifier];
 	float sum = base.base;
 	for(uint32_t i = 0; i < base.segments_count; ++i) {
@@ -5858,6 +5870,8 @@ float evaluate_additive_modifier(sys::state& state, dcon::value_modifier_key mod
 }
 
 ve::fp_vector evaluate_multiplicative_modifier(sys::state& state, dcon::value_modifier_key modifier, ve::contiguous_tags<int32_t> primary, ve::tagged_vector<int32_t> this_slot, int32_t from_slot) {
+	if(!modifier || size_t(modifier.index()) >= state.value_modifiers.size())
+		return ve::fp_vector{};
 	auto base = state.value_modifiers[modifier];
 	ve::fp_vector product = base.factor;
 	for(uint32_t i = 0; i < base.segments_count; ++i) {
@@ -5871,6 +5885,8 @@ ve::fp_vector evaluate_multiplicative_modifier(sys::state& state, dcon::value_mo
 	return product;
 }
 ve::fp_vector evaluate_additive_modifier(sys::state& state, dcon::value_modifier_key modifier, ve::contiguous_tags<int32_t> primary, ve::tagged_vector<int32_t> this_slot, int32_t from_slot) {
+	if(!modifier || size_t(modifier.index()) >= state.value_modifiers.size())
+		return ve::fp_vector{};
 	auto base = state.value_modifiers[modifier];
 	ve::fp_vector sum = base.base;
 	for(uint32_t i = 0; i < base.segments_count; ++i) {
@@ -5885,6 +5901,8 @@ ve::fp_vector evaluate_additive_modifier(sys::state& state, dcon::value_modifier
 }
 
 ve::fp_vector evaluate_multiplicative_modifier(sys::state& state, dcon::value_modifier_key modifier, ve::contiguous_tags<int32_t> primary, ve::contiguous_tags<int32_t> this_slot, int32_t from_slot) {
+	if(!modifier || size_t(modifier.index()) >= state.value_modifiers.size())
+		return ve::fp_vector{};
 	auto base = state.value_modifiers[modifier];
 	ve::fp_vector product = base.factor;
 	for(uint32_t i = 0; i < base.segments_count; ++i) {
@@ -5898,6 +5916,8 @@ ve::fp_vector evaluate_multiplicative_modifier(sys::state& state, dcon::value_mo
 	return product;
 }
 ve::fp_vector evaluate_additive_modifier(sys::state& state, dcon::value_modifier_key modifier, ve::contiguous_tags<int32_t> primary, ve::contiguous_tags<int32_t> this_slot, int32_t from_slot) {
+	if(!modifier || size_t(modifier.index()) >= state.value_modifiers.size())
+		return ve::fp_vector{};
 	auto base = state.value_modifiers[modifier];
 	ve::fp_vector sum = base.base;
 	for(uint32_t i = 0; i < base.segments_count; ++i) {
@@ -5909,6 +5929,28 @@ ve::fp_vector evaluate_additive_modifier(sys::state& state, dcon::value_modifier
 		}
 	}
 	return sum * base.factor;
+}
+
+ve::fp_vector evaluate_multiplicative_modifier(sys::state& state, dcon::value_modifier_key modifier,
+		ve::partial_contiguous_tags<int32_t> primary, ve::partial_contiguous_tags<int32_t> this_slot, int32_t from_slot) {
+	ve::fp_vector result{};
+	auto const active_lanes = std::min(primary.subcount, this_slot.subcount);
+	for(uint32_t i = 0; i < active_lanes; ++i) {
+		result.set(i, evaluate_multiplicative_modifier(
+			state, modifier, int32_t(primary.value + i), int32_t(this_slot.value + i), from_slot));
+	}
+	return result;
+}
+
+ve::fp_vector evaluate_additive_modifier(sys::state& state, dcon::value_modifier_key modifier,
+		ve::partial_contiguous_tags<int32_t> primary, ve::partial_contiguous_tags<int32_t> this_slot, int32_t from_slot) {
+	ve::fp_vector result{};
+	auto const active_lanes = std::min(primary.subcount, this_slot.subcount);
+	for(uint32_t i = 0; i < active_lanes; ++i) {
+		result.set(i, evaluate_additive_modifier(
+			state, modifier, int32_t(primary.value + i), int32_t(this_slot.value + i), from_slot));
+	}
+	return result;
 }
 
 bool evaluate(sys::state& state, dcon::trigger_key key, int32_t primary, int32_t this_slot, int32_t from_slot) {

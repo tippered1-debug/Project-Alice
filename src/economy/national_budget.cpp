@@ -6,10 +6,49 @@
 #include "construction.hpp"
 #include "demographics.hpp"
 #include "economy_constants.hpp"
+#include "gamerule.hpp"
+#include <cmath>
 
 namespace economy {
 
 namespace national_budget {
+
+namespace {
+
+// A treasury is a buffer, not a one-way money sink. Preserve roughly a quarter
+// of recurring revenue as an operating reserve and release only the excess over
+// a full year. This is deliberately slow enough to avoid turning yesterday's
+// accumulated cash into a one-day demand shock.
+constexpr float fiscal_reserve_days = 90.f;
+constexpr float fiscal_surplus_release_days = 365.f;
+
+}
+
+float sustainable_daily_budget(float treasury, float expected_daily_income) noexcept {
+	if(!std::isfinite(treasury) || treasury <= 0.f
+			|| !std::isfinite(expected_daily_income)) {
+		return 0.f;
+	}
+	auto const recurring_income = std::max(0.f, expected_daily_income);
+	auto const reserve_target = recurring_income * fiscal_reserve_days;
+	auto const accumulated_surplus = std::max(0.f, treasury - reserve_target);
+	auto const released_surplus = accumulated_surplus
+		/ fiscal_surplus_release_days;
+	return std::min(treasury, recurring_income + released_surplus);
+}
+
+float estimate_sustainable_daily_budget(sys::state& state, dcon::nation_id n, float treasury) {
+	// Keep this suitable for the per-nation parallel budget pass. A complete
+	// tariff forecast scans every commodity on every trade route; the stable
+	// recurring base uses already aggregated taxes plus cheap recurring income.
+	auto const tax = economy::explain_tax_income(state, n);
+	auto const expected_daily_income =
+		tax.poor + tax.mid + tax.rich
+		+ economy::estimate_gold_income(state, n)
+		+ economy::estimate_war_subsidies_income(state, n)
+		+ economy::estimate_reparations_income(state, n);
+	return sustainable_daily_budget(treasury, expected_daily_income);
+}
 
 float budget_ratio(float budget, float priority) {
 	return budget * priority;
@@ -102,9 +141,6 @@ budget_spending_details estimate_budget_detailed(sys::state& state, dcon::nation
 	result.administration_wages.dedicated_budget = admin_budget;
 	result.administration_wages.actual_spending = economy::estimate_spendings_administration(state, n, admin_budget);
 	result.administration_wages.priority = priority.administration_wages;
-	if(admin_budget >= available_funds) {
-		return result;
-	}
 
 	// SCALED SPENDING
 
@@ -137,13 +173,12 @@ budget_spending_details estimate_budget_detailed(sys::state& state, dcon::nation
 		+ stockpile_budget;
 
 	auto scale = 1.f;
-	if(total > available_funds) {
-		auto divisor = (available_funds - admin_budget);
-		if(divisor == 0.f) {
-			scale = 0.f;
-		} else {
-			scale = (available_funds - admin_budget) / divisor;
-		}
+	auto const actual_admin_spending = gamerule::age_of_transformation_enabled(state)
+		? result.administration_wages.actual_spending
+		: admin_budget;
+	if(total + actual_admin_spending > available_funds) {
+		auto const funds_after_admin = std::max(0.f, available_funds - actual_admin_spending);
+		scale = total > 0.f ? funds_after_admin / total : 0.f;
 	}
 
 	scale = std::clamp(scale, 0.f, 1.f);

@@ -17,6 +17,9 @@
 #include "triggers.hpp"
 #include "province.hpp"
 #include "commands.hpp"
+#include "gamerule.hpp"
+#include "policy_execution.hpp"
+#include "transformation_politics.hpp"
 
 
 namespace ai {
@@ -303,6 +306,49 @@ void take_reforms(sys::state& state) {
 			continue;
 
 		if(n.get_is_civilized()) { // political & social
+			if(gamerule::age_of_transformation_enabled(state)) {
+				dcon::issue_option_id best_issue;
+				float best_score = -1.f;
+				auto const population = std::max(1.f,
+					state.world.nation_get_demographics(n, demographics::total));
+				float cabinet_fragility = 0.0f;
+				if(auto const* political = politics::transformation::cached_nation_result(state, n);
+					political && political->enabled && political->government.groups != 0) {
+					cabinet_fragility = 1.0f - std::clamp(political->government.stability, 0.0f, 1.0f);
+				}
+				auto const execution = nations::policy_execution::average_effective_policy(
+					state, n, nations::policy_execution::policy_kind::reform_implementation);
+				state.world.for_each_issue_option([&](dcon::issue_option_id option) {
+					if(!command::can_enact_issue(state, n, option))
+						return;
+					auto const support = politics::transformation::evaluate_issue_support(state, n, option);
+					float movement_share = 0.f;
+					for(auto movement : state.world.nation_get_movement_within(n)) {
+						if(movement.get_movement().get_associated_issue_option() == option)
+							movement_share = std::max(movement_share,
+								movement.get_movement().get_pop_support() / population);
+					}
+					auto const score =
+						(0.35f * support.political_power_support
+							+ 0.25f * support.coalition_support
+							+ 0.15f * support.electoral_support
+							+ 0.15f * support.popular_support
+							+ 0.20f * std::clamp(movement_share, 0.f, 1.f)
+							// In a confidence crisis, prefer a settlement that keeps
+							// the incumbent coalition together instead of chasing
+							// whichever movement is loudest.
+							+ 0.10f * cabinet_fragility * support.coalition_support)
+						* (0.60f + 0.40f * execution);
+					if(score > best_score
+						|| (score == best_score && (!best_issue || option.index() < best_issue.index()))) {
+						best_score = score;
+						best_issue = option;
+					}
+				});
+				if(best_issue)
+					politics::transformation::propose_bill(state, n, best_issue);
+				continue;
+			}
 			// Enact social policies to deter Jacobin rebels from overruning the country
 			// Reactionaries will popup in effect but they are MORE weak that Jacobins
 			dcon::issue_option_id iss;
@@ -363,7 +409,10 @@ void take_reforms(sys::state& state) {
 			}
 
 			if(cheap_r && cheap_cost <= n.get_research_points()) {
-				nations::enact_reform(state, n, cheap_r);
+				if(gamerule::age_of_transformation_enabled(state))
+					politics::transformation::propose_bill(state, n, cheap_r);
+				else
+					nations::enact_reform(state, n, cheap_r);
 			}
 		}
 	}

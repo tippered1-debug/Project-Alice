@@ -177,7 +177,7 @@ int32_t find_gui_by_name(sys::state const &state, std::string_view name) {
 
 #ifndef IGNORE_REAL_FILES_TESTS
 
-TEST_CASE("gfx game files parsing", "[parsers]") {
+TEST_CASE("gfx game files parsing", "[parsers][asset-fixture]") {
 	SECTION("empty_file_with_types") {
 		std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
 

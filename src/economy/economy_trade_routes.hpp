@@ -5,6 +5,7 @@
 #include "economy_stats.hpp"
 #include "adaptive_ve.hpp"
 #include "economy_templates_pure.hpp"
+#include "world_trade_capacity.hpp"
 
 namespace sys {
 struct state;
@@ -81,6 +82,12 @@ std::vector<trade_breakdown_item> explain_national_tariff(sys::state& state, dco
 
 
 trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(sys::state const& state, dcon::trade_route_id trade_route, dcon::commodity_id cid);
+trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
+	sys::state const& state,
+	dcon::trade_route_id trade_route,
+	dcon::commodity_id cid,
+	world_trade::shipment_allocation const& allocation
+);
 trade_and_tariff<ve::contiguous_tags<dcon::trade_route_id>> explain_trade_route_commodity(
 	sys::state const& state,
 	ve::contiguous_tags<dcon::trade_route_id> trade_route,

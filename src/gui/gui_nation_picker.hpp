@@ -856,7 +856,17 @@ class show_all_saves_setting_container : public window_element_base {
 };
 
 class nation_picker_container : public window_element_base {
+	start_game_button* play_button = nullptr;
 public:
+	void on_create(sys::state& state) noexcept override {
+		window_element_base::on_create(state);
+		// The readme is injected while the vanilla lobby children are being
+		// created. Keep the primary action above it without relying on a name
+		// lookup after construction.
+		if(play_button)
+			move_child_to_front(play_button);
+	}
+
 	std::unique_ptr<element_base> make_child(sys::state& state, std::string_view name, dcon::gui_def_id id) noexcept override {
 		if(name == "frontend_chat_bg") {
 			return make_element_by_type<image_element_base>(state, id);
@@ -881,11 +891,23 @@ public:
 		} else if(name == "back_button") {
 			return make_element_by_type<quit_game_button>(state, id);
 		} else if(name == "play_button") {
-			return make_element_by_type<start_game_button>(state, id);
+			auto ptr = make_element_by_type<start_game_button>(state, id);
+			play_button = ptr.get();
+			return ptr;
 		} else if(name == "chatlog") {
-			auto ptr = make_element_by_type<nation_alice_readme_text>(state, state.ui_state.defs_by_name.find(state.lookup_key("alice_readme_text"))->second.definition);
-			add_child_to_front(std::move(ptr));
-			return make_element_by_type<invisible_element>(state, id);
+				auto const readme = state.ui_state.defs_by_name.find(state.lookup_key("alice_readme_text"));
+				if(readme != state.ui_state.defs_by_name.end()) {
+					auto ptr = make_element_by_type<nation_alice_readme_text>(state, readme->second.definition);
+					// Some macOS/Retina combinations parsed this as lower-right,
+					// leaving half the text off-screen and covering PLAY. The readme
+					// belongs in the vanilla centered lobby-chat area.
+					ptr->base_data.flags = uint8_t(
+						(ptr->base_data.flags & ~ui::element_data::orientation_mask)
+						| uint8_t(ui::orientation::lower_center));
+					ptr->base_data.position = ui::xy_pair{ -235, -180 };
+					add_child_to_front(std::move(ptr));
+				}
+				return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "observer_button") {
 			return make_element_by_type<observer_button>(state, id);
 

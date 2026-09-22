@@ -19,6 +19,15 @@ void sanity_check(sys::state& state);
 
 float subsistence_max_pseudoemployment(sys::state& state, dcon::province_id p);
 
+// Share of the potential subsistence workforce that is actually covered. The
+// flagship ruleset makes this scarce; classic games retain their legacy cap.
+float subsistence_capacity_ratio(sys::state const& state);
+
+// Bounded share of potential subsistence employment left without a subsistence
+// livelihood. This is derived from the current day and is not serialized.
+float subsistence_shortage_ratio(float potential_employment,
+	float available_employment);
+
 bool has_building(sys::state const& state, dcon::state_instance_id si, dcon::factory_type_id fac);
 bool is_bankrupt_debtor_to(sys::state& state, dcon::nation_id debt_holder, dcon::nation_id debtor);
 

@@ -76,6 +76,29 @@ float count_active_administrations(sys::state const& state, dcon::nation_id n) {
 	return num_of_administrations;
 }
 
+// A budget is an affordability limit, not a desired headcount.  Turning every
+// available pound into another administrator creates a positive feedback loop:
+// wages -> taxes -> next day's budget -> more labor demand.  Administrative
+// need is instead anchored to population and the number of offices that must
+// remain operational.
+float administration_employment_cap(sys::state const& state, dcon::nation_id n) {
+	auto const offices = count_active_administrations(state, n);
+	if(offices <= 0.f)
+		return 0.f;
+	auto const population = std::max(0.f,
+		state.world.nation_get_demographics(n, demographics::total));
+	auto const required_for_population = population
+		/ std::max(1.f, population_per_admin(state, n));
+	return std::max(base_admin_employment, required_for_population / offices);
+}
+
+float affordable_administration_employment(sys::state const& state,
+	dcon::nation_id n, float budget, float wage) {
+	if(!std::isfinite(budget) || budget <= 0.f || !std::isfinite(wage) || wage <= 0.f)
+		return 0.f;
+	return std::min(budget / wage, administration_employment_cap(state, n));
+}
+
 float tax_collection_rate(sys::state const& state, dcon::nation_id n, dcon::province_id pid) {
 	auto from_control = state.world.province_get_control_ratio(pid);
 	auto efficiency = nations::tax_efficiency(state, n);
@@ -96,7 +119,7 @@ float estimate_spendings_administration_capital(sys::state const& state, dcon::n
 	auto capital_state = state.world.province_get_state_membership(capital);
 	auto capital_of_capital_state = state.world.state_instance_get_capital(capital_state);
 	auto wage = state.world.province_get_labor_price(capital_of_capital_state, economy::labor::high_education_and_accepted);
-	auto demand = budget / wage;
+	auto demand = affordable_administration_employment(state, n, budget, wage);
 	return demand * wage * state.world.province_get_labor_demand_satisfaction(capital_of_capital_state, economy::labor::high_education_and_accepted);
 }
 
@@ -108,7 +131,7 @@ float estimate_spendings_administration_local(sys::state const& state, dcon::nat
 	auto capital_state = state.world.province_get_state_membership(capital);
 	auto capital_of_capital_state = state.world.state_instance_get_capital(capital_state);
 	auto wage = state.world.province_get_labor_price(capital_of_capital_state, economy::labor::high_education_and_accepted);
-	auto demand = budget / wage;
+	auto demand = affordable_administration_employment(state, n, budget, wage);
 	return demand * wage * state.world.province_get_labor_demand_satisfaction(capital_of_capital_state, economy::labor::high_education_and_accepted);
 }
 
@@ -155,7 +178,8 @@ void update_consumption_administration(sys::state& state, dcon::nation_id n, flo
 			auto capital_of_capital_state = state.world.state_instance_get_capital(capital_state);
 
 			auto wage = state.world.province_get_labor_price(capital_of_capital_state, economy::labor::high_education_and_accepted);
-			auto demand = budget_per_administration / wage;
+			auto demand = affordable_administration_employment(state, n,
+				budget_per_administration, wage);
 			assert(std::isfinite(demand) && demand >= 0.f);
 			state.world.nation_set_administration_employment_target_in_capital(n, demand);
 			auto& cur_labor_demand = state.world.province_get_labor_demand(capital_of_capital_state, economy::labor::high_education_and_accepted);
@@ -175,7 +199,8 @@ void update_consumption_administration(sys::state& state, dcon::nation_id n, flo
 		auto capital_of_capital_state = state.world.state_instance_get_capital(capital_state);
 
 		auto wage = state.world.province_get_labor_price(capital_of_capital_state, economy::labor::high_education_and_accepted);
-		auto demand = budget_per_administration / wage;
+		auto demand = affordable_administration_employment(state, n,
+			budget_per_administration, wage);
 		assert(std::isfinite(demand) && demand >= 0.f);
 		state.world.province_set_administration_employment_target(capital_of_capital_state, demand);
 		auto& cur_labor_demand = state.world.province_get_labor_demand(capital_of_capital_state, economy::labor::high_education_and_accepted);

@@ -30,6 +30,12 @@
 #include "immediate_mode_state.hpp"
 #include "network_containers.hpp"
 #include "container_types_ui.hpp"
+#include "military_supply.hpp"
+#include "credit_market.hpp"
+#include "monetary_system.hpp"
+#include "price_level.hpp"
+#include "market_clearing.hpp"
+#include "transformation_politics.hpp"
 
 namespace game_scene {
 scene_properties nation_picker();
@@ -767,6 +773,52 @@ struct alignas(64) state {
 	bool national_cached_values_out_of_date = false;
 	bool diplomatic_cached_values_out_of_date = false;
 	bool trade_route_cached_values_out_of_date = true;
+	// Derived army logistics data. It is rebuilt from world state and is deliberately
+	// excluded from save games and multiplayer checksums.
+	std::vector<military::army_supply_access_data> army_supply_access_cache;
+	std::vector<float> army_supply_capacity_factor_cache;
+	std::vector<float> army_supply_route_capacity_cache;
+	std::vector<float> army_supply_route_demand_cache;
+	std::vector<float> army_supply_army_demand_cache;
+	std::vector<float> army_supply_depot_delivery_cache;
+	std::vector<float> army_supply_depot_draw_cache;
+	std::vector<dcon::province_id> army_supply_source_cache;
+	std::vector<uint8_t> army_supply_source_is_depot_cache;
+	std::vector<float> supply_depot_incoming_cache;
+	std::vector<uint16_t> supply_depot_served_armies_cache;
+	std::vector<uint8_t> supply_depot_connected_cache;
+	bool army_supply_cache_valid = false;
+
+	// Derived flagship politics. The current result is recomputed from POP and
+	// economy state; the incumbent government beneath it is saved separately.
+	std::vector<politics::transformation::nation_result> transformation_politics_cache;
+	bool transformation_politics_cache_valid = false;
+	std::vector<politics::transformation::governing_coalition_state> transformation_government_state;
+	std::vector<politics::transformation::legislation_state> transformation_legislation_state;
+	// Unsaved command-line override used by bounded/headless regression runs on
+	// scenarios created before the flagship gamerule existed. Normal games and
+	// saves continue to use the scenario's gamerule exclusively.
+	bool force_age_of_transformation_ruleset = false;
+
+	// Daily money-supply account. Every field is derived from serialized stocks
+	// and is rebuilt by economy::monetary::initialize() on load, so it stays out
+	// of the save format while remaining identical across a resumed campaign.
+	economy::monetary::account monetary_account;
+
+	// Derived local consumer prices and real-wage denominators. The opening and
+	// closing CPI samples belong to one economy tick, so no history is serialized.
+	economy::price_level::account price_level_account;
+
+	// Aggregated daily bids and auction fills by economic purpose. Rebuilt from
+	// demand every tick and deliberately excluded from saves/checksums.
+	economy::market_clearing::account market_clearing_account;
+
+	// Credit settled today, per nation. Reset at the start of every economy day
+	// and read by observability; never serialized.
+	economy::credit::daily_flows credit_daily_flows;
+
+	// Opt-in per-phase money audit, driven by --money-audit. Never serialized.
+	economy::monetary::audit money_audit;
 
 	std::vector<dcon::nation_id> nations_by_rank;
 	std::vector<dcon::nation_id> nations_by_industrial_score;
@@ -871,7 +923,9 @@ struct alignas(64) state {
 	sys::date current_date = sys::date{0};
 	sys::date ui_date = sys::date{0};
 	uint32_t game_seed = 0; // do *not* alter this value, ever
-	float inflation = 0.999f; // to compensate for some of money generation which will happen anyway
+	// Legacy nominal-balance multiplier. Actual transformation inflation lives
+	// in price_level_account and is measured from consumer prices.
+	float inflation = economy::monetary::legacy_inflation;
 	std::vector<player_data> player_data_cache;
 	player_data* find_player_data_cache(dcon::nation_id n) {
 		for(auto& c : player_data_cache) {
@@ -1094,6 +1148,7 @@ struct alignas(64) state {
 	void on_scenario_load(); // called when the scenario file is loaded (not when saves are loaded)
 	void preload(); // clears data that will be later reconstructed from saved values
 	void clear_unsaved_data();
+	void clear_army_supply_derived_data();
 
 	void console_log(std::string_view message);
 	void lua_notification(std::string message);

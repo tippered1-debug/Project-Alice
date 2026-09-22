@@ -1,6 +1,8 @@
 #include "dcon_generated_ids.hpp"
 #include "system_state.hpp"
 #include "serialization.hpp"
+#include <algorithm>
+#include <cmath>
 #include <random>
 #include <ctime>
 
@@ -11,6 +13,265 @@
 #include "zstd.h"
 
 namespace sys {
+
+namespace {
+
+// Handwritten save extensions are framed so older saves can still be read:
+// the next bytes after the legacy handwritten section are normally a DCON
+// record header, not this magic. A payload length also lets newer readers skip
+// extensions they do not understand.
+constexpr uint32_t transformation_politics_save_magic = 0x414F5450u; // AOTP
+constexpr uint16_t transformation_politics_save_version = 2;
+constexpr std::size_t transformation_politics_save_header_size =
+	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint32_t);
+constexpr std::size_t transformation_politics_save_v1_record_size =
+	sizeof(uint32_t) + sizeof(int32_t)
+	+ politics::transformation::interest_group_count * sizeof(float);
+constexpr std::size_t transformation_politics_save_record_size =
+	transformation_politics_save_v1_record_size + sizeof(float);
+
+constexpr uint32_t transformation_legislation_save_magic = 0x414F424Cu; // AOBL
+constexpr uint16_t transformation_legislation_save_version = 2;
+constexpr std::size_t transformation_legislation_save_v1_record_size =
+	sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(int32_t)
+	+ 2 * sizeof(uint32_t) + 5 * sizeof(float);
+constexpr std::size_t transformation_legislation_save_record_size =
+	sizeof(uint8_t) + 2 * sizeof(uint8_t) + sizeof(uint16_t) + sizeof(int32_t)
+	+ 3 * sizeof(uint32_t) + 5 * sizeof(float);
+
+std::size_t transformation_politics_save_size(sys::state const& state) {
+	if(state.transformation_government_state.empty())
+		return 0;
+	auto const count = std::min<std::size_t>(
+		state.transformation_government_state.size(), state.world.nation_size());
+	return transformation_politics_save_header_size
+		+ count * transformation_politics_save_record_size;
+}
+
+uint8_t* write_transformation_politics_save(uint8_t* ptr, sys::state const& state) {
+	auto const count = std::min<std::size_t>(
+		state.transformation_government_state.size(), state.world.nation_size());
+	if(count == 0)
+		return ptr;
+
+	auto const payload_size = uint32_t(count * transformation_politics_save_record_size);
+	auto const count_u32 = uint32_t(count);
+	ptr = memcpy_serialize(ptr, transformation_politics_save_magic);
+	ptr = memcpy_serialize(ptr, transformation_politics_save_version);
+	uint16_t reserved = 0;
+	ptr = memcpy_serialize(ptr, reserved);
+	ptr = memcpy_serialize(ptr, payload_size);
+	ptr = memcpy_serialize(ptr, count_u32);
+	for(std::size_t index = 0; index < count; ++index) {
+		auto const& government = state.transformation_government_state[index];
+		ptr = memcpy_serialize(ptr, government.groups);
+		ptr = memcpy_serialize(ptr, government.established_on);
+		for(auto const confidence : government.confidence)
+			ptr = memcpy_serialize(ptr, confidence);
+		ptr = memcpy_serialize(ptr, government.party_mandate);
+	}
+	return ptr;
+}
+
+uint8_t const* read_transformation_politics_save(
+	uint8_t const* ptr, uint8_t const* section_end, sys::state& state) {
+	if(std::size_t(section_end - ptr) < transformation_politics_save_header_size)
+		return ptr;
+
+	uint32_t magic = 0;
+	uint16_t version = 0;
+	uint16_t reserved = 0;
+	uint32_t payload_size = 0;
+	uint32_t count = 0;
+	ptr = memcpy_deserialize(ptr, magic);
+	ptr = memcpy_deserialize(ptr, version);
+	ptr = memcpy_deserialize(ptr, reserved);
+	ptr = memcpy_deserialize(ptr, payload_size);
+	ptr = memcpy_deserialize(ptr, count);
+	(void)reserved;
+
+	if(magic != transformation_politics_save_magic)
+		return ptr - transformation_politics_save_header_size;
+	if(std::size_t(section_end - ptr) < payload_size)
+		return ptr - transformation_politics_save_header_size;
+
+	// Unknown extensions are deliberately skipped, preserving forward
+	// compatibility for the rest of the save section.
+	auto const record_size = version == 1
+		? transformation_politics_save_v1_record_size
+		: transformation_politics_save_record_size;
+	if(version != 1 && version != transformation_politics_save_version)
+		return ptr + payload_size;
+	if(count > payload_size / record_size)
+		return ptr - transformation_politics_save_header_size;
+
+	auto const* payload_start = ptr;
+	state.transformation_government_state.assign(state.world.nation_size(), {});
+	auto const stored_count = std::min<std::size_t>(count, state.world.nation_size());
+	for(uint32_t index = 0; index < count; ++index) {
+		uint32_t groups = 0;
+		int32_t established_on = 0;
+		std::array<float, politics::transformation::interest_group_count> confidence{};
+		ptr = memcpy_deserialize(ptr, groups);
+		ptr = memcpy_deserialize(ptr, established_on);
+		for(auto& value : confidence)
+			ptr = memcpy_deserialize(ptr, value);
+		float party_mandate = -1.0f;
+		if(version >= 2)
+			ptr = memcpy_deserialize(ptr, party_mandate);
+		if(index < stored_count) {
+			auto& government = state.transformation_government_state[index];
+			government.groups = groups;
+			government.established_on = established_on;
+			government.confidence = confidence;
+			government.party_mandate = std::isfinite(party_mandate)
+				? std::clamp(party_mandate, -1.0f, 1.0f) : -1.0f;
+		}
+	}
+
+	// A future version may append fields inside its payload. Consume the
+	// declared payload rather than relying on the current record size.
+	return payload_start + payload_size;
+}
+
+std::size_t transformation_legislation_save_size(sys::state const& state) {
+	if(state.transformation_legislation_state.empty())
+		return 0;
+	auto const count = std::min<std::size_t>(
+		state.transformation_legislation_state.size(), state.world.nation_size());
+	return transformation_politics_save_header_size
+		+ count * transformation_legislation_save_record_size;
+}
+
+uint8_t* write_transformation_legislation_save(uint8_t* ptr, sys::state const& state) {
+	auto const count = std::min<std::size_t>(
+		state.transformation_legislation_state.size(), state.world.nation_size());
+	if(count == 0)
+		return ptr;
+
+	auto const payload_size = uint32_t(count * transformation_legislation_save_record_size);
+	ptr = memcpy_serialize(ptr, transformation_legislation_save_magic);
+	ptr = memcpy_serialize(ptr, transformation_legislation_save_version);
+	uint16_t reserved = 0;
+	ptr = memcpy_serialize(ptr, reserved);
+	ptr = memcpy_serialize(ptr, payload_size);
+	ptr = memcpy_serialize(ptr, uint32_t(count));
+	for(std::size_t index = 0; index < count; ++index) {
+		auto const& bill = state.transformation_legislation_state[index];
+		ptr = memcpy_serialize(ptr, uint8_t(bill.active ? 1 : 0));
+		ptr = memcpy_serialize(ptr, uint8_t(bill.target));
+		ptr = memcpy_serialize(ptr, uint8_t(bill.stage));
+		ptr = memcpy_serialize(ptr, bill.stage_days);
+		ptr = memcpy_serialize(ptr, bill.proposed_on);
+		ptr = memcpy_serialize(ptr, uint32_t(bill.option ? bill.option.index() : 0));
+		ptr = memcpy_serialize(ptr, uint32_t(bill.reform ? bill.reform.index() : 0));
+		ptr = memcpy_serialize(ptr, uint32_t(bill.sponsor ? bill.sponsor.index() : 0));
+		ptr = memcpy_serialize(ptr, bill.party_support);
+		ptr = memcpy_serialize(ptr, bill.compromise);
+		ptr = memcpy_serialize(ptr, bill.mandate);
+		ptr = memcpy_serialize(ptr, bill.execution);
+		ptr = memcpy_serialize(ptr, bill.coalition_support);
+	}
+	return ptr;
+}
+
+uint8_t const* read_transformation_legislation_save(
+	uint8_t const* ptr, uint8_t const* section_end, sys::state& state) {
+	if(std::size_t(section_end - ptr) < transformation_politics_save_header_size)
+		return ptr;
+
+	uint32_t magic = 0;
+	uint16_t version = 0;
+	uint16_t reserved = 0;
+	uint32_t payload_size = 0;
+	uint32_t count = 0;
+	ptr = memcpy_deserialize(ptr, magic);
+	ptr = memcpy_deserialize(ptr, version);
+	ptr = memcpy_deserialize(ptr, reserved);
+	ptr = memcpy_deserialize(ptr, payload_size);
+	ptr = memcpy_deserialize(ptr, count);
+	(void)reserved;
+	if(magic != transformation_legislation_save_magic)
+		return ptr - transformation_politics_save_header_size;
+	if(std::size_t(section_end - ptr) < payload_size)
+		return ptr - transformation_politics_save_header_size;
+	auto const record_size = version == 1
+		? transformation_legislation_save_v1_record_size
+		: transformation_legislation_save_record_size;
+	if((version != 1 && version != transformation_legislation_save_version)
+		|| count > payload_size / record_size)
+		return ptr + payload_size;
+
+	auto const* payload_start = ptr;
+	state.transformation_legislation_state.assign(state.world.nation_size(), {});
+	auto const stored_count = std::min<std::size_t>(count, state.world.nation_size());
+	for(uint32_t index = 0; index < count; ++index) {
+		uint8_t active = 0;
+		uint8_t target = uint8_t(politics::transformation::legislation_target::issue);
+		uint8_t stage = 0;
+		uint16_t stage_days = 0;
+		int32_t proposed_on = 0;
+		uint32_t option_index = 0;
+		uint32_t reform_index = 0;
+		uint32_t sponsor_index = 0;
+		float party_support = 0.5f;
+		float compromise = 0.0f;
+		float mandate = 0.0f;
+		float execution = 0.0f;
+		float coalition_support = 0.0f;
+		ptr = memcpy_deserialize(ptr, active);
+		if(version >= 2)
+			ptr = memcpy_deserialize(ptr, target);
+		ptr = memcpy_deserialize(ptr, stage);
+		ptr = memcpy_deserialize(ptr, stage_days);
+		ptr = memcpy_deserialize(ptr, proposed_on);
+		ptr = memcpy_deserialize(ptr, option_index);
+		if(version >= 2)
+			ptr = memcpy_deserialize(ptr, reform_index);
+		ptr = memcpy_deserialize(ptr, sponsor_index);
+		ptr = memcpy_deserialize(ptr, party_support);
+		ptr = memcpy_deserialize(ptr, compromise);
+		ptr = memcpy_deserialize(ptr, mandate);
+		ptr = memcpy_deserialize(ptr, execution);
+		ptr = memcpy_deserialize(ptr, coalition_support);
+		bool const issue_target = target == uint8_t(politics::transformation::legislation_target::issue);
+		bool const reform_target = target == uint8_t(politics::transformation::legislation_target::reform);
+		if(index < stored_count && active != 0
+			&& ((issue_target && option_index < state.world.issue_option_size())
+				|| (reform_target && reform_index < state.world.reform_option_size()))) {
+			auto& bill = state.transformation_legislation_state[index];
+			bill.active = true;
+			bill.target = reform_target
+				? politics::transformation::legislation_target::reform
+				: politics::transformation::legislation_target::issue;
+			if(issue_target) {
+				bill.option = dcon::issue_option_id{
+					dcon::issue_option_id::value_base_t(option_index)};
+			} else {
+				bill.reform = dcon::reform_option_id{
+					dcon::reform_option_id::value_base_t(reform_index)};
+			}
+			if(sponsor_index < state.world.political_party_size())
+				bill.sponsor = dcon::political_party_id{
+					dcon::political_party_id::value_base_t(sponsor_index)};
+			bill.stage = politics::transformation::legislation_stage(
+				std::min<uint8_t>(stage, uint8_t(politics::transformation::legislation_stage::implementation)));
+			bill.stage_days = stage_days;
+			bill.proposed_on = proposed_on;
+			// Version 1 used these four bytes as reserved padding. A zero value
+			// therefore migrates to neutral party support.
+			bill.party_support = party_support > 0.0f
+				? std::clamp(party_support, 0.0f, 1.0f) : 0.5f;
+			bill.compromise = compromise;
+			bill.mandate = mandate;
+			bill.execution = execution;
+			bill.coalition_support = coalition_support;
+		}
+	}
+	return payload_start + payload_size;
+}
+
+} // namespace
 
 uint8_t const* read_scenario_header(uint8_t const* ptr_in, scenario_header& header_out) {
 	uint32_t length = 0;
@@ -800,6 +1061,8 @@ uint8_t const* read_handwritten_save_section(uint8_t const* ptr_in, uint8_t cons
 		ptr_in = memcpy_deserialize(ptr_in, state.military_definitions.great_wars_enabled);
 		ptr_in = memcpy_deserialize(ptr_in, state.military_definitions.world_wars_enabled);
 	}
+	ptr_in = read_transformation_politics_save(ptr_in, section_end, state);
+	ptr_in = read_transformation_legislation_save(ptr_in, section_end, state);
 	return ptr_in;
 }
 
@@ -818,7 +1081,17 @@ uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_e
 		std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 		state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded, loadmask);
 	}
+	migrate_legacy_army_supply_fields(state, loaded);
+	state.clear_army_supply_derived_data();
 	return section_end;
+}
+
+void migrate_legacy_army_supply_fields(sys::state& state, dcon::load_record const& loaded) {
+	if(loaded.army_supply_reserve && loaded.army_supply_priority) return;
+	for(auto army : state.world.in_army) {
+		if(!loaded.army_supply_reserve) army.set_supply_reserve(1.0f);
+		if(!loaded.army_supply_priority) army.set_supply_priority(1);
+	}
 }
 
 uint8_t* write_handwritten_save_section(uint8_t* ptr_in, sys::state& state, bool exclude_local_handwritten_fields = false) {
@@ -863,6 +1136,8 @@ uint8_t* write_handwritten_save_section(uint8_t* ptr_in, sys::state& state, bool
 		ptr_in = memcpy_serialize(ptr_in, state.military_definitions.great_wars_enabled);
 		ptr_in = memcpy_serialize(ptr_in, state.military_definitions.world_wars_enabled);
 	}
+	ptr_in = write_transformation_politics_save(ptr_in, state);
+	ptr_in = write_transformation_legislation_save(ptr_in, state);
 	return ptr_in;
 }
 
@@ -922,6 +1197,8 @@ size_t sizeof_handwritten_save_section(sys::state& state, bool exclude_local_han
 		sz += sizeof(state.military_definitions.great_wars_enabled);
 		sz += sizeof(state.military_definitions.world_wars_enabled);
 	}
+	sz += transformation_politics_save_size(state);
+	sz += transformation_legislation_save_size(state);
 	return sz;
 }
 
@@ -944,6 +1221,8 @@ uint8_t const* read_entire_mp_state(uint8_t const* ptr_in, uint8_t const* sectio
 	dcon::load_record loaded;
 	std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 	state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded);
+	migrate_legacy_army_supply_fields(state, loaded);
+	state.clear_army_supply_derived_data();
 	return section_end;
 }
 uint8_t* write_entire_mp_state(uint8_t* ptr_in, sys::state& state, bool exclude_local_handwritten_fields) {

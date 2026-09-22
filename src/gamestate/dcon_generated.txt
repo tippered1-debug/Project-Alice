@@ -1401,6 +1401,21 @@ object {
 		type{ uint32_t }
 		tag{ scenario }
 	}
+	property{
+		name{ is_supply_depot }
+		type{ bitfield }
+		tag{ save }
+	}
+	property{
+		name{ supply_depot_stockpile }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ supply_depot_owner }
+		type{ nation_id }
+		tag{ save }
+	}
 
 	property{
 		name{ name }
@@ -1701,6 +1716,135 @@ object {
 		name{ capitalists_share }
 		type{ float }
 		tag{ save }
+	}
+	property{
+		name{ state_land_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ foreign_land_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ land_profile }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ smoothed_land_rent }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_state_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_foreign_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_worker_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_landed_share }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_profile }
+		type{ uint8_t }
+		tag{ save }
+	}
+	property{
+		name{ smoothed_factory_profit }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ producer_debt }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ industry_market_turnover }
+		type{ float }
+	}
+	property{
+		name{ industry_market_value }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ land_market_turnover }
+		type{ float }
+	}
+	property{
+		name{ land_market_value }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ land_market_bids }
+		type{ float }
+	}
+	property{
+		name{ land_market_asks }
+		type{ float }
+	}
+	property{
+		name{ land_market_distress_asks }
+		type{ float }
+	}
+	property{
+		name{ land_market_tax }
+		type{ float }
+	}
+	property{
+		name{ land_reform_turnover }
+		type{ float }
+	}
+	property{
+		name{ land_reform_compensation }
+		type{ float }
+	}
+	property{
+		name{ land_elite_resistance }
+		type{ float }
+	}
+	property{
+		name{ land_use_tenant_share }
+		type{ float }
+	}
+	property{
+		name{ land_use_landless_share }
+		type{ float }
+	}
+	property{
+		name{ smallholder_land_change }
+		type{ float }
+	}
+	property{
+		name{ landowner_land_change }
+		type{ float }
+	}
+	property{
+		name{ capitalist_land_change }
+		type{ float }
+	}
+	property{
+		name{ state_land_change }
+		type{ float }
+	}
+	property{
+		name{ foreign_land_change }
+		type{ float }
 	}
 	property{
 		name{ subsistence_employment }
@@ -2172,6 +2316,16 @@ object {
 	property{
 		name{ name }
 		type{ unit_name_id }
+		tag{ save }
+	}
+	property{
+		name{ supply_reserve }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ supply_priority }
+		type{ uint8_t }
 		tag{ save }
 	}
 
@@ -4739,6 +4893,16 @@ relationship{
 		type{ array{commodity_id}{float} }
 		tag{ save }
 	}
+	property {
+		name{ cargo_in_transit_0 }
+		type{ array{commodity_id}{float} }
+		tag{ save }
+	}
+	property {
+		name{ cargo_in_transit_1 }
+		type{ array{commodity_id}{float} }
+		tag{ save }
+	}
 }
 
 relationship{
@@ -6058,13 +6222,13 @@ object{
 	}
 	property{
 		name{ recv_count }
-		type{ size_t }
+		type{ uint64_t }
 		tag { keep_after_state_reload }
 		tag { mp_checksum_excluded }
 	}
 	property{
 		name{ total_sent_bytes }
-		type{ size_t }
+		type{ uint64_t }
 		tag { keep_after_state_reload }
 		tag { mp_checksum_excluded }
 	}
@@ -6186,5 +6350,3 @@ load_save{
 	only_objects{mp_data}
 	only_properties{mp_data}
 }
-
-

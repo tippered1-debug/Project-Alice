@@ -1,4 +1,5 @@
 #include "province.hpp"
+#include "policy_execution.hpp"
 #include "province_templates.hpp"
 #include "dcon_generated_ids.hpp"
 #include "demographics.hpp"
@@ -10,6 +11,7 @@
 #include "prng.hpp"
 #include "triggers.hpp"
 #include "economy_stats.hpp"
+#include "credit_market.hpp"
 #include "events.hpp"
 #include <set>
 
@@ -1377,6 +1379,8 @@ void change_province_owner(sys::state& state, dcon::province_id id, dcon::nation
 					auto loc = src.get_regiment().get_army_from_army_membership().get_location_from_army_location();
 					auto old_army = src.get_regiment().get_army_from_army_membership();
 					auto new_u = fatten(state.world, state.world.create_army());
+					new_u.set_supply_reserve(1.0f);
+					new_u.set_supply_priority(1);
 					new_u.set_controller_from_army_control(new_owner);
 					src.get_regiment().set_army_from_army_membership(new_u);
 					// if the previous army is now empty, clean it up early so incoming collitions with enemy armies on the same day can be handled properly
@@ -1402,6 +1406,7 @@ void change_province_owner(sys::state& state, dcon::province_id id, dcon::nation
 	}
 
 	state.world.province_set_nation_from_province_ownership(id, new_owner);
+	economy::credit::on_province_owner_changed(state, id, old_owner, new_owner);
 	state.world.province_set_rebel_faction_from_province_rebel_control(id, dcon::rebel_faction_id{});
 	state.world.province_set_last_control_change(id, state.current_date);
 	state.world.province_set_nation_from_province_control(id, new_owner);
@@ -1622,7 +1627,10 @@ void update_crimes(sys::state& state) {
 		that are possible for the province (determined by the crime being activated and its trigger passing).
 		*/
 
-		auto chance = uint32_t(province::crime_fighting_efficiency(state, p) * 256.0f);
+		auto execution = nations::policy_execution::effective_policy(
+			state, owner, p, nations::policy_execution::policy_kind::crime_suppression);
+		auto chance = uint32_t(province::crime_fighting_efficiency(state, p)
+			* execution.effective_execution * 256.0f);
 		auto rvalues = rng::get_random_pair(state, uint32_t((p.index() << 2) + 1));
 		if((rvalues.high & 0xFF) <= chance) {
 			if(state.world.province_get_crime(p)) {

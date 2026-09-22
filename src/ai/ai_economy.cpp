@@ -15,6 +15,10 @@
 #include "money.hpp"
 #include "advanced_province_buildings.hpp"
 #include "economy_constants.hpp"
+#include "gamerule.hpp"
+#include "investment_ranking.hpp"
+#include "credit_market.hpp"
+#include "market_access.hpp"
 
 namespace ai {
 
@@ -146,6 +150,7 @@ void filter_factories_disjunctive(
 	if(!desired_types.empty()) {
 		return;
 	}
+	std::vector<std::pair<dcon::factory_type_id, float>> scored_types;
 
 	for(auto type : state.world.in_factory_type) {
 		if(!state.world.nation_get_active_building(nid, type) && !type.get_is_available_from_start()) {
@@ -173,6 +178,47 @@ void filter_factories_disjunctive(
 		float profitability = (output - input - wage * type.get_base_workforce()) / input;
 		float payback_time = cost / std::max(0.00001f, (output - input - wage * type.get_base_workforce()));
 
+		if(gamerule::age_of_transformation_enabled(state)) {
+			auto const output_commodity = state.world.factory_type_get_output(type);
+			auto const output_amount = state.world.factory_type_get_output_amount(type) * 0.1f;
+			auto const sell_through = economy::estimate_probability_to_sell_after_supply_increase(
+				state, mid, output_commodity, output_amount);
+			auto const expected_input_reliability =
+				economy::factory_min_input_expected_to_be_available(state, mid, type);
+			auto const historical_demand = state.world.market_get_aggregated_demand_history(
+				mid, output_commodity);
+			auto const historical_supply = state.world.market_get_aggregated_supply_history(
+				mid, output_commodity);
+			auto const import_dependence = historical_demand > 0.0f
+				? std::clamp((historical_demand - historical_supply) / historical_demand, 0.0f, 1.0f)
+				: 0.0f;
+			auto const credit_market = economy::credit::evaluate_nation(state, nid, 0.0f);
+			economy::investment::project_inputs project{};
+			project.capital_cost = cost;
+			project.gross_daily_revenue = output;
+			project.daily_material_cost = input;
+			project.daily_wage_cost = wage * type.get_base_workforce();
+			project.expected_sell_through = sell_through;
+			project.input_reliability = expected_input_reliability;
+			project.logistics_reliability =
+				economy::market_access::evaluate_province(state, pid).access;
+			project.effective_tax_rate = std::clamp(1.0f - effective_profit, 0.0f, 1.0f);
+			project.annual_interest_rate = credit_market.policy_annual_rate;
+			project.demand_risk = 1.0f - sell_through;
+			project.jobs = type.get_base_workforce();
+			project.strategic_shortage = sell_through;
+			project.import_dependence = import_dependence;
+			auto const score = economy::investment::evaluate(project);
+			auto const selected_score = pop_project
+				? score.risk_adjusted_private : score.public_value;
+			if((pop_project ? score.privately_viable : score.publicly_viable)
+					&& std::isfinite(selected_score)) {
+				desired_types.push_back(type.id);
+				scored_types.emplace_back(type.id, selected_score);
+			}
+			continue;
+		}
+
 		if(
 			output_is_in_demand
 			|| profitability > filter_profitability
@@ -180,6 +226,16 @@ void filter_factories_disjunctive(
 		) {
 			desired_types.push_back(type.id);
 		}
+	}
+	if(gamerule::age_of_transformation_enabled(state)) {
+		std::sort(scored_types.begin(), scored_types.end(), [](auto const& left, auto const& right) {
+			if(left.second != right.second)
+				return left.second > right.second;
+			return left.first.index() < right.first.index();
+		});
+		desired_types.clear();
+		for(auto const& candidate : scored_types)
+			desired_types.push_back(candidate.first);
 	}
 }
 
@@ -226,8 +282,14 @@ void retrieve_list_of_provinces_for_national_construction(sys::state& state, dco
 		auto bpop = state.world.province_get_demographics(b, demographics::total);
 		auto acontrol = state.world.province_get_control_ratio(a);
 		auto bcontrol = state.world.province_get_control_ratio(b);
-		if(apop * acontrol != bpop * bcontrol)
-			return apop * acontrol > bpop * bcontrol;
+		auto const a_access = gamerule::age_of_transformation_enabled(state)
+			? economy::market_access::evaluate_province(state, a).access : 1.0f;
+		auto const b_access = gamerule::age_of_transformation_enabled(state)
+			? economy::market_access::evaluate_province(state, b).access : 1.0f;
+		auto const a_score = apop * acontrol * a_access;
+		auto const b_score = bpop * bcontrol * b_access;
+		if(a_score != b_score)
+			return a_score > b_score;
 		else
 			return a.index() < b.index();
 	});
@@ -327,7 +389,9 @@ void build_or_upgrade_desired_factories(
 			continue; // no labor at all
 		}
 
-		auto type_selection = craved_types[rng::get_random(state, uint32_t(n.index() + int32_t(budget))) % craved_types.size()];
+		auto type_selection = gamerule::age_of_transformation_enabled(state)
+			? craved_types.front()
+			: craved_types[rng::get_random(state, uint32_t(n.index() + int32_t(budget))) % craved_types.size()];
 		assert(type_selection);
 
 		if(!can_build(state, p, type_selection))

@@ -4,6 +4,8 @@
 #include "container_types.hpp"
 #include "economy_stats.hpp"
 #include "economy_common_api_containers.hpp"
+#include <algorithm>
+#include <cmath>
 
 // this .cpp and .hpp pair of files contains:
 // - employment updates of productive forces
@@ -58,6 +60,34 @@ inline constexpr float expansion_trigger = 0.8f;
 inline constexpr float rgo_profit_to_wage_bound = 0.8f;
 inline constexpr float factory_profit_to_wage_bound = 2.f;
 
+namespace stability {
+
+// Factory size is measured in workers.  One upgrade adds one base workforce,
+// so private expansion must spread that capacity over the upgrade's build time.
+inline float factory_daily_expansion(float affordable_workers, float base_workforce, float upgrade_days) {
+	if(!std::isfinite(affordable_workers) || !std::isfinite(base_workforce) || !std::isfinite(upgrade_days)
+		|| affordable_workers <= 0.f || base_workforce <= 0.f || upgrade_days <= 0.f) {
+		return 0.f;
+	}
+	return std::min(affordable_workers, base_workforce / std::max(1.f, upgrade_days));
+}
+
+// RGO expansion uses skilled construction labor.  Keep that project demand to
+// a bounded share of local supply and never build beyond remaining potential.
+inline float rgo_daily_expansion(float affordable_units, float remaining_capacity,
+		float labor_per_unit, float local_skilled_labor) {
+	if(!std::isfinite(affordable_units) || !std::isfinite(remaining_capacity)
+		|| !std::isfinite(labor_per_unit) || !std::isfinite(local_skilled_labor)
+		|| affordable_units <= 0.f || remaining_capacity <= 0.f
+		|| labor_per_unit <= 0.f || local_skilled_labor <= 0.f) {
+		return 0.f;
+	}
+	auto const labor_limited_units = local_skilled_labor * 0.10f / labor_per_unit;
+	return std::max(0.f, std::min({affordable_units, remaining_capacity, labor_limited_units}));
+}
+
+} // namespace stability
+
 struct ve_inputs_data {
 	ve::fp_vector min_expected = 0.f;
 	ve::fp_vector min_available = 0.f;
@@ -72,6 +102,7 @@ struct inputs_data {
 };
 
 void set_initial_factory_values(sys::state& state, dcon::factory_id f);
+uint32_t repair_corrupted_factory_sizes(sys::state& state);
 
 template<typename SET>
 inputs_data get_inputs_data(sys::state const& state, dcon::market_id markets, SET const& inputs);
@@ -100,10 +131,18 @@ float nation_factory_input_multiplier(sys::state const& state, dcon::factory_typ
 float nation_factory_output_multiplier(sys::state const& state, dcon::factory_type_id fac_type, dcon::nation_id n);
 
 void update_employment(sys::state& state, bool ignore_reality, float presim_employment_mult = 1.0f);
+// Artisan plans are stored per good, but all plans draw from the same POP.
+// Keep their sum within the province's actual artisan workforce.
+void cap_artisan_employment(sys::state& state);
 void update_rgo_profit(sys::state& state);
 
 void update_artisan_production(sys::state& state);
+float effective_artisan_output_amount(sys::state const& state, dcon::commodity_id commodity);
 void update_production_consumption(sys::state& state);
+float factory_min_input_actually_available(sys::state const& state,
+	dcon::market_id market, dcon::factory_type_id factory_type);
+float factory_min_input_expected_to_be_available(sys::state const& state,
+	dcon::market_id market, dcon::factory_type_id factory_type);
 
 float factory_input_multiplier(sys::state const& state, dcon::factory_id fac, dcon::nation_id n, dcon::province_id p, dcon::state_instance_id s);
 float factory_throughput_multiplier(sys::state const& state, dcon::factory_id fac, dcon::nation_id n, dcon::province_id p, dcon::state_instance_id s, float size);

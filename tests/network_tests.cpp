@@ -4,7 +4,7 @@
 #include <thread>
 
 
-TEST_CASE("run_fresh_lobby", "[determinism]") {
+TEST_CASE("run_fresh_lobby", "[determinism][scenario-fixture]") {
 	std::unique_ptr<sys::state> host_game_state = load_testing_scenario_file();
 	host_game_state->network_mode = sys::network_mode_type::host;
 	// set name of host "A"

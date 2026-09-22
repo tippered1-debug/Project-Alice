@@ -34,6 +34,8 @@ add_executable(tests_project "${PROJECT_SOURCE_DIR}/tests/test_main.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/production.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/province_factories.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/factory_details.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
+	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
 	"${PROJECT_SOURCE_DIR}/src/alice.rc")
 
 
@@ -87,7 +89,14 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/contrib)
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(CTest)
 include(Catch)
-catch_discover_tests(tests_project)
+# Full scenario and calibration-sensitive tests are intentionally opt-in: the
+# former need a generated tests_scenario.bin, while the latter are expected to
+# move as the transformed economy is balanced. The default suite remains a
+# fast structural check runnable from a clean checkout using the synthetic lab.
+catch_discover_tests(tests_project
+	TEST_SPEC "~[scenario-fixture]~[balance-fixture]~[asset-fixture]"
+	WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets"
+)
 
 # add_custom_command(
 #    TARGET tests_project

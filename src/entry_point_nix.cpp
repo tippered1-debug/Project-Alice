@@ -2,6 +2,15 @@
 #include "system_state.hpp"
 #include "game_scene.hpp"
 #include "parsers_declarations.hpp"
+#include "simulation_runner.hpp"
+
+#include <oneapi/tbb/global_control.h>
+
+#include <cerrno>
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+#include <limits>
 
 static sys::state game_state;
 struct scenario_file {
@@ -13,6 +22,26 @@ static native_string selected_scenario_file;
 static uint32_t max_scenario_count = 0;
 static std::vector<scenario_file> scenario_files;
 //static std::vector arguments;
+
+static bool parse_unsigned_argument(char const* text, uint64_t& value) {
+	if(!text || text[0] == '\0' || text[0] == '-')
+		return false;
+	errno = 0;
+	char* end = nullptr;
+	auto parsed = std::strtoull(text, &end, 10);
+	if(errno != 0 || end == text || *end != '\0')
+		return false;
+	value = parsed;
+	return true;
+}
+
+static native_string normalize_root_path(native_string_view root_path) {
+	native_string normalized(root_path);
+	if(!normalized.empty() && normalized.back() != NATIVE('/')) {
+		normalized.push_back(NATIVE('/'));
+	}
+	return normalized;
+}
 
 // Keep mod_list empty for vanilla
 native_string produce_mod_path() {
@@ -204,12 +233,40 @@ void enforce_list_order() {
 }
 
 int main(int argc, char* argv[]) {
-	add_root(game_state.common_fs, NATIVE("."));
+	auto const runtime_root = normalize_root_path(NATIVE("."));
+	add_root(game_state.common_fs, runtime_root);
+	native_string external_asset_root;
+	if(auto const* asset_root = std::getenv("ALICE_ASSET_ROOT"); asset_root && asset_root[0] != '\0') {
+		external_asset_root = normalize_root_path(NATIVE(asset_root));
+		add_root(game_state.common_fs, external_asset_root);
+	}
 	check_mods_folder();
 	check_scenario_folder();
 
 	bool headless = false;
+	// Reproducible regression runs. The economy's parallel phases reduce floats
+	// in whatever order the scheduler hands out work, so repeated runs of the
+	// same seed diverge. Pinning the scheduler to one worker removes that source
+	// entirely, at the cost of speed.
+	bool single_thread = false;
+	// Per-phase money accounting for diagnosing where the supply changes. It
+	// measures every stock at every phase boundary, so it is far too slow for
+	// normal play and is only useful on short bounded runs.
+	bool money_audit = false;
 	int headless_speed = 1;
+	uint64_t headless_days = 0;
+	bool headless_days_were_requested = false;
+	uint64_t snapshot_cadence = 30;
+	uint64_t requested_seed = 0;
+	bool seed_was_requested = false;
+	bool fail_on_invariant = true;
+	bool force_age_of_transformation = false;
+	bool force_flat_map = false;
+	bool synthetic_lab = false;
+	sys::simulation::synthetic_lab_result synthetic_lab_state{};
+	std::string report_jsonl_path;
+	std::string load_save_name;
+	std::string save_at_end_name;
 
 	//No args provided. Find a vanilla scenario and create one if it does not exist.
 	if(argc <= 1) {
@@ -222,7 +279,31 @@ int main(int argc, char* argv[]) {
 		}
 	} else {
 		// Check if a scenario file was provided. If so, ignore the --mod args as they are redundant in that case.
-		for(int i = 0; i < argc; ++i) {
+		for(int i = 1; i < argc; ++i) {
+			auto const argument = native_string(argv[i]);
+			if(argument == NATIVE("--synthetic-lab")) {
+				synthetic_lab = true;
+				continue;
+			}
+			auto const consumes_value =
+				argument == NATIVE("--mod")
+				|| argument == NATIVE("-name")
+				|| argument == NATIVE("-password")
+				|| argument == NATIVE("-player_password")
+				|| argument == NATIVE("--days")
+				|| argument == NATIVE("-days")
+				|| argument == NATIVE("--snapshot-every")
+				|| argument == NATIVE("-snapshot-every")
+				|| argument == NATIVE("--seed")
+				|| argument == NATIVE("-seed")
+				|| argument == NATIVE("--report-jsonl")
+				|| argument == NATIVE("-report-jsonl")
+				|| argument == NATIVE("--load-save")
+				|| argument == NATIVE("--save-at-end");
+			if(consumes_value) {
+				++i;
+				continue;
+			}
 			if(strstr(argv[i], ".bin") != NULL) {
 				selected_scenario_file = argv[i];
 				break;
@@ -230,7 +311,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// No scenario file was provided, but mod(s) might have been. Try finding the corresponding scenario file if mods were indeed specified. 			
-		if(selected_scenario_file.empty()) {
+		if(selected_scenario_file.empty() && !synthetic_lab) {
 			for(int i = 0; i < argc; ++i) {
 				if(strstr(argv[i], "--mod") != NULL) {
 					//Beginning of seemingly unnecessary code
@@ -292,7 +373,12 @@ int main(int argc, char* argv[]) {
 					sys::write_scenario_file(game_state, NATIVE("development_test_file.bin"), 0);
 					selected_scenario_file = "development_test_file.bin";
 				}
-				break;
+				// Keep parsing: -test selects the scenario but bounded-run options
+				// such as --days, --seed and --report-jsonl may follow it.
+				continue;
+			} else if(native_string(argv[i]) == NATIVE("--flat-map")) {
+				force_flat_map = true;
+				continue;
 			} else if(native_string(argv[i]) == NATIVE("-host")) {
 				network::save_host_settings(game_state);
 				network::load_host_settings(game_state);
@@ -338,10 +424,78 @@ int main(int argc, char* argv[]) {
 				game_state.network_state.as_v6 = true;
 			} else if(native_string(argv[i]) == NATIVE("-v4")) {
 				game_state.network_state.as_v6 = false;
+			} else if(native_string(argv[i]) == NATIVE("--single-thread")) {
+				single_thread = true;
+			} else if(native_string(argv[i]) == NATIVE("--money-audit")) {
+				money_audit = true;
 			} else if(native_string(argv[i]) == NATIVE("-headless")) {
 				headless = true;
+			} else if(native_string(argv[i]) == NATIVE("--synthetic-lab")) {
+				synthetic_lab = true;
+				headless = true;
+				if(!headless_days_were_requested) {
+					headless_days = 365;
+					headless_days_were_requested = true;
+				}
+			} else if(native_string(argv[i]) == NATIVE("--days") || native_string(argv[i]) == NATIVE("-days")) {
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], headless_days))
+					window::emit_error_message("Usage: --days <non-negative integer>\n", true);
+				headless = true;
+				headless_days_were_requested = true;
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--snapshot-every") || native_string(argv[i]) == NATIVE("-snapshot-every")) {
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], snapshot_cadence))
+					window::emit_error_message("Usage: --snapshot-every <non-negative integer>\n", true);
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--seed") || native_string(argv[i]) == NATIVE("-seed")) {
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], requested_seed)
+					|| requested_seed > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --seed <0..4294967295>\n", true);
+				seed_was_requested = true;
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--report-jsonl") || native_string(argv[i]) == NATIVE("-report-jsonl")) {
+				if(i + 1 >= argc)
+					window::emit_error_message("Usage: --report-jsonl <path>\n", true);
+				report_jsonl_path = argv[++i];
+			} else if(native_string(argv[i]) == NATIVE("--load-save")) {
+				if(i + 1 >= argc)
+					window::emit_error_message("Usage: --load-save <filename.bin>\n", true);
+				load_save_name = argv[++i];
+			} else if(native_string(argv[i]) == NATIVE("--save-at-end")) {
+				if(i + 1 >= argc)
+					window::emit_error_message("Usage: --save-at-end <basename>\n", true);
+				save_at_end_name = argv[++i];
+				headless = true;
+			} else if(native_string(argv[i]) == NATIVE("--no-fail-on-invariant")) {
+				fail_on_invariant = false;
+			} else if(native_string(argv[i]) == NATIVE("--age-of-transformation")) {
+				force_age_of_transformation = true;
 			}
 		}
+		// Runtime-only flags (for example --age-of-transformation) should not
+		// prevent the normal scenario selection flow. This is especially
+		// important for macOS .app launches, where the bundle supplies ruleset
+		// flags but the user's scenario still lives in Alice's data directory.
+		if(selected_scenario_file.empty() && !synthetic_lab) {
+			find_scenario_file();
+			if(selected_scenario_file.empty()) {
+				window::emit_error_message(
+					"Building a vanilla scenario file, since none was found. This process may take a few minutes to complete.\n",
+					false);
+				build_scenario_file();
+			}
+		}
+	}
+	if(!save_at_end_name.empty() && !headless_days_were_requested) {
+		window::emit_error_message("--save-at-end requires --days <count>.\n", true);
+	}
+	if(synthetic_lab && (!load_save_name.empty() || !save_at_end_name.empty())) {
+		window::emit_error_message(
+			"--synthetic-lab does not use scenario or checkpoint save files.\n", true);
+	}
+	if(save_at_end_name.find('/') != std::string::npos
+		|| save_at_end_name.find('\\') != std::string::npos) {
+		window::emit_error_message("--save-at-end accepts a save basename, not a path.\n", true);
 	}
 	enforce_list_order();
 	for(int32_t modindex = 0; modindex < int32_t(mod_list.size()); ++modindex) {
@@ -350,27 +504,129 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	if(sys::try_read_scenario_and_save_file(game_state, selected_scenario_file)) {
+	if(synthetic_lab) {
+		synthetic_lab_state = sys::simulation::initialize_synthetic_lab(game_state);
+		game_state.local_player_nation = synthetic_lab_state.nation;
+		window::emit_error_message(
+			"Using the built-in synthetic simulation lab; no scenario .bin is required.\n", false);
+	} else if(sys::try_read_scenario_and_save_file(game_state, selected_scenario_file)) {
 		auto msg = "Running scenario file " + simple_fs::native_to_utf8(selected_scenario_file) + "\n";
 		window::emit_error_message(msg, false);
 		game_state.loaded_scenario_file = NATIVE(selected_scenario_file);
+		// Scenario deserialization restores its serialized filesystem roots and
+		// therefore discards roots added before loading. Re-apply the current
+		// runtime and external roots so a relocated .app does not depend on paths
+		// serialized by the machine that created the scenario.
+		add_root(game_state.common_fs, runtime_root);
+		if(!external_asset_root.empty()) {
+			add_root(game_state.common_fs, external_asset_root);
+		}
+		if(!load_save_name.empty()) {
+			if(!sys::try_read_save_file(game_state, load_save_name)) {
+				window::emit_error_message("Save file could not be read: " + load_save_name + "\n", true);
+			}
+			window::emit_error_message("Loaded checkpoint save " + load_save_name + "\n", false);
+		}
+		game_state.force_age_of_transformation_ruleset = force_age_of_transformation;
 		game_state.fill_unsaved_data();
+		if(force_age_of_transformation) {
+			window::emit_error_message(
+				"Age of Transformation runtime override enabled for this session.\n", false);
+		}
 	} else {
 		window::emit_error_message("Scenario file could not be read.", true);
 	}
 
-	network::init(game_state);
+	if(!synthetic_lab) {
+		network::init(game_state);
+		game_state.load_user_settings();
+		if(force_flat_map) {
+			game_state.user_settings.map_is_globe = sys::projection_mode::rectangle;
+			game_state.save_user_settings();
+			window::emit_error_message("Flat map projection enabled for this session.\n", false);
+		}
+		ui::populate_definitions_map(game_state);
+	}
 
-	game_state.load_user_settings();
-	ui::populate_definitions_map(game_state);
+	// Held for the whole run: destroying it restores the default worker count.
+	std::unique_ptr<oneapi::tbb::global_control> serial_scheduler;
+	if(single_thread) {
+		serial_scheduler = std::make_unique<oneapi::tbb::global_control>(
+			oneapi::tbb::global_control::max_allowed_parallelism, 1);
+		window::emit_error_message("Scheduler pinned to a single worker.\n", false);
+	}
+
+	if(money_audit) {
+		game_state.money_audit.enabled = true;
+		window::emit_error_message("Per-phase money audit enabled.\n", false);
+	}
 
 	if(headless) {
 		window::emit_error_message("Starting in headless mode.\n", false);
+		// Preserve the save's player country for deterministic country-level
+		// regression reports before headless mode deliberately clears the UI player.
+		auto const report_nation = game_state.local_player_nation;
+		if(seed_was_requested)
+			game_state.game_seed = uint32_t(requested_seed);
 		game_state.actual_game_speed = headless_speed;
 		game_state.ui_pause.store(false, std::memory_order::release);
-		game_scene::switch_scene(game_state, game_scene::scene_id::in_game_basic);
+		if(!synthetic_lab)
+			game_scene::switch_scene(game_state, game_scene::scene_id::in_game_basic);
 		game_state.local_player_nation = dcon::nation_id{};
-		game_state.game_loop();
+		if(!headless_days_were_requested) {
+			game_state.game_loop();
+		} else {
+			std::ofstream report;
+			if(!report_jsonl_path.empty()) {
+				report.open(report_jsonl_path, std::ios::out | std::ios::trunc);
+				if(!report) {
+					window::emit_error_message("Could not open JSONL report: " + report_jsonl_path + "\n", false);
+					if(!synthetic_lab)
+						network::finish(game_state, true);
+					return EXIT_FAILURE;
+				}
+			}
+			sys::simulation::run_options options;
+			options.ticks = headless_days;
+			options.snapshot_cadence = snapshot_cadence;
+			options.fail_on_invariant = fail_on_invariant;
+			options.tracked_nation = report_nation;
+			auto sink = [&](std::string_view line) {
+				if(report)
+					report.write(line.data(), std::streamsize(line.size()));
+				else
+					std::cout.write(line.data(), std::streamsize(line.size()));
+			};
+			auto result = synthetic_lab
+				? sys::simulation::run_synthetic_lab(game_state, synthetic_lab_state, options, sink)
+				: sys::simulation::run_ticks(game_state, options, sink);
+			if(report)
+				report.flush();
+			if(result.completed && !save_at_end_name.empty()) {
+				auto checkpoint_basename = save_at_end_name;
+				if(checkpoint_basename.size() >= 4
+					&& checkpoint_basename.compare(checkpoint_basename.size() - 4, 4, ".bin") == 0) {
+					checkpoint_basename.resize(checkpoint_basename.size() - 4);
+				}
+				if(checkpoint_basename.empty()) {
+					window::emit_error_message("--save-at-end basename must not be empty.\n", true);
+				}
+				sys::write_save_file(
+					game_state, sys::save_type::normal, "Headless checkpoint", checkpoint_basename);
+				window::emit_error_message(
+					"Wrote checkpoint save " + checkpoint_basename + ".bin\n", false);
+			}
+			window::emit_error_message(
+				"Headless simulation completed " + std::to_string(result.ticks_completed)
+					+ "/" + std::to_string(headless_days) + " days with "
+					+ std::to_string(result.last_validation.violations.total()) + " invariant violation(s).\n",
+				false);
+			if(!result.completed) {
+				if(!synthetic_lab)
+					network::finish(game_state, true);
+				return EXIT_FAILURE;
+			}
+		}
 	} else {
 		std::thread update_thread([&]() { 
 			game_state.game_loop(); 
@@ -395,8 +651,8 @@ int main(int argc, char* argv[]) {
 		map_labels_update.join();
 	}
 
-	network::finish(game_state, true);
+	if(!synthetic_lab)
+		network::finish(game_state, true);
 
 	return EXIT_SUCCESS;
 }
-

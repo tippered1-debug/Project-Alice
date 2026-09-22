@@ -8,6 +8,13 @@ project (ProjectAlice LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "The C++ standard to use")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# A build without an explicit configuration is a player-facing build.  Keep
+# Debug available for developers, but do not silently ship an unoptimised game.
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+	set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 # Turn on compile_commands.json export for wider editor/IDE support.
 # This option is ignored on anything but Unix makefiles/Ninja.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -56,6 +63,8 @@ list(APPEND ALICE_CORE_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/gui/production.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/province_factories.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/factory_details.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
+	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
 )
 set_source_files_properties(src/lunasvg/plutovg-blend.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(src/lunasvg/plutovg-canvas.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
@@ -87,6 +96,21 @@ set_source_files_properties(
 list(APPEND ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_stats.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/banking_stability.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/credit_market.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/monetary_system.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/price_level.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/market_clearing.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/commodity_logistics.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/investment_ranking.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/market_access.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/foreign_exchange.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/cargo_transit.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/human_development.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/land_ownership.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/industry_ownership.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/world_trade_capacity.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_pops.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_trade_routes.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_government.cpp"
@@ -228,6 +252,8 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	${ALICE_INCREMENTAL_SOURCES_LIST_AI}
 	"${PROJECT_SOURCE_DIR}/src/culture/culture.cpp"
 	"${PROJECT_SOURCE_DIR}/src/culture/politics.cpp"
+	"${PROJECT_SOURCE_DIR}/src/culture/transformation_politics.cpp"
+	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
 	"${PROJECT_SOURCE_DIR}/src/culture/rebels.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/demographics.cpp"
 	${ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY}
@@ -239,6 +265,8 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/map/map_modes.cpp"
 	"${PROJECT_SOURCE_DIR}/src/military/military.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/nations.cpp"
+	"${PROJECT_SOURCE_DIR}/src/nations/diplomatic_crisis_dynamics.cpp"
+	"${PROJECT_SOURCE_DIR}/src/nations/policy_execution.cpp"
 	"${PROJECT_SOURCE_DIR}/src/provinces/province.cpp"
 	${ALICE_INCREMENTAL_SOURCES_LIST_RARELY_CHANGED}
 	${ALICE_INCREMENTAL_SOURCES_LIST_SCRIPTING}
@@ -398,9 +426,19 @@ if(WIN32)
 
 	endif()
 else() # GCC or CLANG
-	target_link_options(Alice INTERFACE -rdynamic -Wl,-E)
-	target_link_options(AliceIncremental INTERFACE -rdynamic -Wl,-E)
-	target_link_options(AliceCommon INTERFACE -rdynamic -Wl,-E)
+	if(APPLE)
+		target_link_options(Alice INTERFACE -rdynamic)
+		target_link_options(AliceIncremental INTERFACE -rdynamic)
+		target_link_options(AliceCommon INTERFACE -rdynamic)
+	else()
+		target_link_options(Alice INTERFACE -rdynamic -Wl,-E)
+		target_link_options(AliceIncremental INTERFACE -rdynamic -Wl,-E)
+		target_link_options(AliceCommon INTERFACE -rdynamic -Wl,-E)
+	endif()
+	set(ALICE_X86_CPU FALSE)
+	if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i[3-6]86)$")
+		set(ALICE_X86_CPU TRUE)
+	endif()
 	# See for FMA support: https://stackoverflow.com/questions/21001388/fma3-in-gcc-how-to-enable
 	if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 		target_compile_options(AliceCommon INTERFACE
@@ -414,15 +452,18 @@ else() # GCC or CLANG
 			$<$<NOT:$<CONFIG:Debug>>: 	-O3 -pipe -fno-rtti -DNDEBUG>)
 	endif()
 
-	if(VECTOR_MODE STREQUAL "AVX512")
+	if(VECTOR_MODE STREQUAL "AVX512" AND ALICE_X86_CPU)
 		target_compile_options(AliceCommon INTERFACE
 		-mavx512f -mavx512cd -mavx512bw -mavx512dq -mavx512vl -mfma )
-	elseif(VECTOR_MODE STREQUAL "AVX2")
+	elseif(VECTOR_MODE STREQUAL "AVX2" AND ALICE_X86_CPU)
 		target_compile_options(AliceCommon INTERFACE
 		-mavx2 -mfma )
-	else()
+	elseif(ALICE_X86_CPU)
 		target_compile_options(AliceCommon INTERFACE
 		-march=nehalem -fno-fast-math -ffp-model=precise -ffp-contract=off )
+	else()
+		target_compile_options(AliceCommon INTERFACE
+		-fno-fast-math -ffp-model=precise -ffp-contract=off )
 	endif()
 
 
