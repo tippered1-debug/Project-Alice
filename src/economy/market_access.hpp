@@ -2,6 +2,7 @@
 
 #include "dcon_generated_ids.hpp"
 #include "system_state_forward.hpp"
+#include "world/spatial_runtime.hpp"
 
 namespace economy::market_access {
 
@@ -18,9 +19,18 @@ struct result {
 	float effective_distance = 0.0f;
 	float freight_cost_multiplier = 1.0f;
 	float handling_loss = 0.0f;
+	bool network_derived = false;
+	float route_distance = 0.0f;
+	float route_capacity = 0.0f;
+	float route_travel_days = 0.0f;
 };
 
 result evaluate(inputs const& inputs) noexcept;
+result evaluate_route(world::spatial_runtime::route const&, float control_ratio,
+	float transport_labor_availability, float capacity_utilization = 0.0f) noexcept;
+result evaluate_site(sys::state const&, dcon::site_id origin, dcon::site_id market_hub,
+	float control_ratio = 1.0f, float transport_labor_availability = 1.0f,
+	float capacity_utilization = 0.0f) noexcept;
 result evaluate_province(sys::state const& state, dcon::province_id province);
 
 } // namespace economy::market_access

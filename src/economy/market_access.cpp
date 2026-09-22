@@ -43,10 +43,45 @@ result evaluate(inputs const& raw) noexcept {
 	return result;
 }
 
+result evaluate_route(world::spatial_runtime::route const& route, float control_ratio,
+	float transport_labor_availability, float capacity_utilization) noexcept {
+	if(!route.connected) return {};
+	inputs derived{};
+	derived.distance_to_market_hub = route.generalized_cost;
+	derived.control_ratio = control_ratio;
+	derived.transport_labor_availability = transport_labor_availability;
+	derived.local_capacity_utilization = std::max(0.0f, capacity_utilization);
+	auto result = evaluate(derived);
+	result.network_derived = true;
+	result.route_distance = route.distance;
+	result.route_capacity = route.bottleneck_capacity;
+	result.route_travel_days = route.travel_days;
+	return result;
+}
+
+result evaluate_site(sys::state const& state, dcon::site_id origin, dcon::site_id market_hub,
+	float control_ratio, float transport_labor_availability, float capacity_utilization) noexcept {
+	return evaluate_route(world::spatial_runtime::route_for_sites(state, origin, market_hub),
+		control_ratio, transport_labor_availability, capacity_utilization);
+}
+
 result evaluate_province(sys::state const& state, dcon::province_id province_id) {
 	if(!province_id || !state.world.province_is_valid(province_id)
 			|| !gamerule::age_of_transformation_enabled(state))
 		return {};
+	if(auto origin = world::spatial_runtime::site_for_province(state, province_id)) {
+		auto zone = state.world.province_get_state_membership(province_id);
+		auto market = zone ? state.world.state_instance_get_market_from_local_market(zone) : dcon::market_id{};
+		if(auto hub = world::spatial_runtime::site_for_market(state, market)) {
+			auto staffing = state.world.province_get_labor_demand_satisfaction_size()
+				> uint32_t(economy::labor::no_education)
+				? state.world.province_get_labor_demand_satisfaction(province_id, economy::labor::no_education)
+				: 0.0f;
+			auto network = evaluate_site(state, origin, hub,
+				state.world.province_get_control_ratio(province_id), staffing);
+			if(network.network_derived) return network;
+		}
+	}
 	auto const state_instance =
 		state.world.province_get_state_membership(province_id);
 	if(!state_instance || !state.world.state_instance_is_valid(state_instance))

@@ -35,10 +35,12 @@
 #include "policy_execution.hpp"
 #include "gamerule.hpp"
 #include "economy/physical/shipments.hpp"
+#include "economy/physical/deposits.hpp"
 #include "economy/physical/freight_market.hpp"
 #include "economy/physical/job_market.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 #include "economy/physical/individual_consumption.hpp"
+#include "world/spatial_runtime.hpp"
 #include <vector>
 #include <algorithm>
 #include <cstdio>
@@ -4023,22 +4025,47 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			if(gamerule::age_of_transformation_enabled(state)) {
 				auto const distance = std::max(0.0f,
 					state.world.trade_route_get_distance(route));
+				auto const market_0 = state.world.trade_route_get_connected_markets(route, 0);
+				auto const market_1 = state.world.trade_route_get_connected_markets(route, 1);
+				auto const site_0 = physical::deposits::market_hub_for(state, market_0);
+				auto const site_1 = physical::deposits::market_hub_for(state, market_1);
+				// Select the physical route without treating this tick's dispatch as a
+				// connectivity precondition.  Cargo above the route capacity must be
+				// reported as blocked by cargo_transit, not diverted to the legacy
+				// distance projection.
+				auto network_route = world::spatial_runtime::route_for_sites(state, site_0, site_1);
+				// A trade route may represent an overseas connection not yet present in
+				// the land infrastructure graph. Keep that explicit compatibility
+				// projection, but feed cargo_transit route-derived fields rather than its
+				// legacy average-travel-days input.
+				auto const route_distance = network_route.connected ? network_route.distance : distance;
 				auto const distance_per_day =
 					state.world.trade_route_get_is_sea_route(route) ? 300.0f : 150.0f;
-				auto const travel_days = 1.0f + distance / distance_per_day;
+				auto const route_travel_days = network_route.connected
+					? network_route.travel_days : 1.0f + distance / distance_per_day;
+				auto const route_capacity = network_route.connected
+					? network_route.bottleneck_capacity : 0.0f;
 				auto const spoilage =
 					logistics::profile_for(state, cid).daily_spoilage;
+				auto const cargo_weight =
+					logistics::profile_for(state, cid).cargo_weight;
 				auto const transit_to_0 = cargo_transit::advance({
 					.enabled = true,
 					.opening_cargo = state.world.trade_route_get_cargo_in_transit_0(route, cid),
 					.dispatched_cargo = delivered_to_0,
-					.average_travel_days = travel_days,
+					.route_distance = route_distance,
+					.route_travel_days = route_travel_days,
+					.route_capacity = route_capacity,
+					.cargo_weight = cargo_weight,
 					.daily_spoilage = spoilage});
 				auto const transit_to_1 = cargo_transit::advance({
 					.enabled = true,
 					.opening_cargo = state.world.trade_route_get_cargo_in_transit_1(route, cid),
 					.dispatched_cargo = delivered_to_1,
-					.average_travel_days = travel_days,
+					.route_distance = route_distance,
+					.route_travel_days = route_travel_days,
+					.route_capacity = route_capacity,
+					.cargo_weight = cargo_weight,
 					.daily_spoilage = spoilage});
 				state.world.trade_route_set_cargo_in_transit_0(
 					route, cid, transit_to_0.closing_cargo);

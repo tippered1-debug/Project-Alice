@@ -1,5 +1,6 @@
 #include "legacy_bridge.hpp"
 #include "system_state.hpp"
+#include "world/spatial_runtime.hpp"
 
 namespace compat::alice {
 
@@ -20,9 +21,12 @@ void bootstrap_factory_sites(sys::state& state) {
 		if(!site) {
 			if(!legacy_province)
 				return;
-			site = state.world.create_site();
-			state.world.force_create_site_location(site, legacy_province);
-			state.world.site_set_position(site, state.world.province_get_mid_point(legacy_province));
+			site = world::spatial_runtime::site_for_province(state, legacy_province);
+			if(!site) {
+				site = state.world.create_site();
+				state.world.force_create_site_location(site, legacy_province);
+				state.world.site_set_position(site, state.world.province_get_mid_point(legacy_province));
+			}
 			state.world.force_create_factory_site(factory, site);
 			return;
 		}

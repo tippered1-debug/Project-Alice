@@ -3,6 +3,7 @@
 #include "province.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "actors/ownership.hpp"
+#include "world/spatial_runtime.hpp"
 
 #include <cmath>
 #include <algorithm>
@@ -11,6 +12,7 @@ namespace economy::physical::deposits {
 
 namespace {
 dcon::site_id make_site(sys::state& state, dcon::province_id province) {
+	if(auto canonical = world::spatial_runtime::site_for_province(state, province)) return canonical;
 	auto site = state.world.create_site();
 	state.world.force_create_site_location(site, province);
 	state.world.site_set_position(site, state.world.province_get_mid_point(province));

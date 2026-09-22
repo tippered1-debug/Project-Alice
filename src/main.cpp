@@ -7,6 +7,7 @@
 #include "system_state.cpp"
 #include "economy/causal_order.cpp"
 #include "world/spatial.cpp"
+#include "world/spatial_runtime.cpp"
 #include "world/site.cpp"
 #include "world/infrastructure.cpp"
 #include "compat/alice/legacy_bridge.cpp"
