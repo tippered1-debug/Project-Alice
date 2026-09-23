@@ -6,7 +6,7 @@ namespace sys { class state; }
 
 namespace economy::capital_projects {
 
-enum class project_kind : uint8_t { factory = 0, extraction_site = 1, infrastructure = 2 };
+enum class project_kind : uint8_t { factory = 0, extraction_site = 1, infrastructure = 2, factory_expansion = 3 };
 enum class status : uint8_t { planned = 0, funded = 1, active = 2, suspended = 3, completed = 4, cancelled = 5 };
 
 dcon::capital_project_id create(sys::state&, project_kind, dcon::economic_actor_id,
@@ -24,5 +24,8 @@ float material_progress(sys::state const&, dcon::capital_project_id);
 bool suspend(sys::state&, dcon::capital_project_id);
 bool cancel(sys::state&, dcon::capital_project_id);
 bool complete(sys::state&, dcon::capital_project_id);
+dcon::capital_project_id create_factory_expansion(sys::state&, dcon::factory_id, float added_capacity,
+	dcon::commodity_id settlement);
+void process_factory_expansions(sys::state&);
 
 } // namespace economy::capital_projects

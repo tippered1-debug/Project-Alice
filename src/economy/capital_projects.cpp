@@ -6,7 +6,11 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/deposits.hpp"
+#include "economy/physical/concrete_market.hpp"
+#include "economy/physical/factory_inputs.hpp"
+#include "economy/physical/exchange.hpp"
 #include "governance/finance/finance.hpp"
+#include "world/site.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -36,7 +40,8 @@ dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic
 	float planned_reserves, float planned_grade, float planned_daily_capacity, float planned_target_daily_extraction) {
 	if(!owner || !responsible || !project_site || !settlement || !s.world.economic_actor_is_valid(owner)
 		|| !s.world.organization_is_valid(responsible) || !s.world.site_is_valid(project_site)
-		|| !s.world.commodity_is_valid(settlement) || (kind == project_kind::factory && !type)
+		|| !s.world.commodity_is_valid(settlement)
+		|| ((kind == project_kind::factory || kind == project_kind::factory_expansion) && !type)
 		|| (type && !s.world.factory_type_is_valid(type))
 		|| (kind == project_kind::extraction_site && !target_commodity)
 		|| (target_commodity && !s.world.commodity_is_valid(target_commodity))
@@ -209,6 +214,17 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		s.world.force_create_resource_deposit_asset(d, asset);
 		s.world.force_create_capital_project_deposit(p, d);
 		s.world.force_create_capital_project_asset(p, asset);
+	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::factory_expansion)) {
+		auto factory = s.world.capital_project_get_factory_from_capital_project_target_factory(p);
+		if(!factory || !s.world.factory_is_valid(factory)
+			|| !s.world.factory_get_canonical_production(factory)) return false;
+		auto added_capacity = std::max(0.0f, s.world.capital_project_get_planned_daily_capacity(p));
+		s.world.factory_set_productive_capacity(factory,
+			s.world.factory_get_productive_capacity(factory) + added_capacity);
+		s.world.factory_set_size(factory,
+			s.world.factory_get_size(factory) + added_capacity
+				* float(std::max<int32_t>(1, s.world.factory_type_get_base_workforce(s.world.factory_get_building_type(factory)))));
+		s.world.force_create_capital_project_factory(p, factory);
 	} else {
 		auto node = s.world.create_infrastructure_node();
 		auto province = s.world.site_get_province_from_site_location(site(s,p));
@@ -224,5 +240,66 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 	s.world.capital_project_set_completed_on(p,s.current_date);
 	s.world.capital_project_set_progress(p,1.0f);
 	return true;
+}
+
+dcon::capital_project_id create_factory_expansion(sys::state& s, dcon::factory_id factory,
+	float added_capacity, dcon::commodity_id settlement) {
+	if(!factory || !s.world.factory_is_valid(factory) || !s.world.factory_get_canonical_production(factory)
+		|| !std::isfinite(added_capacity) || added_capacity <= 0.0f) return {};
+	auto owner = actors::organizations::operator_actor_for_factory(s, factory);
+	auto responsible = actors::organizations::operator_organization_for_factory(s, factory);
+	auto project_site = world::site::site_for_factory(s, factory);
+	auto type = s.world.factory_get_building_type(factory);
+	if(!settlement) settlement = s.world.factory_get_payroll_settlement(factory);
+	if(!settlement) settlement = physical::exchange::settlement_for_purchase(s, owner);
+	if(!owner || !responsible || !project_site || !type || !settlement) return {};
+	auto project = create(s, project_kind::factory_expansion, owner, responsible, project_site,
+		settlement, type, {}, 0.0f, 0.0f, added_capacity, 0.0f);
+	if(project) s.world.force_create_capital_project_target_factory(project, factory);
+	return project;
+}
+
+void process_factory_expansions(sys::state& s) {
+	s.world.for_each_capital_project([&](dcon::capital_project_id project) {
+		if(s.world.capital_project_get_project_kind(project) != uint8_t(project_kind::factory_expansion)
+			|| s.world.capital_project_get_status(project) >= uint8_t(status::completed)) return;
+		auto owner = s.world.capital_project_get_economic_actor_from_capital_project_sponsor(project);
+		auto site = s.world.capital_project_get_site_from_capital_project_site(project);
+		auto account = s.world.capital_project_get_monetary_account_from_capital_project_account(project);
+		auto market = physical::concrete_market::market_for_site(s, site);
+		if(!owner || !site || !account || !market) return;
+		s.world.capital_project_for_each_capital_project_requirement_project_as_capital_project(project, [&](auto relation) {
+			auto requirement = s.world.capital_project_requirement_project_get_capital_project_requirement(relation);
+			auto commodity = s.world.capital_project_requirement_get_commodity_from_capital_project_requirement_commodity(requirement);
+			auto remaining = std::max(0.0f, s.world.capital_project_requirement_get_required_quantity(requirement)
+				- s.world.capital_project_requirement_get_consumed_quantity(requirement));
+			if(remaining <= 1.0e-5f || !commodity) return;
+			auto available = physical::inventory::quantity(s, site, commodity, owner);
+			if(available > 1.0e-5f) (void)consume(s, requirement, available);
+			remaining = std::max(0.0f, s.world.capital_project_requirement_get_required_quantity(requirement)
+				- s.world.capital_project_requirement_get_consumed_quantity(requirement));
+			if(remaining <= 1.0e-5f) return;
+			float committed = 0.0f;
+			s.world.for_each_shipment([&](auto shipment) {
+				auto owner_relation = s.world.shipment_get_shipment_owner(shipment);
+				auto destination = s.world.shipment_get_shipment_destination(shipment);
+				if(s.world.shipment_get_commodity(shipment) == commodity && owner_relation && destination
+					&& s.world.shipment_owner_get_economic_actor(owner_relation) == owner
+					&& s.world.shipment_destination_get_site(destination) == site)
+					committed += std::max(0.0f, s.world.shipment_get_remaining_quantity(shipment));
+			});
+			s.world.for_each_concrete_market_bid([&](auto bid) {
+				if(s.world.concrete_market_bid_get_status(bid) == 0
+					&& s.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) == account
+					&& s.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid) == site
+					&& s.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) == commodity)
+					committed += std::max(0.0f, s.world.concrete_market_bid_get_remaining_quantity(bid));
+			});
+			auto price = physical::concrete_market::canonical_reference_price(s, market, commodity, s.current_date);
+			if(committed < remaining - 1.0e-5f && price > 0.0f)
+				(void)physical::concrete_market::post_bid(s, owner, account, site, market, commodity,
+					remaining - committed, price * 1.20f, physical::concrete_market::order_purpose::general);
+		});
+	});
 }
 } // namespace economy::capital_projects

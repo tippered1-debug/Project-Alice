@@ -5215,6 +5215,7 @@ object{
 	property{ name{ creation_date } type{ sys::date } tag{ save } }
 	property{ name{ due_date } type{ sys::date } tag{ save } }
 	property{ name{ annual_interest_rate } type{ float } tag{ save } }
+	property{ name{ last_interest_accrual_date } type{ sys::date } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 }
@@ -6037,6 +6038,27 @@ object {
 	property{ name{ payroll_settlement } type{ commodity_id } tag{ save } }
 	property{ name{ last_payroll_date } type{ sys::date } tag{ save } }
 	property{ name{ payroll_initialized } type{ uint8_t } tag{ save } }
+	property{ name{ agency_planned_units } type{ float } tag{ save } }
+	property{ name{ agency_target_employment } type{ float } tag{ save } }
+	property{ name{ agency_expected_sell_through } type{ float } tag{ save } }
+	property{ name{ agency_expected_selling_price } type{ float } tag{ save } }
+	property{ name{ agency_expected_input_reliability } type{ float } tag{ save } }
+	property{ name{ agency_expected_delivery_days } type{ float } tag{ save } }
+	property{ name{ agency_expected_wage_per_worker } type{ float } tag{ save } }
+	property{ name{ agency_ask_markup } type{ float } tag{ save } }
+	property{ name{ agency_recent_revenue } type{ float } tag{ save } }
+	property{ name{ agency_recent_costs } type{ float } tag{ save } }
+	property{ name{ agency_recent_profit } type{ float } tag{ save } }
+	property{ name{ agency_recent_unsold } type{ float } tag{ save } }
+	property{ name{ agency_recent_unmet_input } type{ float } tag{ save } }
+	property{ name{ agency_cashflow } type{ float } tag{ save } }
+	property{ name{ agency_distress_days } type{ uint16_t } tag{ save } }
+	property{ name{ agency_last_observation_date } type{ sys::date } tag{ save } }
+	property{ name{ agency_last_planning_date } type{ sys::date } tag{ save } }
+	property{ name{ agency_expected_input_unit_cost } type{ float } tag{ save } }
+	property{ name{ agency_target_input_coverage } type{ float } tag{ save } }
+	property{ name{ agency_target_output_inventory } type{ float } tag{ save } }
+	property{ name{ agency_expansion_project } type{ capital_project_id } tag{ save } }
 }
 
 relationship{
@@ -6180,6 +6202,13 @@ relationship{
 
 relationship{
 	name{ capital_project_factory }
+	tag{ save }
+	link{ object{ capital_project } name{ capital_project } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ capital_project_target_factory }
 	tag{ save }
 	link{ object{ capital_project } name{ capital_project } type{ unique } }
 	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
@@ -8132,6 +8161,12 @@ relationship{
 	tag{ save }
 	link{ object{ concrete_market_ask } name{ concrete_market_ask } type{ unique } }
 	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+relationship{
+	name{ concrete_ask_factory }
+	tag{ save }
+	link{ object{ concrete_market_ask } name{ concrete_market_ask } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
 }
 relationship{
 	name{ concrete_fill_bid }

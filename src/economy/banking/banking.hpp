@@ -20,6 +20,12 @@ struct balance_sheet {
 	float net_worth = 0.0f;
 };
 
+struct loan_service_result {
+	float interest_accrued = 0.0f;
+	float amount_repaid = 0.0f;
+	uint32_t defaulted_loans = 0;
+};
+
 dcon::organization_id create_bank(sys::state&);
 
 dcon::monetary_account_id open_reserve_account(sys::state&, dcon::organization_id bank,
@@ -43,6 +49,12 @@ float repay_loan(sys::state&, dcon::obligation_id, dcon::deposit_account_id borr
 	float amount, sys::date timestamp);
 float accrue_loan_interest(sys::state&, dcon::obligation_id, uint32_t days);
 bool write_off_loan(sys::state&, dcon::obligation_id);
+
+// Accrues interest once per elapsed day and services matured loans from the
+// borrower's bank deposits and operating account. Unpaid matured loans default
+// after the supplied grace period.
+loan_service_result service_actor_loans(sys::state&, dcon::economic_actor_id borrower,
+	sys::date today, uint32_t default_grace_days);
 
 balance_sheet bank_balance_sheet(sys::state const&, dcon::organization_id bank,
 	dcon::commodity_id settlement);

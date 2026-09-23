@@ -103,7 +103,7 @@ void begin_planning(sys::state& state) {
 
 bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination,
 	dcon::economic_actor_id owner, economy::commodity_set const& inputs,
-	dcon::market_id market, float input_scale) {
+	dcon::market_id market, float input_scale, float bid_markup) {
 	if(!factory || factory.index() >= planned_orders.size())
 		return false;
 	planned_orders[factory.index()] = { destination, owner, inputs, market, input_scale, {}, {}, false };
@@ -127,8 +127,9 @@ bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination
 			auto account = funding.account;
 			auto price = concrete_market::canonical_reference_price(state, market, commodity, state.current_date);
 			if(account && std::isfinite(price) && price > 0.0f) {
+				if(!std::isfinite(bid_markup) || bid_markup < 0.0f) bid_markup = 0.0f;
 				auto bid = concrete_market::post_bid(state, owner, account, destination, market, commodity,
-					planned_orders[factory.index()].quantities[quantity_index], price,
+					planned_orders[factory.index()].quantities[quantity_index], price * (1.0f + std::min(0.5f, bid_markup)),
 					concrete_market::order_purpose::factory_input);
 				if(bid) state.world.force_create_concrete_bid_factory(bid, factory);
 			}

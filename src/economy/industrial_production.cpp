@@ -79,11 +79,16 @@ bool plan_factory_inputs(sys::state& state, dcon::factory_id factory, dcon::prov
 	auto site = world::site::site_for_factory(state, factory);
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
 	if(!type || !site || !owner) return false;
-	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
-	auto desired = firm_agency::decide_factory(state, factory).desired_units;
-	auto planned = std::min(desired, labor_units(state, factory));
+	auto decision = firm_agency::decide_factory(state, factory);
+	auto desired = decision.desired_units;
+	auto reliability = state.world.factory_get_agency_expected_input_reliability(factory);
+	if(!std::isfinite(reliability) || reliability <= 0.0f) reliability = 0.85f;
+	// Reserve modest cover for firms that have learned procurement is unreliable.
+	auto procurement_scale = desired * (1.0f + 0.5f * (1.0f - std::clamp(reliability, 0.1f, 1.0f)));
+	auto planned = procurement_scale;
 	if(!std::isfinite(planned) || planned < 0.0f) planned = 0.0f;
-	return physical::factory_inputs::plan(state, factory, site, owner, state.world.factory_type_get_inputs(type), market, planned);
+	return physical::factory_inputs::plan(state, factory, site, owner, state.world.factory_type_get_inputs(type), market,
+		planned, 0.05f + (1.0f - std::clamp(reliability, 0.1f, 1.0f)) * 0.15f);
 }
 
 float produce_factory(sys::state& state, dcon::factory_id factory) {
@@ -106,6 +111,7 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	auto ratio = available.physical_ratio;
 	if(!std::isfinite(ratio)) ratio = 0.0f;
 	auto actual_units = std::clamp(planned * std::clamp(ratio, 0.0f, 1.0f), 0.0f, capacity);
+	firm_agency::observe_production(state, factory, planned, actual_units);
 	auto actual_output = actual_units * std::max(0.0f, state.world.factory_type_get_output_amount(type)) * productivity;
 	if(!std::isfinite(actual_units) || !std::isfinite(actual_output) || actual_units < 0.0f || actual_output < 0.0f) return 0.0f;
 	if(actual_units > 0.0f && !physical::factory_inputs::consume(state, site, owner, state.world.factory_type_get_inputs(type), actual_units, 1.0f)) return 0.0f;

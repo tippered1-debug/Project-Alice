@@ -151,7 +151,7 @@ dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id
 
 dcon::concrete_market_ask_id post_ask(sys::state& state, dcon::economic_actor_id seller,
 	dcon::site_id source, dcon::market_id market, dcon::commodity_id commodity,
-	float quantity, float minimum_price, order_purpose purpose) {
+	float quantity, float minimum_price, order_purpose purpose, dcon::factory_id factory) {
 	if(!seller || !source || !market || !commodity || !valid(quantity) || !valid(minimum_price)) return {};
 	auto available = inventory::quantity(state, source, commodity, seller) - reserved_inventory(state, seller, source, commodity);
 	if(!std::isfinite(available) || available + epsilon < quantity) return {};
@@ -167,6 +167,8 @@ dcon::concrete_market_ask_id post_ask(sys::state& state, dcon::economic_actor_id
 	state.world.force_create_concrete_ask_site(ask, source);
 	state.world.force_create_concrete_ask_market(ask, market);
 	state.world.force_create_concrete_ask_commodity(ask, commodity);
+	if(factory && state.world.factory_is_valid(factory))
+		state.world.force_create_concrete_ask_factory(ask, factory);
 	return ask;
 }
 

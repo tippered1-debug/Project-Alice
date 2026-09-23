@@ -7,6 +7,8 @@
 #include "market_clearing.hpp"
 #include "commodity_logistics.hpp"
 #include "economy/physical/factory_inputs.hpp"
+#include "economy/firm_agency.hpp"
+#include "economy/capital_projects.hpp"
 #include "market_access.hpp"
 #include "cargo_transit.hpp"
 #include "construction.hpp"
@@ -4393,6 +4395,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	set_profile_point(state, "employment");
 
 	sanity_check(state);
+	if(gamerule::age_of_transformation_enabled(state))
+		::economy::firm_agency::update_decisions(state);
 
 	// produce goods and services
 
@@ -4407,9 +4411,12 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	if(gamerule::age_of_transformation_enabled(state)) {
 		::economy::physical::freight_market::process_pending_requests(state);
 		::economy::physical::shipments::process_arrivals(state);
+		::economy::capital_projects::process_factory_expansions(state);
 	}
 
 	update_factories_production(state);
+	if(gamerule::age_of_transformation_enabled(state))
+		::economy::firm_agency::post_output_asks(state);
 	::economy::physical::labor_dynamics::process_factory_labor_dynamics(state);
 	::economy::physical::job_market::process(state);
 	if(gamerule::age_of_transformation_enabled(state))

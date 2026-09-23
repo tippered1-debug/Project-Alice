@@ -2529,9 +2529,20 @@ void update_employment(sys::state& state, bool ignore_reality, float presim_empl
 		);
 #endif // !NDEBUG
 
-		state.world.factory_set_unqualified_employment(facids, unqualified_next * scaler);
-		state.world.factory_set_primary_employment(facids, primary_next * scaler);
-		state.world.factory_set_secondary_employment(facids, secondary_next * scaler);
+		// Canonical factories take their production and staffing decisions from
+		// firm_agency + the concrete job market.  This legacy gradient still runs
+		// during startup/presimulation for compatibility, but must not overwrite
+		// the agency's factory state.
+		auto canonical = state.world.factory_get_canonical_production(facids) != uint8_t(0);
+		auto next_unqualified = ve::select(canonical,
+			state.world.factory_get_unqualified_employment(facids), unqualified_next * scaler);
+		auto next_primary = ve::select(canonical,
+			state.world.factory_get_primary_employment(facids), primary_next * scaler);
+		auto next_secondary = ve::select(canonical,
+			state.world.factory_get_secondary_employment(facids), secondary_next * scaler);
+		state.world.factory_set_unqualified_employment(facids, next_unqualified);
+		state.world.factory_set_primary_employment(facids, next_primary);
+		state.world.factory_set_secondary_employment(facids, next_secondary);
 	});
 
 	auto const csize = state.world.commodity_size();

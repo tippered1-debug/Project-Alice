@@ -22,5 +22,8 @@ struct production_decision {
 
 production_decision decide_factory(sys::state const&, dcon::factory_id);
 float desired_production(sys::state const&, dcon::factory_id);
+void update_decisions(sys::state&);
+void post_output_asks(sys::state&);
+void observe_production(sys::state&, dcon::factory_id, float planned_units, float realized_units);
 
 } // namespace economy::firm_agency

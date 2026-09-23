@@ -231,6 +231,74 @@ bool write_off_loan(sys::state& state, dcon::obligation_id loan) {
 		&& relations::write_off(state, loan);
 }
 
+loan_service_result service_actor_loans(sys::state& state, dcon::economic_actor_id borrower,
+	sys::date today, uint32_t default_grace_days) {
+	loan_service_result result{};
+	if(!borrower || !state.world.economic_actor_is_valid(borrower)) return result;
+	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(borrower,
+		[&](dcon::obligation_debtor_id relation) {
+			auto loan = state.world.obligation_debtor_get_obligation(relation);
+			if(!loan || !state.world.obligation_is_valid(loan)
+				|| state.world.obligation_get_kind(loan) != uint8_t(relations::obligation_kind::loan)
+				|| state.world.obligation_get_economic_actor_from_obligation_debtor(loan) != borrower) return;
+			if(state.world.obligation_get_status(loan) == uint8_t(relations::obligation_status::defaulted)) {
+				++result.defaulted_loans;
+				return;
+			}
+			if(state.world.obligation_get_status(loan) != uint8_t(relations::obligation_status::active)) return;
+
+			auto lender = state.world.obligation_get_economic_actor_from_obligation_creditor(loan);
+			auto bank = actors::organizations::organization_for_actor(state, lender);
+			if(!valid_bank(state, bank)) return;
+
+			auto last_accrual = state.world.obligation_get_last_interest_accrual_date(loan);
+			if(!last_accrual) last_accrual = state.world.obligation_get_creation_date(loan);
+			auto elapsed = today.to_raw_value() > last_accrual.to_raw_value()
+				? uint32_t(today.to_raw_value() - last_accrual.to_raw_value()) : 0u;
+			if(elapsed > 0) {
+				result.interest_accrued += accrue_loan_interest(state, loan, elapsed);
+				state.world.obligation_set_last_interest_accrual_date(loan, today);
+			}
+
+			auto due_date = state.world.obligation_get_due_date(loan);
+			if(!due_date || today < due_date) return;
+			auto settlement = state.world.obligation_get_settlement_commodity(loan);
+			if(!settlement || !state.world.commodity_is_valid(settlement)) return;
+
+			// Repay from the loan's bank deposit first, then from the firm's
+			// operating account. Both balances belong to the same borrower actor.
+			state.world.organization_for_each_deposit_account_bank_as_organization(bank,
+				[&](dcon::deposit_account_bank_id account_relation) {
+					if(relations::total_due(state, loan) <= 1.0e-5f) return;
+					auto account = state.world.deposit_account_bank_get_deposit_account(account_relation);
+					if(!account || state.world.deposit_account_get_economic_actor_from_deposit_account_owner(account) != borrower
+						|| state.world.deposit_account_get_commodity_from_deposit_account_settlement(account) != settlement) return;
+					auto payment = std::min(deposit_balance(state, account), relations::total_due(state, loan));
+					if(payment > 1.0e-5f) result.amount_repaid += repay_loan(state, loan, account, payment, today);
+				});
+
+			if(relations::total_due(state, loan) > 1.0e-5f) {
+				auto operating = accounts::find_account(state, borrower, settlement);
+				auto reserve = reserve_account_for(state, bank, settlement);
+				if(!reserve) reserve = open_reserve_account(state, bank, settlement);
+				if(operating && reserve) {
+					auto payment = std::min(accounts::balance(state, operating), relations::total_due(state, loan));
+					if(payment > 1.0e-5f && accounts::settle_obligation_payment(state, loan,
+						operating, reserve, payment, today)) result.amount_repaid += payment;
+				}
+			}
+
+			if(relations::total_due(state, loan) > 1.0e-5f) {
+				auto overdue_days = today.to_raw_value() - due_date.to_raw_value();
+				if(overdue_days >= default_grace_days) {
+					state.world.obligation_set_status(loan, uint8_t(relations::obligation_status::defaulted));
+					++result.defaulted_loans;
+				}
+			}
+		});
+	return result;
+}
+
 balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id bank,
 	dcon::commodity_id settlement) {
 	balance_sheet result{};

@@ -37,6 +37,7 @@ dcon::obligation_id create_obligation(sys::state& state, dcon::economic_actor_id
 	state.world.obligation_set_creation_date(obligation, creation_date);
 	state.world.obligation_set_due_date(obligation, due_date);
 	state.world.obligation_set_annual_interest_rate(obligation, annual_interest_rate);
+	state.world.obligation_set_last_interest_accrual_date(obligation, creation_date);
 	state.world.obligation_set_status(obligation, uint8_t(obligation_status::active));
 	state.world.obligation_set_kind(obligation, uint8_t(kind));
 	state.world.force_create_obligation_debtor(obligation, debtor);
