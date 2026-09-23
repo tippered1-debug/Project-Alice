@@ -4,6 +4,7 @@
 #include "date_interface.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace sys { class state; }
 
@@ -24,6 +25,17 @@ struct loan_service_result {
 	float interest_accrued = 0.0f;
 	float amount_repaid = 0.0f;
 	uint32_t defaulted_loans = 0;
+	std::vector<dcon::factory_id> defaulted_factories;
+	bool has_unscoped_default = false;
+};
+
+struct factory_credit_result {
+	dcon::firm_capital_request_id request{};
+	dcon::obligation_id obligation{};
+	float requested_amount = 0.0f;
+	float funded_amount = 0.0f;
+	float annual_interest_rate = 0.0f;
+	float underwriting_score = 0.0f;
 };
 
 dcon::organization_id create_bank(sys::state&);
@@ -55,6 +67,13 @@ bool write_off_loan(sys::state&, dcon::obligation_id);
 // after the supplied grace period.
 loan_service_result service_actor_loans(sys::state&, dcon::economic_actor_id borrower,
 	sys::date today, uint32_t default_grace_days);
+
+factory_credit_result underwrite_factory_credit(sys::state&, dcon::factory_id,
+	dcon::monetary_account_id operating_account, uint8_t request_kind, float requested_amount,
+	float expected_annual_return, float collateral_value, dcon::capital_project_id project = {});
+
+float indicative_factory_loan_rate(sys::state const&, dcon::factory_id,
+	dcon::commodity_id settlement, float requested_amount, float collateral_value);
 
 balance_sheet bank_balance_sheet(sys::state const&, dcon::organization_id bank,
 	dcon::commodity_id settlement);

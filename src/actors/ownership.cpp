@@ -1,5 +1,7 @@
 #include "ownership.hpp"
 #include "actors/organizations/organizations.hpp"
+#include "economy/accounts/accounts.hpp"
+#include "economy/physical/concrete_market.hpp"
 #include "system_state.hpp"
 
 #include <cmath>
@@ -64,6 +66,36 @@ bool set_stake_fractions(sys::state& state, dcon::ownership_stake_id stake, floa
 	state.world.ownership_stake_set_voting_fraction(stake, voting);
 	state.world.ownership_stake_set_economic_fraction(stake, economic);
 	return true;
+}
+
+float contribute_equity_to_factory(sys::state& state, dcon::factory_id factory,
+	dcon::economic_actor_id firm, dcon::monetary_account_id firm_account, float requested_amount) {
+	if(!factory || !state.world.factory_is_valid(factory) || !firm || !firm_account
+		|| economy::accounts::owner_of(state, firm_account) != firm
+		|| !std::isfinite(requested_amount) || requested_amount <= 0.0f) return 0.0f;
+	auto settlement = economy::accounts::settlement_of(state, firm_account);
+	auto asset = asset_for_factory(state, factory);
+	if(!settlement || !asset) return 0.0f;
+	float contributed = 0.0f;
+	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
+		if(contributed >= requested_amount) return;
+		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
+		auto owner = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
+		auto share = state.world.ownership_stake_get_economic_fraction(stake);
+		if(!owner || owner == firm || share <= 0.0f) return;
+		auto account = economy::accounts::find_account(state, owner, settlement);
+		if(!account) return;
+		auto cash = std::max(0.0f, economy::accounts::balance(state, account)
+			- economy::physical::concrete_market::reserved_bid_amount(state, account));
+		// Capital calls are optional and preserve most of the owner's liquid
+		// balance. Each owner contributes only against their economic stake.
+		auto contribution = std::min({requested_amount - contributed,
+			requested_amount * std::clamp(share, 0.0f, 1.0f), cash * 0.20f});
+		if(contribution > 1.0e-5f && economy::accounts::transfer(state, account, firm_account,
+			contribution, economy::relations::transaction_kind::equity_contribution, state.current_date))
+			contributed += contribution;
+	});
+	return contributed;
 }
 
 dcon::ownership_stake_id create_stake(sys::state& state, dcon::economic_actor_id owner, dcon::asset_id asset, float ownership, float voting, float economic) {

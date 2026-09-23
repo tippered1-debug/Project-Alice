@@ -5229,6 +5229,24 @@ object{
 }
 
 object{
+	name{ firm_capital_request }
+	storage_type{ erasable }
+	size{ 500000 }
+	tag{ save }
+	property{ name{ request_kind } type{ uint8_t } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ settlement } type{ commodity_id } tag{ save } }
+	property{ name{ requested_amount } type{ float } tag{ save } }
+	property{ name{ funded_amount } type{ float } tag{ save } }
+	property{ name{ annual_interest_rate } type{ float } tag{ save } }
+	property{ name{ expected_annual_return } type{ float } tag{ save } }
+	property{ name{ collateral_value } type{ float } tag{ save } }
+	property{ name{ underwriting_score } type{ float } tag{ save } }
+	property{ name{ requested_on } type{ sys::date } tag{ save } }
+	property{ name{ maturity_date } type{ sys::date } tag{ save } }
+}
+
+object{
 	name{ payroll_event }
 	storage_type{ erasable }
 	size{ 100000 }
@@ -6059,6 +6077,8 @@ object {
 	property{ name{ agency_target_input_coverage } type{ float } tag{ save } }
 	property{ name{ agency_target_output_inventory } type{ float } tag{ save } }
 	property{ name{ agency_expansion_project } type{ capital_project_id } tag{ save } }
+	property{ name{ agency_owner_equity_contributed } type{ float } tag{ save } }
+	property{ name{ agency_last_funding_request_date } type{ sys::date } tag{ save } }
 }
 
 relationship{
@@ -6810,6 +6830,41 @@ relationship{
 	tag{ save }
 	link{ object{ obligation } name{ obligation } type{ unique } }
 	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ obligation_factory }
+	tag{ save }
+	link{ object{ obligation } name{ obligation } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ firm_capital_request_factory }
+	tag{ save }
+	link{ object{ firm_capital_request } name{ firm_capital_request } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ firm_capital_request_bank }
+	tag{ save }
+	link{ object{ firm_capital_request } name{ firm_capital_request } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ firm_capital_request_project }
+	tag{ save }
+	link{ object{ firm_capital_request } name{ firm_capital_request } type{ unique } }
+	link{ object{ capital_project } name{ capital_project } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ firm_capital_request_obligation }
+	tag{ save }
+	link{ object{ firm_capital_request } name{ firm_capital_request } type{ unique } }
+	link{ object{ obligation } name{ obligation } type{ many } index_storage{ array } }
 }
 
 relationship{

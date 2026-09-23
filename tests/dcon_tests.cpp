@@ -1519,6 +1519,8 @@ TEST_CASE("actor_consent_gates_loans_and_public_debt", "[economy][consent][finan
 	REQUIRE(::persons::appoint_person(*state, issuer, office, sys::date{1}));
 	REQUIRE(::governance::grant_authority_to_office(*state, office, ::governance::authority_kind::issue_public_debt, nation));
 	auto bank = ::economy::banking::create_bank(*state);
+	auto bank_reserve = ::economy::banking::open_reserve_account(*state, bank, settlement);
+	REQUIRE(::economy::banking::bootstrap_set_reserve_balance(*state, bank_reserve, 1000.0f));
 	auto bank_actor = ::actors::organizations::actor_for_organization(*state, bank);
 	auto borrower = ::persons::create_person(*state, sys::date{1});
 	auto borrower_actor = ::persons::actor_for_person(*state, borrower);

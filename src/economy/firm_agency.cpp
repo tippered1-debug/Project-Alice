@@ -1,6 +1,7 @@
 #include "firm_agency.hpp"
 
 #include "accounts/accounts.hpp"
+#include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/concrete_market.hpp"
@@ -11,6 +12,7 @@
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/factory_inputs.hpp"
+#include "economy/physical/exchange.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/economy_stats.hpp"
 #include "economy/banking/banking.hpp"
@@ -65,6 +67,61 @@ float output_in_transit(sys::state const& state, dcon::economic_actor_id owner,
 
 float full_payroll(sys::state const& state, dcon::factory_id factory, float units, float capacity) {
 	return physical::concrete_labor::wage_cost_for_factory(state, factory, units, capacity);
+}
+
+float factory_collateral_value(sys::state const& state, dcon::factory_id factory) {
+	auto type = state.world.factory_get_building_type(factory);
+	if(!type) return 0.0f;
+	auto province = compat::alice::province_for_factory(state, factory);
+	auto market = province ? state.world.state_instance_get_market_from_local_market(
+		state.world.province_get_state_membership(province)) : dcon::market_id{};
+	auto output = state.world.factory_type_get_output(type);
+	if(!market || !output) return 0.0f;
+	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
+	auto units = finite_nonnegative(state.world.factory_type_get_output_amount(type))
+		* finite_nonnegative(state.world.factory_get_productivity_factor(factory), 1.0f);
+	auto price = physical::concrete_market::canonical_reference_price(state, market, output,
+		state.current_date, 0.0f);
+	return std::max(0.0f, capacity * units * finite_nonnegative(price) * 30.0f);
+}
+
+float contribute_and_borrow_for_working_capital(sys::state& state, dcon::factory_id factory,
+	dcon::economic_actor_id firm, dcon::monetary_account_id account, dcon::commodity_id settlement,
+	float shortfall, float expected_annual_return) {
+	if(!account || !settlement || !std::isfinite(shortfall) || shortfall <= epsilon) return 0.0f;
+	auto equity = actors::ownership::contribute_equity_to_factory(state, factory, firm, account, shortfall);
+	if(equity > 0.0f)
+		state.world.factory_set_agency_owner_equity_contributed(factory,
+			state.world.factory_get_agency_owner_equity_contributed(factory) + equity);
+	auto remaining = std::max(0.0f, shortfall - equity);
+	if(remaining > epsilon) {
+		(void)banking::underwrite_factory_credit(state, factory, account, 0, remaining,
+			expected_annual_return, factory_collateral_value(state, factory));
+	}
+	return equity;
+}
+
+void finance_working_capital(sys::state& state, dcon::factory_id factory,
+	dcon::economic_actor_id firm, production_decision const& decision) {
+	auto last_request = state.world.factory_get_agency_last_funding_request_date(factory);
+	if(last_request && state.current_date.to_raw_value() - last_request.to_raw_value() < 8) return;
+	auto daily_profit = std::max(0.0f, state.world.factory_get_agency_recent_profit(factory));
+	float expected_return = std::clamp(daily_profit * 365.0f
+		/ std::max(1.0f, decision.procurement_funding_shortfall + decision.payroll_funding_shortfall), 0.0f, 1.5f);
+	bool requested = false;
+	auto finance_one = [&](dcon::commodity_id settlement, float shortfall) {
+		if(!settlement || !std::isfinite(shortfall) || shortfall <= epsilon) return;
+		auto account = accounts::find_account(state, firm, settlement);
+		if(!account) account = accounts::open_account(state, firm, settlement);
+		if(!account) return;
+		(void)contribute_and_borrow_for_working_capital(state, factory, firm, account,
+			settlement, shortfall, expected_return);
+		requested = true;
+	};
+	finance_one(decision.procurement_settlement, decision.procurement_funding_shortfall);
+	if(decision.payroll_settlement != decision.procurement_settlement)
+		finance_one(decision.payroll_settlement, decision.payroll_funding_shortfall);
+	if(requested) state.world.factory_set_agency_last_funding_request_date(factory, state.current_date);
 }
 }
 
@@ -122,7 +179,9 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 
 	auto funding = physical::factory_inputs::procurement_account_for(state, owner);
 	auto account = funding.account;
+	result.procurement_settlement = funding.settlement;
 	auto payroll_settlement = state.world.factory_get_payroll_settlement(factory);
+	result.payroll_settlement = payroll_settlement;
 	auto payroll_account = payroll_settlement ? accounts::find_account(state, owner, payroll_settlement) : dcon::monetary_account_id{};
 	auto procurement_cash = account ? std::max(0.0f, accounts::balance(state, account)
 		- physical::concrete_market::reserved_bid_amount(state, account)) : 0.0f;
@@ -134,6 +193,8 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 		procurement_cash = payroll_cash = std::max(0.0f, procurement_cash
 			- arrears_due(state, owner, payroll_settlement)
 			- exact_person_economy::unpaid_wages_for_factory(state, factory));
+	auto raw_procurement_cash = procurement_cash;
+	auto raw_payroll_cash = payroll_cash;
 	procurement_cash *= (1.0f - cash_safety_fraction);
 	payroll_cash *= (1.0f - cash_safety_fraction);
 	result.cash_limited_units = desired;
@@ -174,6 +235,19 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 		}
 		result.cash_limited_units = low;
 	}
+	auto required_procurement_cash = procurement_cost(desired);
+	auto required_payroll_cash = full_payroll(state, factory, desired, capacity);
+	if(account && payroll_account && account == payroll_account) {
+		result.procurement_funding_shortfall = std::max(0.0f,
+			(required_procurement_cash + required_payroll_cash) / (1.0f - cash_safety_fraction) - raw_procurement_cash);
+	} else {
+		result.procurement_funding_shortfall = account
+			? std::max(0.0f, required_procurement_cash / (1.0f - cash_safety_fraction) - raw_procurement_cash)
+			: required_procurement_cash / (1.0f - cash_safety_fraction);
+		result.payroll_funding_shortfall = payroll_account
+			? std::max(0.0f, required_payroll_cash / (1.0f - cash_safety_fraction) - raw_payroll_cash)
+			: required_payroll_cash / (1.0f - cash_safety_fraction);
+	}
 	result.desired_units = std::clamp(std::min(desired, result.cash_limited_units), 0.0f, capacity);
 	result.desired_output = result.desired_units * output_per_unit;
 	result.desired_utilization = capacity > epsilon ? result.desired_units / capacity : 0.0f;
@@ -192,13 +266,16 @@ float desired_production(sys::state const& state, dcon::factory_id factory) {
 
 void update_decisions(sys::state& state) {
 	std::unordered_set<uint32_t> serviced_actors;
-	std::unordered_set<uint32_t> defaulted_actors;
+	std::unordered_set<uint32_t> defaulted_factories;
+	std::unordered_set<uint32_t> actors_with_unscoped_defaults;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		if(!state.world.factory_get_canonical_production(factory)) return;
 		auto actor = actors::organizations::operator_actor_for_factory(state, factory);
 		if(!actor || !serviced_actors.insert(actor.index()).second) return;
 		auto result = banking::service_actor_loans(state, actor, state.current_date, 30);
-		if(result.defaulted_loans > 0) defaulted_actors.insert(actor.index());
+		for(auto factory : result.defaulted_factories)
+			if(factory) defaulted_factories.insert(factory.index());
+		if(result.has_unscoped_default) actors_with_unscoped_defaults.insert(actor.index());
 	});
 
 	state.world.for_each_factory([&](dcon::factory_id factory) {
@@ -210,9 +287,11 @@ void update_decisions(sys::state& state) {
 		auto market = province ? state.world.state_instance_get_market_from_local_market(
 			state.world.province_get_state_membership(province)) : dcon::market_id{};
 		if(!type || !site || !owner || !market) return;
-		if(defaulted_actors.contains(owner.index()))
+		if(defaulted_factories.contains(factory.index())
+			|| actors_with_unscoped_defaults.contains(owner.index()))
 			state.world.factory_set_agency_distress_days(factory, std::max<uint16_t>(90,
 				state.world.factory_get_agency_distress_days(factory)));
+		finance_working_capital(state, factory, owner, decide_factory(state, factory));
 		auto output = state.world.factory_type_get_output(type);
 		auto hub = physical::deposits::market_hub_for(state, market);
 		auto cursor = state.world.factory_get_agency_last_observation_date(factory);
@@ -225,11 +304,11 @@ void update_decisions(sys::state& state) {
 			offered += std::max(0.0f, state.world.concrete_market_ask_get_original_quantity(ask));
 		});
 		state.world.for_each_concrete_trade_fill([&](auto fill) {
+			auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
+			if(occurred <= cursor || occurred > state.current_date) return;
 			auto ask = state.world.concrete_trade_fill_get_concrete_market_ask_from_concrete_fill_ask(fill);
 			if(!ask || state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask) != factory
-				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output
-				|| state.world.concrete_market_ask_get_created_on(ask) <= cursor
-				|| state.world.concrete_market_ask_get_created_on(ask) > state.current_date) return;
+				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output) return;
 			auto quantity = std::max(0.0f, state.world.concrete_trade_fill_get_quantity(fill));
 			sold += quantity;
 			revenue += quantity * std::max(0.0f, state.world.concrete_trade_fill_get_execution_price(fill));
@@ -269,24 +348,53 @@ void update_decisions(sys::state& state) {
 			state.world.factory_set_agency_expected_delivery_days(factory,
 				std::clamp(expected_days + expectation_alpha * (observed_days - expected_days), 1.0f, 60.0f));
 		}
+		float realized_input_cost = 0.0f;
+		std::unordered_set<uint32_t> freight_contracts;
+		state.world.for_each_concrete_trade_fill([&](auto fill) {
+			auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
+			if(occurred <= cursor || occurred > state.current_date) return;
+			auto bid = state.world.concrete_trade_fill_get_concrete_market_bid_from_concrete_fill_bid(fill);
+			if(!bid || state.world.concrete_market_bid_get_factory_from_concrete_bid_factory(bid) != factory) return;
+			realized_input_cost += std::max(0.0f, state.world.concrete_trade_fill_get_quantity(fill))
+				* std::max(0.0f, state.world.concrete_trade_fill_get_execution_price(fill));
+			auto request = state.world.concrete_trade_fill_get_freight_request_from_concrete_fill_freight_request(fill);
+			if(!request) return;
+			state.world.freight_request_for_each_freight_contract_request_as_freight_request(request,
+				[&](dcon::freight_contract_request_id relation) {
+					auto contract = state.world.freight_contract_request_get_freight_contract(relation);
+					if(contract && freight_contracts.insert(contract.index()).second
+						&& state.world.freight_contract_get_created_on(contract) > cursor
+						&& state.world.freight_contract_get_created_on(contract) <= state.current_date)
+						realized_input_cost += std::max(0.0f,
+							state.world.freight_contract_get_agreed_freight_price(contract));
+				});
+		});
+		float realized_payroll_due = 0.0f;
+		float realized_payroll_paid = 0.0f;
+		state.world.for_each_payroll_event([&](auto event) {
+			if(state.world.payroll_event_get_factory_from_payroll_event_factory(event) == factory
+				&& state.world.payroll_event_get_occurred_on(event) > cursor
+				&& state.world.payroll_event_get_occurred_on(event) <= state.current_date) {
+				realized_payroll_due += std::max(0.0f, state.world.payroll_event_get_gross_due(event));
+				realized_payroll_paid += std::max(0.0f, state.world.payroll_event_get_paid(event));
+			}
+		});
+		auto realized_costs = realized_input_cost + realized_payroll_due;
+		auto realized_profit = revenue - realized_costs;
+		auto realized_cashflow = revenue - realized_input_cost - realized_payroll_paid;
+		auto prior_costs = state.world.factory_get_agency_recent_costs(factory);
+		auto prior_profit = state.world.factory_get_agency_recent_profit(factory);
+		state.world.factory_set_agency_recent_costs(factory,
+			prior_costs > epsilon ? prior_costs + expectation_alpha * (realized_costs - prior_costs) : realized_costs);
+		state.world.factory_set_agency_recent_profit(factory,
+			prior_profit != 0.0f ? prior_profit + expectation_alpha * (realized_profit - prior_profit) : realized_profit);
+		auto prior_cashflow = state.world.factory_get_agency_cashflow(factory);
+		state.world.factory_set_agency_cashflow(factory, prior_cashflow != 0.0f
+			? prior_cashflow + expectation_alpha * (realized_cashflow - prior_cashflow) : realized_cashflow);
 		if(offered > epsilon) {
 			auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
-			auto plan = finite_nonnegative(state.world.factory_get_agency_planned_units(factory));
-			auto variable_cost = 0.0f;
-			auto const& recipe = state.world.factory_type_get_inputs(type);
-			for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-				auto commodity = recipe.commodity_type[i];
-				if(!commodity) break;
-				if(!physical::factory_inputs::ordinary_physical_input(state, commodity)) continue;
-				variable_cost += finite_nonnegative(recipe.commodity_amounts[i])
-					* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
-			}
 			auto wage_per_unit = capacity > epsilon
 				? physical::concrete_labor::wage_cost_for_factory(state, factory, capacity, capacity) / capacity : 0.0f;
-			auto costs = (variable_cost + wage_per_unit) * std::max(plan, sold);
-			state.world.factory_set_agency_recent_costs(factory, costs);
-			state.world.factory_set_agency_recent_profit(factory, revenue - costs);
-			state.world.factory_set_agency_cashflow(factory, revenue - costs);
 			state.world.factory_set_agency_expected_wage_per_worker(factory, wage_per_unit);
 		}
 
@@ -366,6 +474,8 @@ void update_decisions(sys::state& state) {
 				capital_cost += quantity * physical::concrete_market::canonical_reference_price(
 					state, market, commodity, state.current_date, 0.0f);
 			}
+			auto funding = physical::factory_inputs::procurement_account_for(state, owner);
+			auto project_budget = capital_cost * 1.50f;
 			economy::investment::project_inputs proposal{};
 			proposal.capital_cost = capital_cost;
 			proposal.gross_daily_revenue = state.world.factory_get_agency_expected_selling_price(factory)
@@ -376,27 +486,55 @@ void update_decisions(sys::state& state) {
 			proposal.input_reliability = reliability;
 			proposal.logistics_reliability = 1.0f / (1.0f + 0.02f
 				* std::max(0.0f, state.world.factory_get_agency_expected_delivery_days(factory)));
-			proposal.annual_interest_rate = 0.05f;
+			proposal.annual_interest_rate = banking::indicative_factory_loan_rate(state, factory,
+				funding.settlement, std::max(1.0f, project_budget), factory_collateral_value(state, factory));
 			proposal.demand_risk = 1.0f - sell_through;
 			proposal.jobs = added_capacity;
 			auto score = economy::investment::evaluate(proposal);
-			auto funding = physical::factory_inputs::procurement_account_for(state, owner);
-			auto available_cash = funding.account ? std::max(0.0f, accounts::balance(state, funding.account)
-				- physical::concrete_market::reserved_bid_amount(state, funding.account)) : 0.0f;
-			if(score.privately_viable && capital_cost > epsilon && available_cash >= capital_cost * 1.50f) {
-				auto project = capital_projects::create_factory_expansion(state, factory, added_capacity, funding.settlement);
-				bool requirements_added = bool(project);
-				for(uint32_t i = 0; requirements_added && i < economy::commodity_set::set_size; ++i) {
-					auto commodity = construction.commodity_type[i];
-					if(!commodity) break;
-					if(!physical::factory_inputs::ordinary_physical_input(state, commodity)) continue;
-					auto quantity = finite_nonnegative(construction.commodity_amounts[i]) * construction_scale;
-					if(quantity > epsilon && !capital_projects::add_requirement(state, project, commodity, quantity))
-						requirements_added = false;
+			if(score.privately_viable && capital_cost > epsilon && funding.account && project_budget > epsilon) {
+				auto available_cash = std::max(0.0f, accounts::balance(state, funding.account)
+					- physical::concrete_market::reserved_bid_amount(state, funding.account));
+				auto operating = decide_factory(state, factory);
+				auto daily_working_cost = std::max(state.world.factory_get_agency_recent_costs(factory),
+					(operating.expected_variable_cost + (capacity > epsilon
+						? operating.expected_payroll_cost / capacity : 0.0f)) * operating.desired_units);
+				auto working_reserve = daily_working_cost * 2.0f;
+				auto own_project_cash = std::max(0.0f, available_cash - working_reserve);
+				auto equity_need = std::max(0.0f, project_budget - own_project_cash);
+				auto owner_equity = actors::ownership::contribute_equity_to_factory(state, factory,
+					owner, funding.account, equity_need);
+				if(owner_equity > 0.0f)
+					state.world.factory_set_agency_owner_equity_contributed(factory,
+						state.world.factory_get_agency_owner_equity_contributed(factory) + owner_equity);
+				dcon::firm_capital_request_id project_request{};
+				auto loan_need = std::max(0.0f, equity_need - owner_equity);
+				if(loan_need > epsilon) {
+					auto credit = banking::underwrite_factory_credit(state, factory, funding.account, 1,
+						loan_need, score.annual_return_on_capital, factory_collateral_value(state, factory));
+					project_request = credit.request;
 				}
-			if(requirements_added && capital_projects::fund(state, project, funding.account, capital_cost * 1.50f))
-					state.world.factory_set_agency_expansion_project(factory, project);
-				else if(project) (void)capital_projects::cancel(state, project);
+				auto after_funding = std::max(0.0f, accounts::balance(state, funding.account)
+					- physical::concrete_market::reserved_bid_amount(state, funding.account) - working_reserve);
+				auto funded_fraction = std::clamp(after_funding / project_budget, 0.0f, 1.0f);
+				if(funded_fraction >= 0.10f) {
+					auto funded_capacity = added_capacity * funded_fraction;
+					auto project = capital_projects::create_factory_expansion(state, factory, funded_capacity, funding.settlement);
+					bool requirements_added = bool(project);
+					for(uint32_t i = 0; requirements_added && i < economy::commodity_set::set_size; ++i) {
+						auto commodity = construction.commodity_type[i];
+						if(!commodity) break;
+						if(!physical::factory_inputs::ordinary_physical_input(state, commodity)) continue;
+						auto quantity = finite_nonnegative(construction.commodity_amounts[i])
+							* construction_scale * funded_fraction;
+						if(quantity > epsilon && !capital_projects::add_requirement(state, project, commodity, quantity))
+							requirements_added = false;
+					}
+					if(requirements_added && capital_projects::fund(state, project, funding.account,
+						project_budget * funded_fraction)) {
+						if(project_request) state.world.force_create_firm_capital_request_project(project_request, project);
+						state.world.factory_set_agency_expansion_project(factory, project);
+					} else if(project) (void)capital_projects::cancel(state, project);
+				}
 			}
 		}
 		state.world.factory_set_agency_last_planning_date(factory, state.current_date);

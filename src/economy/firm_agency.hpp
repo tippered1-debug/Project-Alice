@@ -16,6 +16,10 @@ struct production_decision {
 	float expected_payroll_cost = 0.0f;
 	float expected_gross_margin = 0.0f;
 	float cash_limited_units = 0.0f;
+	float procurement_funding_shortfall = 0.0f;
+	float payroll_funding_shortfall = 0.0f;
+	dcon::commodity_id procurement_settlement{};
+	dcon::commodity_id payroll_settlement{};
 	float output_inventory = 0.0f;
 	economy::commodity_set required_inputs{};
 };
