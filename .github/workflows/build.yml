@@ -34,19 +34,16 @@ jobs:
     - name: install Clang
       run: sudo apt install --no-install-recommends clang-${{ matrix.llvm-version }}
 
-    - name: "Install"
-      uses: awalsh128/cache-apt-pkgs-action@latest
-      with:
-        packages: git build-essential cmake libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libicu-dev
-        version: 1.0
-
-    - name: Configure Build Files
+    - name: Install build and runtime-test dependencies
       run: |
-        cmake -DCMAKE_BUILD_TYPE=${{ matrix.config }} -B build
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends -y \
+          git build-essential cmake \
+          libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+          libxcursor-dev libxi-dev libicu-dev
 
-    - name: Build Project Alice
-      run: |
-        cmake --build build --parallel --target Alice
+    - name: Build Alice and run default runtime tests
+      run: scripts/run_runtime_tests.sh
 
     # - name: Build Project Alice Incremental
     #   run: |
