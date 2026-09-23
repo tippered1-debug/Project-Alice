@@ -53,7 +53,8 @@ jobs:
     strategy:
       matrix:
         config: [debug-windows]
-    runs-on: [windows-latest]
+    # This job configures with the Visual Studio 17 2022 generator below.
+    runs-on: [windows-2022]
     name: Windows (${{ matrix.config }})
     steps:
     - uses: actions/checkout@v4
