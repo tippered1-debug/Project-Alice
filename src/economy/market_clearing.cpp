@@ -105,6 +105,9 @@ auction_result clear_call_auction(
 		if(category < result.bought.size())
 			result.bought[category] += quantity;
 		result.quantity_traded += quantity;
+		result.matches.push_back({
+			bid.stable_order, ask.stable_order, quantity, 0.0f,
+			bid.buyer, ask.seller, bid.destination, ask.origin});
 		bid_remaining -= quantity;
 		ask_remaining -= quantity;
 		marginal_bid = bid.limit_price;
@@ -115,6 +118,7 @@ auction_result clear_call_auction(
 		result.clearing_price = finite_price(
 			0.5f * (marginal_bid + marginal_ask), result.clearing_price);
 	}
+	for(auto& match : result.matches) match.price = result.clearing_price;
 	for(auto const& bid : raw_bids) {
 		auto const category = static_cast<size_t>(bid.category);
 		if(category < result.fill.size())
@@ -185,8 +189,11 @@ void record(sys::state& state, dcon::market_id market,
 }
 
 market_result settle(sys::state& state, dcon::market_id market,
-		dcon::commodity_id commodity, float raw_supply, float raw_demand,
-		float raw_reference_price) {
+	dcon::commodity_id commodity, float raw_supply, float raw_demand,
+	float raw_reference_price) {
+	// This aggregate ledger is retained for classic/compatibility projections.
+	// Canonical transformed goods use physical::concrete_market::match_all(),
+	// whose fills and routed shipments are the economic reality.
 	market_result result{};
 	auto const supply = finite_nonnegative(raw_supply);
 	auto const aggregate_demand = finite_nonnegative(raw_demand);

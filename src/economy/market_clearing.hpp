@@ -10,9 +10,8 @@
 
 namespace economy::market_clearing {
 
-// Demand is aggregated by economic purpose, not by individual POP or firm.
-// This retains the information needed for realistic rationing while keeping
-// the daily auction O(markets * commodities) rather than O(agents).
+// Compatibility demand categories. Canonical transformed actors use concrete
+// buyer/ask orders below; a demand class is never a buyer identity.
 enum class demand_class : uint8_t {
 	life_needs,
 	everyday_needs,
@@ -34,12 +33,27 @@ struct bid_order {
 	float limit_price = 0.0f;
 	demand_class category = demand_class::other;
 	uint32_t stable_order = 0;
+	dcon::economic_actor_id buyer{};
+	dcon::site_id destination{};
 };
 
 struct ask_order {
 	float quantity = 0.0f;
 	float limit_price = 0.0f;
 	uint32_t stable_order = 0;
+	dcon::economic_actor_id seller{};
+	dcon::site_id origin{};
+};
+
+struct actor_match {
+	uint32_t buyer_order = 0;
+	uint32_t seller_order = 0;
+	float quantity = 0.0f;
+	float price = 0.0f;
+	dcon::economic_actor_id buyer{};
+	dcon::economic_actor_id seller{};
+	dcon::site_id destination{};
+	dcon::site_id origin{};
 };
 
 struct auction_result {
@@ -49,6 +63,7 @@ struct auction_result {
 	float quantity_requested = 0.0f;
 	std::array<float, demand_class_count> bought{};
 	std::array<float, demand_class_count> fill{};
+	std::vector<actor_match> matches;
 };
 
 // Deterministic uniform-price call auction. Invalid and negative values are

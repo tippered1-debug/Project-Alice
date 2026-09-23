@@ -12,6 +12,7 @@
 #include "economy/physical/extraction.hpp"
 #include "exact_person_goods.hpp"
 #include "exact_person_freight.hpp"
+#include "world/spatial_runtime.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -34,6 +35,7 @@ struct planned_leg {
 	dcon::site_id origin{};
 	dcon::site_id destination{};
 	float distance = 0.0f;
+	uint32_t traversal_days = 1;
 };
 
 struct market_path_step {
@@ -55,6 +57,18 @@ float local_distance(sys::state& state, dcon::site_id origin, dcon::site_id dest
 	auto from = state.world.site_get_province_from_site_location(origin);
 	auto to = state.world.site_get_province_from_site_location(destination);
 	return from && to ? std::max(0.0f, province::direct_distance(state, from, to)) : 0.0f;
+}
+
+bool plan_spatial_route(sys::state const& state, dcon::site_id origin,
+	dcon::site_id destination, std::vector<planned_leg>& result) {
+	if(!origin || !destination || origin == destination) return false;
+	auto route = world::spatial_runtime::route_for_sites(state, origin, destination);
+	if(!route.connected || !std::isfinite(route.distance) || route.distance < 0.0f
+		|| !std::isfinite(route.travel_days) || route.travel_days <= 0.0f
+		|| route.edges.empty()) return false;
+	result.push_back({ world_trade::transport_mode::land, {}, origin, destination,
+		route.distance, uint32_t(std::max(1.0f, std::ceil(route.travel_days))) });
+	return true;
 }
 
 bool finite_route_distance(float distance) {
@@ -162,6 +176,7 @@ bool plan_route(sys::state& state, dcon::site_id origin, dcon::site_id destinati
 	std::vector<planned_leg>& result) {
 	if(!origin || !destination || origin == destination
 		|| !state.world.site_is_valid(origin) || !state.world.site_is_valid(destination)) return false;
+	if(plan_spatial_route(state, origin, destination, result)) return true;
 	auto origin_market = market_for_site(state, origin);
 	auto destination_market = market_for_site(state, destination);
 	if(!origin_market && !destination_market) {
@@ -215,13 +230,22 @@ float canonical_leg_capacity(sys::state const& state, dcon::shipment_route_leg_i
 	auto mode = world_trade::transport_mode(state.world.shipment_route_leg_get_mode(leg));
 	if(mode != world_trade::transport_mode::local) {
 		auto route = state.world.shipment_route_leg_get_trade_route(leg);
-		if(!route || !state.world.trade_route_is_valid(route)) return 0.0f;
+		if(!route || !state.world.trade_route_is_valid(route)) {
+			auto spatial = world::spatial_runtime::route_for_sites(state,
+				state.world.shipment_route_leg_get_origin_site(leg),
+				state.world.shipment_route_leg_get_destination_site(leg));
+			return spatial.connected ? spatial.bottleneck_capacity : 0.0f;
+		}
 		auto a = state.world.trade_route_get_connected_markets(route, 0);
 		auto b = state.world.trade_route_get_connected_markets(route, 1);
 		return std::min(world_trade::canonical_capacity(state, a, mode),
 			world_trade::canonical_capacity(state, b, mode));
 	}
 	auto site = state.world.shipment_route_leg_get_origin_site(leg);
+	auto destination = state.world.shipment_route_leg_get_destination_site(leg);
+	if(auto spatial = world::spatial_runtime::route_for_sites(state, site, destination);
+		spatial.connected && spatial.bottleneck_capacity > 0.0f)
+		return spatial.bottleneck_capacity;
 	auto market = market_for_site(state, site);
 	auto capacity = world_trade::canonical_capacity(state, market, mode);
 	// Only sites without a market mapping use the explicit transitional local
@@ -232,8 +256,15 @@ float canonical_leg_capacity(sys::state const& state, dcon::shipment_route_leg_i
 uint64_t capacity_key(sys::state const& state, dcon::shipment_route_leg_id leg) {
 	auto route = state.world.shipment_route_leg_get_trade_route(leg);
 	if(route) return uint64_t(route.index()) + 1;
-	auto market = market_for_site(state, state.world.shipment_route_leg_get_origin_site(leg));
-	return (uint64_t(1) << 32) | uint64_t(market ? market.index() : leg.index());
+	auto origin = state.world.shipment_route_leg_get_origin_site(leg);
+	auto destination = state.world.shipment_route_leg_get_destination_site(leg);
+	auto market = market_for_site(state, origin);
+	if(!market) {
+		auto first = std::min(origin.index(), destination.index());
+		auto second = std::max(origin.index(), destination.index());
+		return (uint64_t(1) << 48) | (uint64_t(first) << 24) | uint64_t(second);
+	}
+	return (uint64_t(1) << 32) | uint64_t(market.index());
 }
 
 std::vector<dcon::shipment_route_leg_id> route_legs(sys::state const& state, dcon::shipment_id shipment) {
@@ -275,7 +306,7 @@ dcon::shipment_id create_shipment_from_plan(sys::state& state,
 		state.world.shipment_route_leg_set_distance(leg, planned.distance);
 		state.world.shipment_route_leg_set_remaining_transport_work(leg,
 			index == 0 ? logistics::cargo_units(profile, amount) : 0.0f);
-		state.world.shipment_route_leg_set_traversal_days(leg, compatibility_travel_days(planned.distance));
+		state.world.shipment_route_leg_set_traversal_days(leg, planned.traversal_days);
 		state.world.force_create_shipment_route(leg, shipment);
 	}
 	if(auto legs = route_legs(state, shipment); !legs.empty())

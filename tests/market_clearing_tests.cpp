@@ -18,6 +18,10 @@ TEST_CASE("market call auction respects reservation prices and priority", "[econ
 	REQUIRE(result.clearing_price == Approx(15.0f));
 	REQUIRE(result.fill[size_t(market_clearing::demand_class::life_needs)] == Approx(1.0f));
 	REQUIRE(result.fill[size_t(market_clearing::demand_class::luxury_needs)] == Approx(0.0f));
+	REQUIRE(result.matches.size() == 1);
+	REQUIRE(result.matches.front().quantity == Approx(10.0f));
+	REQUIRE(result.matches.front().buyer_order == 0u);
+	REQUIRE(result.matches.front().seller_order == 0u);
 }
 
 TEST_CASE("transformed market allocates scarce supply by economic purpose", "[economy][market-clearing]") {

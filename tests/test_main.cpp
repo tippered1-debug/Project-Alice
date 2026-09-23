@@ -117,6 +117,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "foreign_exchange_tests.cpp"
 #include "cargo_transit_tests.cpp"
 #include "spatial_runtime_tests.cpp"
+#include "actor_market_tests.cpp"
 #include "canonical_routed_shipments_tests.cpp"
 #include "human_development_tests.cpp"
 #include "world_trade_capacity_tests.cpp"

@@ -17,6 +17,7 @@
 #include "gamerule.hpp"
 #include "investment_ranking.hpp"
 #include "market_access.hpp"
+#include "economy/physical/concrete_market.hpp"
 
 namespace ai {
 
@@ -179,8 +180,12 @@ void filter_factories_disjunctive(
 		if(gamerule::age_of_transformation_enabled(state)) {
 			auto const output_commodity = state.world.factory_type_get_output(type);
 			auto const output_amount = state.world.factory_type_get_output_amount(type) * 0.1f;
-			auto const sell_through = economy::estimate_probability_to_sell_after_supply_increase(
-				state, mid, output_commodity, output_amount);
+			auto const realized_sell_through = economy::physical::concrete_market::observed_sell_through(
+				state, mid, output_commodity, state.current_date);
+			auto const sell_through = realized_sell_through >= 0.0f
+				? realized_sell_through
+				: economy::estimate_probability_to_sell_after_supply_increase(
+					state, mid, output_commodity, output_amount);
 			auto const expected_input_reliability =
 				economy::factory_min_input_expected_to_be_available(state, mid, type);
 			auto const historical_demand = state.world.market_get_aggregated_demand_history(

@@ -7,10 +7,13 @@
 #include "shipments.hpp"
 #include "freight_market.hpp"
 #include "exact_person_goods.hpp"
+#include "commodity_logistics.hpp"
+#include "world/spatial_runtime.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -47,6 +50,61 @@ float reserved_funds(sys::state const& state, dcon::monetary_account_id account)
 	});
 	return result;
 }
+
+float compatibility_route_days(float distance) noexcept {
+	return std::max(1.0f, std::ceil(std::max(0.0f, distance) / 150.0f));
+}
+
+float route_distance_for_match(sys::state& state, dcon::site_id origin,
+	dcon::site_id destination, float& travel_days) {
+	travel_days = 1.0f;
+	if(!origin || !destination || origin == destination) return 0.0f;
+	if(auto spatial = world::spatial_runtime::route_for_sites(state, origin, destination);
+		spatial.connected) {
+		travel_days = std::max(1.0f, spatial.travel_days);
+		return std::max(0.0f, spatial.generalized_cost);
+	}
+	shipments::route_quote quote;
+	if(shipments::quote_route(state, origin, destination, quote)) {
+		travel_days = compatibility_route_days(quote.distance);
+		return std::max(0.0f, quote.distance);
+	}
+	return 0.0f;
+}
+
+struct ask_candidate {
+	dcon::concrete_market_ask_id ask{};
+	float landed_price = 0.0f;
+	float transport_price = 0.0f;
+};
+}
+
+dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
+	if(!site || !state.world.site_is_valid(site)) return {};
+	auto province = state.world.site_get_province_from_site_location(site);
+	if(!province || !state.world.province_is_valid(province)) return {};
+	auto zone = state.world.province_get_state_membership(province);
+	return zone ? state.world.state_instance_get_market_from_local_market(zone) : dcon::market_id{};
+}
+
+float landed_unit_cost(sys::state& state, dcon::site_id origin, dcon::site_id destination,
+	dcon::commodity_id commodity, float goods_price) {
+	if(!std::isfinite(goods_price) || goods_price < 0.0f) return std::numeric_limits<float>::infinity();
+	if(!origin || !destination || origin == destination) return goods_price;
+	float travel_days = 1.0f;
+	auto route_cost = route_distance_for_match(state, origin, destination, travel_days);
+	if(route_cost <= 0.0f && origin != destination) return goods_price;
+	auto profile = logistics::profile_for(state, commodity);
+	auto daily_spoilage = std::clamp(std::isfinite(profile.daily_spoilage)
+		? profile.daily_spoilage : 0.0f, 0.0f, 1.0f);
+	auto expected_spoilage = 1.0f - std::pow(1.0f - daily_spoilage, travel_days);
+	auto cargo_weight = std::max(1.0f, std::isfinite(profile.cargo_weight)
+		? profile.cargo_weight : 1.0f);
+	// This is a deterministic landed-cost estimate used only to rank competing
+	// asks. The actual freight charge is settled by freight_market after the
+	// goods transaction and the physical shipment remains separately observable.
+	auto transport = route_cost * 0.01f * cargo_weight;
+	return goods_price + transport + goods_price * expected_spoilage;
 }
 
 float reserved_bid_amount(sys::state const& state, dcon::monetary_account_id account) {
@@ -112,8 +170,8 @@ dcon::concrete_market_ask_id post_ask(sys::state& state, dcon::economic_actor_id
 	return ask;
 }
 
-std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_id market,
-	dcon::commodity_id commodity, sys::date date) {
+std::vector<dcon::concrete_trade_fill_id> match_impl(sys::state& state,
+	std::optional<dcon::market_id> market_scope, dcon::commodity_id commodity, sys::date date) {
 	struct candidate_bid {
 		bool exact = false;
 		dcon::concrete_market_bid_id dcon_bid{};
@@ -126,17 +184,20 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 	std::vector<dcon::concrete_market_ask_id> asks;
 	state.world.for_each_concrete_market_bid([&](auto bid) {
 		if(state.world.concrete_market_bid_get_status(bid) == active
-			&& state.world.concrete_market_bid_get_market_from_concrete_bid_market(bid) == market
+			&& (!market_scope || state.world.concrete_market_bid_get_market_from_concrete_bid_market(bid) == *market_scope)
 			&& state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) == commodity)
 			bids.push_back({false, bid, 0, state.world.concrete_market_bid_get_created_on(bid),
 				economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::goods_bid,
 					uint64_t(bid.index())), uint64_t(bid.index())});
 	});
-	for(auto bid : exact_person_goods::active_bids(state, market, commodity))
-		bids.push_back({true, {}, bid.id, bid.created_on, bid.causal_sequence, bid.id});
+	state.world.for_each_market([&](auto market) {
+		if(market_scope && market != *market_scope) return;
+		for(auto bid : exact_person_goods::active_bids(state, market, commodity))
+			bids.push_back({true, {}, bid.id, bid.created_on, bid.causal_sequence, bid.id});
+	});
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask) == active
-			&& state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) == market
+			&& (!market_scope || state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) == *market_scope)
 			&& state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) == commodity) asks.push_back(ask);
 	});
 	std::sort(bids.begin(), bids.end(), [&](auto const& a, auto const& b) {
@@ -152,9 +213,22 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 		if(candidate.exact) {
 			auto exact_bid = exact_person_goods::bid(state, candidate.exact_bid);
 			if(!exact_bid) continue;
+			std::vector<ask_candidate> exact_asks;
 			for(auto ask : asks) {
+				auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
+				auto landed = landed_unit_cost(state, source, exact_bid->destination, commodity,
+					state.world.concrete_market_ask_get_minimum_price(ask));
+				exact_asks.push_back({ask, landed,
+					std::max(0.0f, landed - state.world.concrete_market_ask_get_minimum_price(ask))});
+			}
+			std::sort(exact_asks.begin(), exact_asks.end(), [&](auto const& left, auto const& right) {
+				if(left.landed_price != right.landed_price) return left.landed_price < right.landed_price;
+				return left.ask.index() < right.ask.index();
+			});
+			for(auto const& candidate_ask : exact_asks) {
+				auto ask = candidate_ask.ask;
 				if(state.world.concrete_market_ask_get_remaining_quantity(ask) <= epsilon) continue;
-				if(state.world.concrete_market_ask_get_minimum_price(ask) > exact_bid->limit_price) break;
+				if(candidate_ask.landed_price > exact_bid->limit_price) break;
 				(void)exact_person_goods::try_fill(state, candidate.exact_bid, ask, date);
 				if(!exact_person_goods::bid(state, candidate.exact_bid)
 					|| exact_person_goods::bid(state, candidate.exact_bid)->status != exact_person_goods::order_status::active) break;
@@ -162,19 +236,38 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 			continue;
 		}
 		auto bid = candidate.dcon_bid;
+		std::vector<ask_candidate> ranked_asks;
+		auto buyer = state.world.concrete_market_bid_get_economic_actor_from_concrete_bid_buyer(bid);
+		auto destination = state.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid);
+		auto bid_limit = state.world.concrete_market_bid_get_limit_price(bid);
 		for(auto ask : asks) {
+			auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
+			auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
+			if(!seller || seller == buyer || !source || !destination) continue;
+			auto goods_price = state.world.concrete_market_ask_get_minimum_price(ask);
+			auto landed = landed_unit_cost(state, source, destination, commodity, goods_price);
+			if(!std::isfinite(landed)) continue;
+			ranked_asks.push_back({ask, landed, std::max(0.0f, landed - goods_price)});
+		}
+		std::sort(ranked_asks.begin(), ranked_asks.end(), [&](auto const& left, auto const& right) {
+			if(left.landed_price != right.landed_price) return left.landed_price < right.landed_price;
+			if(left.ask.index() != right.ask.index()) return left.ask.index() < right.ask.index();
+			return left.transport_price < right.transport_price;
+		});
+		for(auto const& ranked : ranked_asks) {
+			auto ask = ranked.ask;
 			if(state.world.concrete_market_bid_get_remaining_quantity(bid) <= epsilon || state.world.concrete_market_ask_get_remaining_quantity(ask) <= epsilon) continue;
-			auto buyer = state.world.concrete_market_bid_get_economic_actor_from_concrete_bid_buyer(bid);
 			auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 			if(!buyer || !seller || buyer == seller) continue;
 			auto price = state.world.concrete_market_ask_get_minimum_price(ask);
-			if(price > state.world.concrete_market_bid_get_limit_price(bid)) break;
-			auto destination = state.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid);
+			if(ranked.landed_price > bid_limit) break;
 			auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
 			auto account = state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid);
 			auto quantity = std::min(state.world.concrete_market_bid_get_remaining_quantity(bid), state.world.concrete_market_ask_get_remaining_quantity(ask));
 			quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
-			quantity = std::min(quantity, std::max(0.0f, (accounts::balance(state, account) - reserved_funds(state, account) + state.world.concrete_market_bid_get_reserved_amount(bid)) / price));
+			quantity = std::min(quantity, std::max(0.0f, (accounts::balance(state, account)
+				- reserved_funds(state, account) + state.world.concrete_market_bid_get_reserved_amount(bid))
+				/ std::max(ranked.landed_price, price)));
 			if(!valid(quantity)) continue;
 			auto transaction = exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
 			if(!transaction) continue;
@@ -205,6 +298,16 @@ std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_
 	return result;
 }
 
+std::vector<dcon::concrete_trade_fill_id> match(sys::state& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date) {
+	return match_impl(state, market, commodity, date);
+}
+
+std::vector<dcon::concrete_trade_fill_id> match_all(sys::state& state,
+	dcon::commodity_id commodity, sys::date date) {
+	return match_impl(state, std::nullopt, commodity, date);
+}
+
 float observed_price(sys::state const& state, dcon::market_id market, dcon::commodity_id commodity, sys::date date, float fallback) {
 	float quantity = 0.0f, value = 0.0f;
 	state.world.for_each_concrete_trade_fill([&](auto fill) {
@@ -220,6 +323,27 @@ float observed_price(sys::state const& state, dcon::market_id market, dcon::comm
 		value += exact.value;
 	}
 	return quantity > epsilon ? value / quantity : fallback;
+}
+
+float observed_sell_through(sys::state const& state, dcon::market_id market,
+	dcon::commodity_id commodity, sys::date date, float fallback) {
+	float offered = 0.0f;
+	state.world.for_each_concrete_market_ask([&](auto ask) {
+		if(state.world.concrete_market_ask_get_created_on(ask) != date
+			|| state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) != market
+			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity)
+			return;
+		offered += std::max(0.0f, state.world.concrete_market_ask_get_original_quantity(ask));
+	});
+	float sold = 0.0f;
+	state.world.for_each_concrete_trade_fill([&](auto fill) {
+		if(state.world.concrete_trade_fill_get_occurred_on(fill) != date) return;
+		auto ask = state.world.concrete_trade_fill_get_concrete_market_ask_from_concrete_fill_ask(fill);
+		if(!ask || state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) != market
+			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
+		sold += std::max(0.0f, state.world.concrete_trade_fill_get_quantity(fill));
+	});
+	return offered > epsilon ? std::clamp(sold / offered, 0.0f, 1.0f) : fallback;
 }
 
 float concrete_reference_price(sys::state const& state, dcon::market_id market,

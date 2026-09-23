@@ -114,11 +114,10 @@ bool active_equivalent_bid(sys::state const& state, person_key owner, dcon::site
 }
 
 std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
-	dcon::market_id market, dcon::commodity_id commodity) {
+	dcon::market_id /*market*/, dcon::commodity_id commodity) {
 	std::vector<dcon::commodity_id> result;
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)
-			|| state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) != market
 			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 		state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(seller, [&](auto relation) {
@@ -271,10 +270,9 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 		|| state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)) return 0;
 	auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
 	auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
-	auto market = state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask);
 	auto commodity = state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask);
 	auto price = state.world.concrete_market_ask_get_minimum_price(ask);
-	if(!source || market != bid->market || commodity != bid->commodity
+	if(!source || commodity != bid->commodity
 		|| !seller || !positive_finite(price) || price > bid->limit_price
 		|| !positive_finite(bid->remaining_quantity)) return 0;
 	using namespace economy::exact_person_economy;
@@ -314,7 +312,9 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 	fill.id = fill_id; fill.exact_bid_id = exact_bid_id; fill.dcon_ask = ask;
 	fill.exact_transaction_id = transfer.exact_transaction_id; fill.quantity = quantity;
 	fill.execution_price = price; fill.source = source; fill.destination = bid->destination;
-	fill.market = market; fill.commodity = commodity; fill.occurred_on = date;
+	// The bid's destination market is the buyer-side market signal. The ask's
+	// market remains available through the concrete ask relation.
+	fill.market = bid->market; fill.commodity = commodity; fill.occurred_on = date;
 	ensure_store(state)->fills.push_back(fill);
 	if(source != bid->destination)
 		(void)exact_person_freight::create_request(state, bid->buyer, source, bid->destination,
@@ -366,7 +366,7 @@ bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commod
 	auto quantity = std::min(remaining_to_acquire, best_cash / price);
 	auto id = post_bid(state, buyer, selected, site, market, commodity, quantity, price);
 	if(!id) return false;
-	(void)concrete_market::match(state, market, commodity, state.current_date);
+	(void)concrete_market::match_all(state, commodity, state.current_date);
 	return true;
 }
 

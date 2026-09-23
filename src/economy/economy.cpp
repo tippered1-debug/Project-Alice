@@ -40,6 +40,7 @@
 #include "economy/physical/job_market.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 #include "economy/physical/individual_consumption.hpp"
+#include "economy/physical/concrete_market.hpp"
 #include "world/spatial_runtime.hpp"
 #include <vector>
 #include <algorithm>
@@ -2965,6 +2966,10 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 	// rgo/factories/artisans consumption
 	update_production_consumption(state);
+	if(gamerule::age_of_transformation_enabled(state))
+		// Canonical input bids/asks are cleared before aggregate bookkeeping so
+		// production sees only inventory that has actually arrived at the factory.
+		economy::physical::factory_inputs::fulfill(state);
 
 	set_profile_point(state, "production_consumption");
 
@@ -3297,12 +3302,14 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			auto new_actual_probability_to_sell = ve::min(1.f, ve::select(total_supply == 0.f, 0.f, total_demand / total_supply));
 			if(gamerule::age_of_transformation_enabled(state)) {
 				new_actual_probability_to_buy = ve::apply(
-					[&](dcon::market_id market, float supply, float demand, float reference_price) {
+					[&](dcon::market_id market, float supply, float demand) {
+						auto reference_price = physical::concrete_market::canonical_reference_price(
+							state, market, c, state.current_date,
+							state.world.commodity_get_cost(c));
 						return market_clearing::settle(
 							state, market, c, supply, demand, reference_price)
 							.aggregate_buy_fill;
-					}, ids, total_supply, total_demand,
-					state.world.market_get_price(ids, c));
+					}, ids, total_supply, total_demand);
 			}
 
 			auto aggregated_demand = state.world.market_get_aggregated_demand_history(ids, c);
@@ -3398,9 +3405,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	});
 
 	set_profile_point(state, "clear_market");
-	if(gamerule::age_of_transformation_enabled(state))
-		economy::physical::factory_inputs::fulfill(state);
-
 #ifndef NDEBUG
 	state.world.execute_serial_over_market([&](auto markets) {
 		total_markets_income = total_markets_income + state.world.market_get_stockpile(markets, economy::money);

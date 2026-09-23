@@ -80,12 +80,11 @@ void refresh_unmet(sys::state& state, dcon::person_commodity_need_id need,
 }
 
 std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
-	dcon::market_id market, dcon::commodity_id commodity) {
+	dcon::market_id /*market*/, dcon::commodity_id commodity) {
 	std::vector<dcon::commodity_id> result;
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask)
 			!= uint8_t(concrete_market::order_status::active)
-			|| state.world.concrete_market_ask_get_market_from_concrete_ask_market(ask) != market
 			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 		state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(seller,
@@ -274,8 +273,10 @@ void process_purchase_decisions(sys::state& state) {
 			: left.first.index() < right.first.index();
 	});
 	markets_to_match.erase(std::unique(markets_to_match.begin(), markets_to_match.end()), markets_to_match.end());
-	for(auto const& [market, commodity] : markets_to_match)
-		(void)concrete_market::match(state, market, commodity, state.current_date);
+	for(auto const& [market, commodity] : markets_to_match) {
+		(void)market;
+		(void)concrete_market::match_all(state, commodity, state.current_date);
+	}
 }
 
 void process_consumption(sys::state& state) {

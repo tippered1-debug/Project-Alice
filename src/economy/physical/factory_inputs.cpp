@@ -154,35 +154,45 @@ void fulfill(sys::state& state) {
 		if(factory.index() >= planned_orders.size() || !planned_orders[factory.index()].ready)
 			return;
 		auto const& order = planned_orders[factory.index()];
-		auto hub = deposits::market_hub_for(state, order.market);
-		if(!hub) return;
-	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-		auto commodity = order.inputs.commodity_type[i];
-		if(!commodity) break;
-		if(seen_before(order.inputs, i) || !physical_commodity(state, commodity)) continue;
-		auto required = required_for(order.inputs, commodity, order.input_scale);
-		auto planned = 0.0f;
-		for(uint32_t quantity_index = 0; quantity_index < order.commodities.size(); ++quantity_index)
-			if(order.commodities[quantity_index] == commodity) {
-				planned = order.quantities[quantity_index];
-				break;
-			}
-		if(planned <= 0.0f) continue;
-		(void)required;
-		// Planned quantity is represented by a concrete bid. Sellers expose only
-		// real hub inventory as concrete asks; matching performs settlement.
-		for(auto stock : exchange::seller_stocks(state, hub, commodity, order.owner)) {
-			auto seller_relation = state.world.physical_stock_get_physical_stock_owner(stock);
-			auto seller = seller_relation ? state.world.physical_stock_owner_get_economic_actor(seller_relation) : dcon::economic_actor_id{};
-			auto available = inventory::quantity(state, hub, commodity, seller);
-			auto price = concrete_market::canonical_reference_price(state, order.market, commodity, state.current_date);
-			if(available > 0.0f && std::isfinite(price) && price > 0.0f)
-				(void)concrete_market::post_ask(state, seller, hub, order.market, commodity,
-					available, price, concrete_market::order_purpose::factory_input);
+		if(!order.market) return;
+		for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+			auto commodity = order.inputs.commodity_type[i];
+			if(!commodity) break;
+			if(seen_before(order.inputs, i) || !physical_commodity(state, commodity)) continue;
+			auto required = required_for(order.inputs, commodity, order.input_scale);
+			auto planned = 0.0f;
+			for(uint32_t quantity_index = 0; quantity_index < order.commodities.size(); ++quantity_index)
+				if(order.commodities[quantity_index] == commodity) {
+					planned = order.quantities[quantity_index];
+					break;
+				}
+			if(planned <= 0.0f) continue;
+			(void)required;
+			// Sellers expose every real actor-owned stock, not an aggregate market
+			// supply or only the destination hub. Matching ranks these asks by landed
+			// cost and creates the routed shipment after ownership/payment commit.
+			state.world.for_each_physical_stock([&](auto stock) {
+				auto stock_commodity = state.world.physical_stock_get_commodity_from_physical_stock_commodity(stock);
+				if(stock_commodity != commodity) return;
+				auto site = state.world.physical_stock_get_site_from_physical_stock_site(stock);
+				auto owner_relation = state.world.physical_stock_get_physical_stock_owner(stock);
+				auto seller = owner_relation
+					? state.world.physical_stock_owner_get_economic_actor(owner_relation)
+					: dcon::economic_actor_id{};
+				auto market = concrete_market::market_for_site(state, site);
+				auto available = seller ? inventory::quantity(state, site, commodity, seller) : 0.0f;
+				auto price = market ? concrete_market::canonical_reference_price(state, market,
+					commodity, state.current_date) : 0.0f;
+				if(seller && seller != order.owner && market && available > 0.0f
+					&& std::isfinite(price) && price > 0.0f)
+					(void)concrete_market::post_ask(state, seller, site, market, commodity,
+						available, price, concrete_market::order_purpose::factory_input);
+			});
 		}
-		(void)concrete_market::match(state, order.market, commodity, state.current_date);
-	}
-});
+	});
+	state.world.for_each_commodity([&](auto commodity) {
+		(void)concrete_market::match_all(state, commodity, state.current_date);
+	});
 }
 
 availability evaluate_impl(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,
