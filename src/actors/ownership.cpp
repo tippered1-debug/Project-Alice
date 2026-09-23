@@ -5,6 +5,8 @@
 #include "system_state.hpp"
 
 #include <cmath>
+#include <unordered_set>
+#include <vector>
 
 namespace actors::ownership {
 
@@ -77,25 +79,64 @@ float contribute_equity_to_factory(sys::state& state, dcon::factory_id factory,
 	auto asset = asset_for_factory(state, factory);
 	if(!settlement || !asset) return 0.0f;
 	float contributed = 0.0f;
+	std::unordered_set<uint32_t> funded_owners;
+	auto call_owners = [&](dcon::asset_id ownership_asset) {
+		if(!ownership_asset) return;
+		state.world.asset_for_each_ownership_stake_asset_as_asset(ownership_asset, [&](dcon::ownership_stake_asset_id relation) {
+			if(contributed >= requested_amount) return;
+			auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
+			auto owner = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
+			auto share = state.world.ownership_stake_get_economic_fraction(stake);
+			if(!owner || owner == firm || share <= 0.0f || !funded_owners.insert(owner.index()).second) return;
+			auto account = economy::accounts::find_account(state, owner, settlement);
+			if(!account) return;
+			auto cash = std::max(0.0f, economy::accounts::balance(state, account)
+				- economy::physical::concrete_market::reserved_bid_amount(state, account));
+			// Owners put in real cash, pro-rata to their equity and subject to a
+			// liquidity cap. A company does not inject into itself as its own owner.
+			auto contribution = std::min({requested_amount - contributed,
+				requested_amount * std::clamp(share, 0.0f, 1.0f), cash * 0.20f});
+			if(contribution > 1.0e-5f && economy::accounts::transfer(state, account, firm_account,
+				contribution, economy::relations::transaction_kind::equity_contribution, state.current_date))
+				contributed += contribution;
+		});
+	};
+	call_owners(asset);
+	// When the operator owns the plant asset, look through to actual holders of
+	// the operator company's equity instead of treating the company as its own
+	// capital source.
 	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
-		if(contributed >= requested_amount) return;
 		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
 		auto owner = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
-		auto share = state.world.ownership_stake_get_economic_fraction(stake);
-		if(!owner || owner == firm || share <= 0.0f) return;
-		auto account = economy::accounts::find_account(state, owner, settlement);
-		if(!account) return;
-		auto cash = std::max(0.0f, economy::accounts::balance(state, account)
-			- economy::physical::concrete_market::reserved_bid_amount(state, account));
-		// Capital calls are optional and preserve most of the owner's liquid
-		// balance. Each owner contributes only against their economic stake.
-		auto contribution = std::min({requested_amount - contributed,
-			requested_amount * std::clamp(share, 0.0f, 1.0f), cash * 0.20f});
-		if(contribution > 1.0e-5f && economy::accounts::transfer(state, account, firm_account,
-			contribution, economy::relations::transaction_kind::equity_contribution, state.current_date))
-			contributed += contribution;
+		if(owner != firm) return;
+		auto organization = organizations::organization_for_actor(state, owner);
+		call_owners(organizations::equity_asset_for_organization(state, organization));
 	});
 	return contributed;
+}
+
+bool issue_equity(sys::state& state, dcon::asset_id asset, dcon::economic_actor_id investor,
+	float investment, float pre_money_value) {
+	if(!asset || !investor || !std::isfinite(investment) || investment <= 0.0f
+		|| !std::isfinite(pre_money_value) || pre_money_value < 0.0f) return false;
+	std::vector<dcon::ownership_stake_id> existing;
+	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
+		existing.push_back(state.world.ownership_stake_asset_get_ownership_stake(relation));
+	});
+	if(existing.empty()) return bool(create_stake(state, investor, asset, 1.0f, 1.0f, 1.0f));
+	auto total = std::max(1.0e-5f, pre_money_value + investment);
+	auto dilution = std::clamp(pre_money_value / total, 0.0f, 1.0f);
+	auto new_fraction = std::clamp(investment / total, 0.0f, 1.0f);
+	for(auto stake : existing) {
+		if(!stake || !state.world.ownership_stake_is_valid(stake)) continue;
+		state.world.ownership_stake_set_ownership_fraction(stake,
+			state.world.ownership_stake_get_ownership_fraction(stake) * dilution);
+		state.world.ownership_stake_set_voting_fraction(stake,
+			state.world.ownership_stake_get_voting_fraction(stake) * dilution);
+		state.world.ownership_stake_set_economic_fraction(stake,
+			state.world.ownership_stake_get_economic_fraction(stake) * dilution);
+	}
+	return bool(create_stake(state, investor, asset, new_fraction, new_fraction, new_fraction));
 }
 
 dcon::ownership_stake_id create_stake(sys::state& state, dcon::economic_actor_id owner, dcon::asset_id asset, float ownership, float voting, float economic) {

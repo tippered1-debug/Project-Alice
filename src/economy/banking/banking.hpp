@@ -39,6 +39,7 @@ struct factory_credit_result {
 };
 
 dcon::organization_id create_bank(sys::state&);
+bool set_bank_lending_base_rate(sys::state&, dcon::organization_id, float annual_rate);
 
 dcon::monetary_account_id open_reserve_account(sys::state&, dcon::organization_id bank,
 	dcon::commodity_id settlement);

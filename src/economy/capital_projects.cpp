@@ -31,7 +31,7 @@ void refresh(sys::state& s, dcon::capital_project_id p) {
 		required += need;
 		consumed += std::clamp(s.world.capital_project_requirement_get_consumed_quantity(r), 0.0f, need);
 	});
-	s.world.capital_project_set_progress(p, required > 0.0f ? std::clamp(consumed / required, 0.0f, 1.0f) : 0.0f);
+	s.world.capital_project_set_progress(p, required > 0.0f ? std::clamp(consumed / required, 0.0f, 1.0f) : 1.0f);
 }
 }
 
@@ -171,7 +171,11 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		if(!province) return false;
 		auto f = s.world.create_factory();
 		s.world.factory_set_building_type(f, s.world.capital_project_get_factory_type(p));
-		s.world.factory_set_productive_capacity(f, 1.0f);
+		auto planned_capacity = std::max(0.0f, s.world.capital_project_get_planned_daily_capacity(p));
+		if(planned_capacity <= 0.0f) planned_capacity = 1.0f;
+		s.world.factory_set_productive_capacity(f, planned_capacity);
+		s.world.factory_set_size(f, planned_capacity * float(std::max<int32_t>(1,
+			s.world.factory_type_get_base_workforce(s.world.capital_project_get_factory_type(p)))));
 		s.world.factory_set_productivity_factor(f, 1.0f);
 		s.world.factory_set_target_utilization(f, 1.0f);
 		s.world.factory_set_actual_utilization(f, 0.0f);
@@ -259,10 +263,44 @@ dcon::capital_project_id create_factory_expansion(sys::state& s, dcon::factory_i
 	return project;
 }
 
+dcon::capital_project_id create_greenfield_factory(sys::state& s, dcon::economic_actor_id sponsor_actor,
+	dcon::organization_id operator_company, dcon::site_id project_site, dcon::factory_type_id type,
+	dcon::commodity_id settlement, float planned_capacity) {
+	if(!type || !s.world.factory_type_is_valid(type) || !std::isfinite(planned_capacity)
+		|| planned_capacity <= 0.0f) return {};
+	auto project = create(s, project_kind::factory, sponsor_actor, operator_company, project_site,
+		settlement, type, {}, 0.0f, 0.0f, planned_capacity, 0.0f);
+	if(!project) return {};
+	auto const& construction = s.world.factory_type_get_construction_costs(type);
+	bool added_any = false;
+	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+		auto commodity = construction.commodity_type[i];
+		if(!commodity) break;
+		if(!physical::factory_inputs::ordinary_physical_input(s, commodity)) continue;
+		auto amount = std::max(0.0f, construction.commodity_amounts[i]) * planned_capacity * 0.5f;
+		if(amount > 1.0e-5f) {
+			if(!add_requirement(s, project, commodity, amount)) {
+				(void)cancel(s, project);
+				return {};
+			}
+			added_any = true;
+		}
+	}
+	if(!added_any) refresh(s, project);
+	return project;
+}
+
 void process_factory_expansions(sys::state& s) {
 	s.world.for_each_capital_project([&](dcon::capital_project_id project) {
-		if(s.world.capital_project_get_project_kind(project) != uint8_t(project_kind::factory_expansion)
+		auto kind = s.world.capital_project_get_project_kind(project);
+		if((kind != uint8_t(project_kind::factory_expansion) && kind != uint8_t(project_kind::factory))
 			|| s.world.capital_project_get_status(project) >= uint8_t(status::completed)) return;
+		auto project_status = s.world.capital_project_get_status(project);
+		if((project_status == uint8_t(status::funded) || project_status == uint8_t(status::active))
+			&& material_progress(s, project) >= 1.0f) {
+			(void)complete(s, project);
+			return;
+		}
 		auto owner = s.world.capital_project_get_economic_actor_from_capital_project_sponsor(project);
 		auto site = s.world.capital_project_get_site_from_capital_project_site(project);
 		auto account = s.world.capital_project_get_monetary_account_from_capital_project_account(project);

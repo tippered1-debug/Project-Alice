@@ -5044,6 +5044,7 @@ object{
 	tag{ save }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ is_legacy_placeholder } type{ uint8_t } tag{ save } }
+	property{ name{ industrial_last_decision_date } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -5052,6 +5053,7 @@ object{
 	size{ 30000 }
 	tag{ save }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ lending_base_rate } type{ float } tag{ save } }
 }
 
 object{
@@ -5218,6 +5220,7 @@ object{
 	property{ name{ last_interest_accrual_date } type{ sys::date } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ restructuring_count } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -6079,6 +6082,12 @@ object {
 	property{ name{ agency_expansion_project } type{ capital_project_id } tag{ save } }
 	property{ name{ agency_owner_equity_contributed } type{ float } tag{ save } }
 	property{ name{ agency_last_funding_request_date } type{ sys::date } tag{ save } }
+	property{ name{ agency_lifecycle_status } type{ uint8_t } tag{ save } }
+	property{ name{ agency_last_lifecycle_date } type{ sys::date } tag{ save } }
+	property{ name{ agency_last_recapitalization_date } type{ sys::date } tag{ save } }
+	property{ name{ agency_bankruptcy_date } type{ sys::date } tag{ save } }
+	property{ name{ agency_restructuring_count } type{ uint8_t } tag{ save } }
+	property{ name{ agency_liquidation_value } type{ float } tag{ save } }
 }
 
 relationship{

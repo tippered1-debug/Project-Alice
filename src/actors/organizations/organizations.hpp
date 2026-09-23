@@ -16,6 +16,7 @@ dcon::monetary_account_id operating_account_for(sys::state const&, dcon::organiz
 dcon::organization_id organization_for_actor(sys::state const&, dcon::economic_actor_id);
 
 bool bind_factory_operator(sys::state&, dcon::organization_id, dcon::factory_id);
+bool transfer_factory_operator(sys::state&, dcon::organization_id, dcon::factory_id);
 dcon::organization_id operator_organization_for_factory(sys::state const&, dcon::factory_id);
 dcon::economic_actor_id operator_actor_for_factory(sys::state const&, dcon::factory_id);
 std::vector<dcon::factory_id> factories_operated_by(sys::state const&, dcon::organization_id);

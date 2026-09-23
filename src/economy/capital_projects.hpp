@@ -26,6 +26,9 @@ bool cancel(sys::state&, dcon::capital_project_id);
 bool complete(sys::state&, dcon::capital_project_id);
 dcon::capital_project_id create_factory_expansion(sys::state&, dcon::factory_id, float added_capacity,
 	dcon::commodity_id settlement);
+dcon::capital_project_id create_greenfield_factory(sys::state&, dcon::economic_actor_id sponsor,
+	dcon::organization_id operator_company, dcon::site_id, dcon::factory_type_id,
+	dcon::commodity_id settlement, float planned_capacity = 1.0f);
 void process_factory_expansions(sys::state&);
 
 } // namespace economy::capital_projects

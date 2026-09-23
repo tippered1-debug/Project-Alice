@@ -9,6 +9,7 @@
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/capital_projects.hpp"
+#include "economy/industrial_dynamics.hpp"
 #include "market_access.hpp"
 #include "cargo_transit.hpp"
 #include "construction.hpp"
@@ -4395,8 +4396,10 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	set_profile_point(state, "employment");
 
 	sanity_check(state);
-	if(gamerule::age_of_transformation_enabled(state))
+	if(gamerule::age_of_transformation_enabled(state)) {
 		::economy::firm_agency::update_decisions(state);
+		::economy::industrial_dynamics::process(state);
+	}
 
 	// produce goods and services
 

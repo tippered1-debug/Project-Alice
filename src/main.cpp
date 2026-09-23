@@ -34,6 +34,7 @@
 #include "economy/information/information.cpp"
 #include "economy/consent/consent.cpp"
 #include "economy/banking/banking.cpp"
+#include "economy/industrial_dynamics.cpp"
 #include "governance/finance/finance.cpp"
 #include "governance/law/law.cpp"
 #include "governance/governance.cpp"

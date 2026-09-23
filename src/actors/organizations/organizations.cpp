@@ -66,6 +66,17 @@ bool bind_factory_operator(sys::state& s, dcon::organization_id organization, dc
 	return true;
 }
 
+bool transfer_factory_operator(sys::state& s, dcon::organization_id organization, dcon::factory_id factory) {
+	if(!organization || !factory || !s.world.factory_is_valid(factory)
+		|| !is_economic_kind(ownership::actor_kind(s.world.organization_get_kind(organization)))) return false;
+	auto current = operator_organization_for_factory(s, factory);
+	if(current == organization) return true;
+	auto relation = s.world.factory_get_organization_factory_operator(factory);
+	if(relation) s.world.delete_organization_factory_operator(relation);
+	s.world.force_create_organization_factory_operator(organization, factory);
+	return true;
+}
+
 dcon::organization_id operator_organization_for_factory(sys::state const& s, dcon::factory_id factory) {
 	return factory ? s.world.factory_get_organization_from_organization_factory_operator(factory) : dcon::organization_id{};
 }

@@ -18,6 +18,8 @@ dcon::ownership_stake_id create_stake(sys::state&, dcon::economic_actor_id, dcon
 bool set_stake_fractions(sys::state&, dcon::ownership_stake_id, float, float, float);
 float contribute_equity_to_factory(sys::state&, dcon::factory_id, dcon::economic_actor_id,
 	dcon::monetary_account_id, float requested_amount);
+bool issue_equity(sys::state&, dcon::asset_id, dcon::economic_actor_id investor,
+	float investment, float pre_money_value);
 void bootstrap(sys::state&);
 bool valid_fraction(float) noexcept;
 

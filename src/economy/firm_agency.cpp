@@ -127,7 +127,8 @@ void finance_working_capital(sys::state& state, dcon::factory_id factory,
 
 production_decision decide_factory(sys::state const& state, dcon::factory_id factory) {
 	production_decision result{};
-	if(!factory || !state.world.factory_get_canonical_production(factory)) return result;
+	if(!factory || !state.world.factory_get_canonical_production(factory)
+		|| state.world.factory_get_agency_lifecycle_status(factory) >= 2) return result;
 	auto type = state.world.factory_get_building_type(factory);
 	auto province = compat::alice::province_for_factory(state, factory);
 	auto site = world::site::site_for_factory(state, factory);
@@ -269,7 +270,8 @@ void update_decisions(sys::state& state) {
 	std::unordered_set<uint32_t> defaulted_factories;
 	std::unordered_set<uint32_t> actors_with_unscoped_defaults;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(!state.world.factory_get_canonical_production(factory)) return;
+		if(!state.world.factory_get_canonical_production(factory)
+			|| state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
 		auto actor = actors::organizations::operator_actor_for_factory(state, factory);
 		if(!actor || !serviced_actors.insert(actor.index()).second) return;
 		auto result = banking::service_actor_loans(state, actor, state.current_date, 30);
@@ -279,7 +281,8 @@ void update_decisions(sys::state& state) {
 	});
 
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(!state.world.factory_get_canonical_production(factory)) return;
+		if(!state.world.factory_get_canonical_production(factory)
+			|| state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
 		auto type = state.world.factory_get_building_type(factory);
 		auto province = compat::alice::province_for_factory(state, factory);
 		auto site = world::site::site_for_factory(state, factory);

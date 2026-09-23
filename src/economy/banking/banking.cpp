@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace economy::banking {
 
@@ -45,10 +46,34 @@ bool valid_active_loan_for_bank(sys::state const& state, dcon::obligation_id loa
 		&& valid_bank(state, bank);
 }
 
+float bank_base_rate(sys::state const& state, dcon::organization_id bank) {
+	auto rate = state.world.organization_get_lending_base_rate(bank);
+	return std::isfinite(rate) && rate > 1.0e-5f ? rate : 0.04f;
+}
+
+float bank_capacity(sys::state const& state, dcon::organization_id bank,
+	dcon::commodity_id settlement) {
+	auto reserve = reserve_account_for(state, bank, settlement);
+	if(!reserve) return 0.0f;
+	auto sheet = bank_balance_sheet(state, bank, settlement);
+	auto capital_headroom = std::max(0.0f, sheet.net_worth * 10.0f - sheet.loan_assets);
+	auto liquidity = std::max(0.0f, accounts::balance(state, reserve)
+		- std::max(sheet.deposit_liabilities, std::max(0.0f, sheet.net_worth)) * 0.10f);
+	return std::min(capital_headroom, liquidity);
+}
+
 } // namespace
 
 dcon::organization_id create_bank(sys::state& state) {
-	return actors::organizations::create_organization(state, actor_kind::bank);
+	auto bank = actors::organizations::create_organization(state, actor_kind::bank);
+	if(bank) state.world.organization_set_lending_base_rate(bank, 0.04f);
+	return bank;
+}
+
+bool set_bank_lending_base_rate(sys::state& state, dcon::organization_id bank, float annual_rate) {
+	if(!valid_bank(state, bank) || !std::isfinite(annual_rate) || annual_rate <= 0.0f || annual_rate > 1.0f) return false;
+	state.world.organization_set_lending_base_rate(bank, annual_rate);
+	return true;
 }
 
 dcon::monetary_account_id reserve_account_for(sys::state const& state,
@@ -309,7 +334,21 @@ float indicative_factory_loan_rate(sys::state const& state, dcon::factory_id fac
 		- 0.35f * float(defaulted_loans), 0.0f, 1.0f);
 	float score = std::clamp(0.45f * cashflow_coverage + 0.30f * collateral_coverage
 		+ 0.15f * repayment_history + 0.10f * (1.0f - distress), 0.0f, 1.0f);
-	return 0.04f + (1.0f - score) * 0.14f
+	float best_capacity = 0.0f;
+	float best_base_rate = std::numeric_limits<float>::infinity();
+	state.world.for_each_organization([&](dcon::organization_id bank) {
+		if(!valid_bank(state, bank)) return;
+		auto capacity = std::min(requested_amount, bank_capacity(state, bank, settlement));
+		auto base = bank_base_rate(state, bank);
+		if(capacity > best_capacity + 1.0e-5f
+			|| (std::abs(capacity - best_capacity) <= 1.0e-5f
+				&& capacity > 1.0e-5f && base < best_base_rate)) {
+			best_capacity = capacity;
+			best_base_rate = base;
+		}
+	});
+	if(!std::isfinite(best_base_rate)) best_base_rate = 0.18f;
+	return best_base_rate + (1.0f - score) * 0.14f
 		+ std::min(0.06f, existing_debt / std::max(1.0f, collateral_value) * 0.03f);
 }
 
@@ -343,16 +382,18 @@ factory_credit_result underwrite_factory_credit(sys::state& state, dcon::factory
 	if(project) state.world.force_create_firm_capital_request_project(request, project);
 
 	dcon::organization_id bank{};
+	float best_capacity = 0.0f;
+	float best_base_rate = std::numeric_limits<float>::infinity();
 	state.world.for_each_organization([&](dcon::organization_id candidate) {
-		if(bank || state.world.organization_get_kind(candidate) != uint8_t(actor_kind::bank)
-			|| !actors::organizations::actor_for_organization(state, candidate)) return;
-		auto reserve = reserve_account_for(state, candidate, settlement);
-		if(!reserve) return;
-		auto sheet = bank_balance_sheet(state, candidate, settlement);
-		auto capital_headroom = std::max(0.0f, sheet.net_worth * 10.0f - sheet.loan_assets);
-		auto liquidity = std::max(0.0f, accounts::balance(state, reserve)
-			- std::max(sheet.deposit_liabilities, std::max(0.0f, sheet.net_worth)) * 0.10f);
-		if(std::min(capital_headroom, liquidity) > 1.0e-5f) bank = candidate;
+		if(!valid_bank(state, candidate)) return;
+		auto capacity = std::min(requested_amount, bank_capacity(state, candidate, settlement));
+		auto base = bank_base_rate(state, candidate);
+		if(capacity > best_capacity + 1.0e-5f
+			|| (std::abs(capacity - best_capacity) <= 1.0e-5f && capacity > 1.0e-5f && base < best_base_rate)) {
+			bank = candidate;
+			best_capacity = capacity;
+			best_base_rate = base;
+		}
 	});
 	if(!valid_bank(state, bank)) {
 		state.world.firm_capital_request_set_status(request, 3);
@@ -390,7 +431,9 @@ factory_credit_result underwrite_factory_credit(sys::state& state, dcon::factory
 		- 0.35f * float(defaulted_loans), 0.0f, 1.0f);
 	float score = std::clamp(0.45f * cashflow_coverage + 0.30f * collateral_coverage
 		+ 0.15f * repayment_history + 0.10f * (1.0f - distress), 0.0f, 1.0f);
-	float rate = indicative_factory_loan_rate(state, factory, settlement, requested_amount, collateral_value);
+	float risk_spread = (1.0f - score) * 0.14f
+		+ std::min(0.06f, existing_debt / std::max(1.0f, collateral_value) * 0.03f);
+	float rate = best_base_rate + risk_spread;
 	state.world.firm_capital_request_set_underwriting_score(request, score);
 	state.world.firm_capital_request_set_annual_interest_rate(request, rate);
 	result.underwriting_score = score;
