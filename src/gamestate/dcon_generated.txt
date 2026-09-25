@@ -1416,6 +1416,21 @@ object {
 		type{ nation_id }
 		tag{ save }
 	}
+	property{
+		name{ public_bureaucrat_staffing }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ public_teacher_staffing }
+		type{ float }
+		tag{ save }
+	}
+	property{
+		name{ public_police_staffing }
+		type{ float }
+		tag{ save }
+	}
 
 	property{
 		name{ name }
@@ -6583,6 +6598,13 @@ relationship{
 }
 
 relationship{
+	name{ employment_contract_institution }
+	tag{ save }
+	link{ object{ employment_contract } name{ employment_contract } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
 	name{ employment_contract_site }
 	tag{ save }
 	link{ object{ employment_contract } name{ employment_contract } type{ unique } }
@@ -6622,6 +6644,13 @@ relationship{
 	tag{ save }
 	link{ object{ job_offer } name{ job_offer } type{ unique } }
 	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ job_offer_institution }
+	tag{ save }
+	link{ object{ job_offer } name{ job_offer } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
 }
 
 relationship{

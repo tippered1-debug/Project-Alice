@@ -1975,7 +1975,8 @@ void update_income_wages(sys::state& state){
 		buffer_legacy_secondary_share.set(pid, total_secondary > 0.0f ? legacy_secondary / total_secondary : 1.0f);
 		auto no_education_price = state.world.province_get_labor_price(pid, labor::no_education);
 		auto no_education_sold = state.world.province_get_labor_supply_sold(pid, labor::no_education);
-		auto no_education_wage = no_education_price * no_education_sold;
+		auto no_education_wage = std::max(0.0f,
+			no_education_price * no_education_sold - canonical_payroll.public_no_education_due);
 		auto basic_education_price = state.world.province_get_labor_price(pid, labor::basic_education);
 		auto basic_education_sold = state.world.province_get_labor_supply_sold(pid, labor::basic_education);
 		auto basic_education_wage = basic_education_price * basic_education_sold; // craftsmen
@@ -1987,7 +1988,9 @@ void update_income_wages(sys::state& state){
 		auto guild_education_wage = guild_education_price * guild_education_sold; // artisans
 		auto high_education_and_accepted_price = state.world.province_get_labor_price(pid, labor::high_education_and_accepted);
 		auto high_education_and_accepted_sold = state.world.province_get_labor_supply_sold(pid, labor::high_education_and_accepted);
-		auto high_education_and_accepted_wage = high_education_and_accepted_price * high_education_and_accepted_sold; // clerks, clergy and bureaucrats of accepted culture
+		auto high_education_and_accepted_wage = std::max(0.0f,
+			high_education_and_accepted_price * high_education_and_accepted_sold
+			- canonical_payroll.public_high_education_due); // net of institution payroll already paid per worker
 
 		auto rgo_worker_no_education = state.world.province_get_pop_labor_distribution(pid, pop_labor::rgo_worker_no_education);
 

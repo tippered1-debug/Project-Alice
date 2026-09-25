@@ -6,6 +6,7 @@
 #include "shipments.hpp"
 #include "exchange.hpp"
 #include "concrete_market.hpp"
+#include "governance/public_administration.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -191,6 +192,7 @@ void fulfill(sys::state& state) {
 			});
 		}
 	});
+	governance::public_administration::post_procurement_bids(state);
 	state.world.for_each_commodity([&](auto commodity) {
 		(void)concrete_market::match_all(state, commodity, state.current_date);
 	});

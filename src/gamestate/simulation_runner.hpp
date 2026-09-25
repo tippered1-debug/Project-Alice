@@ -17,9 +17,11 @@
 #include "gamestate/system_state.hpp"
 #include "military/military.hpp"
 #include "nations/diplomatic_crisis_dynamics.hpp"
+#include "nations/strategic_statecraft.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -131,6 +133,37 @@ struct invariant_counts {
 	[[nodiscard]] constexpr bool ok() const noexcept {
 		return total() == 0;
 	}
+};
+
+struct strategic_crisis_actor_snapshot {
+	int32_t nation_index = -1;
+	int32_t facing_nation_index = -1;
+	uint8_t decision = uint8_t(nations::strategic_statecraft::decision_code::none);
+	uint8_t objective = uint8_t(nations::strategic_statecraft::objective_kind::none);
+	bool committed = false;
+	bool supports_attacker = false;
+	double decision_value = 0.0;
+	int32_t objective_target_index = -1;
+	double objective_value = 0.0;
+	double security_interest = 0.0;
+	double territorial_interest = 0.0;
+	double market_access_interest = 0.0;
+	double resource_access_interest = 0.0;
+	double route_access_interest = 0.0;
+	double ally_protection_interest = 0.0;
+	double prestige_interest = 0.0;
+	double believed_military_power = 0.5;
+	double believed_economic_power = 0.5;
+	double believed_resolve = 0.5;
+	double believed_reliability = 0.5;
+	uint16_t fulfilled_commitments = 0;
+	uint16_t broken_commitments = 0;
+	uint16_t recent_wars = 0;
+	uint16_t threats = 0;
+	uint16_t crisis_support = 0;
+	uint16_t abandonment = 0;
+	uint16_t concessions = 0;
+	uint32_t active_commitments = 0;
 };
 
 struct aggregate_snapshot {
@@ -248,6 +281,19 @@ struct aggregate_snapshot {
 	double crisis_escalation_pressure = 0.0;
 	double crisis_settlement_pressure = 0.0;
 	double crisis_war_risk = 0.0;
+	bool statecraft_enabled = false;
+	uint8_t statecraft_phase = uint8_t(nations::strategic_statecraft::crisis_phase::inactive);
+	uint8_t statecraft_outcome = uint8_t(nations::strategic_statecraft::crisis_phase::inactive);
+	uint8_t statecraft_resolution_decision = uint8_t(nations::strategic_statecraft::decision_code::none);
+	uint8_t statecraft_offers_made = 0;
+	bool statecraft_partial_concession = false;
+	int32_t statecraft_claimant_index = -1;
+	int32_t statecraft_target_index = -1;
+	int32_t statecraft_outcome_actor_index = -1;
+	double statecraft_demand_value = 0.0;
+	double statecraft_offered_value = 0.0;
+	double statecraft_readiness_cost = 0.0;
+	std::vector<strategic_crisis_actor_snapshot> statecraft_actors;
 	double baseline_natural_growth = 0.0;
 	double starvation_loss = 0.0;
 	double housing_loss = 0.0;
@@ -863,6 +909,73 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		observe_crisis(crisis.war_risk, result.crisis_war_risk, 3);
 	}
 
+	result.statecraft_enabled = state.strategic_statecraft_initialized;
+	if(result.statecraft_enabled) {
+		auto const& strategic_crisis = state.strategic_crisis;
+		result.statecraft_phase = strategic_crisis.phase;
+		result.statecraft_outcome = strategic_crisis.outcome;
+		result.statecraft_resolution_decision = strategic_crisis.resolution_decision;
+		result.statecraft_offers_made = strategic_crisis.offers_made;
+		result.statecraft_partial_concession = strategic_crisis.partial_concession != 0;
+		result.statecraft_claimant_index = strategic_crisis.claimant == nations::strategic_statecraft::crisis_memory::no_nation
+			? -1 : int32_t(strategic_crisis.claimant);
+		result.statecraft_target_index = strategic_crisis.target == nations::strategic_statecraft::crisis_memory::no_nation
+			? -1 : int32_t(strategic_crisis.target);
+		result.statecraft_outcome_actor_index = strategic_crisis.outcome_actor == nations::strategic_statecraft::crisis_memory::no_nation
+			? -1 : int32_t(strategic_crisis.outcome_actor);
+		result.statecraft_demand_value = strategic_crisis.demand_value;
+		result.statecraft_offered_value = strategic_crisis.offered_value;
+		result.statecraft_readiness_cost = strategic_crisis.readiness_cost;
+		for(auto const& participant : state.crisis_participants) {
+			if(!participant.id)
+				break;
+			if(!nations::strategic_statecraft::uses_model(state, participant.id))
+				continue;
+			auto const& weights = state.strategic_interests[participant.id.index()];
+			auto const facing = participant.supports_attacker
+				? state.primary_crisis_defender : state.primary_crisis_attacker;
+			nations::strategic_statecraft::belief const* view =
+				nations::strategic_statecraft::perception_of(state, participant.id, facing);
+			strategic_crisis_actor_snapshot actor;
+			actor.nation_index = participant.id.index();
+			actor.facing_nation_index = facing ? facing.index() : -1;
+			actor.decision = weights.last_decision;
+			actor.objective = weights.objective;
+			actor.objective_target_index = weights.objective_target
+				== nations::strategic_statecraft::interests::no_nation
+				? -1 : int32_t(weights.objective_target);
+			actor.committed = !participant.merely_interested;
+			actor.supports_attacker = participant.supports_attacker;
+			actor.decision_value = weights.last_decision_value;
+			actor.objective_value = weights.objective_value;
+			actor.security_interest = weights.security;
+			actor.territorial_interest = weights.territorial_claims;
+			actor.market_access_interest = weights.market_access;
+			actor.resource_access_interest = weights.resource_access;
+			actor.route_access_interest = weights.route_access;
+			actor.ally_protection_interest = weights.ally_subject_protection;
+			actor.prestige_interest = weights.prestige_influence;
+			if(view) {
+				actor.believed_military_power = view->military_power;
+				actor.believed_economic_power = view->economic_power;
+				actor.believed_resolve = view->resolve;
+				actor.believed_reliability = view->reliability;
+				actor.fulfilled_commitments = view->fulfilled_commitments;
+				actor.broken_commitments = view->broken_commitments;
+				actor.recent_wars = view->recent_wars;
+				actor.threats = view->threats;
+				actor.crisis_support = view->crisis_support;
+				actor.abandonment = view->abandonment;
+				actor.concessions = view->concessions;
+			}
+			for(auto const& promise : state.strategic_commitments) {
+				if(promise.active && promise.promisor == uint32_t(participant.id.index()))
+					++actor.active_commitments;
+			}
+			result.statecraft_actors.push_back(actor);
+		}
+	}
+
 	return result;
 }
 
@@ -1161,6 +1274,63 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"escalation_pressure\":" << snapshot.crisis_escalation_pressure
 		<< ",\"settlement_pressure\":" << snapshot.crisis_settlement_pressure
 		<< ",\"war_risk\":" << snapshot.crisis_war_risk << "}"
+		<< ",\"statecraft\":{\"enabled\":" << (snapshot.statecraft_enabled ? "true" : "false")
+		<< ",\"phase\":\""
+		<< nations::strategic_statecraft::phase_name(
+			static_cast<nations::strategic_statecraft::crisis_phase>(snapshot.statecraft_phase))
+		<< "\",\"outcome\":\""
+		<< nations::strategic_statecraft::phase_name(
+			static_cast<nations::strategic_statecraft::crisis_phase>(snapshot.statecraft_outcome))
+		<< "\",\"resolution_decision\":\""
+		<< nations::strategic_statecraft::decision_name(
+			static_cast<nations::strategic_statecraft::decision_code>(snapshot.statecraft_resolution_decision))
+		<< "\",\"claimant\":" << snapshot.statecraft_claimant_index
+		<< ",\"target\":" << snapshot.statecraft_target_index
+		<< ",\"outcome_actor\":" << snapshot.statecraft_outcome_actor_index
+		<< ",\"offers_made\":" << unsigned(snapshot.statecraft_offers_made)
+		<< ",\"partial_concession\":" << (snapshot.statecraft_partial_concession ? "true" : "false")
+		<< ",\"demand_value\":" << snapshot.statecraft_demand_value
+		<< ",\"offered_value\":" << snapshot.statecraft_offered_value
+		<< ",\"readiness_cost\":" << snapshot.statecraft_readiness_cost
+		<< ",\"actors\":[";
+	for(size_t index = 0; index < snapshot.statecraft_actors.size(); ++index) {
+		auto const& actor = snapshot.statecraft_actors[index];
+		if(index != 0)
+			out << ',';
+		out << "{\"nation\":" << actor.nation_index
+			<< ",\"facing\":" << actor.facing_nation_index
+			<< ",\"committed\":" << (actor.committed ? "true" : "false")
+			<< ",\"supports_attacker\":" << (actor.supports_attacker ? "true" : "false")
+			<< ",\"decision\":\""
+			<< nations::strategic_statecraft::decision_name(
+				static_cast<nations::strategic_statecraft::decision_code>(actor.decision))
+			<< "\",\"decision_value\":" << actor.decision_value
+			<< ",\"objective\":{\"kind\":\""
+			<< nations::strategic_statecraft::objective_name(
+				static_cast<nations::strategic_statecraft::objective_kind>(actor.objective))
+			<< "\",\"target\":" << actor.objective_target_index
+			<< ",\"value\":" << actor.objective_value << "}"
+			<< ",\"interests\":{\"security\":" << actor.security_interest
+			<< ",\"territorial_claims\":" << actor.territorial_interest
+			<< ",\"market_access\":" << actor.market_access_interest
+			<< ",\"resource_access\":" << actor.resource_access_interest
+			<< ",\"route_access\":" << actor.route_access_interest
+			<< ",\"ally_subject_protection\":" << actor.ally_protection_interest
+			<< ",\"prestige_influence\":" << actor.prestige_interest << "}"
+			<< ",\"beliefs\":{\"military_power\":" << actor.believed_military_power
+			<< ",\"economic_power\":" << actor.believed_economic_power
+			<< ",\"resolve\":" << actor.believed_resolve
+			<< ",\"reliability\":" << actor.believed_reliability << "}"
+			<< ",\"memory\":{\"fulfilled_commitments\":" << actor.fulfilled_commitments
+			<< ",\"broken_commitments\":" << actor.broken_commitments
+			<< ",\"recent_wars\":" << actor.recent_wars
+			<< ",\"threats\":" << actor.threats
+			<< ",\"crisis_support\":" << actor.crisis_support
+			<< ",\"abandonment\":" << actor.abandonment
+			<< ",\"concessions\":" << actor.concessions
+			<< ",\"active_commitments\":" << actor.active_commitments << "}}";
+	}
+	out << "]}"
 		<< ",\"violations\":{\"total\":" << validation.violations.total()
 		<< ",\"nonfinite\":" << validation.violations.nonfinite
 		<< ",\"negative\":" << validation.violations.negative

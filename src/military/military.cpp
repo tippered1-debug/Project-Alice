@@ -23,6 +23,7 @@
 #include "commands_constants.hpp"
 #include "validation.hpp"
 #include "policy_execution.hpp"
+#include "nations/strategic_statecraft.hpp"
 
 namespace military {
 
@@ -3277,6 +3278,8 @@ void cleanup_war(sys::state& state, dcon::war_id w, war_result result) {
 	state.military_definitions.pending_blackflag_update = true;
 
 	if(state.world.war_get_is_crisis_war(w)) {
+		nations::strategic_statecraft::record_crisis_war_outcome(
+			state, w, result == war_result::attacker_won, result == war_result::draw);
 		nations::cleanup_crisis(state);
 	}
 
@@ -4164,14 +4167,26 @@ void implement_peace_offer(sys::state& state, dcon::peace_offer_id offer) {
 			add_truce(state, wg.get_wargoal().get_added_by(), wg.get_wargoal().get_target_nation(), truce_months * 31);
 		}
 
-		for(auto swg : state.crisis_attacker_wargoals) {
-			bool was_part_of_offer = false;
-			for(auto wg : state.world.peace_offer_get_peace_offer_item(offer)) {
-				if(wg.get_wargoal().get_added_by() == swg.added_by)
-					was_part_of_offer = true;
+		auto const was_part_of_offer = [&](sys::full_wg const& crisis_goal) {
+			for(auto item : state.world.peace_offer_get_peace_offer_item(offer)) {
+				auto const offered_goal = item.get_wargoal();
+				if(offered_goal.get_added_by() == crisis_goal.added_by
+					&& offered_goal.get_associated_state() == crisis_goal.state
+					&& offered_goal.get_associated_tag() == crisis_goal.wg_tag
+					&& offered_goal.get_secondary_nation() == crisis_goal.secondary_nation
+					&& offered_goal.get_target_nation() == crisis_goal.target_nation
+					&& offered_goal.get_type() == crisis_goal.cb)
+					return true;
 			}
+			return false;
+		};
 
-			if(!was_part_of_offer) {
+		for(auto swg : state.crisis_attacker_wargoals) {
+			if(!swg.cb)
+				break;
+			bool const was_goal_offered = was_part_of_offer(swg);
+
+			if(!was_goal_offered) {
 				float prestige_loss = std::min(state.defines.war_failed_goal_prestige_base,
 																	state.defines.war_failed_goal_prestige * state.defines.crisis_wargoal_prestige_mult *
 																			nations::prestige_score(state, swg.added_by)) *
@@ -4210,14 +4225,12 @@ void implement_peace_offer(sys::state& state, dcon::peace_offer_id offer) {
 			}
 		}
 
-		for(auto swg : state.crisis_attacker_wargoals) {
-			bool was_part_of_offer = false;
-			for(auto wg : state.world.peace_offer_get_peace_offer_item(offer)) {
-				if(wg.get_wargoal().get_added_by() == swg.added_by)
-					was_part_of_offer = true;
-			}
+		for(auto swg : state.crisis_defender_wargoals) {
+			if(!swg.cb)
+				break;
+			bool const was_goal_offered = was_part_of_offer(swg);
 
-			if(!was_part_of_offer) {
+			if(!was_goal_offered) {
 				float prestige_loss = std::min(state.defines.war_failed_goal_prestige_base,
 																	state.defines.war_failed_goal_prestige * state.defines.crisis_wargoal_prestige_mult *
 																			nations::prestige_score(state, swg.added_by)) *

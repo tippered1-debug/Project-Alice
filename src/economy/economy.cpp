@@ -43,8 +43,10 @@
 #include "economy/physical/job_market.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 #include "economy/physical/individual_consumption.hpp"
+#include "economy/physical/household_mobility.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "world/spatial_runtime.hpp"
+#include "governance/public_administration.hpp"
 #include <vector>
 #include <algorithm>
 #include <cstdio>
@@ -3105,8 +3107,10 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			// base them on expected daily revenue and retain accumulated cash as a
 			// reserve. Using the whole treasury here made a 10% policy spend 10% of
 			// the nation's savings every day.
-			// Legacy nation money is not sovereign treasury in OUR TIME.
-			auto treasury_budget = 0.0f;
+			// Under the transformation ruleset, only cash in the fiscal ledger
+			// authorizes government spending. Keep a thirty-day reserve envelope.
+			auto treasury_budget = gamerule::age_of_transformation_enabled(state)
+				? governance::public_administration::daily_budget(state, n) : 0.0f;
 			auto base_budget = treasury_budget;
 			auto costs = full_spending_cost(state, n, base_budget);
 			auto const admin_budget = costs.administration;
@@ -3181,6 +3185,14 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			(void)private_spending_scale;
 		}
 	});
+
+	if(gamerule::age_of_transformation_enabled(state)) {
+		for(auto nation : state.world.in_nation) {
+			governance::public_administration::appropriate_daily_budget(state, nation.id);
+			governance::public_administration::plan_public_staffing(state, nation.id);
+		}
+		governance::public_administration::synchronize_local_governments(state);
+	}
 
 
 	sanity_check(state);
@@ -4414,6 +4426,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	if(gamerule::age_of_transformation_enabled(state)) {
 		::economy::physical::freight_market::process_pending_requests(state);
 		::economy::physical::shipments::process_arrivals(state);
+		governance::public_administration::deliver_public_services(state);
 		::economy::capital_projects::process_factory_expansions(state);
 	}
 
@@ -4422,8 +4435,11 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		::economy::firm_agency::post_output_asks(state);
 	::economy::physical::labor_dynamics::process_factory_labor_dynamics(state);
 	::economy::physical::job_market::process(state);
-	if(gamerule::age_of_transformation_enabled(state))
+	if(gamerule::age_of_transformation_enabled(state)) {
+		governance::public_administration::settle_public_payroll(state);
+		::economy::physical::household_mobility::update_employed_households(state);
 		::economy::physical::individual_consumption::process(state);
+	}
 
 	set_profile_point(state, "factories production");
 

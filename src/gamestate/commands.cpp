@@ -9,6 +9,7 @@
 #include "system_state.hpp"
 #include "nations.hpp"
 #include "nations_templates.hpp"
+#include "nations/strategic_statecraft.hpp"
 #include "politics.hpp"
 #include "province_templates.hpp"
 #include "rebels.hpp"
@@ -2261,6 +2262,7 @@ void execute_take_sides_in_crisis(sys::state& state, dcon::nation_id source, boo
 		if(i.id == source) {
 			i.merely_interested = false;
 			i.supports_attacker = join_attacker;
+			nations::strategic_statecraft::record_crisis_commitment(state, source, join_attacker);
 
 			notification::post(state, notification::message{
 				[source, join_attacker](sys::state& state, text::layout_base& contents) {

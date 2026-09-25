@@ -15,7 +15,7 @@ dcon::employment_contract_id create_employment_contract(sys::state&, dcon::perso
 	dcon::economic_actor_id employer, dcon::factory_id, dcon::site_id workplace,
 	uint8_t occupation, float labor_capacity, float wage_rate, uint16_t pay_period_days,
 	dcon::monetary_account_id payer_account, dcon::monetary_account_id worker_account,
-	sys::date start_date);
+	sys::date start_date, dcon::institution_id institution = {});
 
 bool end_employment_contract(sys::state&, dcon::employment_contract_id,
 	contract_status status, sys::date end_date);
@@ -23,12 +23,15 @@ bool terminate_employment_contract(sys::state&, dcon::employment_contract_id, sy
 
 std::vector<dcon::employment_contract_id> contracts_for_factory(sys::state const&, dcon::factory_id);
 std::vector<dcon::employment_contract_id> active_contracts_for_factory(sys::state const&, dcon::factory_id);
+std::vector<dcon::employment_contract_id> contracts_for_institution(sys::state const&, dcon::institution_id);
+std::vector<dcon::employment_contract_id> active_contracts_for_institution(sys::state const&, dcon::institution_id);
 std::vector<dcon::person_id> active_workers_for_factory(sys::state const&, dcon::factory_id);
 bool person_has_active_contract(sys::state const&, dcon::person_id);
 bool is_unemployed(sys::state const&, dcon::person_id);
 float labor_supplied_to_factory(sys::state const&, dcon::factory_id);
 float wage_due(sys::state const&, dcon::employment_contract_id);
 float wage_due_for_factory(sys::state const&, dcon::factory_id);
+float wage_due_for_institution(sys::state const&, dcon::institution_id);
 float wage_cost_for_factory(sys::state const&, dcon::factory_id, float production_units, float production_capacity);
 float unpaid_wages(sys::state const&, dcon::employment_contract_id);
 

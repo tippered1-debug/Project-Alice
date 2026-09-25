@@ -27,11 +27,17 @@ dcon::institution_id treasury_institution_for(sys::state const&, dcon::monetary_
 dcon::fiscal_action_id authorized_assess_tax(sys::state&, dcon::person_id initiator,
 	dcon::economic_actor_id taxpayer_actor, dcon::monetary_account_id treasury_account,
 	float amount, sys::date due_date, sys::date date);
+dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state&, dcon::institution_id authority,
+	dcon::economic_actor_id taxpayer_actor, dcon::monetary_account_id treasury_account,
+	float amount, sys::date due_date, sys::date date);
 dcon::transaction_id pay_tax(sys::state&, dcon::obligation_id tax_obligation,
 	dcon::monetary_account_id taxpayer_account, dcon::monetary_account_id treasury_account,
 	float amount, sys::date date);
 
 dcon::fiscal_action_id authorized_spend(sys::state&, dcon::person_id initiator,
+	dcon::monetary_account_id treasury_account, dcon::monetary_account_id recipient_account,
+	float amount, sys::date date);
+dcon::fiscal_action_id authorized_spend_by_institution(sys::state&, dcon::institution_id authority,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id recipient_account,
 	float amount, sys::date date);
 

@@ -9,6 +9,7 @@
 #include "economy/exact_person_economy.hpp"
 #include "economy/economy_stats.hpp"
 #include "economy/causal_order.hpp"
+#include "governance/governance.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -43,9 +44,10 @@ dcon::obligation_id oldest_arrears(sys::state const& state, dcon::economic_actor
 	});
 	return result;
 }
-void record_event(sys::state& state, dcon::factory_id factory, dcon::province_id province, dcon::economic_actor_id operator_actor,
+dcon::payroll_event_id record_event(sys::state& state, dcon::factory_id factory, dcon::province_id province, dcon::economic_actor_id operator_actor,
 	dcon::commodity_id settlement, dcon::obligation_id obligation, float due, float paid, float unpaid,
 	float gross_no, float gross_basic, float gross_high, float paid_no, float paid_basic, float paid_high) {
+	if(!province || !operator_actor || !settlement) return {};
 	auto event = state.world.create_payroll_event();
 	state.world.payroll_event_set_settlement(event, settlement);
 	state.world.payroll_event_set_gross_due(event, due);
@@ -58,10 +60,11 @@ void record_event(sys::state& state, dcon::factory_id factory, dcon::province_id
 	state.world.payroll_event_set_paid_basic_education(event, paid_basic);
 	state.world.payroll_event_set_paid_high_education(event, paid_high);
 	state.world.payroll_event_set_occurred_on(event, state.current_date);
-	state.world.force_create_payroll_event_factory(event, factory);
+	if(factory) state.world.force_create_payroll_event_factory(event, factory);
 	state.world.force_create_payroll_event_operator(event, operator_actor);
 	state.world.force_create_payroll_event_province(event, province);
 	if(obligation) state.world.force_create_payroll_event_obligation(event, obligation);
+	return event;
 }
 
 struct wage_claim {
@@ -99,16 +102,68 @@ bool arrears_claim_before(wage_claim const& left, wage_claim const& right) {
 
 void begin_day(sys::state&) { }
 
+void record_public_payroll(sys::state& state, dcon::province_id province,
+	dcon::commodity_id settlement, float due_no, float due_basic, float due_high,
+	float paid_no, float paid_basic, float paid_high) {
+	if(!province || !settlement) return;
+	for(auto value : {due_no, due_basic, due_high, paid_no, paid_basic, paid_high})
+		if(!std::isfinite(value) || value < 0.0f) return;
+	auto due = due_no + due_basic + due_high;
+	if(due <= 1.0e-6f) return;
+	dcon::payroll_event_id event{};
+	std::vector<dcon::payroll_event_id> expired_public_events;
+	state.world.province_for_each_payroll_event_province_as_province(province, [&](auto relation) {
+		auto candidate = state.world.payroll_event_province_get_payroll_event(relation);
+		if(state.world.payroll_event_get_factory_from_payroll_event_factory(candidate)) return;
+		auto occurred = state.world.payroll_event_get_occurred_on(candidate);
+		if(occurred < state.current_date) {
+			expired_public_events.push_back(candidate);
+			return;
+		}
+		if(occurred == state.current_date
+			&& state.world.payroll_event_get_settlement(candidate) == settlement) event = candidate;
+	});
+	for(auto expired : expired_public_events) state.world.delete_payroll_event(expired);
+	if(!event) {
+		auto actor = governance::central_government_for(state,
+			state.world.province_get_nation_from_province_ownership(province));
+		if(!actor) return;
+		(void)record_event(state, {}, province, governance::actor_for_institution(state, actor),
+			settlement, {}, due, std::min(due, paid_no + paid_basic + paid_high),
+			std::max(0.0f, due - paid_no - paid_basic - paid_high),
+			due_no, due_basic, due_high, paid_no, paid_basic, paid_high);
+		return;
+	}
+	state.world.payroll_event_set_gross_due(event, state.world.payroll_event_get_gross_due(event) + due);
+	state.world.payroll_event_set_paid(event, state.world.payroll_event_get_paid(event)
+		+ std::min(due, paid_no + paid_basic + paid_high));
+	state.world.payroll_event_set_unpaid(event, state.world.payroll_event_get_unpaid(event)
+		+ std::max(0.0f, due - paid_no - paid_basic - paid_high));
+	state.world.payroll_event_set_gross_no_education(event, state.world.payroll_event_get_gross_no_education(event) + due_no);
+	state.world.payroll_event_set_gross_basic_education(event, state.world.payroll_event_get_gross_basic_education(event) + due_basic);
+	state.world.payroll_event_set_gross_high_education(event, state.world.payroll_event_get_gross_high_education(event) + due_high);
+	state.world.payroll_event_set_paid_no_education(event, state.world.payroll_event_get_paid_no_education(event) + paid_no);
+	state.world.payroll_event_set_paid_basic_education(event, state.world.payroll_event_get_paid_basic_education(event) + paid_basic);
+	state.world.payroll_event_set_paid_high_education(event, state.world.payroll_event_get_paid_high_education(event) + paid_high);
+}
+
 province_payroll for_province(sys::state const& state, dcon::province_id province, sys::date date) {
 	province_payroll result{};
 	if(!province) return result;
 	state.world.province_for_each_payroll_event_province_as_province(province, [&](auto relation) {
 		auto event = state.world.payroll_event_province_get_payroll_event(relation);
 		if(state.world.payroll_event_get_occurred_on(event) != date) return;
-		result.canonical_factory = true;
-		result.no_education += state.world.payroll_event_get_paid_no_education(event);
-		result.basic_education += state.world.payroll_event_get_paid_basic_education(event);
-		result.high_education += state.world.payroll_event_get_paid_high_education(event);
+		auto factory = state.world.payroll_event_get_factory_from_payroll_event_factory(event);
+		if(factory) {
+			result.canonical_factory = true;
+			result.no_education += state.world.payroll_event_get_paid_no_education(event);
+			result.basic_education += state.world.payroll_event_get_paid_basic_education(event);
+			result.high_education += state.world.payroll_event_get_paid_high_education(event);
+		} else {
+			result.public_no_education_due += state.world.payroll_event_get_gross_no_education(event);
+			result.public_basic_education_due += state.world.payroll_event_get_gross_basic_education(event);
+			result.public_high_education_due += state.world.payroll_event_get_gross_high_education(event);
+		}
 	});
 	return result;
 }

@@ -262,6 +262,7 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/military/military.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/nations.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/diplomatic_crisis_dynamics.cpp"
+	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/policy_execution.cpp"
 	"${PROJECT_SOURCE_DIR}/src/provinces/province.cpp"
 	${ALICE_INCREMENTAL_SOURCES_LIST_RARELY_CHANGED}

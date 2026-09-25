@@ -34,6 +34,7 @@
 #include "price_level.hpp"
 #include "market_clearing.hpp"
 #include "transformation_politics.hpp"
+#include "nations/strategic_statecraft.hpp"
 
 namespace game_scene {
 scene_properties nation_picker();
@@ -819,6 +820,11 @@ struct alignas(64) state {
 	bool transformation_politics_cache_valid = false;
 	std::vector<politics::transformation::governing_coalition_state> transformation_government_state;
 	std::vector<politics::transformation::legislation_state> transformation_legislation_state;
+	bool strategic_statecraft_initialized = false;
+	std::vector<nations::strategic_statecraft::interests> strategic_interests;
+	std::vector<nations::strategic_statecraft::belief> strategic_beliefs;
+	std::vector<nations::strategic_statecraft::commitment> strategic_commitments;
+	nations::strategic_statecraft::crisis_memory strategic_crisis;
 	// Unsaved command-line override used by bounded/headless regression runs on
 	// scenarios created before the flagship gamerule existed. Normal games and
 	// saves continue to use the scenario's gamerule exclusively.

@@ -8,6 +8,7 @@
 #include "ai_campaign_values.hpp"
 #include "ai_alliances.hpp"
 #include "province.hpp"
+#include "nations/strategic_statecraft.hpp"
 
 namespace diplomatic_message {
 
@@ -120,6 +121,7 @@ void decline(sys::state& state, message const& m) {
 		of the current crisis by define:CRISIS_TEMPERATURE_ON_OFFER_DECLINE.
 		*/
 		state.crisis_temperature += state.defines.crisis_temperature_on_offer_decline;
+		nations::strategic_statecraft::crisis_offer_rejected(state, m.from);
 		nations::cleanup_crisis_peace_offer(state, m.data.peace);
 
 		notification::post(state, notification::message{
@@ -200,6 +202,7 @@ void add_to_crisis_with_offer(sys::state& state, dcon::nation_id from, dcon::nat
 		if(par.id == to) {
 			par.merely_interested = false;
 			par.supports_attacker = (from == state.primary_crisis_attacker);
+			nations::strategic_statecraft::record_crisis_commitment(state, to, par.supports_attacker);
 			if(par.supports_attacker) {
 				nations::crisis_add_wargoal(state.crisis_attacker_wargoals, offer);
 			}
@@ -417,8 +420,14 @@ bool ai_will_accept(sys::state& state, message const& m) {
 		case type::peace_offer:
 			return ai::will_accept_peace_offer(state, m.to, m.from, m.data.peace);
 		case type::take_crisis_side_offer:
+			if(nations::strategic_statecraft::uses_model(state, m.to))
+				return nations::strategic_statecraft::accepts_crisis_side_offer(
+					state, m.to, m.from, m.data.crisis_offer);
 			return ai::will_join_crisis_with_offer(state, m.to, m.data.crisis_offer);
 		case type::crisis_peace_offer:
+			if(nations::strategic_statecraft::uses_model(state, m.to))
+				return nations::strategic_statecraft::accepts_crisis_peace_offer(
+					state, m.from, m.to, m.data.peace);
 			return ai::will_accept_crisis_peace_offer(state, m.to, m.data.peace);
 		case type::free_trade_agreement:
 			return ai::ai_will_accept_free_trade(state, m.to, m.from);

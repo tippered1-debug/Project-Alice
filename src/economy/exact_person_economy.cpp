@@ -3,7 +3,10 @@
 #include "accounts/accounts.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/physical/concrete_market.hpp"
+#include "economy/physical/household_mobility.hpp"
 #include "economy/causal_order.hpp"
+#include "governance/governance.hpp"
+#include "governance/finance/finance.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
 
@@ -118,28 +121,45 @@ bool has_open_pending_application(sys::state const& state, person_key worker) {
 }
 
 bool accepts_exact_worker(sys::state const& state, person_key worker, dcon::job_offer_id offer) {
-	return persons::exact_population::exists(state, worker)
-		&& persons::exact_population::alive(state, worker)
-		&& is_work_eligible(state, worker)
-		&& is_labor_force_participant(state, worker)
-		&& !separated_on_date(state, worker, state.current_date)
-		&& offer_open(state, offer)
-		&& !person_has_active_contract(state, worker);
+	if(!persons::exact_population::exists(state, worker)
+		|| !persons::exact_population::alive(state, worker)
+		|| !is_work_eligible(state, worker)
+		|| !is_labor_force_participant(state, worker)
+		|| separated_on_date(state, worker, state.current_date)
+		|| !offer_open(state, offer)
+		|| person_has_active_contract(state, worker)) return false;
+	auto type = persons::exact_population::source_pop_type(state, worker);
+	return state.world.job_offer_get_occupation(offer)
+		<= physical::household_mobility::qualification_rank(state, type)
+		&& physical::household_mobility::commute_adjusted_daily_wage(state,
+			persons::exact_population::home_site(state, worker), offer) > 0.0f;
 }
 
 uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::job_offer_id offer) {
 	if(!accepts_exact_worker(state, worker, offer)) return 0;
 	auto employer = state.world.job_offer_get_economic_actor_from_job_offer_employer(offer);
 	auto factory = state.world.job_offer_get_factory_from_job_offer_factory(offer);
+	auto institution = state.world.job_offer_get_institution_from_job_offer_institution(offer);
 	auto workplace = state.world.job_offer_get_site_from_job_offer_site(offer);
 	auto payer = state.world.job_offer_get_monetary_account_from_job_offer_payer_account(offer);
-	if(!employer || !factory || !state.world.factory_is_valid(factory) || !workplace
+	if(!employer || bool(factory) == bool(institution)
+		|| (factory && !state.world.factory_is_valid(factory))
+		|| (institution && !state.world.institution_is_valid(institution)) || !workplace
 		|| !state.world.site_is_valid(workplace) || !payer
 		|| accounts::owner_of(state, payer) != employer) return 0;
 	auto settlement = accounts::settlement_of(state, payer);
 	if(!settlement || !state.world.commodity_is_valid(settlement)) return 0;
-	auto factory_settlement = state.world.factory_get_payroll_settlement(factory);
-	if(factory_settlement && factory_settlement != settlement) return 0;
+	if(factory) {
+		auto factory_settlement = state.world.factory_get_payroll_settlement(factory);
+		if(factory_settlement && factory_settlement != settlement) return 0;
+	} else {
+		auto workplace_province = state.world.site_get_province_from_site_location(workplace);
+		auto workplace_nation = workplace_province
+			? state.world.province_get_nation_from_province_ownership(workplace_province) : dcon::nation_id{};
+		if(employer != governance::actor_for_institution(state, institution)
+			|| governance::nation_of(state, institution) != workplace_nation
+			|| governance::finance::treasury_institution_for(state, payer) != institution) return 0;
+	}
 	auto labor_capacity = state.world.job_offer_get_labor_capacity(offer);
 	auto wage_rate = state.world.job_offer_get_wage_rate(offer);
 	auto pay_period_days = state.world.job_offer_get_pay_period_days(offer);
@@ -156,6 +176,7 @@ uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::j
 	record.worker = worker;
 	record.employer = employer;
 	record.factory = factory;
+	record.institution = institution;
 	record.workplace = workplace;
 	record.occupation = state.world.job_offer_get_occupation(offer);
 	record.labor_capacity = labor_capacity;
@@ -456,8 +477,12 @@ void process_job_search_for_exact_person(sys::state& state, person_key worker) {
 	dcon::job_offer_id best{};
 	for(auto offer : offers) {
 		if(!accepts_exact_worker(state, worker, offer)) continue;
-		if(!best || state.world.job_offer_get_wage_rate(offer) > state.world.job_offer_get_wage_rate(best)
-			|| (state.world.job_offer_get_wage_rate(offer) == state.world.job_offer_get_wage_rate(best)
+		auto offer_wage = physical::household_mobility::commute_adjusted_daily_wage(state,
+			persons::exact_population::home_site(state, worker), offer);
+		auto best_wage = best ? physical::household_mobility::commute_adjusted_daily_wage(state,
+			persons::exact_population::home_site(state, worker), best) : 0.0f;
+		if(!best || offer_wage > best_wage
+			|| (offer_wage == best_wage
 				&& offer.index() < best.index())) best = offer;
 	}
 	if(best) (void)submit_application(state, worker, best, state.current_date);
@@ -482,6 +507,23 @@ std::vector<uint64_t> contracts_for_factory(sys::state const& state, dcon::facto
 	for(auto const& record : ensure_store(state)->contracts)
 		if(record.factory == factory) result.push_back(record.id);
 	sort_ids(result);
+	return result;
+}
+
+std::vector<uint64_t> contracts_for_institution(sys::state const& state, dcon::institution_id institution) {
+	std::vector<uint64_t> result;
+	for(auto const& record : ensure_store(state)->contracts)
+		if(institution && record.institution == institution) result.push_back(record.id);
+	sort_ids(result);
+	return result;
+}
+
+std::vector<uint64_t> active_contracts_for_institution(sys::state const& state, dcon::institution_id institution) {
+	std::vector<uint64_t> result;
+	for(auto id : contracts_for_institution(state, institution)) {
+		auto record = contract(state, id);
+		if(record && active_contract_on(state, *record)) result.push_back(id);
+	}
 	return result;
 }
 
@@ -519,6 +561,12 @@ float wage_due(sys::state const& state, uint64_t contract_id) {
 float wage_due_for_factory(sys::state const& state, dcon::factory_id factory) {
 	float result = 0.0f;
 	for(auto id : active_contracts_for_factory(state, factory)) result += wage_due(state, id);
+	return std::isfinite(result) ? result : 0.0f;
+}
+
+float wage_due_for_institution(sys::state const& state, dcon::institution_id institution) {
+	float result = 0.0f;
+	for(auto id : active_contracts_for_institution(state, institution)) result += wage_due(state, id);
 	return std::isfinite(result) ? result : 0.0f;
 }
 
@@ -737,7 +785,9 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 	for(auto record : snapshot.contracts) {
 		if(record.id == 0 || !persons::exact_population::exists(state, record.worker)
 			|| !record.employer || !state.world.economic_actor_is_valid(record.employer)
-			|| !record.factory || !state.world.factory_is_valid(record.factory)
+			|| bool(record.factory) == bool(record.institution)
+			|| (record.factory && !state.world.factory_is_valid(record.factory))
+			|| (record.institution && !state.world.institution_is_valid(record.institution))
 			|| !record.workplace || !state.world.site_is_valid(record.workplace)
 			|| !record.payer_account || !state.world.monetary_account_is_valid(record.payer_account)
 			|| !record.worker_account_id || !candidate->account_by_id.contains(record.worker_account_id)
@@ -745,9 +795,17 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 			|| uint8_t(record.status) > uint8_t(contract_status::terminated)) return false;
 		auto account = candidate->accounts[candidate->account_by_id.at(record.worker_account_id)];
 		if(account.owner != record.worker || accounts::owner_of(state, record.payer_account) != record.employer
-			|| accounts::settlement_of(state, record.payer_account) != account.settlement
-			|| (state.world.factory_get_payroll_settlement(record.factory)
-				&& state.world.factory_get_payroll_settlement(record.factory) != account.settlement)) return false;
+			|| accounts::settlement_of(state, record.payer_account) != account.settlement) return false;
+		if(record.factory && state.world.factory_get_payroll_settlement(record.factory)
+			&& state.world.factory_get_payroll_settlement(record.factory) != account.settlement) return false;
+		if(record.institution) {
+			auto workplace_province = state.world.site_get_province_from_site_location(record.workplace);
+			auto workplace_nation = workplace_province
+				? state.world.province_get_nation_from_province_ownership(workplace_province) : dcon::nation_id{};
+			if(record.employer != governance::actor_for_institution(state, record.institution)
+				|| governance::nation_of(state, record.institution) != workplace_nation
+				|| governance::finance::treasury_institution_for(state, record.payer_account) != record.institution) return false;
+		}
 		for(auto const& existing : candidate->contracts)
 			if(existing.id == record.id || (existing.worker == record.worker && existing.status == contract_status::active
 				&& record.status == contract_status::active)) return false;

@@ -6,8 +6,11 @@
 #include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/causal_order.hpp"
+#include "household_mobility.hpp"
 #include "labor_dynamics.hpp"
 #include "persons/persons.hpp"
+#include "governance/governance.hpp"
+#include "governance/finance/finance.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
 
@@ -18,6 +21,14 @@
 namespace economy::physical::job_market {
 namespace {
 constexpr float epsilon = 1.0e-6f;
+constexpr uint8_t general_occupation = 0;
+constexpr uint8_t skilled_occupation = 1;
+constexpr uint8_t professional_occupation = 2;
+constexpr float voluntary_quit_wage_gain = 1.12f;
+
+bool qualifies_for_offer(sys::state const& state, dcon::person_id person, dcon::job_offer_id offer);
+bool exact_worker_qualifies_for_offer(sys::state const& state,
+	economy::exact_person_economy::person_key worker, dcon::job_offer_id offer);
 
 sys::date normalized_date(sys::state const& state, sys::date date) {
 	if(date) return date;
@@ -48,10 +59,30 @@ bool accepts_worker(sys::state const& state, dcon::person_id person, dcon::job_o
 	if(!persons::is_work_eligible(state, person)
 		|| !open_for_application(state, offer)) return false;
 	auto factory = state.world.job_offer_get_factory_from_job_offer_factory(offer);
+	auto institution = state.world.job_offer_get_institution_from_job_offer_institution(offer);
 	auto workplace = state.world.job_offer_get_site_from_job_offer_site(offer);
-	return factory && state.world.factory_is_valid(factory) && workplace && state.world.site_is_valid(workplace)
-		&& !concrete_labor::person_has_active_contract(state, person)
-		&& !labor_dynamics::legacy_separated_on_date(state, person, state.current_date);
+	if(bool(factory) == bool(institution) || !workplace || !state.world.site_is_valid(workplace)
+		|| !qualifies_for_offer(state, person, offer)
+		|| concrete_labor::person_has_active_contract(state, person)
+		|| labor_dynamics::legacy_separated_on_date(state, person, state.current_date)) return false;
+	if(factory) {
+		if(!state.world.factory_is_valid(factory)) return false;
+		auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
+		if(operator_actor && operator_actor != state.world.job_offer_get_economic_actor_from_job_offer_employer(offer)) return false;
+	} else {
+		auto employer = state.world.job_offer_get_economic_actor_from_job_offer_employer(offer);
+		auto payer = state.world.job_offer_get_monetary_account_from_job_offer_payer_account(offer);
+		auto workplace_province = state.world.site_get_province_from_site_location(workplace);
+		auto workplace_nation = workplace_province
+			? state.world.province_get_nation_from_province_ownership(workplace_province) : dcon::nation_id{};
+		if(!state.world.institution_is_valid(institution)
+			|| employer != governance::actor_for_institution(state, institution)
+			|| governance::nation_of(state, institution) != workplace_nation
+			|| governance::finance::treasury_institution_for(state, payer) != institution) return false;
+	}
+	auto home = state.world.person_get_site_from_person_home_site(person);
+	if(!home) home = workplace;
+	return household_mobility::commute_adjusted_daily_wage(state, home, offer) > epsilon;
 }
 
 dcon::monetary_account_id worker_account_for(sys::state& state, dcon::person_id person,
@@ -127,8 +158,34 @@ wage_offer_terms wage_offer_for_factory(sys::state const& state, dcon::factory_i
 	// independent of provincial aggregate labor wages and can be replaced by a
 	// richer firm wage policy later.
 	auto expected_revenue = firm_agency::decide_factory(state, factory).expected_unit_revenue;
-	auto bootstrap = std::isfinite(expected_revenue) ? expected_revenue * 0.10f : 0.0f;
+	float occupation_multiplier = occupation == professional_occupation ? 1.40f
+		: occupation == skilled_occupation ? 1.10f : 0.75f;
+	auto bootstrap = std::isfinite(expected_revenue)
+		? expected_revenue * 0.10f * occupation_multiplier : 0.0f;
 	return {std::max(1.0f, bootstrap), 1};
+}
+
+dcon::pop_type_id source_type_for_person(sys::state const& state, dcon::person_id person) {
+	auto type = state.world.person_get_source_pop_type(person);
+	if(type && state.world.pop_type_is_valid(type)) return type;
+	auto source_cell = state.world.person_get_source_population_cell(person);
+	if(source_cell) {
+		auto source = dcon::pop_id{dcon::pop_id::value_base_t(source_cell - 1u)};
+		if(source && state.world.pop_is_valid(source)) return state.world.pop_get_poptype(source);
+	}
+	return {};
+}
+
+bool qualifies_for_offer(sys::state const& state, dcon::person_id person, dcon::job_offer_id offer) {
+	return offer && state.world.job_offer_get_occupation(offer)
+		<= household_mobility::qualification_rank(state, source_type_for_person(state, person));
+}
+
+bool exact_worker_qualifies_for_offer(sys::state const& state,
+	economy::exact_person_economy::person_key person, dcon::job_offer_id offer) {
+	return offer && state.world.job_offer_get_occupation(offer)
+		<= household_mobility::qualification_rank(state,
+			persons::exact_population::source_pop_type(state, person));
 }
 }
 
@@ -161,6 +218,37 @@ dcon::job_offer_id post_job_offer(sys::state& state, dcon::economic_actor_id emp
 	state.world.job_offer_set_status(offer, uint8_t(offer_status::open));
 	state.world.force_create_job_offer_employer(offer, employer);
 	state.world.force_create_job_offer_factory(offer, factory);
+	state.world.force_create_job_offer_site(offer, workplace);
+	state.world.force_create_job_offer_payer_account(offer, payer_account);
+	return offer;
+}
+
+dcon::job_offer_id post_institution_job_offer(sys::state& state, dcon::institution_id institution,
+	dcon::site_id workplace, uint8_t occupation, float labor_capacity, float wage_rate,
+	uint16_t pay_period_days, dcon::monetary_account_id payer_account, uint32_t openings,
+	sys::date created_on, sys::date expires_on) {
+	if(!institution || !state.world.institution_is_valid(institution)
+		|| !workplace || !state.world.site_is_valid(workplace)
+		|| !std::isfinite(labor_capacity) || labor_capacity <= 0.0f
+		|| !std::isfinite(wage_rate) || wage_rate < 0.0f || pay_period_days == 0
+		|| !payer_account || governance::finance::treasury_institution_for(state, payer_account) != institution)
+		return {};
+	auto employer = governance::actor_for_institution(state, institution);
+	if(!employer || accounts::owner_of(state, payer_account) != employer) return {};
+	created_on = normalized_date(state, created_on);
+	if(!expires_on) expires_on = created_on + int32_t(30);
+	if(expires_on && expires_on < created_on) return {};
+	auto offer = state.world.create_job_offer();
+	state.world.job_offer_set_occupation(offer, occupation);
+	state.world.job_offer_set_labor_capacity(offer, labor_capacity);
+	state.world.job_offer_set_wage_rate(offer, wage_rate);
+	state.world.job_offer_set_pay_period_days(offer, pay_period_days);
+	state.world.job_offer_set_openings(offer, openings);
+	state.world.job_offer_set_created_on(offer, created_on);
+	state.world.job_offer_set_expires_on(offer, expires_on);
+	state.world.job_offer_set_status(offer, uint8_t(offer_status::open));
+	state.world.force_create_job_offer_employer(offer, employer);
+	state.world.force_create_job_offer_institution(offer, institution);
 	state.world.force_create_job_offer_site(offer, workplace);
 	state.world.force_create_job_offer_payer_account(offer, payer_account);
 	return offer;
@@ -290,9 +378,19 @@ void process_pending_applications(sys::state& state) {
 		return left.stable_id < right.stable_id;
 	});
 	for(auto const& item : pending) {
-		if(!item.offer || !open_for_application(state, item.offer) || state.world.job_offer_get_openings(item.offer) == 0) continue;
+		if(!item.offer || !open_for_application(state, item.offer)) continue;
+		if(state.world.job_offer_get_openings(item.offer) == 0) {
+			if(item.exact) (void)economy::exact_person_economy::withdraw_application(state, item.exact_id);
+			else state.world.job_application_set_status(item.legacy, uint8_t(application_status::rejected));
+			continue;
+		}
 		if(item.exact) {
-			(void)economy::exact_person_economy::accept_pending_application(state, item.exact_id);
+			auto application = economy::exact_person_economy::application(state, item.exact_id);
+			if(economy::exact_person_economy::accept_pending_application(state, item.exact_id)
+				&& application) {
+				auto workplace = state.world.job_offer_get_site_from_job_offer_site(item.offer);
+				(void)household_mobility::relocate_for_job(state, application->worker, workplace);
+			}
 			continue;
 		}
 		auto application = item.legacy;
@@ -309,11 +407,14 @@ void process_pending_applications(sys::state& state) {
 			state.world.job_offer_get_site_from_job_offer_site(item.offer),
 			state.world.job_offer_get_occupation(item.offer), state.world.job_offer_get_labor_capacity(item.offer),
 			state.world.job_offer_get_wage_rate(item.offer), state.world.job_offer_get_pay_period_days(item.offer),
-			payer, worker_account, state.current_date);
+			payer, worker_account, state.current_date,
+			state.world.job_offer_get_institution_from_job_offer_institution(item.offer));
 		if(!contract) state.world.job_application_set_status(application, uint8_t(application_status::rejected));
 		else {
 			state.world.job_application_set_status(application, uint8_t(application_status::accepted));
 			state.world.job_offer_set_openings(item.offer, state.world.job_offer_get_openings(item.offer) - 1);
+			(void)household_mobility::relocate_for_job(state, person,
+				state.world.job_offer_get_site_from_job_offer_site(item.offer));
 		}
 	}
 }
@@ -326,20 +427,139 @@ void process_factory_vacancies(sys::state& state) {
 		auto payer = settlement ? accounts::find_account(state, employer, settlement) : dcon::monetary_account_id{};
 		if(!employer || !payer) return;
 		auto desired = firm_agency::decide_factory(state, factory).desired_units;
-		auto supplied = concrete_labor::labor_supplied_to_factory(state, factory);
-		if(!std::isfinite(desired) || desired <= supplied + epsilon) return;
 		auto site = world::site::site_for_factory(state, factory);
-		if(!site) return;
-		float open_capacity = 0.0f;
-		for(auto offer : open_offers_for_factory(state, factory))
-			open_capacity += state.world.job_offer_get_labor_capacity(offer) * state.world.job_offer_get_openings(offer);
-		auto shortage = desired - supplied - open_capacity;
-		if(!std::isfinite(shortage) || shortage <= epsilon) return;
-		auto openings = uint32_t(std::ceil(shortage));
-		if(openings == 0) return;
-		auto terms = wage_offer_for_factory(state, factory, 0);
-		(void)post_job_offer(state, employer, factory, site, 0, 1.0f, terms.wage_rate, terms.pay_period_days,
-			payer, openings, state.current_date);
+		if(!site || !std::isfinite(desired) || desired <= epsilon) return;
+		float staffing_mix[3] = {
+			std::max(0.0f, state.world.factory_get_unqualified_employment(factory)),
+			std::max(0.0f, state.world.factory_get_primary_employment(factory)),
+			std::max(0.0f, state.world.factory_get_secondary_employment(factory))
+		};
+		auto mix_total = staffing_mix[0] + staffing_mix[1] + staffing_mix[2];
+		if(!std::isfinite(mix_total) || mix_total <= epsilon) {
+			staffing_mix[0] = 1.0f;
+			mix_total = 1.0f;
+		}
+		for(uint8_t occupation = general_occupation; occupation <= professional_occupation; ++occupation) {
+			auto target = desired * staffing_mix[occupation] / mix_total;
+			if(target <= epsilon) continue;
+			float supplied = 0.0f;
+			for(auto contract : concrete_labor::active_contracts_for_factory(state, factory))
+				if(state.world.employment_contract_get_occupation(contract) == occupation)
+					supplied += std::max(0.0f, state.world.employment_contract_get_labor_capacity(contract));
+			for(auto contract_id : economy::exact_person_economy::active_contracts_for_factory(state, factory)) {
+				auto contract = economy::exact_person_economy::contract(state, contract_id);
+				if(contract && contract->occupation == occupation)
+					supplied += std::max(0.0f, contract->labor_capacity);
+			}
+			float open_capacity = 0.0f;
+			for(auto offer : open_offers_for_factory(state, factory))
+				if(state.world.job_offer_get_occupation(offer) == occupation)
+					open_capacity += state.world.job_offer_get_labor_capacity(offer)
+						* float(state.world.job_offer_get_openings(offer));
+			auto shortage = target - supplied - open_capacity;
+			if(!std::isfinite(shortage) || shortage <= epsilon) continue;
+			auto openings = uint32_t(std::ceil(shortage));
+			if(openings == 0) continue;
+			auto terms = wage_offer_for_factory(state, factory, occupation);
+			(void)post_job_offer(state, employer, factory, site, occupation, 1.0f,
+				terms.wage_rate, terms.pay_period_days, payer, openings, state.current_date);
+		}
+	});
+}
+
+void process_worker_choices(sys::state& state) {
+	auto offers = all_offers(state);
+	for(auto offer : offers) refresh_offer(state, offer);
+	state.world.for_each_factory([&](dcon::factory_id factory) {
+		for(auto contract : concrete_labor::active_contracts_for_factory(state, factory)) {
+			auto person = state.world.employment_contract_get_person_from_employment_contract_person(contract);
+			auto home = person ? state.world.person_get_site_from_person_home_site(person) : dcon::site_id{};
+			if(!person || !home) continue;
+			auto period = state.world.employment_contract_get_pay_period_days(contract);
+			if(period == 0) continue;
+			auto current_wage = state.world.employment_contract_get_wage_rate(contract)
+				* state.world.employment_contract_get_labor_capacity(contract) / float(period);
+			auto current_site = state.world.employment_contract_get_site_from_employment_contract_site(contract);
+			auto current_net = household_mobility::commute_adjusted_daily_wage(state, home, current_site, current_wage);
+			dcon::job_offer_id best{};
+			float best_net = current_net;
+			for(auto offer : offers) {
+				if(!open_for_application(state, offer) || state.world.job_offer_get_openings(offer) == 0
+					|| state.world.job_offer_get_factory_from_job_offer_factory(offer) == factory
+					|| !qualifies_for_offer(state, person, offer)) continue;
+				auto net = household_mobility::commute_adjusted_daily_wage(state, home, offer);
+				if(net > best_net) { best = offer; best_net = net; }
+			}
+			if(best && best_net > current_net * voluntary_quit_wage_gain + epsilon)
+				(void)labor_dynamics::quit_employment(state, contract, labor_dynamics::separation_reason::worker_quit);
+		}
+		for(auto contract_id : economy::exact_person_economy::active_contracts_for_factory(state, factory)) {
+			auto contract = economy::exact_person_economy::contract(state, contract_id);
+			if(!contract) continue;
+			auto home = persons::exact_population::home_site(state, contract->worker);
+			if(!home || contract->pay_period_days == 0) continue;
+			auto current_wage = contract->wage_rate * contract->labor_capacity / float(contract->pay_period_days);
+			auto current_net = household_mobility::commute_adjusted_daily_wage(state, home,
+				contract->workplace, current_wage);
+			dcon::job_offer_id best{};
+			float best_net = current_net;
+			for(auto offer : offers) {
+				if(!open_for_application(state, offer) || state.world.job_offer_get_openings(offer) == 0
+					|| state.world.job_offer_get_factory_from_job_offer_factory(offer) == factory
+					|| !exact_worker_qualifies_for_offer(state, contract->worker, offer)) continue;
+				auto net = household_mobility::commute_adjusted_daily_wage(state, home, offer);
+				if(net > best_net) { best = offer; best_net = net; }
+			}
+			if(best && best_net > current_net * voluntary_quit_wage_gain + epsilon)
+				(void)labor_dynamics::quit_exact_employment(state, contract_id,
+					labor_dynamics::separation_reason::worker_quit);
+		}
+	});
+	state.world.for_each_nation([&](dcon::nation_id nation) {
+		for(auto institution : governance::institutions_of(state, nation)) {
+			for(auto contract : concrete_labor::active_contracts_for_institution(state, institution)) {
+				auto person = state.world.employment_contract_get_person_from_employment_contract_person(contract);
+				auto home = person ? state.world.person_get_site_from_person_home_site(person) : dcon::site_id{};
+				auto period = state.world.employment_contract_get_pay_period_days(contract);
+				if(!person || !home || period == 0) continue;
+				auto current_site = state.world.employment_contract_get_site_from_employment_contract_site(contract);
+				auto current_daily = state.world.employment_contract_get_wage_rate(contract)
+					* state.world.employment_contract_get_labor_capacity(contract) / float(period);
+				auto current_net = household_mobility::commute_adjusted_daily_wage(state, home,
+					current_site, current_daily);
+				dcon::job_offer_id best{};
+				auto best_net = current_net;
+				for(auto offer : offers) {
+					if(!open_for_application(state, offer) || state.world.job_offer_get_openings(offer) == 0
+						|| state.world.job_offer_get_institution_from_job_offer_institution(offer) == institution
+						|| !qualifies_for_offer(state, person, offer)) continue;
+					auto net = household_mobility::commute_adjusted_daily_wage(state, home, offer);
+					if(net > best_net) { best = offer; best_net = net; }
+				}
+				if(best && best_net > current_net * voluntary_quit_wage_gain + epsilon)
+					(void)labor_dynamics::quit_employment(state, contract, labor_dynamics::separation_reason::worker_quit);
+			}
+			for(auto contract_id : economy::exact_person_economy::active_contracts_for_institution(state, institution)) {
+				auto contract = economy::exact_person_economy::contract(state, contract_id);
+				if(!contract || !contract->workplace || contract->pay_period_days == 0) continue;
+				auto home = persons::exact_population::home_site(state, contract->worker);
+				auto current_daily = contract->wage_rate * contract->labor_capacity / float(contract->pay_period_days);
+				auto current_net = household_mobility::commute_adjusted_daily_wage(state, home,
+					contract->workplace, current_daily);
+				dcon::job_offer_id best{};
+				auto best_net = current_net;
+				for(auto offer : offers) {
+					if(!open_for_application(state, offer) || state.world.job_offer_get_openings(offer) == 0
+						|| state.world.job_offer_get_institution_from_job_offer_institution(offer) == institution
+						|| !exact_worker_qualifies_for_offer(state, contract->worker, offer)) continue;
+					auto net = household_mobility::commute_adjusted_daily_wage(state, home, offer);
+					if(net > best_net) { best = offer; best_net = net; }
+				}
+				if(best && best_net > current_net * voluntary_quit_wage_gain + epsilon)
+					(void)labor_dynamics::quit_exact_employment(state, contract_id,
+						labor_dynamics::separation_reason::worker_quit);
+			}
+		}
 	});
 }
 
@@ -372,16 +592,17 @@ void process_job_search(sys::state& state) {
 		if(blocked_by_pending) continue;
 
 		dcon::job_offer_id best{};
+		float best_net_wage = 0.0f;
 		for(auto offer : candidates) {
 			if(!accepts_worker(state, person, offer)) continue;
-			if(!best) {
+			auto home = state.world.person_get_site_from_person_home_site(person);
+			if(!home) home = state.world.job_offer_get_site_from_job_offer_site(offer);
+			auto wage = household_mobility::commute_adjusted_daily_wage(state, home, offer);
+			if(!best || wage > best_net_wage
+				|| (wage == best_net_wage && offer.index() < best.index())) {
 				best = offer;
-				continue;
+				best_net_wage = wage;
 			}
-			auto wage = state.world.job_offer_get_wage_rate(offer);
-			auto best_wage = state.world.job_offer_get_wage_rate(best);
-			if(wage > best_wage
-				|| (wage == best_wage && offer.index() < best.index())) best = offer;
 		}
 		if(best) (void)submit_job_application(state, person, best, state.current_date);
 	}
@@ -390,6 +611,7 @@ void process_job_search(sys::state& state) {
 void process(sys::state& state) {
 	for(auto offer : all_offers(state)) refresh_offer(state, offer);
 	process_factory_vacancies(state);
+	process_worker_choices(state);
 	// Vacancies must exist before either representation searches. The exact
 	// search remains sparse: it only visits the displaced-worker queue.
 	labor_dynamics::process_displaced_job_search(state);

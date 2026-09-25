@@ -115,11 +115,42 @@ breakdown effective_policy(sys::state const& state, dcon::nation_id nation,
 	derived.national_administration = state.world.nation_get_administrative_efficiency(nation);
 	derived.local_control = state.world.province_get_control_ratio(province);
 	derived.funding = budget_fraction(state, nation, policy);
-	derived.bureaucratic_labor = std::max(
+	auto const population = std::max(0.0f,
+		state.world.province_get_demographics(province, demographics::total));
+	auto const teachers = std::max(0.0f,
+		state.world.province_get_public_teacher_staffing(province));
+	auto const police = std::max(0.0f,
+		state.world.province_get_public_police_staffing(province));
+	auto const bureaucrats = std::max(0.0f,
+		state.world.province_get_public_bureaucrat_staffing(province));
+	auto const education_staff = population > 0.0f
+		? unit(teachers / (population * 0.001f)) : 1.0f;
+	auto const police_staff = population > 0.0f
+		? unit(police / (population * 0.0015f)) : 1.0f;
+	auto const bureaucracy_staff = population > 0.0f
+		? unit(bureaucrats / (population * 0.0005f)) : 1.0f;
+	auto const high_education_labor = std::max(
 		state.world.province_get_labor_demand_satisfaction(
 			province, economy::labor::high_education_and_accepted),
 		state.world.province_get_labor_demand_satisfaction(
 			province, economy::labor::high_education));
+	switch(policy) {
+	case policy_kind::education:
+		derived.bureaucratic_labor = std::min(high_education_labor, education_staff);
+		break;
+	case policy_kind::crime_suppression:
+		derived.bureaucratic_labor = std::min(
+			state.world.province_get_labor_demand_satisfaction(province, economy::labor::no_education),
+			police_staff);
+		break;
+	case policy_kind::social_benefits:
+	case policy_kind::reform_implementation:
+		derived.bureaucratic_labor = std::min(high_education_labor, bureaucracy_staff);
+		break;
+	case policy_kind::mobilization_logistics:
+		derived.bureaucratic_labor = high_education_labor;
+		break;
+	}
 	derived.political_compliance = 0.25f;
 	auto const index = nation.index();
 	if(state.transformation_politics_cache_valid

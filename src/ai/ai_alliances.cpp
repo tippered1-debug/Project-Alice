@@ -2,6 +2,7 @@
 #include "ai_campaign_values.hpp"
 #include "system_state.hpp"
 #include "commands.hpp"
+#include "nations/strategic_statecraft.hpp"
 
 namespace ai {
 
@@ -56,7 +57,23 @@ static void internal_get_alliance_targets(sys::state& state, dcon::nation_id n, 
 void form_alliances(sys::state& state) {
 	static std::vector<dcon::nation_id> alliance_targets;
 	for(auto n : state.world.in_nation) {
-		if(!n.get_is_player_controlled() && n.get_ai_is_threatened() && !(n.get_overlord_as_subject().get_ruler())) {
+		if(!n.get_is_player_controlled() && !(n.get_overlord_as_subject().get_ruler())
+			&& nations::strategic_statecraft::uses_model(state, n.id)) {
+			auto partner = nations::strategic_statecraft::best_alliance_partner(state, n.id);
+			bool const accepted = partner && (state.world.nation_get_is_player_controlled(partner)
+				? state.world.unilateral_relationship_get_interested_in_alliance(
+					state.world.get_unilateral_relationship_by_unilateral_pair(n.id, partner))
+				: (nations::strategic_statecraft::uses_model(state, partner)
+					? nations::strategic_statecraft::accepts_alliance(state, partner, n.id)
+					: ai_will_accept_alliance(state, partner, n.id)));
+			if(accepted)
+				nations::make_alliance(state, n.id, partner);
+		}
+	}
+	for(auto n : state.world.in_nation) {
+		if(!n.get_is_player_controlled() && n.get_ai_is_threatened()
+			&& !(n.get_overlord_as_subject().get_ruler())
+			&& !nations::strategic_statecraft::uses_model(state, n.id)) {
 			alliance_targets.clear();
 			internal_get_alliance_targets(state, n, alliance_targets);
 			if(!alliance_targets.empty()) {
@@ -86,8 +103,32 @@ void prune_alliances(sys::state& state) {
 	static std::vector<dcon::nation_id> prune_targets;
 	for(auto n : state.world.in_nation) {
 		if(!n.get_is_player_controlled()
+			&& nations::strategic_statecraft::uses_model(state, n.id)
+			&& !(n.get_overlord_as_subject().get_ruler())) {
+			prune_targets.clear();
+			for(auto relation : n.get_diplomatic_relation()) {
+				if(!relation.get_are_allied())
+					continue;
+				auto other = relation.get_related_nations(0) != n
+					? relation.get_related_nations(0) : relation.get_related_nations(1);
+				if(other.get_in_sphere_of() == n || military::are_allied_in_war(state, n, other))
+					continue;
+				float const mutual_value = nations::strategic_statecraft::alliance_value(state, n.id, other.id)
+					+ (nations::strategic_statecraft::uses_model(state, other.id)
+						? nations::strategic_statecraft::alliance_value(state, other.id, n.id) : 0.2f);
+				if(mutual_value < 0.12f || state.world.nation_get_infamy(other) >= state.defines.badboy_limit)
+					prune_targets.push_back(other.id);
+			}
+			for(auto target : prune_targets) {
+				if(command::can_cancel_alliance(state, n.id, target, true))
+					command::execute_cancel_alliance(state, n.id, target);
+			}
+			continue;
+		}
+		if(!n.get_is_player_controlled()
 		&& !n.get_ai_is_threatened()
-		&& !(n.get_overlord_as_subject().get_ruler())) {
+		&& !(n.get_overlord_as_subject().get_ruler())
+		&& !nations::strategic_statecraft::uses_model(state, n.id)) {
 			prune_targets.clear();
 			for(auto dr : n.get_diplomatic_relation()) {
 				if(dr.get_are_allied()) {
@@ -180,6 +221,8 @@ static bool ai_has_mutual_enemy(sys::state& state, dcon::nation_id from, dcon::n
 
 
 bool ai_will_accept_alliance(sys::state& state, dcon::nation_id target, dcon::nation_id from) {
+	if(nations::strategic_statecraft::uses_model(state, target))
+		return nations::strategic_statecraft::accepts_alliance(state, target, from);
 	if(!state.world.nation_get_ai_is_threatened(target))
 		return false;
 

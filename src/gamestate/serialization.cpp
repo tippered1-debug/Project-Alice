@@ -3,6 +3,7 @@
 #include "serialization.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <random>
 #include <ctime>
 
@@ -38,6 +39,199 @@ constexpr std::size_t transformation_legislation_save_v1_record_size =
 constexpr std::size_t transformation_legislation_save_record_size =
 	sizeof(uint8_t) + 2 * sizeof(uint8_t) + sizeof(uint16_t) + sizeof(int32_t)
 	+ 3 * sizeof(uint32_t) + 5 * sizeof(float);
+
+constexpr uint32_t strategic_statecraft_save_magic = 0x414F5353u; // AOSS
+constexpr uint16_t strategic_statecraft_save_version = 1;
+constexpr std::size_t strategic_statecraft_save_header_size =
+	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
+
+void disable_strategic_statecraft(sys::state& state) {
+	state.strategic_statecraft_initialized = false;
+	state.strategic_interests.clear();
+	state.strategic_beliefs.clear();
+	state.strategic_commitments.clear();
+	state.strategic_crisis = nations::strategic_statecraft::crisis_memory{};
+}
+
+std::size_t strategic_statecraft_save_size(sys::state const& state) {
+	if(!state.strategic_statecraft_initialized)
+		return 0;
+	auto const payload_size = sizeof(uint8_t) + sizeof(state.strategic_crisis)
+		+ serialize_size(state.strategic_interests)
+		+ serialize_size(state.strategic_beliefs)
+		+ serialize_size(state.strategic_commitments);
+	return strategic_statecraft_save_header_size + payload_size;
+}
+
+uint8_t* write_strategic_statecraft_save(uint8_t* ptr, sys::state const& state) {
+	if(!state.strategic_statecraft_initialized)
+		return ptr;
+	auto const payload_size = uint32_t(sizeof(uint8_t) + sizeof(state.strategic_crisis)
+		+ serialize_size(state.strategic_interests)
+		+ serialize_size(state.strategic_beliefs)
+		+ serialize_size(state.strategic_commitments));
+	ptr = memcpy_serialize(ptr, strategic_statecraft_save_magic);
+	ptr = memcpy_serialize(ptr, strategic_statecraft_save_version);
+	uint16_t reserved = 0;
+	ptr = memcpy_serialize(ptr, reserved);
+	ptr = memcpy_serialize(ptr, payload_size);
+	ptr = memcpy_serialize(ptr, uint8_t(1));
+	ptr = memcpy_serialize(ptr, state.strategic_crisis);
+	ptr = serialize(ptr, state.strategic_interests);
+	ptr = serialize(ptr, state.strategic_beliefs);
+	ptr = serialize(ptr, state.strategic_commitments);
+	return ptr;
+}
+
+template<typename T>
+bool read_framed_vector(uint8_t const*& ptr, uint8_t const* payload_end,
+	std::vector<T>& output, uint32_t max_count) {
+	if(std::size_t(payload_end - ptr) < sizeof(uint32_t))
+		return false;
+	uint32_t count = 0;
+	ptr = memcpy_deserialize(ptr, count);
+	if(count > max_count || std::size_t(payload_end - ptr) < sizeof(T) * std::size_t(count))
+		return false;
+	output.resize(count);
+	if(count != 0)
+		std::memcpy(output.data(), ptr, sizeof(T) * std::size_t(count));
+	ptr += sizeof(T) * std::size_t(count);
+	return true;
+}
+
+uint8_t const* read_strategic_statecraft_save(
+	uint8_t const* ptr, uint8_t const* section_end, sys::state& state) {
+	if(std::size_t(section_end - ptr) < strategic_statecraft_save_header_size) {
+		disable_strategic_statecraft(state);
+		return ptr;
+	}
+	auto const* header_start = ptr;
+	uint32_t magic = 0;
+	uint16_t version = 0;
+	uint16_t reserved = 0;
+	uint32_t payload_size = 0;
+	ptr = memcpy_deserialize(ptr, magic);
+	ptr = memcpy_deserialize(ptr, version);
+	ptr = memcpy_deserialize(ptr, reserved);
+	ptr = memcpy_deserialize(ptr, payload_size);
+	(void)reserved;
+	if(magic != strategic_statecraft_save_magic) {
+		disable_strategic_statecraft(state);
+		return header_start;
+	}
+	if(std::size_t(section_end - ptr) < payload_size) {
+		disable_strategic_statecraft(state);
+		return section_end;
+	}
+	auto const* payload_end = ptr + payload_size;
+	if(version != strategic_statecraft_save_version) {
+		disable_strategic_statecraft(state);
+		return payload_end;
+	}
+	uint8_t initialized = 0;
+	if(std::size_t(payload_end - ptr) < sizeof(initialized) + sizeof(state.strategic_crisis)) {
+		disable_strategic_statecraft(state);
+		return payload_end;
+	}
+	ptr = memcpy_deserialize(ptr, initialized);
+	ptr = memcpy_deserialize(ptr, state.strategic_crisis);
+	// The handwritten save extension is parsed before the DCON world payload.
+	// Validate structural bounds here; nation-index checks wait until that
+	// payload has been loaded below.
+	constexpr uint32_t maximum_nations = 100'000u;
+	constexpr uint32_t maximum_beliefs = 4'000'000u;
+	bool const vectors_ok = read_framed_vector(ptr, payload_end, state.strategic_interests,
+		maximum_nations)
+		&& read_framed_vector(ptr, payload_end, state.strategic_beliefs, maximum_beliefs)
+		&& read_framed_vector(ptr, payload_end, state.strategic_commitments, 65'536u);
+	bool records_ok = initialized <= 1 && vectors_ok && ptr == payload_end
+		&& state.strategic_interests.size() <= maximum_nations;
+	auto const bounded_unit = [](float value) {
+		return std::isfinite(value) && value >= 0.0f && value <= 1.0f;
+	};
+	if(records_ok) {
+		for(auto const& profile : state.strategic_interests) {
+			if(profile.enabled > 1 || profile.last_decision > uint8_t(nations::strategic_statecraft::decision_code::crisis_war)
+				|| profile.objective > uint8_t(nations::strategic_statecraft::objective_kind::alliance)
+				|| !bounded_unit(profile.security) || !bounded_unit(profile.territorial_claims)
+				|| !bounded_unit(profile.market_access) || !bounded_unit(profile.resource_access)
+				|| !bounded_unit(profile.route_access) || !bounded_unit(profile.ally_subject_protection)
+				|| !bounded_unit(profile.prestige_influence)
+				|| !std::isfinite(profile.last_decision_value) || profile.last_decision_value < -1.0f
+				|| profile.last_decision_value > 1.0f
+				|| !std::isfinite(profile.objective_value) || profile.objective_value < -1.0f
+				|| profile.objective_value > 1.0f
+				|| (profile.objective_target != nations::strategic_statecraft::interests::no_nation
+					&& profile.objective_target >= maximum_nations)) {
+				records_ok = false;
+				break;
+			}
+		}
+	}
+	if(records_ok) {
+		uint64_t previous_key = 0;
+		bool first_belief = true;
+		for(auto const& view : state.strategic_beliefs) {
+			auto const observer = uint32_t(view.key >> 32);
+			auto const subject = uint32_t(view.key);
+			if(observer >= maximum_nations || subject >= maximum_nations || observer == subject
+				|| (!first_belief && view.key <= previous_key)
+				|| !bounded_unit(view.military_power) || !bounded_unit(view.economic_power)
+				|| !bounded_unit(view.resolve) || !bounded_unit(view.reliability)
+				|| view.currently_at_war > 1) {
+				records_ok = false;
+				break;
+			}
+			first_belief = false;
+			previous_key = view.key;
+		}
+	}
+	if(records_ok) {
+		for(auto const& promise : state.strategic_commitments) {
+			if(promise.promisor >= maximum_nations || promise.beneficiary >= maximum_nations
+				|| promise.promisor == promise.beneficiary
+				|| promise.kind > uint8_t(nations::strategic_statecraft::commitment_kind::guarantee)
+				|| promise.active > 1) {
+				records_ok = false;
+				break;
+			}
+		}
+	}
+	if(records_ok) {
+		auto const valid_index = [](uint32_t value) {
+			return value == nations::strategic_statecraft::crisis_memory::no_nation || value < maximum_nations;
+		};
+		auto const& crisis = state.strategic_crisis;
+		if(crisis.phase > uint8_t(nations::strategic_statecraft::crisis_phase::withdrawn)
+			|| crisis.outcome > uint8_t(nations::strategic_statecraft::crisis_phase::withdrawn)
+			|| crisis.resolution_decision > uint8_t(nations::strategic_statecraft::decision_code::crisis_war)
+			|| crisis.partial_concession > 1
+			|| !valid_index(crisis.claimant) || !valid_index(crisis.target) || !valid_index(crisis.outcome_actor)
+			|| !bounded_unit(crisis.demand_value) || !bounded_unit(crisis.offered_value)
+			|| !bounded_unit(crisis.readiness_cost))
+			records_ok = false;
+		else if(crisis.temporary_offer_goal_slot >= 0) {
+			auto const slot = std::size_t(crisis.temporary_offer_goal_slot);
+			if(slot >= state.crisis_attacker_wargoals.size()
+				|| !state.crisis_attacker_wargoals[slot].cb)
+				records_ok = false;
+		} else if(crisis.temporary_offer_goal_slot <= -2) {
+			auto const slot = std::size_t(-int64_t(crisis.temporary_offer_goal_slot) - 2);
+			if(slot >= state.crisis_defender_wargoals.size()
+				|| !state.crisis_defender_wargoals[slot].cb)
+				records_ok = false;
+		}
+	}
+	if(!records_ok) {
+		disable_strategic_statecraft(state);
+		return payload_end;
+	}
+	state.strategic_statecraft_initialized = initialized != 0;
+	if(!state.strategic_statecraft_initialized) {
+		disable_strategic_statecraft(state);
+	}
+	return payload_end;
+}
 
 std::size_t transformation_politics_save_size(sys::state const& state) {
 	if(state.transformation_government_state.empty())
@@ -1063,7 +1257,49 @@ uint8_t const* read_handwritten_save_section(uint8_t const* ptr_in, uint8_t cons
 	}
 	ptr_in = read_transformation_politics_save(ptr_in, section_end, state);
 	ptr_in = read_transformation_legislation_save(ptr_in, section_end, state);
+	ptr_in = read_strategic_statecraft_save(ptr_in, section_end, state);
 	return ptr_in;
+}
+
+void validate_strategic_statecraft_world_state(sys::state& state) {
+	if(!state.strategic_statecraft_initialized)
+		return;
+	auto const nation_count = state.world.nation_size();
+	bool valid = state.strategic_interests.size() == nation_count;
+	for(auto const& profile : state.strategic_interests) {
+		if(profile.objective_target != nations::strategic_statecraft::interests::no_nation
+			&& profile.objective_target >= nation_count) {
+			valid = false;
+			break;
+		}
+	}
+	if(valid) {
+		for(auto const& view : state.strategic_beliefs) {
+			if(uint32_t(view.key >> 32) >= nation_count || uint32_t(view.key) >= nation_count) {
+				valid = false;
+				break;
+			}
+		}
+	}
+	if(valid) {
+		for(auto const& promise : state.strategic_commitments) {
+			if(promise.promisor >= nation_count || promise.beneficiary >= nation_count) {
+				valid = false;
+				break;
+			}
+		}
+	}
+	if(valid) {
+		auto const is_valid_index = [nation_count](uint32_t value) {
+			return value == nations::strategic_statecraft::crisis_memory::no_nation
+				|| value < nation_count;
+		};
+		auto const& crisis = state.strategic_crisis;
+		valid = is_valid_index(crisis.claimant) && is_valid_index(crisis.target)
+			&& is_valid_index(crisis.outcome_actor);
+	}
+	if(!valid)
+		disable_strategic_statecraft(state);
 }
 
 uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields) {
@@ -1081,6 +1317,7 @@ uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_e
 		std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 		state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded, loadmask);
 	}
+	validate_strategic_statecraft_world_state(state);
 	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();
 	return section_end;
@@ -1138,6 +1375,7 @@ uint8_t* write_handwritten_save_section(uint8_t* ptr_in, sys::state& state, bool
 	}
 	ptr_in = write_transformation_politics_save(ptr_in, state);
 	ptr_in = write_transformation_legislation_save(ptr_in, state);
+	ptr_in = write_strategic_statecraft_save(ptr_in, state);
 	return ptr_in;
 }
 
@@ -1199,6 +1437,7 @@ size_t sizeof_handwritten_save_section(sys::state& state, bool exclude_local_han
 	}
 	sz += transformation_politics_save_size(state);
 	sz += transformation_legislation_save_size(state);
+	sz += strategic_statecraft_save_size(state);
 	return sz;
 }
 

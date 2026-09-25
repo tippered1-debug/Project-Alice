@@ -67,10 +67,10 @@ dcon::fiscal_action_id record_action(sys::state& state, fiscal_action_kind kind,
 	auto action = state.world.create_fiscal_action();
 	state.world.fiscal_action_set_kind(action, uint8_t(kind));
 	state.world.fiscal_action_set_occurred_on(action, date);
-	state.world.force_create_fiscal_action_initiator(action, initiator);
-	state.world.force_create_fiscal_action_authorizing_office(action, office);
-	state.world.force_create_fiscal_action_treasury_institution(action, institution);
-	state.world.force_create_fiscal_action_treasury_account(action, treasury_account);
+	if(initiator) state.world.force_create_fiscal_action_initiator(action, initiator);
+	if(office) state.world.force_create_fiscal_action_authorizing_office(action, office);
+	if(institution) state.world.force_create_fiscal_action_treasury_institution(action, institution);
+	if(treasury_account) state.world.force_create_fiscal_action_treasury_account(action, treasury_account);
 	if(obligation) state.world.force_create_fiscal_action_resulting_obligation(action, obligation);
 	if(transaction) state.world.force_create_fiscal_action_resulting_transaction(action, transaction);
 	return action;
@@ -133,6 +133,59 @@ dcon::fiscal_action_id authorized_assess_tax(sys::state& state, dcon::person_id 
 		context.institution, treasury_account, date, obligation);
 }
 
+dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state& state,
+	dcon::institution_id authority, dcon::economic_actor_id taxpayer_actor,
+	dcon::monetary_account_id treasury_account, float amount,
+	sys::date due_date, sys::date date) {
+	if(!authority || !state.world.institution_is_valid(authority) || !valid_amount(amount)
+		|| due_date < date || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor)
+		|| !treasury_account || !state.world.monetary_account_is_valid(treasury_account)
+		|| treasury_institution_for(state, treasury_account) != authority) return {};
+	auto nation = governance::nation_of(state, authority);
+	auto settlement = economy::accounts::settlement_of(state, treasury_account);
+	if(!nation || !settlement || !governance::has_authority(state, authority,
+		governance::authority_kind::levy_tax, nation)) return {};
+	auto creditor = governance::actor_for_institution(state, authority);
+	if(!creditor || creditor == taxpayer_actor
+		|| economy::accounts::owner_of(state, treasury_account) != creditor) return {};
+	dcon::obligation_id rolling_obligation{};
+	dcon::fiscal_action_id assessment_action{};
+	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(taxpayer_actor,
+		[&](dcon::obligation_debtor_id relation) {
+			auto candidate = state.world.obligation_debtor_get_obligation(relation);
+			if(rolling_obligation || !candidate
+				|| state.world.obligation_get_kind(candidate) != uint8_t(obligation_kind::tax)
+				|| state.world.obligation_get_economic_actor_from_obligation_creditor(candidate) != creditor
+				|| state.world.obligation_get_settlement_commodity(candidate) != settlement) return;
+			rolling_obligation = candidate;
+		});
+	if(rolling_obligation) {
+		auto original_principal = state.world.obligation_get_original_principal(rolling_obligation) + amount;
+		auto principal_outstanding = state.world.obligation_get_principal_outstanding(rolling_obligation) + amount;
+		if(!std::isfinite(original_principal) || !std::isfinite(principal_outstanding)) return {};
+		state.world.obligation_set_original_principal(rolling_obligation,
+			original_principal);
+		state.world.obligation_set_principal_outstanding(rolling_obligation, principal_outstanding);
+		state.world.obligation_set_due_date(rolling_obligation, due_date);
+		state.world.obligation_set_status(rolling_obligation, uint8_t(obligation_status::active));
+		state.world.obligation_for_each_fiscal_action_resulting_obligation_as_obligation(rolling_obligation,
+			[&](dcon::fiscal_action_resulting_obligation_id relation) {
+				if(!assessment_action) assessment_action = state.world.fiscal_action_resulting_obligation_get_fiscal_action(relation);
+			});
+		if(assessment_action) {
+			state.world.fiscal_action_set_occurred_on(assessment_action, date);
+			return assessment_action;
+		}
+		return record_action(state, fiscal_action_kind::tax_assessment, {}, {}, authority,
+			treasury_account, date, rolling_obligation);
+	}
+	auto obligation = economy::relations::create_obligation(state, taxpayer_actor, creditor, amount,
+		settlement, date, due_date, 0.0f, obligation_kind::tax);
+	if(!obligation) return {};
+	return record_action(state, fiscal_action_kind::tax_assessment, {}, {}, authority,
+		treasury_account, date, obligation);
+}
+
 dcon::transaction_id pay_tax(sys::state& state, dcon::obligation_id tax_obligation,
 	dcon::monetary_account_id taxpayer_account, dcon::monetary_account_id treasury_account,
 	float amount, sys::date date) {
@@ -167,6 +220,29 @@ dcon::fiscal_action_id authorized_spend(sys::state& state, dcon::person_id initi
 	if(!transaction) return {};
 	return record_action(state, fiscal_action_kind::public_spending, initiator, context.office,
 		context.institution, treasury_account, date, {}, transaction);
+}
+
+dcon::fiscal_action_id authorized_spend_by_institution(sys::state& state,
+	dcon::institution_id authority, dcon::monetary_account_id treasury_account,
+	dcon::monetary_account_id recipient_account, float amount, sys::date date) {
+	if(!authority || !state.world.institution_is_valid(authority) || !valid_amount(amount)
+		|| !treasury_account || !state.world.monetary_account_is_valid(treasury_account)
+		|| treasury_institution_for(state, treasury_account) != authority
+		|| !recipient_account || !state.world.monetary_account_is_valid(recipient_account)) return {};
+	auto nation = governance::nation_of(state, authority);
+	auto settlement = economy::accounts::settlement_of(state, treasury_account);
+	auto recipient_institution = institution_for_actor(state, economy::accounts::owner_of(state, recipient_account));
+	if(!nation || !settlement || !governance::has_authority(state, authority,
+		governance::authority_kind::spend_public_funds, nation)
+		|| economy::accounts::settlement_of(state, recipient_account) != settlement
+		|| !recipient_institution || governance::nation_of(state, recipient_institution) != nation
+		|| treasury_institution_for(state, recipient_account) != recipient_institution
+		|| economy::accounts::balance(state, treasury_account) < amount) return {};
+	auto transaction = economy::accounts::transfer(state, treasury_account, recipient_account,
+		amount, transaction_kind::public_spending, date);
+	if(!transaction) return {};
+	return record_action(state, fiscal_action_kind::public_spending, {}, {}, authority,
+		treasury_account, date, {}, transaction);
 }
 
 namespace {

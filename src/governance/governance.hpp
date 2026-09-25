@@ -2,7 +2,7 @@
 #include "dcon_generated.hpp"
 namespace sys { class state; }
 namespace governance {
-enum class institution_kind : uint8_t { central_government, ministry, central_bank, tax_authority, regulator, court, prosecutor, military_command, regional_government, municipality, other };
+enum class institution_kind : uint8_t { central_government, ministry, central_bank, tax_authority, regulator, court, prosecutor, military_command, regional_government, municipality, other, household_sector, finance_ministry, education_ministry, interior_ministry, public_works_ministry };
 enum class office_kind : uint8_t { president, prime_minister, finance_minister, central_bank_governor, chief_of_general_staff, mayor, agency_director, judge_seat, other };
 enum class authority_kind : uint8_t { administer, regulate, levy_tax, spend_public_funds, license, enforce, adjudicate, command_forces, appoint, dismiss, issue_currency, expropriate, other, issue_public_debt, legislate };
 dcon::institution_id create_institution(sys::state&, dcon::nation_id, institution_kind);

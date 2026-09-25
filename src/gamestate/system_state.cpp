@@ -42,6 +42,7 @@
 #include "economy/physical/deposits.hpp"
 #include "actors/ownership.hpp"
 #include "governance/governance.hpp"
+#include "governance/public_administration.hpp"
 
 namespace sys {
 
@@ -3525,6 +3526,8 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 			effect::execute(*this, e, trigger::to_generic(n), trigger::to_generic(n), 0, uint32_t(current_date.value), uint32_t(n.index() << 4 ^ d.index()));
 	}
 
+	nations::strategic_statecraft::initialize(*this);
+
 	current_scene.game_in_progress = old_game_in_prog;
 }
 
@@ -4173,6 +4176,7 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 	::economy::physical::deposits::bootstrap(*this);
 	::actors::ownership::bootstrap(*this);
 	::governance::bootstrap(*this);
+	::governance::public_administration::bootstrap(*this);
 
 	//copy current day's data to the alt store
 
@@ -4530,6 +4534,8 @@ void state::single_game_tick() {
 		nations::update_great_powers(*this);		// depends on rankings
 		nations::update_influence(*this);				// depends on rankings, great powers
 
+		if(ymd_date.day == 1)
+			nations::strategic_statecraft::update_monthly(*this);
 		nations::update_crisis(*this);
 		politics::update_elections(*this);
 

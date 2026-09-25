@@ -6,6 +6,9 @@
 #include "politics.hpp"
 #include "culture/transformation_politics.hpp"
 #include "system_state.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/public_administration.hpp"
+#include "economy/money.hpp"
 #include "container_types.hpp"
 #include "ve_scalar_extensions.hpp"
 #include "triggers.hpp"
@@ -2048,8 +2051,7 @@ void update_monthly_points(sys::state& state) {
 }
 
 float get_treasury(sys::state& state, dcon::nation_id n) {
-	(void)state; (void)n;
-	return 0.0f;
+	return governance::public_administration::treasury_cash(state, n);
 }
 
 float get_bank_funds(sys::state& state, dcon::nation_id n) {
@@ -2057,7 +2059,7 @@ float get_bank_funds(sys::state& state, dcon::nation_id n) {
 }
 
 float get_debt(sys::state& state, dcon::nation_id n) {
-	return 0.0f;
+	return governance::finance::national_public_debt(state, n, economy::money);
 }
 
 // estimates rate of tariffs collected in a market
@@ -2656,6 +2658,7 @@ void release_vassal(sys::state& state, dcon::overlord_id rel) {
 	auto vas = state.world.overlord_get_subject(rel);
 	auto ol = state.world.overlord_get_ruler(rel);
 	if(ol) {
+		strategic_statecraft::guarantee_broken(state, ol, vas);
 		if(state.world.nation_get_is_substate(vas)) {
 			state.world.nation_set_is_substate(vas, false);
 			state.world.nation_get_substates_count(ol)--;
@@ -2696,6 +2699,7 @@ void make_vassal(sys::state& state, dcon::nation_id subject, dcon::nation_id ove
 		clear_trade_agreements(state, subject);
 		politics::update_displayed_identity(state, subject);
 	}
+	strategic_statecraft::guarantee_formed(state, overlord, subject);
 }
 void make_substate(sys::state& state, dcon::nation_id subject, dcon::nation_id overlord) {
 	if(subject == overlord)
@@ -2726,13 +2730,17 @@ void make_substate(sys::state& state, dcon::nation_id subject, dcon::nation_id o
 		clear_trade_agreements(state, subject);
 		politics::update_displayed_identity(state, subject);
 	}
+	strategic_statecraft::guarantee_formed(state, overlord, subject);
 }
 
 void break_alliance(sys::state& state, dcon::diplomatic_relation_id rel) {
 	if(state.world.diplomatic_relation_get_are_allied(rel)) {
+		auto const a = state.world.diplomatic_relation_get_related_nations(rel, 0);
+		auto const b = state.world.diplomatic_relation_get_related_nations(rel, 1);
 		state.world.diplomatic_relation_set_are_allied(rel, false);
-		state.world.nation_get_allies_count(state.world.diplomatic_relation_get_related_nations(rel, 0))--;
-		state.world.nation_get_allies_count(state.world.diplomatic_relation_get_related_nations(rel, 1))--;
+		state.world.nation_get_allies_count(a)--;
+		state.world.nation_get_allies_count(b)--;
+		strategic_statecraft::alliance_broken(state, a, b);
 	}
 }
 
@@ -2765,6 +2773,7 @@ void make_alliance(sys::state& state, dcon::nation_id a, dcon::nation_id b) {
 		state.world.nation_get_allies_count(a)++;
 		state.world.nation_get_allies_count(b)++;
 		state.world.diplomatic_relation_set_are_allied(r, true);
+		strategic_statecraft::alliance_formed(state, a, b);
 	}
 
 	if(a != state.local_player_nation && b != state.local_player_nation) {
@@ -3202,6 +3211,14 @@ void crisis_add_wargoal(std::vector<sys::full_wg>& list, sys::full_wg wg) {
 }
 
 void cleanup_crisis(sys::state& state) {
+	if(state.strategic_statecraft_initialized
+		&& state.strategic_crisis.phase != uint8_t(strategic_statecraft::crisis_phase::inactive)
+		&& state.strategic_crisis.phase != uint8_t(strategic_statecraft::crisis_phase::settled)
+		&& state.strategic_crisis.phase != uint8_t(strategic_statecraft::crisis_phase::war)
+		&& state.strategic_crisis.phase != uint8_t(strategic_statecraft::crisis_phase::withdrawn)) {
+		strategic_statecraft::record_crisis_outcome(state,
+			strategic_statecraft::crisis_phase::withdrawn, state.crisis_attacker);
+	}
 	for(unsigned i = 0; i < state.crisis_attacker_wargoals.size(); i++) {
 		if(state.crisis_attacker_wargoals[i].cb) {
 			state.crisis_attacker_wargoals[i] = sys::full_wg{};
@@ -3384,6 +3401,9 @@ void cleanup_crisis_peace_offer(sys::state& state, dcon::peace_offer_id peace) {
 }
 
 void accept_crisis_peace_offer(sys::state& state, dcon::nation_id from, dcon::nation_id to, dcon::peace_offer_id peace) {
+	auto const conceding_party = state.world.peace_offer_get_is_concession(peace) ? from : to;
+	strategic_statecraft::record_crisis_outcome(
+		state, strategic_statecraft::crisis_phase::settled, conceding_party);
 
 	military::implement_peace_offer(state, peace);
 
@@ -3467,6 +3487,12 @@ void crisis_state_transition(sys::state& state, sys::crisis_state new_state) {
 				}
 			}
 		}
+		if(state.strategic_statecraft_initialized) {
+			state.strategic_crisis.phase = uint8_t(strategic_statecraft::crisis_phase::coalition);
+			state.strategic_crisis.phase_day = state.current_date.value;
+		}
+		strategic_statecraft::record_crisis_commitment(state, state.primary_crisis_attacker, true);
+		strategic_statecraft::record_crisis_commitment(state, state.primary_crisis_defender, false);
 
 		// auto join ais
 		dcon::nation_id secondary_attacker = state.crisis_attacker;
@@ -3474,36 +3500,34 @@ void crisis_state_transition(sys::state& state, sys::crisis_state new_state) {
 
 		for(auto& i : state.crisis_participants) {
 			if(i.id && i.merely_interested == true && state.world.nation_get_is_player_controlled(i.id) == false) {
+				if(strategic_statecraft::uses_model(state, i.id))
+					continue; // modelled countries choose after the first threat is observable
+				bool join = false;
+				bool supports_attacker = false;
 				if(state.world.nation_get_ai_rival(i.id) == state.primary_crisis_attacker
 					|| nations::are_allied(state, i.id, state.primary_crisis_defender)
 					|| state.world.nation_get_ai_rival(i.id) == secondary_attacker
 					|| nations::are_allied(state, i.id, secondary_defender)
 					|| state.world.nation_get_in_sphere_of(secondary_defender) == i.id) {
-
-					i.merely_interested = false;
-					i.supports_attacker = false;
-
-					notification::post(state, notification::message{
-						[source = i.id](sys::state& state, text::layout_base& contents) {
-							text::add_line(state, contents, "msg_crisis_vol_join_2", text::variable_type::x, source);
-						},
-						"msg_crisis_vol_join_title",
-						i.id, dcon::nation_id{}, dcon::nation_id{},
-						sys::message_base_type::crisis_voluntary_join,
-						dcon::province_id{ }
-					});
+					join = true;
+					supports_attacker = false;
 				} else if(state.world.nation_get_ai_rival(i.id) == state.primary_crisis_defender
 					|| nations::are_allied(state, i.id, state.primary_crisis_attacker)
 					|| state.world.nation_get_ai_rival(i.id) == secondary_defender
 					|| nations::are_allied(state, i.id, secondary_attacker)
 					|| state.world.nation_get_in_sphere_of(secondary_attacker) == i.id) {
-
+					join = true;
+					supports_attacker = true;
+				}
+				if(join) {
 					i.merely_interested = false;
-					i.supports_attacker = true;
-
+					i.supports_attacker = supports_attacker;
+					strategic_statecraft::record_crisis_commitment(state, i.id, supports_attacker);
 					notification::post(state, notification::message{
-						[source = i.id](sys::state& state, text::layout_base& contents) {
-							text::add_line(state, contents, "msg_crisis_vol_join_1", text::variable_type::x, source);
+						[source = i.id, supports_attacker](sys::state& state, text::layout_base& contents) {
+							text::add_line(state, contents,
+								supports_attacker ? "msg_crisis_vol_join_1" : "msg_crisis_vol_join_2",
+								text::variable_type::x, source);
 						},
 						"msg_crisis_vol_join_title",
 						i.id, dcon::nation_id{}, dcon::nation_id{},
@@ -3519,6 +3543,7 @@ void crisis_state_transition(sys::state& state, sys::crisis_state new_state) {
 }
 
 void update_crisis(sys::state& state) {
+	strategic_statecraft::update_crisis(state);
 	/*
 	A crisis may not start until define:CRISIS_COOLDOWN_MONTHS months after the last crisis or crisis war has ended.
 	*/
@@ -3725,7 +3750,11 @@ void update_crisis(sys::state& state) {
 		state.crisis_temperature += state.defines.crisis_temperature_increase * state.defines.crisis_temperature_participant_factor *
 																float(participants) / float(total);
 		// Start crisis war
-		if(state.crisis_temperature >= 100) {
+		bool const strategic_crisis = strategic_statecraft::uses_model_for_current_crisis(state)
+			&& !state.world.nation_get_is_player_controlled(state.primary_crisis_attacker)
+			&& !state.world.nation_get_is_player_controlled(state.primary_crisis_defender);
+		if(strategic_crisis ? strategic_statecraft::may_escalate_to_war(state)
+			: state.crisis_temperature >= 100.0f) {
 			dcon::war_id war;
 
 			assert(state.crisis_attacker_wargoals.size() > 0);
@@ -3805,6 +3834,7 @@ void update_crisis(sys::state& state) {
 				}
 			}
 
+			strategic_statecraft::record_crisis_outcome(state, strategic_statecraft::crisis_phase::war);
 			cleanup_crisis(state);
 			state.world.war_set_is_crisis_war(war, true);
 

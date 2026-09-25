@@ -7,6 +7,10 @@
 #include "economy_stats.hpp"
 #include "province_templates.hpp"
 #include "money.hpp"
+#include "gamerule/gamerule.hpp"
+#include "economy/accounts/accounts.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/public_administration.hpp"
 
 namespace economy {
 
@@ -107,8 +111,14 @@ float tax_collection_rate(sys::state const& state, dcon::nation_id n, dcon::prov
 	if(pid == capital) {
 		from_control = std::max(0.1f, from_control);
 	}
-
-	return std::min(0.5f * from_control * (1.f + efficiency), 1.f);
+	auto public_administration_capacity = 1.0f;
+	if(gamerule::age_of_transformation_enabled(state)) {
+		auto population = std::max(0.0f, state.world.province_get_demographics(pid, demographics::total));
+		auto staff = std::max(0.0f, state.world.province_get_public_bureaucrat_staffing(pid));
+		auto staff_ratio = population > 0.0f ? std::clamp(staff / (population * 0.0005f), 0.f, 1.f) : 1.f;
+		public_administration_capacity = 0.35f + 0.65f * staff_ratio;
+	}
+	return std::min(0.5f * from_control * (1.f + efficiency) * public_administration_capacity, 1.f);
 }
 
 float estimate_spendings_administration_capital(sys::state const& state, dcon::nation_id n, float budget) {
@@ -164,6 +174,7 @@ float full_spendings_administration(sys::state const& state, dcon::nation_id n, 
 }
 
 void update_consumption_administration(sys::state& state, dcon::nation_id n, float total_budget) {
+	if(gamerule::age_of_transformation_enabled(state)) return;
 	// admin budget is not scaled down
 	auto admin_budget = total_budget * float(state.world.nation_get_administrative_spending(n)) / 100.f;
 	auto admin_count = count_active_administrations(state, n);
@@ -281,6 +292,7 @@ void update_production_administration(sys::state& state, dcon::nation_id n) {
 }
 
 void collect_taxes(sys::state& state, ve::vectorizable_buffer<float, dcon::pop_id>& pop_income) {
+	auto const use_fiscal_ledger = gamerule::age_of_transformation_enabled(state);
 	// gather taxes into province buffers
 	concurrency::parallel_for(uint32_t(0), uint32_t(state.province_definitions.first_sea_province.index()), [&](auto raw_pid) {
 		dcon::province_id pid{ dcon::province_id::value_base_t(raw_pid) };
@@ -311,13 +323,13 @@ void collect_taxes(sys::state& state, ve::vectorizable_buffer<float, dcon::pop_i
 
 			if(strata == culture::pop_strata::poor) {
 				potential_tax_poor += income;
-				pop.set_savings(savings - income * poor_effect);
+				if(!use_fiscal_ledger) pop.set_savings(savings - income * poor_effect);
 			} else if(strata == culture::pop_strata::middle) {
 				potential_tax_mid += income;
-				pop.set_savings(savings - income * middle_effect);
+				if(!use_fiscal_ledger) pop.set_savings(savings - income * middle_effect);
 			} else if(strata == culture::pop_strata::rich) {
 				potential_tax_rich += income;
-				pop.set_savings(savings - income * rich_effect);
+				if(!use_fiscal_ledger) pop.set_savings(savings - income * rich_effect);
 			}
 
 			// to avoid floating point nonsense
@@ -332,9 +344,8 @@ void collect_taxes(sys::state& state, ve::vectorizable_buffer<float, dcon::pop_i
 	});
 
 	// collect taxes for each nation:
-	concurrency::parallel_for(uint32_t(0), uint32_t(state.world.nation_size()), [&](auto raw_nid) {
-		dcon::nation_id nid{ dcon::nation_id::value_base_t(raw_nid) };
-		if(!state.world.nation_is_valid(nid)) return;
+	for(auto nation_ref : state.world.in_nation) {
+		auto nid = nation_ref.id;
 
 		auto collected_tax = 0.f;
 		float total_poor_tax_base = 0.0f;
@@ -345,10 +356,10 @@ void collect_taxes(sys::state& state, ve::vectorizable_buffer<float, dcon::pop_i
 			auto province = po.get_province();
 
 			if(nid != state.world.province_get_nation_from_province_control(province)) {
-				return;
+				continue;
 			}
 			if(province.id.index() >= state.province_definitions.first_sea_province.index()) {
-				return;
+				continue;
 			}
 
 			auto tax_multiplier = tax_collection_rate(state, nid, province);
@@ -374,8 +385,77 @@ void collect_taxes(sys::state& state, ve::vectorizable_buffer<float, dcon::pop_i
 
 		assert(std::isfinite(collected_tax));
 		assert(collected_tax >= 0);
-		(void)collected_tax;
-	});
+
+		if(!use_fiscal_ledger) continue;
+
+		auto authority = governance::public_administration::tax_authority_for(state, nid);
+		auto treasury = governance::public_administration::tax_treasury_for(state, nid);
+		auto household_actor = governance::public_administration::household_sector_actor(state, nid);
+		auto household_account = governance::public_administration::household_sector_account(state, nid);
+		if(!authority || !treasury || !household_actor || !household_account) continue;
+
+		float statutory_due = total_poor_tax_base * float(state.world.nation_get_poor_tax(nid)) / 100.0f
+			+ total_mid_tax_base * float(state.world.nation_get_middle_tax(nid)) / 100.0f
+			+ total_rich_tax_base * float(state.world.nation_get_rich_tax(nid)) / 100.0f;
+		float collectible = 0.0f;
+		float household_cash = 0.0f;
+		for(auto po : state.world.nation_get_province_ownership(nid)) {
+			auto province = po.get_province();
+			if(province.id.index() >= state.province_definitions.first_sea_province.index()) continue;
+			auto controlled = nid == state.world.province_get_nation_from_province_control(province);
+			auto multiplier = controlled ? tax_collection_rate(state, nid, province.id) : 0.0f;
+			auto poor_rate = float(state.world.nation_get_poor_tax(nid)) / 100.0f;
+			auto middle_rate = float(state.world.nation_get_middle_tax(nid)) / 100.0f;
+			auto rich_rate = float(state.world.nation_get_rich_tax(nid)) / 100.0f;
+			for(auto pl : state.world.province_get_pop_location(province.id)) {
+				auto pop = pl.get_pop();
+				auto savings = std::max(0.0f, state.world.pop_get_savings(pop));
+				auto income = std::max(0.0f, pop_income.get(pop));
+				auto strata = culture::pop_strata(pop.get_poptype().get_strata());
+				auto rate = strata == culture::pop_strata::poor ? poor_rate
+					: strata == culture::pop_strata::middle ? middle_rate
+					: strata == culture::pop_strata::rich ? rich_rate : 0.0f;
+				household_cash += savings;
+				collectible += std::min(savings, income * rate * multiplier);
+			}
+		}
+		collectible = std::min({collectible, household_cash, statutory_due});
+		if(!std::isfinite(statutory_due) || statutory_due <= 0.0f) continue;
+
+		// The household account mirrors the savings represented by POPs. The
+		// transfer is the monetary event; only a successful payment is then
+		// deducted from POP savings. The unpaid part stays as tax arrears.
+		if(!economy::accounts::bootstrap_set_balance(state, household_account, household_cash)) continue;
+		auto assessment = governance::finance::authorized_assess_tax_by_institution(state,
+			authority, household_actor, treasury, statutory_due, state.current_date, state.current_date);
+		if(!assessment) continue;
+		if(collectible <= 0.0f) continue;
+		auto obligation = state.world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(assessment);
+		auto payment = governance::finance::pay_tax(state, obligation, household_account,
+			treasury, collectible, state.current_date);
+		if(!payment) continue;
+
+		for(auto po : state.world.nation_get_province_ownership(nid)) {
+			auto province = po.get_province();
+			if(province.id.index() >= state.province_definitions.first_sea_province.index()
+				|| nid != state.world.province_get_nation_from_province_control(province)) continue;
+			auto multiplier = tax_collection_rate(state, nid, province.id);
+			auto poor_rate = float(state.world.nation_get_poor_tax(nid)) / 100.0f;
+			auto middle_rate = float(state.world.nation_get_middle_tax(nid)) / 100.0f;
+			auto rich_rate = float(state.world.nation_get_rich_tax(nid)) / 100.0f;
+			for(auto pl : state.world.province_get_pop_location(province.id)) {
+				auto pop = pl.get_pop();
+				auto savings = std::max(0.0f, state.world.pop_get_savings(pop));
+				auto income = std::max(0.0f, pop_income.get(pop));
+				auto strata = culture::pop_strata(pop.get_poptype().get_strata());
+				auto rate = strata == culture::pop_strata::poor ? poor_rate
+					: strata == culture::pop_strata::middle ? middle_rate
+					: strata == culture::pop_strata::rich ? rich_rate : 0.0f;
+				auto paid = std::min(savings, income * rate * multiplier);
+				pop.set_savings(std::max(0.0f, savings - paid));
+			}
+		}
+	}
 }
 
 tax_information explain_tax_income_local(sys::state const& state, dcon::nation_id n, dcon::province_id province) {

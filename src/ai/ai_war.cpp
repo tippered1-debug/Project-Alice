@@ -314,6 +314,8 @@ float utility_of_states_trigger(
 }
 
 bool will_be_crisis_primary_attacker(sys::state& state, dcon::nation_id n) {
+	if(nations::strategic_statecraft::uses_model(state, n))
+		return nations::strategic_statecraft::wants_crisis_support(state, n, true);
 
 	auto first_wg = state.crisis_attacker_wargoals.at(0);
 	if(first_wg.cb == state.military_definitions.crisis_colony) {
@@ -356,6 +358,8 @@ bool will_be_crisis_primary_attacker(sys::state& state, dcon::nation_id n) {
 	}
 }
 bool will_be_crisis_primary_defender(sys::state& state, dcon::nation_id n) {
+	if(nations::strategic_statecraft::uses_model(state, n))
+		return nations::strategic_statecraft::wants_crisis_support(state, n, false);
 	auto first_wg = state.crisis_attacker_wargoals.at(0);
 	if(first_wg.cb == state.military_definitions.crisis_colony) {
 		auto colonizers = state.world.state_definition_get_colonization(first_wg.state);
@@ -1028,8 +1032,199 @@ void prepare_list_of_targets_for_cb(
 }
 
 
+static bool statecraft_submit_crisis_offer(
+	sys::state& state, dcon::nation_id source, bool concession,
+	std::vector<sys::full_wg> const& wargoals) {
+	if(!concession && (wargoals.empty() || !wargoals.front().cb))
+		return false;
+	if(!command::can_start_crisis_peace_offer<false>(state, source, concession))
+		return false;
+	command::execute_start_crisis_peace_offer(state, source, concession);
+	auto pending = state.world.nation_get_peace_offer_from_pending_peace_offer(source);
+	bool added_term = false;
+	std::size_t available_term_count = 0;
+	for(auto const& goal : wargoals) {
+		if(!goal.cb)
+			break;
+		++available_term_count;
+	}
+	std::size_t term_count = available_term_count;
+	if(concession && term_count > 1)
+		term_count = std::max<std::size_t>(1, term_count / 2);
+	for(std::size_t index = 0; index < term_count; ++index) {
+		auto const& desired = wargoals[index];
+		if(!desired.cb)
+			break;
+		bool duplicate = false;
+		for(auto item : state.world.peace_offer_get_peace_offer_item(pending)) {
+			auto wg = item.get_wargoal();
+			if(desired.added_by == wg.get_added_by()
+				&& desired.state == wg.get_associated_state()
+				&& desired.wg_tag == wg.get_associated_tag()
+				&& desired.secondary_nation == wg.get_secondary_nation()
+				&& desired.target_nation == wg.get_target_nation()
+				&& desired.cb == wg.get_type()) {
+				duplicate = true;
+				break;
+			}
+		}
+		if(duplicate)
+			continue;
+		if(!command::can_add_to_crisis_peace_offer<false>(state, source, desired.added_by,
+			desired.target_nation, desired.cb, desired.state, desired.wg_tag, desired.secondary_nation))
+			continue;
+		auto wg = fatten(state.world, state.world.create_wargoal());
+		wg.set_peace_offer_from_peace_offer_item(pending);
+		wg.set_added_by(desired.added_by);
+		wg.set_associated_state(desired.state);
+		wg.set_associated_tag(desired.wg_tag);
+		wg.set_secondary_nation(desired.secondary_nation);
+		wg.set_target_nation(desired.target_nation);
+		wg.set_type(desired.cb);
+		added_term = true;
+	}
+	if((!concession && !added_term) || !command::can_send_crisis_peace_offer(state, source)) {
+		nations::cleanup_crisis_peace_offer(state, pending);
+		return false;
+	}
+	command::execute_send_crisis_peace_offer(state, source);
+	if(state.strategic_statecraft_initialized) {
+		++state.strategic_crisis.offers_made;
+		state.strategic_crisis.last_offer_day = state.current_date.value;
+		if(concession && term_count < available_term_count)
+			state.strategic_crisis.partial_concession = 1;
+	}
+	return true;
+}
+
+static bool statecraft_submit_reparations_concession(sys::state& state,
+	dcon::nation_id source) {
+	auto const attacker = state.primary_crisis_attacker;
+	auto const defender = state.primary_crisis_defender;
+	if(source != defender || !attacker || !defender)
+		return false;
+	std::size_t claim_count = 0;
+	for(auto const& goal : state.crisis_attacker_wargoals) {
+		if(!goal.cb)
+			break;
+		++claim_count;
+	}
+	if(claim_count != 1)
+		return false;
+	dcon::cb_type_id reparations_cb{};
+	for(auto cb : state.world.in_cb_type) {
+		if((cb.get_type_bits() & military::cb_flag::po_reparations) != 0
+			&& military::cb_conditions_satisfied(state, attacker, defender, cb)) {
+			reparations_cb = cb;
+			break;
+		}
+	}
+	if(!reparations_cb)
+		return false;
+	auto& claims = state.crisis_attacker_wargoals;
+	std::size_t slot = claims.size();
+	for(std::size_t index = 0; index < claims.size(); ++index) {
+		if(!claims[index].cb) {
+			slot = index;
+			break;
+		}
+	}
+	if(slot == claims.size())
+		return false;
+	auto const alternative = sys::full_wg{
+		attacker, defender, dcon::nation_id{}, dcon::national_identity_id{},
+		dcon::state_definition_id{}, reparations_cb
+	};
+	claims[slot] = alternative;
+	state.strategic_crisis.temporary_offer_goal_slot = int32_t(slot);
+	std::vector<sys::full_wg> terms{ alternative };
+	if(!statecraft_submit_crisis_offer(state, source, true, terms)) {
+		claims[slot] = sys::full_wg{};
+		state.strategic_crisis.temporary_offer_goal_slot = -1;
+		return false;
+	}
+	// The peace offer owns its copied term. Remove the temporary crisis entry
+	// now so a later escalation cannot mistake the counterterm for a war goal.
+	claims[slot] = sys::full_wg{};
+	state.strategic_crisis.temporary_offer_goal_slot = -1;
+	state.strategic_crisis.partial_concession = 1;
+	state.strategic_crisis.offered_value = state.strategic_crisis.demand_value * 0.45f;
+	return true;
+}
+
+static bool statecraft_submit_reparations_counteroffer(sys::state& state,
+	dcon::nation_id source) {
+	auto const attacker = state.primary_crisis_attacker;
+	auto const defender = state.primary_crisis_defender;
+	if(source != defender || !attacker || !defender)
+		return false;
+	if(!state.crisis_defender_wargoals.empty() && state.crisis_defender_wargoals.front().cb)
+		return statecraft_submit_crisis_offer(state, source, false,
+			state.crisis_defender_wargoals);
+	dcon::cb_type_id reparations_cb{};
+	for(auto cb : state.world.in_cb_type) {
+		if((cb.get_type_bits() & military::cb_flag::po_reparations) != 0
+			&& military::cb_conditions_satisfied(state, defender, attacker, cb)) {
+			reparations_cb = cb;
+			break;
+		}
+	}
+	if(!reparations_cb)
+		return false;
+	auto& claims = state.crisis_defender_wargoals;
+	std::size_t slot = claims.size();
+	for(std::size_t index = 0; index < claims.size(); ++index) {
+		if(!claims[index].cb) {
+			slot = index;
+			break;
+		}
+	}
+	if(slot == claims.size())
+		return false;
+	auto const alternative = sys::full_wg{
+		defender, attacker, dcon::nation_id{}, dcon::national_identity_id{},
+		dcon::state_definition_id{}, reparations_cb
+	};
+	claims[slot] = alternative;
+	state.strategic_crisis.temporary_offer_goal_slot = -int32_t(slot) - 2;
+	std::vector<sys::full_wg> terms{ alternative };
+	if(!statecraft_submit_crisis_offer(state, source, false, terms)) {
+		claims[slot] = sys::full_wg{};
+		state.strategic_crisis.temporary_offer_goal_slot = -1;
+		return false;
+	}
+	claims[slot] = sys::full_wg{};
+	state.strategic_crisis.temporary_offer_goal_slot = -1;
+	state.strategic_crisis.offered_value = state.strategic_crisis.demand_value * 0.4f;
+	return true;
+}
+
 void update_crisis_leaders(sys::state& state) {
 	if(state.current_crisis_state == sys::crisis_state::inactive) {
+		return;
+	}
+	if(nations::strategic_statecraft::uses_model_for_current_crisis(state)) {
+		auto const action = nations::strategic_statecraft::decide_bargaining_action(state);
+		switch(action) {
+		case nations::strategic_statecraft::bargaining_action::attacker_demand:
+			statecraft_submit_crisis_offer(state, state.primary_crisis_attacker, false,
+				state.crisis_attacker_wargoals);
+			break;
+		case nations::strategic_statecraft::bargaining_action::attacker_concede:
+			statecraft_submit_crisis_offer(state, state.primary_crisis_attacker, true,
+				state.crisis_defender_wargoals);
+			break;
+		case nations::strategic_statecraft::bargaining_action::defender_demand:
+			statecraft_submit_reparations_counteroffer(state, state.primary_crisis_defender);
+			break;
+		case nations::strategic_statecraft::bargaining_action::defender_concede:
+			if(!statecraft_submit_reparations_concession(state, state.primary_crisis_defender))
+				statecraft_submit_crisis_offer(state, state.primary_crisis_defender, true,
+					state.crisis_attacker_wargoals);
+			break;
+		case nations::strategic_statecraft::bargaining_action::none:
+			break;
+		}
 		return;
 	}
 

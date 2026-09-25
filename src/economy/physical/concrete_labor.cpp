@@ -5,6 +5,8 @@
 #include "economy/relations/relations.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/causal_order.hpp"
+#include "governance/governance.hpp"
+#include "governance/finance/finance.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -66,24 +68,33 @@ dcon::employment_contract_id create_employment_contract(sys::state& state, dcon:
 	dcon::economic_actor_id employer, dcon::factory_id factory, dcon::site_id workplace,
 	uint8_t occupation, float labor_capacity, float wage_rate, uint16_t pay_period_days,
 	dcon::monetary_account_id payer_account, dcon::monetary_account_id worker_account,
-	sys::date start_date) {
+	sys::date start_date, dcon::institution_id institution) {
 	if(!start_date) start_date = state.current_date;
 	if(!start_date) start_date = sys::date{0};
 	if(!person || !state.world.person_is_valid(person) || !state.world.person_get_alive(person)
-		|| !employer || !factory || !state.world.factory_is_valid(factory)
+		|| !employer || bool(factory) == bool(institution)
+		|| (factory && !state.world.factory_is_valid(factory))
+		|| (institution && !state.world.institution_is_valid(institution))
 		|| !std::isfinite(labor_capacity) || labor_capacity <= 0.0f
 		|| !std::isfinite(wage_rate) || wage_rate < 0.0f || pay_period_days == 0
 		|| !payer_account || !worker_account
 		|| !persons::born_on_or_before(state, person, start_date)) return {};
-	if(!workplace) workplace = world::site::site_for_factory(state, factory);
+	if(!workplace && factory) workplace = world::site::site_for_factory(state, factory);
 	if(!workplace || !state.world.site_is_valid(workplace)) return {};
 	auto worker_actor = persons::actor_for_person(state, person);
 	auto payer_settlement = accounts::settlement_of(state, payer_account);
-	auto factory_settlement = state.world.factory_get_payroll_settlement(factory);
+	auto factory_settlement = factory ? state.world.factory_get_payroll_settlement(factory) : dcon::commodity_id{};
+	auto workplace_province = state.world.site_get_province_from_site_location(workplace);
+	auto workplace_nation = workplace_province
+		? state.world.province_get_nation_from_province_ownership(workplace_province) : dcon::nation_id{};
+	auto institution_actor = institution ? governance::actor_for_institution(state, institution) : dcon::economic_actor_id{};
+	auto institution_nation = institution ? governance::nation_of(state, institution) : dcon::nation_id{};
 	if(!worker_actor || accounts::owner_of(state, payer_account) != employer
 		|| accounts::owner_of(state, worker_account) != worker_actor
 		|| !payer_settlement || payer_settlement != accounts::settlement_of(state, worker_account)
-		|| (factory_settlement && factory_settlement != payer_settlement)) return {};
+		|| (factory_settlement && factory_settlement != payer_settlement)
+		|| (institution && (employer != institution_actor || institution_nation != workplace_nation
+			|| governance::finance::treasury_institution_for(state, payer_account) != institution))) return {};
 	auto contract = state.world.create_employment_contract();
 	state.world.employment_contract_set_occupation(contract, occupation);
 	state.world.employment_contract_set_labor_capacity(contract, labor_capacity);
@@ -94,7 +105,8 @@ dcon::employment_contract_id create_employment_contract(sys::state& state, dcon:
 	state.world.employment_contract_set_status(contract, uint8_t(contract_status::active));
 	state.world.force_create_employment_contract_person(contract, person);
 	state.world.force_create_employment_contract_employer(contract, employer);
-	state.world.force_create_employment_contract_factory(contract, factory);
+	if(factory) state.world.force_create_employment_contract_factory(contract, factory);
+	if(institution) state.world.force_create_employment_contract_institution(contract, institution);
 	state.world.force_create_employment_contract_site(contract, workplace);
 	state.world.force_create_employment_contract_payer_account(contract, payer_account);
 	state.world.force_create_employment_contract_worker_account(contract, worker_account);
@@ -131,6 +143,27 @@ std::vector<dcon::employment_contract_id> contracts_for_factory(sys::state const
 std::vector<dcon::employment_contract_id> active_contracts_for_factory(sys::state const& state, dcon::factory_id factory) {
 	std::vector<dcon::employment_contract_id> result;
 	for(auto contract : contracts_for_factory(state, factory))
+		if(active_on(state, contract)) result.push_back(contract);
+	return result;
+}
+
+std::vector<dcon::employment_contract_id> contracts_for_institution(sys::state const& state,
+	dcon::institution_id institution) {
+	std::vector<dcon::employment_contract_id> result;
+	if(!institution) return result;
+	state.world.institution_for_each_employment_contract_institution_as_institution(institution,
+		[&](auto relation) {
+			auto contract = state.world.employment_contract_institution_get_employment_contract(relation);
+			if(contract) result.push_back(contract);
+		});
+	std::sort(result.begin(), result.end(), [](auto left, auto right) { return left.index() < right.index(); });
+	return result;
+}
+
+std::vector<dcon::employment_contract_id> active_contracts_for_institution(sys::state const& state,
+	dcon::institution_id institution) {
+	std::vector<dcon::employment_contract_id> result;
+	for(auto contract : contracts_for_institution(state, institution))
 		if(active_on(state, contract)) result.push_back(contract);
 	return result;
 }
@@ -176,6 +209,12 @@ float wage_due_for_factory(sys::state const& state, dcon::factory_id factory) {
 	float result = 0.0f;
 	for(auto contract : active_contracts_for_factory(state, factory)) result += wage_due(state, contract);
 	result += economy::exact_person_economy::wage_due_for_factory(state, factory);
+	return std::isfinite(result) ? result : 0.0f;
+}
+
+float wage_due_for_institution(sys::state const& state, dcon::institution_id institution) {
+	float result = 0.0f;
+	for(auto contract : active_contracts_for_institution(state, institution)) result += wage_due(state, contract);
 	return std::isfinite(result) ? result : 0.0f;
 }
 
