@@ -103,8 +103,8 @@ struct wage_settlement {
 	uint64_t transaction_id = 0;
 };
 
-// Isolated persistence boundary. The normal Project Alice save pipeline does
-// not yet serialize this snapshot; callers must explicitly persist/restore it.
+// Persistence boundary for sparse exact-person economic state. The normal
+// save pipeline stores this snapshot in its versioned exact-runtime extension.
 struct economy_snapshot {
 	uint32_t version = 1;
 	std::vector<std::pair<person_key, bool>> participation_overrides;

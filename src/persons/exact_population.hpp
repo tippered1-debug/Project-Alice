@@ -55,9 +55,9 @@ struct bridge_record {
 	dcon::person_id legacy_person{};
 };
 
-// This is an isolated persistence boundary for the exact store. The normal
-// save pipeline does not yet serialize it; callers may export and restore this
-// snapshot without reconstructing one object per logical human.
+// Persistence boundary for the exact store. The normal save pipeline stores
+// this catalog in its versioned exact-runtime extension without reconstructing
+// one DCON object per logical human.
 struct catalog_snapshot {
 	uint32_t bootstrap_version = bootstrap_semantics_version;
 	std::vector<cell_descriptor> cells;

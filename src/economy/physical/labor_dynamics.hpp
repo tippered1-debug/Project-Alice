@@ -36,6 +36,18 @@ struct separation_event {
 	float unpaid_wages = 0.0f;
 };
 
+struct legacy_separation_record {
+	dcon::person_id worker{};
+	sys::date date{};
+};
+
+struct snapshot {
+	uint32_t version = 1;
+	uint64_t next_event_id = 1;
+	std::vector<separation_event> events;
+	std::vector<legacy_separation_record> legacy_separations;
+};
+
 bool is_unemployed(sys::state const&, dcon::person_id);
 bool is_unemployed(sys::state const&, persons::exact_population::person_key);
 bool quit_employment(sys::state&, dcon::employment_contract_id,
@@ -50,5 +62,8 @@ uint64_t separation_event_count(sys::state const&);
 std::optional<separation_event> separation_event_at(sys::state const&, uint64_t id);
 std::vector<persons::exact_population::person_key> displaced_exact_workers(sys::state const&);
 bool legacy_separated_on_date(sys::state const&, dcon::person_id, sys::date);
+snapshot export_snapshot(sys::state const&);
+bool import_snapshot(sys::state&, snapshot const&);
+void clear_store(sys::state&);
 
 } // namespace economy::physical::labor_dynamics

@@ -1,11 +1,19 @@
 #include "dcon_generated_ids.hpp"
 #include "system_state.hpp"
 #include "serialization.hpp"
+#include "economy/causal_order.hpp"
+#include "economy/exact_person_economy.hpp"
+#include "economy/physical/exact_person_freight.hpp"
+#include "economy/physical/exact_person_goods.hpp"
+#include "economy/physical/labor_dynamics.hpp"
+#include "persons/exact_population.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <random>
 #include <ctime>
+#include <type_traits>
 
 #define ZSTD_STATIC_LINKING_ONLY
 #define XXH_NAMESPACE ZSTD_
@@ -16,6 +24,14 @@
 namespace sys {
 
 namespace {
+
+bool readable_scenario_version(uint32_t version) {
+	return version == sys::scenario_file_version || version == sys::legacy_scenario_file_version;
+}
+
+bool readable_save_version(uint32_t version) {
+	return version == sys::save_file_version || version == sys::legacy_save_file_version;
+}
 
 // Handwritten save extensions are framed so older saves can still be read:
 // the next bytes after the legacy handwritten section are normally a DCON
@@ -44,6 +60,22 @@ constexpr uint32_t strategic_statecraft_save_magic = 0x414F5353u; // AOSS
 constexpr uint16_t strategic_statecraft_save_version = 1;
 constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
+
+constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
+constexpr uint16_t exact_runtime_save_version = 1;
+constexpr std::size_t exact_runtime_save_header_size =
+	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
+constexpr uint32_t exact_runtime_max_records = 64'000'000u;
+
+struct exact_runtime_snapshot {
+	persons::exact_population::catalog_snapshot population;
+	economy::exact_person_economy::economy_snapshot economy;
+	economy::physical::exact_person_goods::goods_snapshot goods;
+	economy::physical::exact_person_freight::freight_snapshot freight;
+	economy::physical::labor_dynamics::snapshot labor;
+	economy::causal_order::snapshot causal_order;
+	bool present = false;
+};
 
 void disable_strategic_statecraft(sys::state& state) {
 	state.strategic_statecraft_initialized = false;
@@ -97,6 +129,320 @@ bool read_framed_vector(uint8_t const*& ptr, uint8_t const* payload_end,
 		std::memcpy(output.data(), ptr, sizeof(T) * std::size_t(count));
 	ptr += sizeof(T) * std::size_t(count);
 	return true;
+}
+
+template<typename T>
+std::size_t pod_vector_size(std::vector<T> const& values) {
+	static_assert(std::is_trivially_copyable_v<T>);
+	return sizeof(uint32_t) + sizeof(T) * values.size();
+}
+
+template<typename T>
+uint8_t* write_pod_vector(uint8_t* ptr, std::vector<T> const& values) {
+	static_assert(std::is_trivially_copyable_v<T>);
+	return serialize(ptr, values);
+}
+
+template<typename T>
+bool read_pod_vector(uint8_t const*& ptr, uint8_t const* end,
+	std::vector<T>& values) {
+	static_assert(std::is_trivially_copyable_v<T>);
+	return read_framed_vector(ptr, end, values, exact_runtime_max_records);
+}
+
+using exact_person_key = persons::exact_population::person_key;
+
+uint8_t* write_person_key(uint8_t* ptr, exact_person_key key) {
+	ptr = memcpy_serialize(ptr, key.source_population_cell);
+	return memcpy_serialize(ptr, key.ordinal);
+}
+
+bool read_person_key(uint8_t const*& ptr, uint8_t const* end, exact_person_key& key) {
+	if(std::size_t(end - ptr) < sizeof(key.source_population_cell) + sizeof(key.ordinal)) return false;
+	ptr = memcpy_deserialize(ptr, key.source_population_cell);
+	ptr = memcpy_deserialize(ptr, key.ordinal);
+	return true;
+}
+
+std::size_t person_key_vector_size(std::size_t count) {
+	return sizeof(uint32_t) + count * (sizeof(uint32_t) + sizeof(uint64_t));
+}
+
+uint8_t* write_person_key_vector(uint8_t* ptr, std::vector<exact_person_key> const& values) {
+	ptr = memcpy_serialize(ptr, uint32_t(values.size()));
+	for(auto key : values) ptr = write_person_key(ptr, key);
+	return ptr;
+}
+
+bool read_person_key_vector(uint8_t const*& ptr, uint8_t const* end,
+	std::vector<exact_person_key>& values) {
+	if(std::size_t(end - ptr) < sizeof(uint32_t)) return false;
+	uint32_t count = 0;
+	ptr = memcpy_deserialize(ptr, count);
+	if(count > exact_runtime_max_records
+		|| std::size_t(end - ptr) < std::size_t(count) * (sizeof(uint32_t) + sizeof(uint64_t))) return false;
+	values.resize(count);
+	for(auto& key : values) if(!read_person_key(ptr, end, key)) return false;
+	return true;
+}
+
+std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
+	auto const& population = snapshot.population;
+	auto const& economy = snapshot.economy;
+	auto const& goods = snapshot.goods;
+	auto const& freight = snapshot.freight;
+	auto const& labor = snapshot.labor;
+	auto const& causal = snapshot.causal_order;
+	std::size_t size = 6 * sizeof(uint32_t);
+	size += pod_vector_size(population.cells) + pod_vector_size(population.bridges);
+	size += sizeof(uint32_t) + population.overrides.size() *
+		(sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint8_t) + sizeof(dcon::site_id));
+	size += pod_vector_size(economy.accounts) + pod_vector_size(economy.applications)
+		+ pod_vector_size(economy.contracts) + pod_vector_size(economy.transactions);
+	size += sizeof(uint32_t) + economy.last_separation_dates.size() *
+		(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(sys::date));
+	size += person_key_vector_size(economy.displaced_workers.size());
+	size += pod_vector_size(goods.stocks) + pod_vector_size(goods.needs)
+		+ pod_vector_size(goods.bids) + pod_vector_size(goods.fills);
+	size += pod_vector_size(freight.requests) + pod_vector_size(freight.contracts)
+		+ pod_vector_size(freight.shipment_owners);
+	size += sizeof(uint64_t) + pod_vector_size(labor.events);
+	size += sizeof(uint32_t) + labor.legacy_separations.size() *
+		(sizeof(dcon::person_id) + sizeof(sys::date));
+	size += sizeof(uint64_t) + pod_vector_size(causal.dcon_sequences);
+	return size;
+}
+
+exact_runtime_snapshot capture_exact_runtime_snapshot(sys::state const& state) {
+	exact_runtime_snapshot result;
+	result.population = persons::exact_population::export_snapshot(state);
+	result.economy = economy::exact_person_economy::export_snapshot(state);
+	result.goods = economy::physical::exact_person_goods::export_snapshot(state);
+	result.freight = economy::physical::exact_person_freight::export_snapshot(state);
+	result.labor = economy::physical::labor_dynamics::export_snapshot(state);
+	result.causal_order = economy::causal_order::export_snapshot(state);
+	result.present = true;
+	return result;
+}
+
+std::size_t exact_runtime_save_size(sys::state const& state) {
+	auto snapshot = capture_exact_runtime_snapshot(state);
+	auto const payload_size = exact_runtime_payload_size(snapshot);
+	if(payload_size > std::numeric_limits<uint32_t>::max()) return 0;
+	return exact_runtime_save_header_size + payload_size;
+}
+
+uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
+	auto snapshot = capture_exact_runtime_snapshot(state);
+	auto const payload_size = exact_runtime_payload_size(snapshot);
+	if(payload_size > std::numeric_limits<uint32_t>::max()) return ptr;
+	ptr = memcpy_serialize(ptr, exact_runtime_save_magic);
+	ptr = memcpy_serialize(ptr, exact_runtime_save_version);
+	ptr = memcpy_serialize(ptr, uint16_t(0));
+	ptr = memcpy_serialize(ptr, uint32_t(payload_size));
+	auto const payload_start = ptr;
+
+	auto const& population = snapshot.population;
+	auto const& economy = snapshot.economy;
+	auto const& goods = snapshot.goods;
+	auto const& freight = snapshot.freight;
+	auto const& labor = snapshot.labor;
+	auto const& causal = snapshot.causal_order;
+	ptr = memcpy_serialize(ptr, population.bootstrap_version);
+	ptr = write_pod_vector(ptr, population.cells);
+	ptr = memcpy_serialize(ptr, uint32_t(population.overrides.size()));
+	for(auto const& record : population.overrides) {
+		ptr = write_person_key(ptr, record.key);
+		ptr = memcpy_serialize(ptr, uint8_t(record.has_alive));
+		ptr = memcpy_serialize(ptr, uint8_t(record.alive));
+		ptr = memcpy_serialize(ptr, uint8_t(record.has_home_site));
+		ptr = memcpy_serialize(ptr, record.home_site);
+	}
+	ptr = write_pod_vector(ptr, population.bridges);
+
+	ptr = memcpy_serialize(ptr, economy.version);
+	ptr = memcpy_serialize(ptr, uint32_t(economy.participation_overrides.size()));
+	for(auto const& [key, enabled] : economy.participation_overrides) {
+		ptr = write_person_key(ptr, key);
+		ptr = memcpy_serialize(ptr, uint8_t(enabled));
+	}
+	ptr = write_pod_vector(ptr, economy.accounts);
+	ptr = write_pod_vector(ptr, economy.applications);
+	ptr = write_pod_vector(ptr, economy.contracts);
+	ptr = write_pod_vector(ptr, economy.transactions);
+	ptr = memcpy_serialize(ptr, uint32_t(economy.last_separation_dates.size()));
+	for(auto const& [key, date] : economy.last_separation_dates) {
+		ptr = write_person_key(ptr, key);
+		ptr = memcpy_serialize(ptr, date);
+	}
+	ptr = write_person_key_vector(ptr, economy.displaced_workers);
+
+	ptr = memcpy_serialize(ptr, goods.version);
+	ptr = write_pod_vector(ptr, goods.stocks);
+	ptr = write_pod_vector(ptr, goods.needs);
+	ptr = write_pod_vector(ptr, goods.bids);
+	ptr = write_pod_vector(ptr, goods.fills);
+
+	ptr = memcpy_serialize(ptr, freight.version);
+	ptr = write_pod_vector(ptr, freight.requests);
+	ptr = write_pod_vector(ptr, freight.contracts);
+	ptr = write_pod_vector(ptr, freight.shipment_owners);
+
+	ptr = memcpy_serialize(ptr, labor.version);
+	ptr = memcpy_serialize(ptr, labor.next_event_id);
+	ptr = write_pod_vector(ptr, labor.events);
+	ptr = memcpy_serialize(ptr, uint32_t(labor.legacy_separations.size()));
+	for(auto const& record : labor.legacy_separations) {
+		ptr = memcpy_serialize(ptr, record.worker);
+		ptr = memcpy_serialize(ptr, record.date);
+	}
+
+	ptr = memcpy_serialize(ptr, causal.version);
+	ptr = memcpy_serialize(ptr, causal.next_sequence);
+	ptr = write_pod_vector(ptr, causal.dcon_sequences);
+	assert(std::size_t(ptr - payload_start) == payload_size);
+	return ptr;
+}
+
+template<typename T, typename ReadOne>
+bool read_custom_vector(uint8_t const*& ptr, uint8_t const* end,
+	std::vector<T>& values, std::size_t record_size, ReadOne read_one) {
+	if(std::size_t(end - ptr) < sizeof(uint32_t)) return false;
+	uint32_t count = 0;
+	ptr = memcpy_deserialize(ptr, count);
+	if(count > exact_runtime_max_records
+		|| std::size_t(end - ptr) < std::size_t(count) * record_size) return false;
+	values.resize(count);
+	for(auto& value : values) if(!read_one(ptr, end, value)) return false;
+	return true;
+}
+
+uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
+	uint8_t const* section_end, exact_runtime_snapshot& result) {
+	result = exact_runtime_snapshot{};
+	if(std::size_t(section_end - ptr) < exact_runtime_save_header_size) return ptr;
+	auto const* header_start = ptr;
+	uint32_t magic = 0;
+	uint16_t version = 0;
+	uint16_t reserved = 0;
+	uint32_t payload_size = 0;
+	ptr = memcpy_deserialize(ptr, magic);
+	ptr = memcpy_deserialize(ptr, version);
+	ptr = memcpy_deserialize(ptr, reserved);
+	ptr = memcpy_deserialize(ptr, payload_size);
+	(void)reserved;
+	if(magic != exact_runtime_save_magic) return header_start;
+	if(std::size_t(section_end - ptr) < payload_size) return section_end;
+	auto const* payload_end = ptr + payload_size;
+	if(version != exact_runtime_save_version) return payload_end;
+
+	auto& population = result.population;
+	auto& economy = result.economy;
+	auto& goods = result.goods;
+	auto& freight = result.freight;
+	auto& labor = result.labor;
+	auto& causal = result.causal_order;
+	bool valid = std::size_t(payload_end - ptr) >= 6 * sizeof(uint32_t);
+	if(valid) ptr = memcpy_deserialize(ptr, population.bootstrap_version);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.cells);
+	if(valid) valid = read_custom_vector(ptr, payload_end, population.overrides,
+		sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint8_t) + sizeof(dcon::site_id),
+		[](uint8_t const*& input, uint8_t const* end, persons::exact_population::exact_person_override& record) {
+			uint8_t has_alive = 0, alive = 0, has_home_site = 0;
+			if(!read_person_key(input, end, record.key)
+				|| std::size_t(end - input) < 3 * sizeof(uint8_t) + sizeof(record.home_site)) return false;
+			input = memcpy_deserialize(input, has_alive);
+			input = memcpy_deserialize(input, alive);
+			input = memcpy_deserialize(input, has_home_site);
+			input = memcpy_deserialize(input, record.home_site);
+			if(has_alive > 1 || alive > 1 || has_home_site > 1) return false;
+			record.has_alive = has_alive != 0;
+			record.alive = alive != 0;
+			record.has_home_site = has_home_site != 0;
+			return true;
+		});
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.bridges);
+
+	if(valid) ptr = memcpy_deserialize(ptr, economy.version);
+	if(valid) valid = read_custom_vector(ptr, payload_end, economy.participation_overrides,
+		sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t),
+		[](uint8_t const*& input, uint8_t const* end, std::pair<exact_person_key, bool>& record) {
+			uint8_t enabled = 0;
+			if(!read_person_key(input, end, record.first) || std::size_t(end - input) < sizeof(enabled)) return false;
+			input = memcpy_deserialize(input, enabled);
+			if(enabled > 1) return false;
+			record.second = enabled != 0;
+			return true;
+		});
+	if(valid) valid = read_pod_vector(ptr, payload_end, economy.accounts);
+	if(valid) valid = read_pod_vector(ptr, payload_end, economy.applications);
+	if(valid) valid = read_pod_vector(ptr, payload_end, economy.contracts);
+	if(valid) valid = read_pod_vector(ptr, payload_end, economy.transactions);
+	if(valid) valid = read_custom_vector(ptr, payload_end, economy.last_separation_dates,
+		sizeof(uint32_t) + sizeof(uint64_t) + sizeof(sys::date),
+		[](uint8_t const*& input, uint8_t const* end, std::pair<exact_person_key, sys::date>& record) {
+			if(!read_person_key(input, end, record.first) || std::size_t(end - input) < sizeof(record.second)) return false;
+			input = memcpy_deserialize(input, record.second);
+			return true;
+		});
+	if(valid) valid = read_person_key_vector(ptr, payload_end, economy.displaced_workers);
+
+	if(valid) ptr = memcpy_deserialize(ptr, goods.version);
+	if(valid) valid = read_pod_vector(ptr, payload_end, goods.stocks);
+	if(valid) valid = read_pod_vector(ptr, payload_end, goods.needs);
+	if(valid) valid = read_pod_vector(ptr, payload_end, goods.bids);
+	if(valid) valid = read_pod_vector(ptr, payload_end, goods.fills);
+
+	if(valid) ptr = memcpy_deserialize(ptr, freight.version);
+	if(valid) valid = read_pod_vector(ptr, payload_end, freight.requests);
+	if(valid) valid = read_pod_vector(ptr, payload_end, freight.contracts);
+	if(valid) valid = read_pod_vector(ptr, payload_end, freight.shipment_owners);
+
+	if(valid) ptr = memcpy_deserialize(ptr, labor.version);
+	if(valid && std::size_t(payload_end - ptr) >= sizeof(labor.next_event_id))
+		ptr = memcpy_deserialize(ptr, labor.next_event_id);
+	else if(valid) valid = false;
+	if(valid) valid = read_pod_vector(ptr, payload_end, labor.events);
+	if(valid) valid = read_custom_vector(ptr, payload_end, labor.legacy_separations,
+		sizeof(dcon::person_id) + sizeof(sys::date),
+		[](uint8_t const*& input, uint8_t const* end, economy::physical::labor_dynamics::legacy_separation_record& record) {
+			if(std::size_t(end - input) < sizeof(record.worker) + sizeof(record.date)) return false;
+			input = memcpy_deserialize(input, record.worker);
+			input = memcpy_deserialize(input, record.date);
+			return true;
+		});
+
+	if(valid) ptr = memcpy_deserialize(ptr, causal.version);
+	if(valid && std::size_t(payload_end - ptr) >= sizeof(causal.next_sequence))
+		ptr = memcpy_deserialize(ptr, causal.next_sequence);
+	else if(valid) valid = false;
+	if(valid) valid = read_pod_vector(ptr, payload_end, causal.dcon_sequences);
+	valid = valid && ptr == payload_end;
+	if(valid) result.present = true;
+	else result = exact_runtime_snapshot{};
+	return payload_end;
+}
+
+void clear_exact_runtime_state(sys::state& state) {
+	persons::exact_population::clear_store(state);
+	economy::exact_person_economy::clear_store(state);
+	economy::physical::exact_person_goods::clear_store(state);
+	economy::physical::exact_person_freight::clear_store(state);
+	economy::physical::labor_dynamics::clear_store(state);
+	economy::causal_order::clear_store(state);
+}
+
+void restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
+	clear_exact_runtime_state(state);
+	if(!snapshot.present) return;
+	auto clear_on_failure = [&] { clear_exact_runtime_state(state); };
+	if(!persons::exact_population::import_snapshot(state, snapshot.population)
+		|| !economy::causal_order::import_snapshot(state, snapshot.causal_order)
+		|| !economy::exact_person_economy::import_snapshot(state, snapshot.economy)
+		|| !economy::physical::exact_person_goods::import_snapshot(state, snapshot.goods)
+		|| !economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
+		|| !economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor))
+		clear_on_failure();
 }
 
 uint8_t const* read_strategic_statecraft_save(
@@ -556,7 +902,7 @@ mod_identifier extract_mod_information(uint8_t const* ptr_in, uint64_t file_size
 		ptr_in = read_scenario_header(ptr_in, h);
 	}
 
-	if(h.version != sys::scenario_file_version) {
+	if(!readable_scenario_version(h.version)) {
 		return mod_identifier{ native_string{}, 0, 0 };
 	}
 
@@ -1212,7 +1558,8 @@ scenario_size sizeof_scenario_section(sys::state& state, bool exclude_local_hand
 	return scenario_size{ sz + szb, sz };
 }
 
-uint8_t const* read_handwritten_save_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields = false) {
+uint8_t const* read_handwritten_save_section(uint8_t const* ptr_in, uint8_t const* section_end,
+	sys::state& state, exact_runtime_snapshot& exact_runtime, bool exclude_local_handwritten_fields = false) {
 	// hand-written contribution
 	if(!exclude_local_handwritten_fields) {
 		ptr_in = deserialize(ptr_in, state.unit_names);
@@ -1258,6 +1605,7 @@ uint8_t const* read_handwritten_save_section(uint8_t const* ptr_in, uint8_t cons
 	ptr_in = read_transformation_politics_save(ptr_in, section_end, state);
 	ptr_in = read_transformation_legislation_save(ptr_in, section_end, state);
 	ptr_in = read_strategic_statecraft_save(ptr_in, section_end, state);
+	ptr_in = read_exact_runtime_save(ptr_in, section_end, exact_runtime);
 	return ptr_in;
 }
 
@@ -1303,7 +1651,9 @@ void validate_strategic_statecraft_world_state(sys::state& state) {
 }
 
 uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields) {
-	ptr_in = read_handwritten_save_section(ptr_in, section_end, state, exclude_local_handwritten_fields);
+	exact_runtime_snapshot exact_runtime;
+	ptr_in = read_handwritten_save_section(ptr_in, section_end, state, exact_runtime,
+		exclude_local_handwritten_fields);
 
 	// data container contribution
 
@@ -1317,6 +1667,7 @@ uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_e
 		std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 		state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded, loadmask);
 	}
+	restore_exact_runtime_state(state, exact_runtime);
 	validate_strategic_statecraft_world_state(state);
 	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();
@@ -1376,6 +1727,7 @@ uint8_t* write_handwritten_save_section(uint8_t* ptr_in, sys::state& state, bool
 	ptr_in = write_transformation_politics_save(ptr_in, state);
 	ptr_in = write_transformation_legislation_save(ptr_in, state);
 	ptr_in = write_strategic_statecraft_save(ptr_in, state);
+	ptr_in = write_exact_runtime_save(ptr_in, state);
 	return ptr_in;
 }
 
@@ -1438,6 +1790,7 @@ size_t sizeof_handwritten_save_section(sys::state& state, bool exclude_local_han
 	sz += transformation_politics_save_size(state);
 	sz += transformation_legislation_save_size(state);
 	sz += strategic_statecraft_save_size(state);
+	sz += exact_runtime_save_size(state);
 	return sz;
 }
 
@@ -1456,10 +1809,13 @@ size_t sizeof_save_section(sys::state& state, bool exclude_local_handwritten_fie
 uint8_t const* read_entire_mp_state(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields) {
 
 	ptr_in = read_handwritten_scenario_section(ptr_in, section_end, state, exclude_local_handwritten_fields);
-	ptr_in = read_handwritten_save_section(ptr_in, section_end, state, exclude_local_handwritten_fields);
+	exact_runtime_snapshot exact_runtime;
+	ptr_in = read_handwritten_save_section(ptr_in, section_end, state, exact_runtime,
+		exclude_local_handwritten_fields);
 	dcon::load_record loaded;
 	std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 	state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded);
+	restore_exact_runtime_state(state, exact_runtime);
 	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();
 	return section_end;
@@ -1599,7 +1955,7 @@ bool try_read_scenario_file(sys::state& state, native_string_view name) {
 			buffer_pos = read_scenario_header(buffer_pos, header);
 		}
 
-		if(header.version != sys::scenario_file_version) {
+		if(!readable_scenario_version(header.version)) {
 			return false;
 		}
 
@@ -1638,7 +1994,7 @@ bool try_read_scenario_and_save_file(sys::state& state, native_string_view name)
 			buffer_pos = read_scenario_header(buffer_pos, header);
 		}
 
-		if(header.version != sys::scenario_file_version) {
+		if(!readable_scenario_version(header.version)) {
 			return false;
 		}
 
@@ -1687,7 +2043,7 @@ bool try_read_scenario_as_save_file(sys::state& state, native_string_view name) 
 			buffer_pos = read_scenario_header(buffer_pos, header);
 		}
 
-		if(header.version != sys::scenario_file_version) {
+		if(!readable_scenario_version(header.version)) {
 			return false;
 		}
 
@@ -1884,7 +2240,7 @@ bool try_read_save_file(sys::state& state, native_string_view name, bool ignore_
 			buffer_pos = read_save_header(buffer_pos, header);
 		}
 
-		if(header.version != sys::save_file_version) {
+		if(!readable_save_version(header.version)) {
 			return false;
 		}
 

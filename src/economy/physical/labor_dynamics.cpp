@@ -13,7 +13,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
+#include <set>
 
 namespace economy::physical {
 
@@ -257,6 +259,63 @@ bool legacy_separated_on_date(sys::state const& state, dcon::person_id person, s
 	for(auto const& [worker, separated] : ensure_store(state)->legacy_separations)
 		if(worker == person) return separated == date;
 	return false;
+}
+
+snapshot export_snapshot(sys::state const& state) {
+	snapshot result;
+	auto store = ensure_store(state);
+	result.next_event_id = store->next_event_id;
+	result.events = store->events;
+	result.legacy_separations.reserve(store->legacy_separations.size());
+	for(auto const& [worker, date] : store->legacy_separations)
+		result.legacy_separations.push_back({worker, date});
+	std::sort(result.events.begin(), result.events.end(), [](auto const& left, auto const& right) {
+		return left.id < right.id;
+	});
+	std::sort(result.legacy_separations.begin(), result.legacy_separations.end(), [](auto const& left, auto const& right) {
+		return left.worker.index() < right.worker.index();
+	});
+	return result;
+}
+
+bool import_snapshot(sys::state& state, snapshot const& value) {
+	if(value.version != 1) return false;
+	auto candidate = std::make_shared<labor_dynamics_store>();
+	candidate->next_event_id = value.next_event_id;
+	std::set<uint64_t> event_ids;
+	uint64_t greatest_event_id = 0;
+	for(auto const& event : value.events) {
+		if(event.id == 0 || !event_ids.insert(event.id).second
+			|| uint8_t(event.worker_contract_kind) > uint8_t(contract_kind::exact)
+			|| uint8_t(event.reason) > uint8_t(separation_reason::worker_quit_arrears)
+			|| !event.employer || !state.world.economic_actor_is_valid(event.employer)
+			|| (event.factory && !state.world.factory_is_valid(event.factory))
+			|| !std::isfinite(event.labor_capacity) || event.labor_capacity < 0.0f
+			|| !std::isfinite(event.wage_rate) || event.wage_rate < 0.0f
+			|| !std::isfinite(event.unpaid_wages) || event.unpaid_wages < 0.0f) return false;
+		if(event.worker_contract_kind == contract_kind::legacy) {
+			if(!event.legacy_worker || !state.world.person_is_valid(event.legacy_worker)) return false;
+		} else if(!persons::exact_population::exists(state, event.exact_worker)) {
+			return false;
+		}
+		greatest_event_id = std::max(greatest_event_id, event.id);
+		candidate->events.push_back(event);
+	}
+	if(value.next_event_id != 0 && value.next_event_id <= greatest_event_id) return false;
+	if(value.next_event_id == 0 && greatest_event_id != std::numeric_limits<uint64_t>::max()) return false;
+	std::set<uint32_t> separated_workers;
+	for(auto const& record : value.legacy_separations) {
+		if(!record.worker || !state.world.person_is_valid(record.worker) || !record.date
+			|| !separated_workers.insert(uint32_t(record.worker.index())).second
+			|| (state.current_date && record.date > state.current_date)) return false;
+		candidate->legacy_separations.emplace_back(record.worker, record.date);
+	}
+	state.labor_dynamics = std::move(candidate);
+	return true;
+}
+
+void clear_store(sys::state& state) {
+	state.labor_dynamics.reset();
 }
 
 } // namespace economy::physical::labor_dynamics
