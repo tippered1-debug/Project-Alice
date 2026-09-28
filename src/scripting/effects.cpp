@@ -16,6 +16,8 @@
 #include "diplomatic_messages.hpp"
 #include "economy.hpp"
 #include "events.hpp"
+#include "persons/exact_population.hpp"
+#include <cstdlib>
 
 namespace effect {
 
@@ -3081,47 +3083,48 @@ uint32_t ef_neutrality(EFFECT_PARAMTERS) {
 	nations::destroy_diplomatic_relationships(ws, trigger::to_nation(primary_slot));
 	return 0;
 }
+namespace {
+void apply_canonical_population_factor(sys::state& state, dcon::pop_id pop, float factor) {
+	if(!pop || !state.world.pop_is_valid(pop) || !std::isfinite(factor)) return;
+	auto current = state.world.pop_get_size(pop);
+	auto result = persons::exact_population::apply_population_lifecycle_delta(
+		state, pop, current * factor - current);
+	if(!result.complete) std::abort();
+}
+}
+
 uint32_t ef_reduce_pop(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
-	auto& current = ws.world.pop_get_size(trigger::to_pop(primary_slot));
-	ws.world.pop_set_size(trigger::to_pop(primary_slot), current * amount);
+	apply_canonical_population_factor(ws, trigger::to_pop(primary_slot), amount);
 	return 0;
 }
 uint32_t ef_reduce_pop_abs(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_int32_t_from_payload(tval + 1);
-
 	demographics::reduce_pop_size_safe(ws, trigger::to_pop(primary_slot), amount);
 	return 0;
 }
 uint32_t ef_reduce_pop_province(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
-	for(auto p : ws.world.province_get_pop_location(trigger::to_prov(primary_slot))) {
-		auto& current = p.get_pop().get_size();
-		p.get_pop().set_size(current * amount);
-	}
+	for(auto p : ws.world.province_get_pop_location(trigger::to_prov(primary_slot)))
+		apply_canonical_population_factor(ws, p.get_pop(), amount);
 	return 0;
 }
 uint32_t ef_reduce_pop_nation(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
-	for(auto pr : ws.world.nation_get_province_ownership(trigger::to_nation(primary_slot))) {
-		for(auto p : pr.get_province().get_pop_location()) {
-			auto& current = p.get_pop().get_size();
-			p.get_pop().set_size(current * amount);
-		}
-	}
+	for(auto pr : ws.world.nation_get_province_ownership(trigger::to_nation(primary_slot)))
+		for(auto p : pr.get_province().get_pop_location())
+			apply_canonical_population_factor(ws, p.get_pop(), amount);
 	return 0;
 }
 uint32_t ef_reduce_pop_state(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
 	province::for_each_province_in_state_instance(ws, trigger::to_state(primary_slot), [&ws, amount](dcon::province_id pr) {
-		for(auto p : ws.world.province_get_pop_location(pr)) {
-			auto& current = p.get_pop().get_size();
-			p.get_pop().set_size(current * amount);
-		}
+		for(auto p : ws.world.province_get_pop_location(pr))
+			apply_canonical_population_factor(ws, p.get_pop(), amount);
 	});
 	return 0;
 }

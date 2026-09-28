@@ -4,6 +4,7 @@
 #include "dcon_generated_ids.hpp"
 #include "prng.hpp"
 #include <chrono>
+#include <cstdlib>
 #include "effects.hpp"
 #include "events.hpp"
 #include "ai.hpp"
@@ -6767,9 +6768,10 @@ void apply_regiment_damage(sys::state& state) {
 					state.world.nation_set_war_exhaustion(in_nation, std::min(current_war_ex + extra_war_ex, state.world.nation_get_modifier_values(in_nation, sys::national_mod_offsets::max_war_exhaustion)));
 				}
 				if(backing_pop) {
-					auto& psize = state.world.pop_get_size(backing_pop);
 					float damage_modifier = std::max(state.defines.soldier_to_pop_damage - state.world.nation_get_modifier_values(tech_nation, sys::national_mod_offsets::soldier_to_pop_loss), 0.0f);
-					state.world.pop_set_size(backing_pop, psize - state.defines.pop_size_per_regiment * pending_combat_damage * damage_modifier);
+					auto loss = state.defines.pop_size_per_regiment * pending_combat_damage * damage_modifier;
+					auto result = persons::exact_population::apply_population_lifecycle_delta(state, backing_pop, -loss);
+					if(!result.complete) std::abort();
 				}
 				state.world.regiment_set_pending_combat_damage(s, 0.0f);
 			}
@@ -6782,9 +6784,10 @@ void apply_regiment_damage(sys::state& state) {
 					state.world.nation_set_war_exhaustion(in_nation, std::min(current_war_ex + extra_war_ex, state.world.nation_get_modifier_values(in_nation, sys::national_mod_offsets::max_war_exhaustion)));
 				}
 				if(backing_pop) {
-					auto& psize = state.world.pop_get_size(backing_pop);
 					float damage_modifier = std::max(state.defines.soldier_to_pop_damage - state.world.nation_get_modifier_values(tech_nation, sys::national_mod_offsets::soldier_to_pop_loss), 0.0f);
-					state.world.pop_set_size(backing_pop, psize - state.defines.pop_size_per_regiment * pending_attrition_damage * damage_modifier);
+					auto loss = state.defines.pop_size_per_regiment * pending_attrition_damage * damage_modifier;
+					auto result = persons::exact_population::apply_population_lifecycle_delta(state, backing_pop, -loss);
+					if(!result.complete) std::abort();
 				}
 				state.world.regiment_set_pending_attrition_damage(s, 0.0f);
 			}

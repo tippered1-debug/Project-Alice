@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <unordered_set>
@@ -47,12 +48,8 @@ dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 }
 
 dcon::pop_id pop_for_cell_id(sys::state const& state, uint32_t source_cell) {
-	auto bound = persons::exact_population::population_for_source_cell(state, source_cell);
-	if(bound) return bound;
-	if(source_cell == 0) return {};
-	if(persons::exact_population::source_cell_registered(state, source_cell)) return {};
-	auto legacy = dcon::pop_id{dcon::pop_id::value_base_t(source_cell - 1u)};
-	return legacy && state.world.pop_is_valid(legacy) ? legacy : dcon::pop_id{};
+	if(source_cell == 0 || !state.exact_population) return {};
+	return persons::exact_population::population_for_source_cell(state, source_cell);
 }
 
 dcon::pop_id pop_for_person_cell(sys::state& state, uint32_t source_cell,
@@ -77,7 +74,7 @@ dcon::pop_id pop_for_person_cell(sys::state& state, uint32_t source_cell,
 
 dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id province,
 	dcon::pop_id source) {
-	if(!province || !source) return {};
+	if(!state.exact_population || !province || !source) return {};
 	auto culture = state.world.pop_get_culture(source);
 	auto religion = state.world.pop_get_religion(source);
 	auto type = state.world.pop_get_poptype(source);
@@ -89,9 +86,8 @@ dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id
 			&& state.world.pop_get_poptype(pop) == type) result = pop;
 	});
 	if(result) {
-		if(state.exact_population
-			&& persons::exact_population::source_cell_for_population(state, result) == 0)
-			(void)persons::exact_population::register_population_cell(state, result);
+		if(persons::exact_population::source_cell_for_population(
+			static_cast<sys::state const&>(state), result) == 0) std::abort();
 		return result;
 	}
 	result = state.world.create_pop();
@@ -99,7 +95,6 @@ dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id
 	state.world.pop_set_culture(result, culture);
 	state.world.pop_set_religion(result, religion);
 	state.world.pop_set_poptype(result, type);
-	state.world.pop_set_size(result, 0.0f);
 	state.world.pop_set_savings(result, 0.0f);
 	state.world.pop_set_uemployment(result, state.world.pop_get_uemployment(source));
 	state.world.pop_set_uliteracy(result, state.world.pop_get_uliteracy(source));
@@ -108,8 +103,10 @@ dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id
 	state.world.pop_set_satisfaction(result, state.world.pop_get_satisfaction(source));
 	state.world.pop_set_is_primary_or_accepted_culture(result,
 		state.world.pop_get_is_primary_or_accepted_culture(source));
-	if(state.exact_population)
-		(void)persons::exact_population::register_population_cell(state, result);
+	auto registration = persons::exact_population::register_population_cell(state, result);
+	if(registration.result != persons::exact_population::status::created
+		&& registration.result != persons::exact_population::status::already_registered)
+		std::abort();
 	return result;
 }
 
@@ -118,46 +115,44 @@ bool transfer_population_unit(sys::state& state, uint32_t source_cell,
 	dcon::culture_id culture, dcon::religion_id religion, dcon::pop_type_id type,
 	std::optional<persons::exact_population::person_key> member = std::nullopt) {
 	if(!source_cell || !origin || !destination || origin == destination) return true;
+	if(!state.exact_population) std::abort();
 	auto source = pop_for_person_cell(state, source_cell, origin, culture, religion, type);
 	if(!source) return false;
 	auto target = find_or_create_population_cell(state, destination, source);
 	if(!target || target == source) return false;
-	if(state.exact_population) {
-		if(persons::exact_population::source_cell_for_population(state, source) == 0)
-			(void)persons::exact_population::register_population_cell(state, source);
-		if(persons::exact_population::source_cell_for_population(state, target) == 0)
-			(void)persons::exact_population::register_population_cell(state, target);
-		if(member && persons::exact_population::exists(state, *member)
-			&& persons::exact_population::current_population_cell(state, *member) != source_cell) return false;
-	}
+	if(persons::exact_population::source_cell_for_population(
+		static_cast<sys::state const&>(state), source) == 0
+		|| persons::exact_population::source_cell_for_population(
+			static_cast<sys::state const&>(state), target) == 0) std::abort();
+	if(member && (!persons::exact_population::exists(state, *member)
+		|| !persons::exact_population::alive(state, *member)
+		|| persons::exact_population::current_population_cell(state, *member) != source_cell)) return false;
 	constexpr float population_units_per_literal_person =
 		1.0f / float(persons::population_materialization::literal_person_multiplier);
 	auto source_size = state.world.pop_get_size(source);
-	auto target_size = state.world.pop_get_size(target);
 	auto source_savings = state.world.pop_get_savings(source);
 	auto target_savings = state.world.pop_get_savings(target);
 	if(!std::isfinite(source_size) || source_size < population_units_per_literal_person
-		|| !std::isfinite(target_size) || target_size < 0.0f
 		|| !std::isfinite(source_savings) || source_savings < 0.0f
 		|| !std::isfinite(target_savings) || target_savings < 0.0f) return false;
 	auto moved_savings = source_size > epsilon
 		? source_savings * population_units_per_literal_person / source_size : 0.0f;
 	if(!std::isfinite(moved_savings) || moved_savings > source_savings
-		|| population_units_per_literal_person > std::numeric_limits<float>::max() - target_size
 		|| moved_savings > std::numeric_limits<float>::max() - target_savings) return false;
-	state.world.pop_set_size(source, source_size - population_units_per_literal_person);
-	state.world.pop_set_size(target, target_size + population_units_per_literal_person);
+	bool transferred = false;
+	if(member) {
+		transferred = persons::exact_population::transfer_population_person_membership(state, *member,
+			target, persons::exact_population::population_transition_cause::household_relocation);
+	} else {
+		auto transfer = persons::exact_population::transfer_population_membership(state, source, target,
+			population_units_per_literal_person,
+			persons::exact_population::population_transition_cause::household_relocation);
+		if(!transfer.complete) std::abort();
+		transferred = transfer.people_moved == 1;
+	}
+	if(!transferred) return false;
 	state.world.pop_set_savings(source, source_savings - moved_savings);
 	state.world.pop_set_savings(target, target_savings + moved_savings);
-	if(member && persons::exact_population::exists(state, *member)
-		&& !persons::exact_population::transfer_population_person_membership(state, *member,
-			target, persons::exact_population::population_transition_cause::household_relocation)) {
-		state.world.pop_set_size(source, source_size);
-		state.world.pop_set_size(target, target_size);
-		state.world.pop_set_savings(source, source_savings);
-		state.world.pop_set_savings(target, target_savings);
-		return false;
-	}
 	return true;
 }
 
