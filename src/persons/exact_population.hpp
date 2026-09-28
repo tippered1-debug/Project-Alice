@@ -91,6 +91,45 @@ struct population_observation {
 	double population_size = 0.0;
 };
 
+// A person's key stays in its origin namespace. This range records where its
+// live members currently belong, so migration and class changes do not rewrite
+// identities or expand a cohort into one record per human.
+struct population_membership_range {
+	uint32_t identity_population_cell = 0;
+	uint32_t current_population_cell = 0;
+	uint64_t first_ordinal = 0;
+	uint64_t count = 0;
+};
+
+enum class population_transition_cause : uint8_t {
+	internal_migration = 0,
+	colonial_migration = 1,
+	immigration = 2,
+	promotion = 3,
+	demotion = 4,
+	assimilation = 5,
+	household_relocation = 6,
+	population_merge = 7
+};
+
+struct population_transition_record {
+	uint32_t identity_population_cell = 0;
+	uint32_t from_population_cell = 0;
+	uint32_t to_population_cell = 0;
+	uint8_t cause = 0;
+	uint8_t reserved[3]{};
+	uint64_t first_ordinal = 0;
+	uint64_t count = 0;
+	int32_t transition_day = 0;
+	uint32_t reserved_tail = 0;
+};
+
+struct population_transfer_remainder {
+	uint32_t from_population_cell = 0;
+	uint32_t to_population_cell = 0;
+	double pending_people = 0.0;
+};
+
 // Persistence boundary for the exact store. The normal save pipeline stores
 // this catalog in its versioned exact-runtime extension without reconstructing
 // one DCON object per logical human.
@@ -104,9 +143,13 @@ struct catalog_snapshot {
 	std::vector<person_range> retired_people;
 	std::vector<birth_cohort> birth_cohorts;
 	std::vector<population_observation> population_observations;
+	std::vector<population_membership_range> membership_ranges;
+	std::vector<population_transition_record> transitions;
+	std::vector<population_transfer_remainder> transfer_remainders;
 	uint64_t observed_world_literal_count = 0;
 	bool has_source_bindings = false;
 	bool has_lifecycle_checkpoint = false;
+	bool has_current_membership = false;
 };
 
 struct population_reconciliation_result {
@@ -114,6 +157,11 @@ struct population_reconciliation_result {
 	uint64_t deaths = 0;
 	uint64_t unbound_populations = 0;
 	bool initialized_checkpoint = false;
+	bool complete = true;
+};
+
+struct population_transfer_result {
+	uint64_t people_moved = 0;
 	bool complete = true;
 };
 
@@ -149,6 +197,14 @@ registration_result register_synthetic_population_cell(sys::state&, cell_descrip
 world_bootstrap_result bootstrap_from_current_pops(sys::state&);
 uint64_t synchronize_current_pop_bindings(sys::state&);
 population_reconciliation_result reconcile_population_lifecycle(sys::state&);
+population_transfer_result transfer_population_membership(sys::state&, dcon::pop_id source,
+	dcon::pop_id destination, float population_amount, population_transition_cause);
+bool transfer_population_person_membership(sys::state&, person_key, dcon::pop_id destination,
+	population_transition_cause);
+uint32_t current_population_cell(sys::state const&, person_key);
+dcon::pop_id current_population_for_person(sys::state const&, person_key);
+uint64_t living_people_in_population_cell(sys::state const&, uint32_t population_cell);
+bool project_population_membership(sys::state&);
 
 bool source_cell_registered(sys::state const&, uint32_t source_population_cell);
 uint64_t literal_count_for_cell(sys::state const&, uint32_t source_population_cell);

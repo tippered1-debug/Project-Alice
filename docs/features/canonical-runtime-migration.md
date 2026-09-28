@@ -10,7 +10,7 @@ fully individual simulation.
 
 | Domain | Source of truth in the flagship ruleset | Compatibility still in use | Cutover requirement |
 | --- | --- | --- | --- |
-| Population identity | DCON POP rows own aggregate totals; `exact_population` owns stable virtual person keys. | AOEX v2/v3/v4 persist row bindings, retired row tokens, birth/death ranges and aggregate checkpoints. Net births append dated cohorts; net deaths retire keys, end active exact jobs and cancel open exact purchase bids. Accounts, stock and transaction history remain attached to retired keys. Zero-sum row changes currently preserve total identities without reassigning them among rows. | Assign exact people to destination rows during migration, promotion, split and merge. Add inheritance/estate rules for balances and goods, and distinguish transfers from births/deaths when aggregate totals change in the same tick. |
+| Population identity | `exact_population` owns stable virtual person keys and compact current-row membership ranges; DCON POP sizes are projected from the living memberships at lifecycle reconciliation. | AOEX v2-v5 persist row bindings, lifecycle ranges, current memberships, transition records and fractional-transfer remainders. Migration, class changes, assimilation, row merges and exact household relocation move membership while preserving identity. Births append dated cohorts; deaths retire keys, end active exact jobs and cancel open exact purchase bids. Accounts, stock and transaction history remain attached to retired keys. | Cover every remaining script or event path that edits POP sizes directly; define inheritance/estate rules for balances and goods; reconcile simultaneous transfers and demographic growth without inferring individual histories that the source data does not contain. |
 | Jobs and households | A factory's canonical production state gates firm-directed offers; concrete labor, exact-person contracts and household settlement can all participate. | Legacy DCON workers/contracts and exact virtual workers coexist. Existing aggregate POP employment and income calculations remain in the simulation. | Assign existing jobs and initial household resources once, prevent duplicate wages/consumption, and account for every worker when moving between aggregate and exact representations. |
 | Goods and production | Canonical factory production, physical inventory, orders and shipments drive participating factories and routes. | Unflagged factories, local or money-like goods, and legacy RGO output retain compatibility behavior. | Cover every production/input/output type, prove stock and money conservation, then retire each matching legacy path. |
 | Firms and ownership | Factory agency makes decisions for canonical factory sites; economic actors and ownership relations hold runtime firm ownership. | Legacy factories and aggregate producer debt remain supported for older economy paths; bootstrap placeholder owners represent incomplete historical ownership. | Migrate factory cash, retained earnings, debt and ownership once. Remove province-level producer debt only after no autonomous firm relies on it. |
@@ -26,11 +26,12 @@ fully individual simulation.
    current POP rows. This is now done by the exact-population bootstrap. It
    creates no wallets, jobs or DCON person entities.
 2. **Track population lifecycle.** Stable row-lifetime tokens, deletion hooks
-   for core simulation paths, net growth/death reconciliation and end-of-day
-   checkpoints are now in place. Transfers that leave world totals unchanged
-   do not currently move person keys or update their aggregate row membership.
-   The next lifecycle work is to map those transfers, splits, merges and class
-   changes while preserving each person's balances, goods and contracts.
+   for core simulation paths, net growth/death reconciliation, end-of-day
+   checkpoints and compact current-row memberships are in place. Core
+   demographic transfers and exact household relocation record where people
+   move without rewriting their identity keys. Person-level balances, goods
+   and contracts remain attached to the same key; inheritance and estate rules
+   for death are still open.
 3. **Migrate opening economic positions.** Specify conservation rules for
    wages, savings, household stocks, factory cash, debt, treasury balances and
    inventories. Each legacy quantity must have exactly one destination.
@@ -45,16 +46,20 @@ fully individual simulation.
 
 ## Current migration boundary
 
-The exact-population bootstrap seeds virtual keys once. AOEX v4 checkpoints the
-world total and each bound row's size; later net growth appends a birth cohort,
-and net decline retires compact ordinal ranges. Zero-sum changes between rows
-leave identities in their original cell namespaces. Death selection currently
-uses stable low ordinals so deaths do not preferentially retire newly appended
-birth cohorts, because aggregate POPs do not identify which people
-died. Active exact employment and purchase orders are closed for retired
-people, while balances, goods and historical records remain attached to their
-keys. The system does not yet infer employment or payment histories before the
-bootstrap or reassign people across row splits, merges and transfers.
+The exact-population bootstrap seeds virtual keys once. AOEX v5 checkpoints the
+world total and each bound row's size and stores current membership as compact
+ordinal ranges. Later net growth appends a dated birth cohort, net decline
+retires compact ordinal ranges, and hooked migration/class/assimilation/merge
+paths move membership while leaving identity keys in their original namespaces.
+Aggregate movements assign the lowest live ordinals in the source cell because
+legacy POP totals do not identify which residents moved. Fractional POP
+movement accumulates until it represents a whole virtual person.
+Death selection uses stable low ordinals because aggregate POPs do not identify
+which people died. Active exact employment and purchase orders are closed for
+retired people, while balances, goods and historical records remain attached
+to their keys. Direct POP edits that bypass the hooked transfer paths still
+need explicit migration rules; aggregate saves cannot recover personal
+employment or payment history from before bootstrap.
 
 Schema and runtime migration are separate concerns. A save can be readable and
 still lack the individual records needed for equivalent future behavior. A

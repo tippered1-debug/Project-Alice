@@ -1,5 +1,11 @@
 # Exact Individual Population Store v1
 
+> Historical milestone note: this document describes the original identity
+> store. Its save-integration and migration statements below were true for v1;
+> current lifecycle and save behavior is documented in
+> [Canonical Runtime Migration](features/canonical-runtime-migration.md) and
+> [Simulation Continuity](features/simulation-continuity.md).
+
 This milestone adds a scalable exact identity catalog beside the existing
 DCON `person` and `economic_actor` objects. A DCON Person remains useful for
 named figures, compatibility, and explicit bridges, but it is not the
@@ -75,17 +81,16 @@ Synthetic range tests cover 1 million, 100 million, and 1 billion logical
 humans without iterating through the range or increasing DCON Person,
 EconomicActor, account, inventory, or employment-contract counts.
 
-The catalog exposes an isolated `catalog_snapshot` export/import interface for
-save integration. It contains bootstrap version, sealed descriptors, sparse
-overrides, and bridge mappings, and restores without per-human allocation. The
-normal scenario/save serialization pipeline is not wired to this interface in
-this milestone; callers must explicitly persist and restore the snapshot.
+The catalog exposes a `catalog_snapshot` export/import interface. AOEX v5
+persists descriptors, sparse overrides, bridge mappings, lifecycle ranges,
+current population memberships and compact transition history without
+per-human allocation. Older AOEX versions initialize each identity in its
+original population row when loaded.
 
 ## Deliberate non-goals
 
-This is an identity/storage foundation only. Job offers and applications,
-employment contracts, goods bids, consumption, payroll, ownership, money,
-logistics, taxation, banking, households, births, migration, and full-world
-catalog registration remain future milestones. No full-world DCON materializing
-call is introduced, and exact registration does not make the logical person an
-economic agent.
+This identity/storage foundation does not make every subsystem individual.
+Exact jobs, goods bids, household settlement and selected migration paths now
+use these identities, while legacy aggregate simulation and unhooked scripted
+population edits remain. No full-world DCON materializing call is introduced,
+and exact registration does not make the logical person an economic agent.

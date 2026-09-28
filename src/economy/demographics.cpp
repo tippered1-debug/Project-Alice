@@ -4189,11 +4189,18 @@ float get_estimated_emigration(sys::state& state, dcon::pop_id ids) {
 	return std::min(pop_sizes, std::ceil(amounts));
 }
 
-float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id target, float requested_amount) {
+float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id target,
+	float requested_amount, persons::exact_population::population_transition_cause cause) {
 	if(!source || !target || source == target
 		|| !state.world.pop_is_valid(source) || !state.world.pop_is_valid(target)
 		|| !std::isfinite(requested_amount) || requested_amount <= 0.f) {
 		return 0.f;
+	}
+	if(state.exact_population) {
+		if(persons::exact_population::source_cell_for_population(state, source) == 0)
+			(void)persons::exact_population::register_population_cell(state, source);
+		if(persons::exact_population::source_cell_for_population(state, target) == 0)
+			(void)persons::exact_population::register_population_cell(state, target);
 	}
 
 	auto const source_size = state.world.pop_get_size(source);
@@ -4230,6 +4237,16 @@ float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id t
 	state.world.pop_set_size(target, target_size + moved);
 	state.world.pop_set_savings(source, remaining_savings);
 	state.world.pop_set_savings(target, target_savings + moved_savings);
+	if(state.exact_population) {
+		auto transfer = persons::exact_population::transfer_population_membership(state, source, target, moved, cause);
+		if(!transfer.complete) {
+			state.world.pop_set_size(source, source_size);
+			state.world.pop_set_size(target, target_size);
+			state.world.pop_set_savings(source, source_savings);
+			state.world.pop_set_savings(target, target_savings);
+			return 0.f;
+		}
+	}
 	return moved;
 }
 
@@ -4250,7 +4267,11 @@ dcon::pop_id find_or_make_pop(sys::state& state, dcon::province_id loc, dcon::cu
 	}
 	for(auto pl : state.world.province_get_pop_location(loc)) {
 		if(pl.get_pop().get_culture() == cid && pl.get_pop().get_religion() == rid && pl.get_pop().get_poptype() == ptid) {
-			return pl.get_pop();
+			auto result = pl.get_pop();
+			if(state.exact_population
+				&& persons::exact_population::source_cell_for_population(state, result.id) == 0)
+				(void)persons::exact_population::register_population_cell(state, result.id);
+			return result;
 		}
 	}
 	auto np = fatten(state.world, state.world.create_pop());
@@ -4357,6 +4378,8 @@ dcon::pop_id find_or_make_pop(sys::state& state, dcon::province_id loc, dcon::cu
 			});
 		}
 	}
+	if(state.exact_population)
+		(void)persons::exact_population::register_population_cell(state, np.id);
 	return np;
 }
 } // namespace impl
@@ -4368,7 +4391,8 @@ void apply_type_changes(sys::state& state, uint32_t offset, uint32_t divisions, 
 					if(promotion_buf.amounts.get(p) > 0.0f && promotion_buf.types.get(p)) {
 						auto target_pop = impl::find_or_make_pop(state, state.world.pop_get_province_from_pop_location(p),
 								state.world.pop_get_culture(p), state.world.pop_get_religion(p), promotion_buf.types.get(p), pop_demographics::get_literacy(state, p));
-						transfer_pop_amount(state, p, target_pop, promotion_buf.amounts.get(p));
+						transfer_pop_amount(state, p, target_pop, promotion_buf.amounts.get(p),
+							persons::exact_population::population_transition_cause::promotion);
 					}
 				},
 				ids);
@@ -4380,7 +4404,8 @@ void apply_type_changes(sys::state& state, uint32_t offset, uint32_t divisions, 
 					if(demotion_buf.amounts.get(p) > 0.0f && demotion_buf.types.get(p)) {
 						auto target_pop = impl::find_or_make_pop(state, state.world.pop_get_province_from_pop_location(p),
 								state.world.pop_get_culture(p), state.world.pop_get_religion(p), demotion_buf.types.get(p), pop_demographics::get_literacy(state, p));
-						transfer_pop_amount(state, p, target_pop, demotion_buf.amounts.get(p));
+						transfer_pop_amount(state, p, target_pop, demotion_buf.amounts.get(p),
+							persons::exact_population::population_transition_cause::demotion);
 					}
 				},
 				ids);
@@ -4413,7 +4438,8 @@ void apply_assimilation(sys::state& state, uint32_t offset, uint32_t divisions, 
 						&& state.world.pop_type_is_valid(pop_type)) {
 					auto target_pop = impl::find_or_make_pop(state, l, cul, rel,
 						pop_type, pop_demographics::get_literacy(state, p));
-					transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p));
+					transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p),
+						persons::exact_population::population_transition_cause::assimilation);
 				}
 			}
 		},
@@ -4441,7 +4467,8 @@ void apply_internal_migration(sys::state& state, uint32_t offset, uint32_t divis
 						auto target_pop = impl::find_or_make_pop(state, pbuf.destinations.get(p), state.world.pop_get_culture(p),
 								state.world.pop_get_religion(p), state.world.pop_get_poptype(p), pop_demographics::get_literacy(state, p));
 
-						auto const moved = transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p));
+						auto const moved = transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p),
+							persons::exact_population::population_transition_cause::internal_migration);
 
 						auto cur_pop_location = state.world.pop_get_province_from_pop_location(p);
 						state.world.province_set_daily_net_migration(cur_pop_location, state.world.province_get_daily_net_migration(cur_pop_location) - moved);
@@ -4468,7 +4495,8 @@ void apply_colonial_migration(sys::state& state, uint32_t offset, uint32_t divis
 						auto target_pop = impl::find_or_make_pop(state, pbuf.destinations.get(p), state.world.pop_get_culture(p),
 								state.world.pop_get_religion(p), state.world.pop_get_poptype(p), pop_demographics::get_literacy(state, p));
 
-						auto const moved = transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p));
+						auto const moved = transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p),
+							persons::exact_population::population_transition_cause::colonial_migration);
 
 						auto cur_pop_location = state.world.pop_get_province_from_pop_location(p);
 						state.world.province_set_daily_net_migration(cur_pop_location, state.world.province_get_daily_net_migration(cur_pop_location) - moved);
@@ -4491,7 +4519,8 @@ void apply_immigration(sys::state& state, uint32_t offset, uint32_t divisions, m
 						auto target_pop = impl::find_or_make_pop(state, pbuf.destinations.get(p), state.world.pop_get_culture(p),
 								state.world.pop_get_religion(p), state.world.pop_get_poptype(p), pop_demographics::get_literacy(state, p));
 
-						auto const moved = transfer_pop_amount(state, p, target_pop, amount);
+						auto const moved = transfer_pop_amount(state, p, target_pop, amount,
+							persons::exact_population::population_transition_cause::immigration);
 
 						auto cur_pop_location = state.world.pop_get_province_from_pop_location(p);
 						state.world.province_set_daily_net_immigration(cur_pop_location, state.world.province_get_daily_net_immigration(cur_pop_location) - moved);
@@ -4589,7 +4618,8 @@ bool merge_cleanup_pop(sys::state& state, dcon::pop_id source) {
 	if(target) {
 		auto population_moved = source_size == 0.f;
 		if(source_size > 0.f) {
-			auto const moved = transfer_pop_amount(state, source, target, source_size);
+			auto const moved = transfer_pop_amount(state, source, target, source_size,
+				persons::exact_population::population_transition_cause::population_merge);
 			population_moved = moved == source_size && state.world.pop_get_size(source) == 0.f;
 		}
 		if(!population_moved) {
@@ -4630,7 +4660,8 @@ void fixup_state_only_pops(sys::state& state) {
 					auto new_pop = impl::find_or_make_pop(state, state_capital, state.world.pop_get_culture(pop),
 						state.world.pop_get_religion(pop), pop_type, pop_demographics::get_literacy(state, pop));
 					auto const source_size = state.world.pop_get_size(pop);
-					auto const moved = transfer_pop_amount(state, pop, new_pop, source_size);
+					auto const moved = transfer_pop_amount(state, pop, new_pop, source_size,
+						persons::exact_population::population_transition_cause::population_merge);
 					if(moved != source_size || state.world.pop_get_size(pop) != 0.f
 						|| state.world.pop_get_savings(pop) != 0.f) {
 						continue;

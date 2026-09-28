@@ -2,12 +2,13 @@
 
 The normal save section carries a framed `AOEX` extension for state kept outside
 the DCON world. The extension is versioned and length-delimited. Save versions
-48, 49 and 50 are readable; version 48 has no exact-person extension, version
-49 uses `AOEX` v1, and version 50 writes `AOEX` v4. Later extension versions
-preserve row-lifetime bindings, retired identity ranges, birth cohorts and
-population-size checkpoints without changing the DCON schema. Older
-executables reject version 50 instead of misreading extension bytes as DCON
-data.
+48 through 51 are readable; version 48 has no exact-person extension, version
+49 uses `AOEX` v1, version 50 writes `AOEX` v4, and version 51 writes `AOEX`
+v5. The latest extension persists row-lifetime bindings, retired identity
+ranges, birth cohorts, population-size checkpoints, current membership ranges,
+transition records and fractional transfer remainders without changing the
+DCON schema. Older executables reject version 51 instead of misreading
+extension bytes as DCON data.
 
 The snapshot preserves the exact population catalog and its overrides, sparse
 person accounts and transactions, job applications and contracts, household
@@ -32,19 +33,22 @@ empty first-generation catalog, and a v49 save with an existing catalog receive
 the compatible bootstrap or binding migration after the DCON world is loaded.
 AOEX v2 preserves row-lifetime bindings; v3 records retired row tokens; v4
 persists virtual-person birth and death ranges and the aggregate population
-checkpoint. Daily reconciliation appends new identities for net population
-growth. Net shrinkage retires a deterministic low-ordinal range, ends active
-exact labor contracts, and cancels open purchase bids. Accounts, stock and
-historical transactions remain attached to the retired keys, so no value is
-silently deleted. This creates no DCON people or economic actors.
+checkpoint; v5 adds current membership ranges and compact movement history.
+Daily reconciliation appends new identities for net population growth and
+projects living membership counts back to DCON POP sizes. Net shrinkage retires
+a deterministic low-ordinal range, ends active exact labor contracts, and
+cancels open purchase bids. Migration, class changes, assimilation, population
+merges and exact household relocation update membership without changing
+identity keys. Accounts, stock and historical transactions remain attached to
+retired keys, so no value is silently deleted. This creates no DCON people or
+economic actors.
 
 Aggregate saves do not contain individual employment, balance, or consumption
-histories, so migration does not invent those records. POP aggregates remain
-the source data for current demographics. A zero-sum change across POP rows is
-treated as redistribution and does not create or retire exact people. The
-current lifecycle pass does not yet assign those people to destination rows,
-reclassify identities across promotions or splits, or create inheritance for
-retired accounts. Opening balances, stocks and employment also remain to be
-migrated without double counting.
+histories, so migration does not invent those records. Older AOEX v1-v4 saves
+initialize current membership in each person's original row, then use the
+hooked transfer paths going forward. Direct POP size edits that bypass those
+paths still require explicit migration rules. Death does not yet create
+inheritance for retired accounts. Opening balances, stocks and employment also
+remain to be migrated without double counting.
 The wider ownership and retirement gates are tracked in
 [Canonical Runtime Migration](canonical-runtime-migration.md).

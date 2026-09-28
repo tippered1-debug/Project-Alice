@@ -27,15 +27,13 @@ namespace sys {
 namespace {
 
 bool readable_scenario_version(uint32_t version) {
-	return version == sys::scenario_file_version
-		|| version == sys::legacy_scenario_file_version
-		|| version == sys::oldest_legacy_scenario_file_version;
+	return version >= sys::oldest_legacy_scenario_file_version
+		&& version <= sys::scenario_file_version;
 }
 
 bool readable_save_version(uint32_t version) {
-	return version == sys::save_file_version
-		|| version == sys::legacy_save_file_version
-		|| version == sys::oldest_legacy_save_file_version;
+	return version >= sys::oldest_legacy_save_file_version
+		&& version <= sys::save_file_version;
 }
 
 // Handwritten save extensions are framed so older saves can still be read:
@@ -67,7 +65,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 4;
+constexpr uint16_t exact_runtime_save_version = 5;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -207,6 +205,9 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 		+ pod_vector_size(population.retired_people)
 		+ pod_vector_size(population.birth_cohorts)
 		+ pod_vector_size(population.population_observations)
+		+ pod_vector_size(population.membership_ranges)
+		+ pod_vector_size(population.transitions)
+		+ pod_vector_size(population.transfer_remainders)
 		+ sizeof(population.observed_world_literal_count) + sizeof(uint8_t);
 	size += sizeof(uint32_t) + population.overrides.size() *
 		(sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint8_t) + sizeof(dcon::site_id));
@@ -279,6 +280,9 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = write_pod_vector(ptr, population.population_observations);
 	ptr = memcpy_serialize(ptr, population.observed_world_literal_count);
 	ptr = memcpy_serialize(ptr, uint8_t(population.has_lifecycle_checkpoint));
+	ptr = write_pod_vector(ptr, population.membership_ranges);
+	ptr = write_pod_vector(ptr, population.transitions);
+	ptr = write_pod_vector(ptr, population.transfer_remainders);
 
 	ptr = memcpy_serialize(ptr, economy.version);
 	ptr = memcpy_serialize(ptr, uint32_t(economy.participation_overrides.size()));
@@ -403,6 +407,12 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 		} else if(valid) {
 			valid = false;
 		}
+	}
+	if(valid && version >= 5) {
+		valid = read_pod_vector(ptr, payload_end, population.membership_ranges);
+		if(valid) valid = read_pod_vector(ptr, payload_end, population.transitions);
+		if(valid) valid = read_pod_vector(ptr, payload_end, population.transfer_remainders);
+		population.has_current_membership = valid;
 	}
 
 	if(valid) ptr = memcpy_deserialize(ptr, economy.version);

@@ -195,11 +195,12 @@ inline uint8_t const* deserialize(uint8_t const* ptr_in, ankerl::unordered_dense
 // Version 48 persists monthly land and industry collateral valuations. Version
 // 49 added the framed exact-runtime extension; version 50 adds lifetime-stable
 // POP bindings and exact-population lifecycle checkpoints inside that
-// length-delimited extension. Versions 48 and 49 stay readable because their
-// DCON schema is unchanged.
+// length-delimited extension. Version 51 adds current population membership
+// ranges and compact transition history to AOEX. Versions 48-50 stay readable
+// because their DCON schema is unchanged.
 constexpr inline uint32_t oldest_legacy_save_file_version = 48;
-constexpr inline uint32_t legacy_save_file_version = 49;
-constexpr inline uint32_t save_file_version = 50;
+constexpr inline uint32_t legacy_save_file_version = 50;
+constexpr inline uint32_t save_file_version = 51;
 constexpr inline uint32_t scenario_file_version = 139 + save_file_version;
 constexpr inline uint32_t legacy_scenario_file_version = 139 + legacy_save_file_version;
 constexpr inline uint32_t oldest_legacy_scenario_file_version = 139 + oldest_legacy_save_file_version;
