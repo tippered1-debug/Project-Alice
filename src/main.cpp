@@ -63,6 +63,7 @@
 #include "serialization.cpp"
 #include "nations.cpp"
 #include "diplomatic_crisis_dynamics.cpp"
+#include "strategic_statecraft.cpp"
 #include "policy_execution.cpp"
 #include "culture.cpp"
 #include "military.cpp"

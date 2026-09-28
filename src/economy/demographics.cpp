@@ -17,6 +17,7 @@
 #include "persons/exact_population.hpp"
 
 #include <limits>
+#include <cstdlib>
 
 // #define CHECK_LLVM_RESULTS
 
@@ -2806,10 +2807,13 @@ void update_growth(sys::state& state, uint32_t offset, uint32_t divisions) {
 		auto total_factor = ln_factor * ln_penalty_scale + modifiers
 			+ urban_growth_adjustment;
 		auto old_size = state.world.pop_get_size(ids);
-		auto new_size = old_size * total_factor + old_size;
+		auto population_delta = old_size * total_factor;
 
-		state.world.pop_set_size(ids,
-				ve::select((owner != dcon::nation_id{}), new_size, old_size));
+		ve::apply([&](dcon::pop_id pop, dcon::nation_id pop_owner, float delta) {
+			if(!pop_owner) return;
+			auto result = persons::exact_population::apply_population_lifecycle_delta(state, pop, delta);
+			if(!result.complete) std::abort();
+		}, ids, owner, population_delta);
 	});
 }
 
@@ -4196,57 +4200,39 @@ float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id t
 		|| !std::isfinite(requested_amount) || requested_amount <= 0.f) {
 		return 0.f;
 	}
-	if(state.exact_population) {
-		if(persons::exact_population::source_cell_for_population(state, source) == 0)
-			(void)persons::exact_population::register_population_cell(state, source);
-		if(persons::exact_population::source_cell_for_population(state, target) == 0)
-			(void)persons::exact_population::register_population_cell(state, target);
+	if(!state.exact_population
+		|| persons::exact_population::source_cell_for_population(static_cast<sys::state const&>(state), source) == 0
+		|| persons::exact_population::source_cell_for_population(static_cast<sys::state const&>(state), target) == 0) {
+		std::abort();
 	}
 
 	auto const source_size = state.world.pop_get_size(source);
-	auto const target_size = state.world.pop_get_size(target);
 	auto const source_savings = state.world.pop_get_savings(source);
 	auto const target_savings = state.world.pop_get_savings(target);
 	if(!std::isfinite(source_size) || source_size <= 0.f
-		|| !std::isfinite(target_size) || target_size < 0.f
 		|| !std::isfinite(source_savings) || source_savings < 0.f
-		|| !std::isfinite(target_savings) || target_savings < 0.f) {
+		|| !std::isfinite(target_savings) || target_savings < 0.f
+		|| source_savings > std::numeric_limits<float>::max() - target_savings) {
 		return 0.f;
 	}
-
-	auto moved = std::min(requested_amount, source_size);
-	// The daily cleanup removes POPs smaller than one person. Move that tiny
-	// remainder now so neither population nor its savings silently disappears.
-	if(source_size - moved < 1.f) {
-		moved = source_size;
-	}
-	auto const remaining_size = source_size - moved;
-	auto const remaining_savings = moved == source_size
+	auto requested = std::min(requested_amount, source_size);
+	auto transfer = persons::exact_population::transfer_population_membership(state, source, target, requested, cause);
+	if(!transfer.complete) std::abort();
+	auto const moved = transfer.population_amount_moved;
+	if(moved <= 0.f) return 0.f;
+	if(moved > source_size + 1.0e-5f) std::abort();
+	auto const remaining_size = std::max(0.f, source_size - moved);
+	auto const remaining_savings = moved >= source_size
 		? 0.f
 		: source_savings * (remaining_size / source_size);
 	auto const moved_savings = source_savings - remaining_savings;
-	auto const max_value = std::numeric_limits<float>::max();
 	if(!std::isfinite(remaining_savings) || remaining_savings < 0.f
 		|| !std::isfinite(moved_savings) || moved_savings < 0.f
-		|| moved > max_value - target_size
-		|| moved_savings > max_value - target_savings) {
-		return 0.f;
+		|| moved_savings > std::numeric_limits<float>::max() - target_savings) {
+		std::abort();
 	}
-
-	state.world.pop_set_size(source, remaining_size);
-	state.world.pop_set_size(target, target_size + moved);
 	state.world.pop_set_savings(source, remaining_savings);
 	state.world.pop_set_savings(target, target_savings + moved_savings);
-	if(state.exact_population) {
-		auto transfer = persons::exact_population::transfer_population_membership(state, source, target, moved, cause);
-		if(!transfer.complete) {
-			state.world.pop_set_size(source, source_size);
-			state.world.pop_set_size(target, target_size);
-			state.world.pop_set_savings(source, source_savings);
-			state.world.pop_set_savings(target, target_savings);
-			return 0.f;
-		}
-	}
 	return moved;
 }
 
@@ -4268,9 +4254,9 @@ dcon::pop_id find_or_make_pop(sys::state& state, dcon::province_id loc, dcon::cu
 	for(auto pl : state.world.province_get_pop_location(loc)) {
 		if(pl.get_pop().get_culture() == cid && pl.get_pop().get_religion() == rid && pl.get_pop().get_poptype() == ptid) {
 			auto result = pl.get_pop();
-			if(state.exact_population
-				&& persons::exact_population::source_cell_for_population(state, result.id) == 0)
-				(void)persons::exact_population::register_population_cell(state, result.id);
+			if(!state.exact_population
+				|| persons::exact_population::source_cell_for_population(static_cast<sys::state const&>(state), result.id) == 0)
+				std::abort();
 			return result;
 		}
 	}
@@ -4378,8 +4364,11 @@ dcon::pop_id find_or_make_pop(sys::state& state, dcon::province_id loc, dcon::cu
 			});
 		}
 	}
-	if(state.exact_population)
-		(void)persons::exact_population::register_population_cell(state, np.id);
+	if(!state.exact_population) std::abort();
+	auto registration = persons::exact_population::register_population_cell(state, np.id);
+	if(registration.result != persons::exact_population::status::created
+		&& registration.result != persons::exact_population::status::already_registered)
+		std::abort();
 	return np;
 }
 } // namespace impl
@@ -4732,11 +4721,9 @@ float calculate_nation_sol(sys::state& state, dcon::nation_id nation_id) {
 }
 
 void reduce_pop_size_safe(sys::state& state, dcon::pop_id pop_id, int32_t amount) {
-	if(state.world.pop_get_size(pop_id) >= amount) {
-		state.world.pop_set_size(pop_id, state.world.pop_get_size(pop_id) - amount);
-	} else {
-		state.world.pop_set_size(pop_id, 0);
-	}
+	if(amount <= 0) return;
+	auto result = persons::exact_population::apply_population_lifecycle_delta(state, pop_id, -float(amount));
+	if(!result.complete) std::abort();
 }
 
 void modify_militancy(sys::state& state, dcon::nation_id n, float v) {

@@ -9,6 +9,7 @@
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -490,17 +491,20 @@ void clear_exact_runtime_state(sys::state& state) {
 	economy::causal_order::clear_store(state);
 }
 
-void restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
+bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
 	clear_exact_runtime_state(state);
-	if(!snapshot.present) return;
-	auto clear_on_failure = [&] { clear_exact_runtime_state(state); };
+	if(snapshot.extension_found && !snapshot.present) return false;
+	if(!snapshot.present) return true;
 	if(!persons::exact_population::import_snapshot(state, snapshot.population)
 		|| !economy::causal_order::import_snapshot(state, snapshot.causal_order)
 		|| !economy::exact_person_economy::import_snapshot(state, snapshot.economy)
 		|| !economy::physical::exact_person_goods::import_snapshot(state, snapshot.goods)
 		|| !economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
-		|| !economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor))
-		clear_on_failure();
+		|| !economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor)) {
+		clear_exact_runtime_state(state);
+		return false;
+	}
+	return true;
 }
 
 bool needs_exact_population_bootstrap(exact_runtime_snapshot const& snapshot) {
@@ -1732,13 +1736,17 @@ uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_e
 		std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 		state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded, loadmask);
 	}
-	restore_exact_runtime_state(state, exact_runtime);
-	if(needs_exact_population_bootstrap(exact_runtime)
-		&& gamerule::age_of_transformation_enabled(state)) {
+	if(!restore_exact_runtime_state(state, exact_runtime)) {
+		state.console_command_error += "?R Canonical runtime save extension is invalid; refusing legacy fallback?W\\n";
+		std::abort();
+	}
+	if(needs_exact_population_bootstrap(exact_runtime)) {
 		auto bootstrap = persons::exact_population::bootstrap_from_current_pops(state);
-		if(!bootstrap.complete)
-			state.console_command_error += std::string("?R Exact population migration failed for POP ")
+		if(!bootstrap.complete || bootstrap.unbound_populations != 0) {
+			state.console_command_error += std::string("?R Canonical population import failed for POP ")
 				+ std::to_string(bootstrap.failed_population.index()) + "?W\\n";
+			std::abort();
+		}
 	}
 	validate_strategic_statecraft_world_state(state);
 	migrate_legacy_army_supply_fields(state, loaded);
@@ -1887,13 +1895,17 @@ uint8_t const* read_entire_mp_state(uint8_t const* ptr_in, uint8_t const* sectio
 	dcon::load_record loaded;
 	std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 	state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded);
-	restore_exact_runtime_state(state, exact_runtime);
-	if(needs_exact_population_bootstrap(exact_runtime)
-		&& gamerule::age_of_transformation_enabled(state)) {
+	if(!restore_exact_runtime_state(state, exact_runtime)) {
+		state.console_command_error += "?R Canonical runtime save extension is invalid; refusing legacy fallback?W\\n";
+		std::abort();
+	}
+	if(needs_exact_population_bootstrap(exact_runtime)) {
 		auto bootstrap = persons::exact_population::bootstrap_from_current_pops(state);
-		if(!bootstrap.complete)
-			state.console_command_error += std::string("?R Exact population migration failed for POP ")
+		if(!bootstrap.complete || bootstrap.unbound_populations != 0) {
+			state.console_command_error += std::string("?R Canonical population import failed for POP ")
 				+ std::to_string(bootstrap.failed_population.index()) + "?W\\n";
+			std::abort();
+		}
 	}
 	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();

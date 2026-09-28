@@ -162,6 +162,14 @@ struct population_reconciliation_result {
 
 struct population_transfer_result {
 	uint64_t people_moved = 0;
+	float population_amount_moved = 0.0f;
+	bool complete = true;
+};
+
+struct population_lifecycle_result {
+	uint64_t people_born = 0;
+	uint64_t people_died = 0;
+	float population_amount_applied = 0.0f;
 	bool complete = true;
 };
 
@@ -197,6 +205,7 @@ registration_result register_synthetic_population_cell(sys::state&, cell_descrip
 world_bootstrap_result bootstrap_from_current_pops(sys::state&);
 uint64_t synchronize_current_pop_bindings(sys::state&);
 population_reconciliation_result reconcile_population_lifecycle(sys::state&);
+population_lifecycle_result apply_population_lifecycle_delta(sys::state&, dcon::pop_id, float population_delta);
 population_transfer_result transfer_population_membership(sys::state&, dcon::pop_id source,
 	dcon::pop_id destination, float population_amount, population_transition_cause);
 bool transfer_population_person_membership(sys::state&, person_key, dcon::pop_id destination,
@@ -204,6 +213,7 @@ bool transfer_population_person_membership(sys::state&, person_key, dcon::pop_id
 uint32_t current_population_cell(sys::state const&, person_key);
 dcon::pop_id current_population_for_person(sys::state const&, person_key);
 uint64_t living_people_in_population_cell(sys::state const&, uint32_t population_cell);
+bool project_population(sys::state&, dcon::pop_id);
 bool project_population_membership(sys::state&);
 
 bool source_cell_registered(sys::state const&, uint32_t source_population_cell);

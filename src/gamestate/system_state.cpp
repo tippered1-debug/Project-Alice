@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <thread>
 #include "system_state.hpp"
@@ -4177,12 +4178,13 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 	ui_date = current_date;
 	::world::spatial_runtime::bootstrap(*this);
 	::compat::alice::bootstrap_factory_sites(*this);
-	if(gamerule::age_of_transformation_enabled(*this)
-		&& persons::exact_population::cell_count(*this) == 0) {
+	{
 		auto exact_population = persons::exact_population::bootstrap_from_current_pops(*this);
-		if(!exact_population.complete) {
-			console_command_error += std::string("?R Exact population bootstrap failed for POP ")
-				+ std::to_string(exact_population.failed_population.index()) + "?W\\n";
+		if(!exact_population.complete || exact_population.unbound_populations != 0
+			|| persons::exact_population::synchronize_current_pop_bindings(*this) != 0
+			|| !persons::exact_population::project_population_membership(*this)) {
+			console_command_error += "?R Canonical population bootstrap/validation failed; refusing legacy fallback?W\n";
+			std::abort();
 		}
 	}
 	::economy::physical::deposits::bootstrap(*this);
@@ -4796,16 +4798,11 @@ void state::single_game_tick() {
 		}
 		assert(lua_gettop(lua_game_loop_environment) == 0);
 	}
-	if(gamerule::age_of_transformation_enabled(*this)) {
+	{
 		auto reconciliation = persons::exact_population::reconcile_population_lifecycle(*this);
-		if(reconciliation.unbound_populations != 0)
-			console_command_error += std::string("?R Exact population lifetime IDs exhausted for ")
-				+ std::to_string(reconciliation.unbound_populations) + " POP rows?W\\n";
-		if(!reconciliation.complete)
-			console_command_error += "?R Exact population lifecycle reconciliation was incomplete?W\\n";
-		if(reconciliation.deaths != 0) {
-			economy::physical::labor_dynamics::retire_dead_exact_workers(*this);
-			economy::physical::exact_person_goods::cancel_dead_person_orders(*this);
+		if(!reconciliation.complete || reconciliation.unbound_populations != 0) {
+			console_command_error += "?R Canonical population invariant failed; refusing legacy fallback?W\n";
+			std::abort();
 		}
 	}
 
