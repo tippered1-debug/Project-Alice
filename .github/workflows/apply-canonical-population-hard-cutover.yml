@@ -10,26 +10,26 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'Run canonical population hard-cutover applier'
+    if: github.event.head_commit.message == 'Run remaining population runtime purge'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/canonical-population-hard-cutover-v1
           fetch-depth: 1
-      - name: Apply hard cutover
+      - name: Purge remaining runtime population writes
+        run: python3 scripts/apply_canonical_population_runtime_purge.py
+      - name: Audit direct population size writes
         run: |
-          sed -i 's/if count != 1:/if count < 1:/' scripts/apply_canonical_population_hard_cutover.py
-          python3 scripts/apply_canonical_population_hard_cutover.py
-      - name: Audit population writes
-        run: |
-          echo 'Direct pop_set_size writes after cutover:'
-          git grep -n 'pop_set_size' -- '*.cpp' '*.hpp' || true
-      - name: Commit source cutover
+          echo 'Remaining direct pop_set_size writes:'
+          git grep -n 'pop_set_size' -- 'src/**' || true
+          echo 'Remaining direct get_pop().set_size writes:'
+          git grep -n 'get_pop().set_size' -- 'src/**' || true
+      - name: Commit runtime purge
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/persons/exact_population.hpp src/persons/exact_population.cpp src/economy/demographics.cpp src/gamestate/system_state.cpp src/gamestate/serialization.cpp src/main.cpp
+          git add src/economy/physical/household_mobility.cpp src/military/military.cpp src/scripting/effects.cpp
           git diff --cached --check
-          git commit -m 'Hard cut over canonical population runtime'
+          git commit -m 'Purge remaining legacy population runtime writes'
           git push origin HEAD:feat/canonical-population-hard-cutover-v1
