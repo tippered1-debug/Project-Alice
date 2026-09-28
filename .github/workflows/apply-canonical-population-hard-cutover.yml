@@ -1,0 +1,33 @@
+name: Apply Canonical Population Hard Cutover
+
+on:
+  push:
+    branches:
+      - feat/canonical-population-hard-cutover-v1
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Run canonical population hard-cutover applier'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/canonical-population-hard-cutover-v1
+          fetch-depth: 0
+      - name: Apply hard cutover
+        run: python3 scripts/apply_canonical_population_hard_cutover.py
+      - name: Audit population writes
+        run: |
+          echo 'Direct pop_set_size writes after cutover:'
+          git grep -n 'pop_set_size' -- '*.cpp' '*.hpp' || true
+      - name: Commit source cutover
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/persons/exact_population.hpp src/persons/exact_population.cpp src/economy/demographics.cpp src/gamestate/system_state.cpp src/gamestate/serialization.cpp src/main.cpp
+          git diff --cached --check
+          git commit -m 'Hard cut over canonical population runtime'
+          git push origin HEAD:feat/canonical-population-hard-cutover-v1
