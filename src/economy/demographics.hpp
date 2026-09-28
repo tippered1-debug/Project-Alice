@@ -271,6 +271,9 @@ void apply_immigration(sys::state& state, uint32_t offset, uint32_t divisions, m
 
 // Moves population and the same proportional share of its liquid savings.
 // Returns the actual population moved after safety clamping.
+dcon::pop_id find_or_make_canonical_pop(sys::state& state, dcon::province_id province,
+	dcon::culture_id culture, dcon::religion_id religion, dcon::pop_type_id type, float literacy);
+
 float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id target,
 	float requested_amount,
 	persons::exact_population::population_transition_cause cause =

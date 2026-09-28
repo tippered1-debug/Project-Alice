@@ -4373,6 +4373,15 @@ dcon::pop_id find_or_make_pop(sys::state& state, dcon::province_id loc, dcon::cu
 }
 } // namespace impl
 
+dcon::pop_id find_or_make_canonical_pop(sys::state& state, dcon::province_id province,
+	dcon::culture_id culture, dcon::religion_id religion, dcon::pop_type_id type, float literacy) {
+	if(!state.exact_population) std::abort();
+	auto pop = impl::find_or_make_pop(state, province, culture, religion, type, literacy);
+	if(!pop || persons::exact_population::source_cell_for_population(
+		static_cast<sys::state const&>(state), pop) == 0) std::abort();
+	return pop;
+}
+
 void apply_type_changes(sys::state& state, uint32_t offset, uint32_t divisions, promotion_buffer& promotion_buf, promotion_buffer& demotion_buf) {
 	execute_staggered_blocks(offset, divisions, std::min(state.world.pop_size(), promotion_buf.size), [&](auto ids) {
 		ve::apply(

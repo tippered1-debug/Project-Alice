@@ -1910,7 +1910,16 @@ uint32_t ef_is_slave_province_yes(EFFECT_PARAMTERS) {
 	return 0;
 }
 uint32_t ef_is_slave_pop_yes(EFFECT_PARAMTERS) {
-	ws.world.pop_set_poptype(trigger::to_pop(primary_slot), ws.culture_definitions.slaves);
+	auto source = trigger::to_pop(primary_slot);
+	if(!source || !ws.world.pop_is_valid(source) || ws.world.pop_get_poptype(source) == ws.culture_definitions.slaves) return 0;
+	auto source_size = ws.world.pop_get_size(source);
+	auto target = demographics::find_or_make_canonical_pop(ws,
+		ws.world.pop_get_province_from_pop_location(source), ws.world.pop_get_culture(source),
+		ws.world.pop_get_religion(source), ws.culture_definitions.slaves,
+		pop_demographics::get_literacy(ws, source));
+	auto moved = demographics::transfer_pop_amount(ws, source, target, source_size,
+		persons::exact_population::population_transition_cause::population_merge);
+	if(std::abs(moved - source_size) > 1.0e-5f) std::abort();
 	return 0;
 }
 uint32_t ef_research_points(EFFECT_PARAMTERS) {
@@ -3011,12 +3020,17 @@ uint32_t ef_is_slave_state_no(EFFECT_PARAMTERS) {
 	return 0;
 }
 uint32_t ef_is_slave_pop_no(EFFECT_PARAMTERS) {
-	if(ws.world.pop_get_poptype(trigger::to_pop(primary_slot)) == ws.culture_definitions.slaves) {
-		bool mine = ws.world.commodity_get_is_mine(
-				ws.world.province_get_rgo(ws.world.pop_get_province_from_pop_location(trigger::to_pop(primary_slot))));
-		ws.world.pop_set_poptype(trigger::to_pop(primary_slot),
-				mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers);
-	}
+	auto source = trigger::to_pop(primary_slot);
+	if(!source || !ws.world.pop_is_valid(source) || ws.world.pop_get_poptype(source) != ws.culture_definitions.slaves) return 0;
+	auto province = ws.world.pop_get_province_from_pop_location(source);
+	bool mine = ws.world.commodity_get_is_mine(ws.world.province_get_rgo(province));
+	auto target_type = mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers;
+	auto source_size = ws.world.pop_get_size(source);
+	auto target = demographics::find_or_make_canonical_pop(ws, province, ws.world.pop_get_culture(source),
+		ws.world.pop_get_religion(source), target_type, pop_demographics::get_literacy(ws, source));
+	auto moved = demographics::transfer_pop_amount(ws, source, target, source_size,
+		persons::exact_population::population_transition_cause::population_merge);
+	if(std::abs(moved - source_size) > 1.0e-5f) std::abort();
 	return 0;
 }
 uint32_t ef_is_slave_province_no(EFFECT_PARAMTERS) {
@@ -3129,11 +3143,33 @@ uint32_t ef_reduce_pop_state(EFFECT_PARAMTERS) {
 	return 0;
 }
 uint32_t ef_move_pop(EFFECT_PARAMTERS) {
-	ws.world.pop_set_province_from_pop_location(trigger::to_pop(primary_slot), trigger::payload(tval[1]).prov_id);
+	auto source = trigger::to_pop(primary_slot);
+	auto destination = trigger::payload(tval[1]).prov_id;
+	if(!source || !ws.world.pop_is_valid(source) || !destination || !ws.world.province_is_valid(destination)) return 0;
+	auto source_size = ws.world.pop_get_size(source);
+	if(source_size <= 0.0f) return 0;
+	auto target = demographics::find_or_make_canonical_pop(ws, destination,
+		ws.world.pop_get_culture(source), ws.world.pop_get_religion(source),
+		ws.world.pop_get_poptype(source), pop_demographics::get_literacy(ws, source));
+	if(target == source) return 0;
+	auto moved = demographics::transfer_pop_amount(ws, source, target, source_size,
+		persons::exact_population::population_transition_cause::internal_migration);
+	if(std::abs(moved - source_size) > 1.0e-5f) std::abort();
 	return 0;
 }
 uint32_t ef_pop_type(EFFECT_PARAMTERS) {
-	ws.world.pop_set_poptype(trigger::to_pop(primary_slot), trigger::payload(tval[1]).popt_id);
+	auto source = trigger::to_pop(primary_slot);
+	auto target_type = trigger::payload(tval[1]).popt_id;
+	if(!source || !ws.world.pop_is_valid(source) || !target_type || !ws.world.pop_type_is_valid(target_type)) return 0;
+	auto source_size = ws.world.pop_get_size(source);
+	if(source_size <= 0.0f || ws.world.pop_get_poptype(source) == target_type) return 0;
+	auto province = ws.world.pop_get_province_from_pop_location(source);
+	auto target = demographics::find_or_make_canonical_pop(ws, province,
+		ws.world.pop_get_culture(source), ws.world.pop_get_religion(source),
+		target_type, pop_demographics::get_literacy(ws, source));
+	auto moved = demographics::transfer_pop_amount(ws, source, target, source_size,
+		persons::exact_population::population_transition_cause::population_merge);
+	if(std::abs(moved - source_size) > 1.0e-5f) std::abort();
 	return 0;
 }
 uint32_t ef_years_of_research(EFFECT_PARAMTERS) {
