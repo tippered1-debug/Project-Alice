@@ -17,6 +17,10 @@ disabled by default. When disabled, interest-group updates and their gameplay
 effects are no-ops, and existing Victoria 2 parties, elections, issues, reforms,
 events and decisions retain their legacy behavior.
 
+The ruleset is still a hybrid runtime. See
+[Canonical Runtime Migration](canonical-runtime-migration.md) for current
+sources of truth, compatibility paths and the cutover gates for retiring them.
+
 ## Compatibility contract
 
 - Existing parties remain the public government identity and the ruling party is
@@ -632,13 +636,14 @@ python3 scripts/compare_simulation_reports.py continuous.jsonl after-checkpoint.
 
 The comparison is keyed by simulation date, so the resumed run's local tick
 counter may start from zero. Any checksum mismatch fails with the first divergent
-date. Schema v48 serializes industry and land collateral as well as cargo and
-producer debt; this removed the large false bankruptcy/write-off jump previously
-seen after a checkpoint. A current v48 continuation matches GDP, producer debt,
-treasuries, population and cargo exactly at the load boundary. Five simulated
-days later its world aggregates differ from the continuous run by less than
-`0.4` GDP and `0.8` producer debt. The whole-state checksum can still differ at
-the boundary because older derived engine caches are reconstructed at load, so
+date. Save schema v48 first serialized industry and land collateral as well as
+cargo and producer debt; this removed the large false bankruptcy/write-off jump
+previously seen after a checkpoint. The v48 continuation checked at that point
+matched GDP, producer debt, treasuries, population and cargo exactly at the load
+boundary. Five simulated days later, its world aggregates differ from the
+continuous run by less than `0.4` GDP and `0.8` producer debt. The whole-state
+checksum can still differ at the boundary because older derived engine caches
+are reconstructed at load, so
 the strict comparator is intentionally retained as a visible unfinished release
 gate rather than presented as passing.
 

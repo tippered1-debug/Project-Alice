@@ -24,6 +24,7 @@
 #include "validation.hpp"
 #include "policy_execution.hpp"
 #include "nations/strategic_statecraft.hpp"
+#include "persons/exact_population.hpp"
 
 namespace military {
 
@@ -6810,6 +6811,7 @@ void apply_regiment_damage(sys::state& state) {
 				else {
 					military::delete_regiment_safe_wrapper(state, s);
 				}
+				persons::exact_population::retire_population_cell(state, backing_pop);
 				state.world.delete_pop(backing_pop);
 			}
 		}

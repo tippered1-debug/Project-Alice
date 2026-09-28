@@ -6,6 +6,7 @@
 #include "economy/physical/exact_person_freight.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/labor_dynamics.hpp"
+#include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
 #include <algorithm>
 #include <cmath>
@@ -26,11 +27,15 @@ namespace sys {
 namespace {
 
 bool readable_scenario_version(uint32_t version) {
-	return version == sys::scenario_file_version || version == sys::legacy_scenario_file_version;
+	return version == sys::scenario_file_version
+		|| version == sys::legacy_scenario_file_version
+		|| version == sys::oldest_legacy_scenario_file_version;
 }
 
 bool readable_save_version(uint32_t version) {
-	return version == sys::save_file_version || version == sys::legacy_save_file_version;
+	return version == sys::save_file_version
+		|| version == sys::legacy_save_file_version
+		|| version == sys::oldest_legacy_save_file_version;
 }
 
 // Handwritten save extensions are framed so older saves can still be read:
@@ -62,7 +67,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 1;
+constexpr uint16_t exact_runtime_save_version = 4;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -74,6 +79,8 @@ struct exact_runtime_snapshot {
 	economy::physical::exact_person_freight::freight_snapshot freight;
 	economy::physical::labor_dynamics::snapshot labor;
 	economy::causal_order::snapshot causal_order;
+	uint16_t extension_version = 0;
+	bool extension_found = false;
 	bool present = false;
 };
 
@@ -194,7 +201,13 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	auto const& labor = snapshot.labor;
 	auto const& causal = snapshot.causal_order;
 	std::size_t size = 6 * sizeof(uint32_t);
-	size += pod_vector_size(population.cells) + pod_vector_size(population.bridges);
+	size += pod_vector_size(population.cells) + pod_vector_size(population.bridges)
+		+ pod_vector_size(population.source_bindings)
+		+ pod_vector_size(population.retired_source_cells)
+		+ pod_vector_size(population.retired_people)
+		+ pod_vector_size(population.birth_cohorts)
+		+ pod_vector_size(population.population_observations)
+		+ sizeof(population.observed_world_literal_count) + sizeof(uint8_t);
 	size += sizeof(uint32_t) + population.overrides.size() *
 		(sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint8_t) + sizeof(dcon::site_id));
 	size += pod_vector_size(economy.accounts) + pod_vector_size(economy.applications)
@@ -259,6 +272,13 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 		ptr = memcpy_serialize(ptr, record.home_site);
 	}
 	ptr = write_pod_vector(ptr, population.bridges);
+	ptr = write_pod_vector(ptr, population.source_bindings);
+	ptr = write_pod_vector(ptr, population.retired_source_cells);
+	ptr = write_pod_vector(ptr, population.retired_people);
+	ptr = write_pod_vector(ptr, population.birth_cohorts);
+	ptr = write_pod_vector(ptr, population.population_observations);
+	ptr = memcpy_serialize(ptr, population.observed_world_literal_count);
+	ptr = memcpy_serialize(ptr, uint8_t(population.has_lifecycle_checkpoint));
 
 	ptr = memcpy_serialize(ptr, economy.version);
 	ptr = memcpy_serialize(ptr, uint32_t(economy.participation_overrides.size()));
@@ -332,9 +352,11 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	ptr = memcpy_deserialize(ptr, payload_size);
 	(void)reserved;
 	if(magic != exact_runtime_save_magic) return header_start;
+	result.extension_found = true;
+	result.extension_version = version;
 	if(std::size_t(section_end - ptr) < payload_size) return section_end;
 	auto const* payload_end = ptr + payload_size;
-	if(version != exact_runtime_save_version) return payload_end;
+	if(version == 0 || version > exact_runtime_save_version) return payload_end;
 
 	auto& population = result.population;
 	auto& economy = result.economy;
@@ -362,6 +384,26 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 			return true;
 		});
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.bridges);
+	if(valid && version >= 2) {
+		valid = read_pod_vector(ptr, payload_end, population.source_bindings);
+		population.has_source_bindings = valid;
+	}
+	if(valid && version >= 3)
+		valid = read_pod_vector(ptr, payload_end, population.retired_source_cells);
+	if(valid && version >= 4) {
+		uint8_t has_lifecycle_checkpoint = 0;
+		valid = read_pod_vector(ptr, payload_end, population.retired_people);
+		if(valid) valid = read_pod_vector(ptr, payload_end, population.birth_cohorts);
+		if(valid) valid = read_pod_vector(ptr, payload_end, population.population_observations);
+		if(valid && std::size_t(payload_end - ptr) >= sizeof(population.observed_world_literal_count) + sizeof(has_lifecycle_checkpoint)) {
+			ptr = memcpy_deserialize(ptr, population.observed_world_literal_count);
+			ptr = memcpy_deserialize(ptr, has_lifecycle_checkpoint);
+			valid = has_lifecycle_checkpoint <= 1;
+			population.has_lifecycle_checkpoint = has_lifecycle_checkpoint != 0;
+		} else if(valid) {
+			valid = false;
+		}
+	}
 
 	if(valid) ptr = memcpy_deserialize(ptr, economy.version);
 	if(valid) valid = read_custom_vector(ptr, payload_end, economy.participation_overrides,
@@ -419,7 +461,13 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	if(valid) valid = read_pod_vector(ptr, payload_end, causal.dcon_sequences);
 	valid = valid && ptr == payload_end;
 	if(valid) result.present = true;
-	else result = exact_runtime_snapshot{};
+	else {
+		auto const found_extension = result.extension_found;
+		auto const found_version = result.extension_version;
+		result = exact_runtime_snapshot{};
+		result.extension_found = found_extension;
+		result.extension_version = found_version;
+	}
 	return payload_end;
 }
 
@@ -443,6 +491,13 @@ void restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const
 		|| !economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
 		|| !economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor))
 		clear_on_failure();
+}
+
+bool needs_exact_population_bootstrap(exact_runtime_snapshot const& snapshot) {
+	// AOEX v1 has no POP lifetime bindings. Empty catalogs also need their first
+	// population bootstrap. Malformed and unknown extensions remain fail-closed.
+	return !snapshot.extension_found
+		|| (snapshot.present && (snapshot.extension_version == 1 || snapshot.population.cells.empty()));
 }
 
 uint8_t const* read_strategic_statecraft_save(
@@ -1668,6 +1723,13 @@ uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_e
 		state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded, loadmask);
 	}
 	restore_exact_runtime_state(state, exact_runtime);
+	if(needs_exact_population_bootstrap(exact_runtime)
+		&& gamerule::age_of_transformation_enabled(state)) {
+		auto bootstrap = persons::exact_population::bootstrap_from_current_pops(state);
+		if(!bootstrap.complete)
+			state.console_command_error += std::string("?R Exact population migration failed for POP ")
+				+ std::to_string(bootstrap.failed_population.index()) + "?W\\n";
+	}
 	validate_strategic_statecraft_world_state(state);
 	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();
@@ -1816,6 +1878,13 @@ uint8_t const* read_entire_mp_state(uint8_t const* ptr_in, uint8_t const* sectio
 	std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 	state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded);
 	restore_exact_runtime_state(state, exact_runtime);
+	if(needs_exact_population_bootstrap(exact_runtime)
+		&& gamerule::age_of_transformation_enabled(state)) {
+		auto bootstrap = persons::exact_population::bootstrap_from_current_pops(state);
+		if(!bootstrap.complete)
+			state.console_command_error += std::string("?R Exact population migration failed for POP ")
+				+ std::to_string(bootstrap.failed_population.index()) + "?W\\n";
+	}
 	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();
 	return section_end;

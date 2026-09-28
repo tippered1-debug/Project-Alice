@@ -45,11 +45,20 @@ dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 	return zone ? state.world.state_instance_get_market_from_local_market(zone) : dcon::market_id{};
 }
 
+dcon::pop_id pop_for_cell_id(sys::state const& state, uint32_t source_cell) {
+	auto bound = persons::exact_population::population_for_source_cell(state, source_cell);
+	if(bound) return bound;
+	if(source_cell == 0) return {};
+	if(persons::exact_population::source_cell_registered(state, source_cell)) return {};
+	auto legacy = dcon::pop_id{dcon::pop_id::value_base_t(source_cell - 1u)};
+	return legacy && state.world.pop_is_valid(legacy) ? legacy : dcon::pop_id{};
+}
+
 dcon::pop_id pop_for_person_cell(sys::state& state, uint32_t source_cell,
 	dcon::province_id province, dcon::culture_id culture, dcon::religion_id religion,
 	dcon::pop_type_id type) {
 	if(!source_cell || !province) return {};
-	auto source = dcon::pop_id{dcon::pop_id::value_base_t(source_cell - 1u)};
+	auto source = pop_for_cell_id(state, source_cell);
 	if(source && state.world.pop_is_valid(source)
 		&& state.world.pop_get_province_from_pop_location(source) == province
 		&& state.world.pop_get_culture(source) == culture
@@ -301,8 +310,8 @@ bool relocate_for_job(sys::state& state, dcon::person_id person, dcon::site_id w
 		auto culture = state.world.person_get_source_culture(person);
 		auto religion = state.world.person_get_source_religion(person);
 		if(!culture || !religion) {
-			auto source = dcon::pop_id{dcon::pop_id::value_base_t(source_cell - 1u)};
-			if(source && state.world.pop_is_valid(source)) {
+			auto source = pop_for_cell_id(state, source_cell);
+			if(source) {
 				if(!culture) culture = state.world.pop_get_culture(source);
 				if(!religion) religion = state.world.pop_get_religion(source);
 			}
@@ -329,8 +338,8 @@ bool relocate_for_job(sys::state& state, persons::exact_population::person_key p
 	if(!std::isfinite(distance) || distance < long_commute_km) return false;
 	auto descriptor = persons::exact_population::descriptor_for_cell(state, person.source_population_cell);
 	if(descriptor) {
-		auto source = dcon::pop_id{dcon::pop_id::value_base_t(person.source_population_cell - 1u)};
-		if(source && state.world.pop_is_valid(source)
+		auto source = persons::exact_population::population_for_source_cell(state, person.source_population_cell);
+		if(source
 			&& state.world.pop_get_culture(source) == descriptor->source_culture
 			&& state.world.pop_get_religion(source) == descriptor->source_religion
 			&& state.world.pop_get_poptype(source) == descriptor->source_pop_type) {

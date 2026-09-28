@@ -110,7 +110,9 @@ bool separate_exact(sys::state& state, uint64_t contract_id, separation_reason r
 	if(!exact_person_economy::end_contract(state, contract_id,
 		exact_person_economy::contract_status::terminated, state.current_date)) return false;
 	exact_person_economy::note_separation(state, record->worker, state.current_date);
-	if(exact_person_economy::is_labor_force_participant(state, record->worker))
+	if(reason != separation_reason::worker_death
+		&& persons::exact_population::alive(state, record->worker)
+		&& exact_person_economy::is_labor_force_participant(state, record->worker))
 		exact_person_economy::enqueue_displaced_worker(state, record->worker);
 	record_exact_separation(state, *record, reason);
 	return true;
@@ -240,6 +242,18 @@ void process_displaced_job_search(sys::state& state) {
 	}
 }
 
+void retire_dead_exact_workers(sys::state& state) {
+	auto snapshot = exact_person_economy::export_snapshot(state);
+	for(auto const& application : snapshot.applications)
+		if(application.status == exact_person_economy::application_status::pending
+			&& !persons::exact_population::alive(state, application.worker))
+			(void)exact_person_economy::withdraw_application(state, application.id);
+	for(auto const& contract : snapshot.contracts)
+		if(contract.status == exact_person_economy::contract_status::active
+			&& !persons::exact_population::alive(state, contract.worker))
+			(void)separate_exact(state, contract.id, separation_reason::worker_death);
+}
+
 uint64_t separation_event_count(sys::state const& state) {
 	return uint64_t(ensure_store(state)->events.size());
 }
@@ -287,7 +301,7 @@ bool import_snapshot(sys::state& state, snapshot const& value) {
 	for(auto const& event : value.events) {
 		if(event.id == 0 || !event_ids.insert(event.id).second
 			|| uint8_t(event.worker_contract_kind) > uint8_t(contract_kind::exact)
-			|| uint8_t(event.reason) > uint8_t(separation_reason::worker_quit_arrears)
+			|| uint8_t(event.reason) > uint8_t(separation_reason::worker_death)
 			|| !event.employer || !state.world.economic_actor_is_valid(event.employer)
 			|| (event.factory && !state.world.factory_is_valid(event.factory))
 			|| !std::isfinite(event.labor_capacity) || event.labor_capacity < 0.0f

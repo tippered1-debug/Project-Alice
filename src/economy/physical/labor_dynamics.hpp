@@ -15,7 +15,8 @@ namespace economy::physical::labor_dynamics {
 enum class separation_reason : uint8_t {
 	employer_layoff = 0,
 	worker_quit = 1,
-	worker_quit_arrears = 2
+	worker_quit_arrears = 2,
+	worker_death = 3
 };
 
 enum class contract_kind : uint8_t { legacy = 0, exact = 1 };
@@ -57,6 +58,7 @@ bool quit_exact_employment(sys::state&, uint64_t,
 
 void process_factory_labor_dynamics(sys::state&);
 void process_displaced_job_search(sys::state&);
+void retire_dead_exact_workers(sys::state&);
 
 uint64_t separation_event_count(sys::state const&);
 std::optional<separation_event> separation_event_at(sys::state const&, uint64_t id);

@@ -43,6 +43,10 @@
 #include "actors/ownership.hpp"
 #include "governance/governance.hpp"
 #include "governance/public_administration.hpp"
+#include "gamerule/gamerule.hpp"
+#include "persons/exact_population.hpp"
+#include "economy/physical/exact_person_goods.hpp"
+#include "economy/physical/labor_dynamics.hpp"
 
 namespace sys {
 
@@ -4173,6 +4177,14 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 	ui_date = current_date;
 	::world::spatial_runtime::bootstrap(*this);
 	::compat::alice::bootstrap_factory_sites(*this);
+	if(gamerule::age_of_transformation_enabled(*this)
+		&& persons::exact_population::cell_count(*this) == 0) {
+		auto exact_population = persons::exact_population::bootstrap_from_current_pops(*this);
+		if(!exact_population.complete) {
+			console_command_error += std::string("?R Exact population bootstrap failed for POP ")
+				+ std::to_string(exact_population.failed_population.index()) + "?W\\n";
+		}
+	}
 	::economy::physical::deposits::bootstrap(*this);
 	::actors::ownership::bootstrap(*this);
 	::governance::bootstrap(*this);
@@ -4783,6 +4795,18 @@ void state::single_game_tick() {
 			lua_settop(lua_game_loop_environment, 0);
 		}
 		assert(lua_gettop(lua_game_loop_environment) == 0);
+	}
+	if(gamerule::age_of_transformation_enabled(*this)) {
+		auto reconciliation = persons::exact_population::reconcile_population_lifecycle(*this);
+		if(reconciliation.unbound_populations != 0)
+			console_command_error += std::string("?R Exact population lifetime IDs exhausted for ")
+				+ std::to_string(reconciliation.unbound_populations) + " POP rows?W\\n";
+		if(!reconciliation.complete)
+			console_command_error += "?R Exact population lifecycle reconciliation was incomplete?W\\n";
+		if(reconciliation.deaths != 0) {
+			economy::physical::labor_dynamics::retire_dead_exact_workers(*this);
+			economy::physical::exact_person_goods::cancel_dead_person_orders(*this);
+		}
 	}
 
 	/*

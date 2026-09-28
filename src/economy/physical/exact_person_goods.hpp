@@ -104,6 +104,7 @@ uint64_t post_bid(sys::state&, person_key, economy::exact_person_economy::accoun
 std::vector<bid_reference> active_bids(sys::state const&, dcon::market_id, dcon::commodity_id);
 uint64_t try_fill(sys::state&, uint64_t exact_bid_id, dcon::concrete_market_ask_id, sys::date);
 void expire(sys::state&, sys::date);
+void cancel_dead_person_orders(sys::state&);
 
 bool process_purchase_decision(sys::state&, person_key, dcon::commodity_id);
 void process_purchase_decisions(sys::state&, person_key);

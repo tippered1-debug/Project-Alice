@@ -336,6 +336,15 @@ void expire(sys::state& state, sys::date date) {
 		}
 }
 
+void cancel_dead_person_orders(sys::state& state) {
+	for(auto& bid : ensure_store(state)->bids)
+		if(bid.status == order_status::active
+			&& !persons::exact_population::alive(state, bid.buyer)) {
+			bid.status = order_status::canceled;
+			bid.reserved_amount = 0.0f;
+		}
+}
+
 bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commodity_id commodity) {
 	if(!persons::exact_population::exists(state, buyer) || !persons::exact_population::alive(state, buyer)) return false;
 	auto site = persons::exact_population::home_site(state, buyer);

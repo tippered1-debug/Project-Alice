@@ -14,6 +14,7 @@
 #include "price.hpp"
 #include "demographics_templates.hpp"
 #include "province.hpp"
+#include "persons/exact_population.hpp"
 
 #include <limits>
 
@@ -4636,6 +4637,7 @@ void fixup_state_only_pops(sys::state& state) {
 					}
 					relink_pop_dependents(state, pop, new_pop);
 					if constexpr(DeletePops) {
+						persons::exact_population::retire_population_cell(state, pop);
 						state.world.delete_pop(pop);
 					}
 				}
@@ -4651,6 +4653,7 @@ void remove_size_zero_pops(sys::state& state) {
 		dcon::pop_id m{dcon::pop_id::value_base_t(last)};
 		if(state.world.pop_get_size(m) < 1.0f) {
 			if(merge_cleanup_pop(state, m)) {
+				persons::exact_population::retire_population_cell(state, m);
 				state.world.delete_pop(m);
 			}
 		}
@@ -4663,6 +4666,7 @@ void remove_small_pops(sys::state& state) {
 		dcon::pop_id m{ dcon::pop_id::value_base_t(last) };
 		if(state.world.pop_get_size(m) < 20.0f) {
 			if(merge_cleanup_pop(state, m)) {
+				persons::exact_population::retire_population_cell(state, m);
 				state.world.delete_pop(m);
 			}
 		}

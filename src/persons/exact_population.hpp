@@ -55,6 +55,42 @@ struct bridge_record {
 	dcon::person_id legacy_person{};
 };
 
+// A POP row's DCON index may be reused after deletion. This binding gives the
+// row lifetime a stable exact-person namespace while it is present in DCON.
+struct population_cell_binding {
+	uint32_t source_population_cell = 0;
+	uint32_t dcon_pop_index_plus_one = 0;
+};
+
+// Compact lifecycle records keep large cohorts virtual. A retired range keeps
+// historical person keys valid for ledgers while excluding them from the live
+// population. Birth cohorts supply ages and demographics for appended keys.
+struct person_range {
+	uint32_t source_population_cell = 0;
+	uint32_t reserved = 0;
+	uint64_t first_ordinal = 0;
+	uint64_t count = 0;
+};
+
+struct birth_cohort {
+	uint32_t source_population_cell = 0;
+	uint32_t reserved = 0;
+	uint64_t first_ordinal = 0;
+	uint64_t count = 0;
+	int32_t birth_day = 0;
+	dcon::site_id home_site{};
+	dcon::culture_id culture{};
+	dcon::religion_id religion{};
+	dcon::pop_type_id pop_type{};
+	uint32_t reserved_tail = 0;
+};
+
+struct population_observation {
+	uint32_t source_population_cell = 0;
+	uint32_t reserved = 0;
+	double population_size = 0.0;
+};
+
 // Persistence boundary for the exact store. The normal save pipeline stores
 // this catalog in its versioned exact-runtime extension without reconstructing
 // one DCON object per logical human.
@@ -63,6 +99,22 @@ struct catalog_snapshot {
 	std::vector<cell_descriptor> cells;
 	std::vector<exact_person_override> overrides;
 	std::vector<bridge_record> bridges;
+	std::vector<population_cell_binding> source_bindings;
+	std::vector<uint32_t> retired_source_cells;
+	std::vector<person_range> retired_people;
+	std::vector<birth_cohort> birth_cohorts;
+	std::vector<population_observation> population_observations;
+	uint64_t observed_world_literal_count = 0;
+	bool has_source_bindings = false;
+	bool has_lifecycle_checkpoint = false;
+};
+
+struct population_reconciliation_result {
+	uint64_t births = 0;
+	uint64_t deaths = 0;
+	uint64_t unbound_populations = 0;
+	bool initialized_checkpoint = false;
+	bool complete = true;
 };
 
 enum class status : uint8_t {
@@ -82,9 +134,21 @@ struct registration_result {
 	cell_descriptor descriptor{};
 };
 
+struct world_bootstrap_result {
+	uint64_t registered_cells = 0;
+	uint64_t unbound_populations = 0;
+	uint64_t logical_people = 0;
+	dcon::pop_id failed_population{};
+	status failure = status::already_registered;
+	bool complete = true;
+};
+
 registration_result register_population_cell(sys::state&, dcon::pop_id,
 	dcon::site_id home_site = {});
 registration_result register_synthetic_population_cell(sys::state&, cell_descriptor);
+world_bootstrap_result bootstrap_from_current_pops(sys::state&);
+uint64_t synchronize_current_pop_bindings(sys::state&);
+population_reconciliation_result reconcile_population_lifecycle(sys::state&);
 
 bool source_cell_registered(sys::state const&, uint32_t source_population_cell);
 uint64_t literal_count_for_cell(sys::state const&, uint32_t source_population_cell);
@@ -108,6 +172,9 @@ dcon::pop_type_id source_pop_type(sys::state const&, person_key);
 bool is_source_workforce_anchor(sys::state const&, person_key);
 
 std::optional<cell_descriptor> descriptor_for_cell(sys::state const&, uint32_t source_population_cell);
+uint32_t source_cell_for_population(sys::state const&, dcon::pop_id);
+dcon::pop_id population_for_source_cell(sys::state const&, uint32_t source_population_cell);
+void retire_population_cell(sys::state&, dcon::pop_id);
 
 // Explicit compatibility projection. Simple exact-person queries never call
 // this function and therefore never create a DCON Person or EconomicActor.

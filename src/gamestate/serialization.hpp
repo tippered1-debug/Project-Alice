@@ -192,15 +192,17 @@ inline uint8_t const* deserialize(uint8_t const* ptr_in, ankerl::unordered_dense
 
 // Version 46 changed the handwritten scenario/save sections. Version 47 added
 // per-commodity directional cargo-in-transit arrays to each trade route.
-// Version 48 persists monthly land and industry collateral valuations used by
-// producer-credit bankruptcy. Version 49 adds the framed exact-runtime save
-// extension. The reader explicitly accepts version 48 as the immediately
-// preceding layout, while older layouts lack enough bounds information to
-// migrate safely.
-constexpr inline uint32_t legacy_save_file_version = 48;
-constexpr inline uint32_t save_file_version = 49;
+// Version 48 persists monthly land and industry collateral valuations. Version
+// 49 added the framed exact-runtime extension; version 50 adds lifetime-stable
+// POP bindings and exact-population lifecycle checkpoints inside that
+// length-delimited extension. Versions 48 and 49 stay readable because their
+// DCON schema is unchanged.
+constexpr inline uint32_t oldest_legacy_save_file_version = 48;
+constexpr inline uint32_t legacy_save_file_version = 49;
+constexpr inline uint32_t save_file_version = 50;
 constexpr inline uint32_t scenario_file_version = 139 + save_file_version;
 constexpr inline uint32_t legacy_scenario_file_version = 139 + legacy_save_file_version;
+constexpr inline uint32_t oldest_legacy_scenario_file_version = 139 + oldest_legacy_save_file_version;
 
 struct scenario_header {
 	uint32_t version = scenario_file_version;
