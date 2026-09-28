@@ -10,26 +10,20 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'Run remaining population runtime purge'
+    if: github.event.head_commit.message == 'Run scripted canonical population cutover'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/canonical-population-hard-cutover-v1
           fetch-depth: 1
-      - name: Purge remaining runtime population writes
-        run: python3 scripts/apply_canonical_population_runtime_purge.py
-      - name: Audit direct population size writes
-        run: |
-          echo 'Remaining direct pop_set_size writes:'
-          git grep -n 'pop_set_size' -- 'src/**' || true
-          echo 'Remaining direct get_pop().set_size writes:'
-          git grep -n 'get_pop().set_size' -- 'src/**' || true
-      - name: Commit runtime purge
+      - name: Cut over scripted population mutations
+        run: python3 scripts/apply_canonical_script_population_cutover.py
+      - name: Commit scripted cutover
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/economy/physical/household_mobility.cpp src/military/military.cpp src/scripting/effects.cpp
+          git add src/economy/demographics.hpp src/economy/demographics.cpp src/scripting/effects.cpp
           git diff --cached --check
-          git commit -m 'Purge remaining legacy population runtime writes'
+          git commit -m 'Route scripted population mutations through canonical state'
           git push origin HEAD:feat/canonical-population-hard-cutover-v1
