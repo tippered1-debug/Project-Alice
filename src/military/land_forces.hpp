@@ -141,6 +141,7 @@ struct casualty_event_record {
 	stable_id formation_id = 0;
 	uint64_t personnel_losses = 0;
 	int32_t day = 0;
+	persons::death_cause cause = persons::death_cause::combat;
 };
 
 struct readiness {
@@ -221,7 +222,9 @@ stable_id formation_for_legacy_regiment(sys::state const&, dcon::regiment_id);
 float projected_regiment_strength(sys::state const&, stable_id formation_id);
 float formation_combat_stat(sys::state const&, dcon::regiment_id, bool attacking);
 float apply_legacy_regiment_damage(sys::state&, dcon::regiment_id, float damage,
-	stable_id event_id, int32_t day);
+	stable_id event_id, int32_t day, persons::death_cause cause = persons::death_cause::combat);
+stable_id next_loss_event_id(sys::state const&, stable_id formation_id, int32_t day,
+	persons::death_cause cause);
 bool sync_legacy_regiment_projection(sys::state&, dcon::regiment_id);
 bool set_operational_state(sys::state&, stable_id formation_id, bool moving, bool in_combat,
 	float operational_tempo);
@@ -240,7 +243,8 @@ double replacement_load(sys::state const&, stable_id formation_id);
 double depot_inventory_at(sys::state const&, dcon::nation_id owner, dcon::province_id);
 
 casualty_result apply_losses(sys::state&, stable_id formation_id, uint64_t personnel_losses,
-	std::span<casualty_request const> equipment_losses, stable_id event_id, int32_t day);
+	std::span<casualty_request const> equipment_losses, stable_id event_id, int32_t day,
+	persons::death_cause cause = persons::death_cause::combat);
 bool destroy_formation(sys::state&, stable_id formation_id);
 
 validation_result validate_canonical_land_forces(sys::state const&);

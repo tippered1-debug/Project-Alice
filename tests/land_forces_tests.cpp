@@ -278,14 +278,16 @@ TEST_CASE("canonical land forces move and route physical equipment without inven
 		land_forces_tests::a_second, 5.0));
 	REQUIRE(land_forces_tests::tank_material(world) == Approx(material_before));
 	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
-		land_forces_tests::tank_model) == 5);
-	REQUIRE(military::land_forces::replacement_load(state, land_forces_tests::a_second) == Approx(1.5));
+		land_forces_tests::tank_model) == 0);
 	REQUIRE(military::land_forces::personnel_count(state, land_forces_tests::a_second) == before_people);
 	REQUIRE(military::land_forces::dispatch_to_formation(state, 704, land_forces_tests::a_depot,
 		land_forces_tests::a_second, 11.0) == false);
 	auto food_before = military::land_forces::consumable_quantity(state, land_forces_tests::a_first,
 		military::land_forces::consumable_kind::food);
 	advance(world, 1);
+	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
+		land_forces_tests::tank_model) == 5);
+	REQUIRE(military::land_forces::replacement_load(state, land_forces_tests::a_second) == Approx(1.5));
 	REQUIRE(military::land_forces::consumable_quantity(state, land_forces_tests::a_first,
 		military::land_forces::consumable_kind::food) < food_before);
 	REQUIRE(military::land_forces::move_formation(state, land_forces_tests::a_second, world.a_capital_site));
@@ -316,6 +318,17 @@ TEST_CASE("land casualties retire exact people and equipment deterministically",
 	REQUIRE(military::land_forces::equipment_count(*first.state, land_forces_tests::a_first,
 		land_forces_tests::tank_model) == 10);
 	REQUIRE(first.state->world.pop_get_size(first.pop_a) == Approx(25.0f));
+	std::array<military::land_forces::casualty_request, 0> no_equipment_losses{};
+	auto attrition_first = military::land_forces::apply_losses(*first.state, land_forces_tests::a_second,
+		1, no_equipment_losses, 90002, day, persons::death_cause::attrition);
+	auto attrition_shuffled = military::land_forces::apply_losses(*shuffled.state, land_forces_tests::a_second,
+		1, no_equipment_losses, 90002, day, persons::death_cause::attrition);
+	REQUIRE(attrition_first.applied);
+	REQUIRE(attrition_shuffled.applied);
+	auto population_after_attrition = persons::exact_population::export_snapshot(*first.state);
+	REQUIRE(std::any_of(population_after_attrition.deaths.begin(), population_after_attrition.deaths.end(),
+		[](auto const& death) { return death.cause == uint8_t(persons::death_cause::attrition); }));
+	REQUIRE(first.state->world.pop_get_size(first.pop_a) == Approx(24.75f));
 	REQUIRE(military::land_forces::recruit_personnel(*first.state, land_forces_tests::a_first,
 		first.pop_a, 1, 0) == 0);
 	REQUIRE_FALSE(military::land_forces::apply_losses(*first.state, land_forces_tests::a_first,

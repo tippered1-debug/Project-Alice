@@ -6315,20 +6315,6 @@ float reduce_regiment_strength_safe(sys::state& state, dcon::regiment_id reg, fl
 	return actual_str_reduction;
 }
 
-uint64_t legacy_land_loss_event_id(sys::state const& state, dcon::regiment_id regiment,
-	regiment_dmg_source source) {
-	uint64_t value = 0x4c414e444c4f5353ULL;
-	value ^= uint64_t(state.current_date.to_raw_value()) * 0x9e3779b97f4a7c15ULL;
-	value ^= uint64_t(uint32_t(regiment.index()) + 1u) * 0xbf58476d1ce4e5b9ULL;
-	value ^= uint64_t(uint8_t(source)) * 0x94d049bb133111ebULL;
-	value ^= value >> 30;
-	value *= 0xbf58476d1ce4e5b9ULL;
-	value ^= value >> 27;
-	value *= 0x94d049bb133111ebULL;
-	value ^= value >> 31;
-	return value == 0 ? 1 : value;
-}
-
 float reduce_ship_strength_safe(sys::state& state, dcon::ship_id reg, float value) {
 	float actual_str_reduction = std::min(state.world.ship_get_strength(reg), value);
 	state.world.ship_set_strength(reg, state.world.ship_get_strength(reg) - actual_str_reduction);
@@ -6338,14 +6324,18 @@ float reduce_ship_strength_safe(sys::state& state, dcon::ship_id reg, float valu
 
 template<regiment_dmg_source damage_source>
 float regiment_take_str_damage(sys::state& state, dcon::regiment_id reg, float value) {
-	if(!military::land_forces::formation_for_legacy_regiment(state, reg)) {
+	auto formation_id = military::land_forces::formation_for_legacy_regiment(state, reg);
+	if(!formation_id) {
 		assert(false && "land regiment damage requires a canonical formation mapping");
 		return 0.0f;
 	}
+	auto cause = damage_source == regiment_dmg_source::attrition
+		? persons::death_cause::attrition : persons::death_cause::combat;
 	regiment_add_pending_damage_safe<damage_source>(state, reg, value);
 	auto day = state.current_date ? int32_t(state.current_date.to_raw_value() - 1) : 0;
+	auto event_id = military::land_forces::next_loss_event_id(state, formation_id, day, cause);
 	return military::land_forces::apply_legacy_regiment_damage(state, reg, value,
-		legacy_land_loss_event_id(state, reg, damage_source), day);
+		event_id, day, cause);
 }
 
 float regiment_take_org_damage(sys::state& state, dcon::regiment_id reg, float value) {

@@ -651,7 +651,7 @@ float formation_combat_stat(sys::state const& state, dcon::regiment_id regiment,
 }
 
 float apply_legacy_regiment_damage(sys::state& state, dcon::regiment_id regiment,
-	float damage, stable_id event_id, int32_t day) {
+	float damage, stable_id event_id, int32_t day, persons::death_cause cause) {
 	auto formation_id = formation_for_legacy_regiment(state, regiment);
 	if(!formation_id || !std::isfinite(damage) || damage <= 0.0f) return 0.0f;
 	auto const before = projected_regiment_strength(state, formation_id);
@@ -667,7 +667,7 @@ float apply_legacy_regiment_damage(sys::state& state, dcon::regiment_id regiment
 	auto personnel = personnel_count(state, formation_id);
 	auto personnel_losses = uint64_t(std::llround(double(personnel) * double(ratio)));
 	if(ratio >= 1.0f) personnel_losses = personnel;
-	auto result = apply_losses(state, formation_id, personnel_losses, equipment_losses, event_id, day);
+	auto result = apply_losses(state, formation_id, personnel_losses, equipment_losses, event_id, day, cause);
 	if(!result.applied) return 0.0f;
 	auto unit = find_formation(state, formation_id);
 	if(personnel_count(state, formation_id) == 0 && unit && unit->status != formation_status::destroyed)
@@ -847,11 +847,27 @@ double depot_inventory_at(sys::state const& state, dcon::nation_id owner, dcon::
 	return result;
 }
 
+stable_id next_loss_event_id(sys::state const& state, stable_id formation_id, int32_t day,
+	persons::death_cause cause) {
+	if(formation_id == 0 || uint8_t(cause) > uint8_t(persons::death_cause::attrition)) return 0;
+	uint64_t sequence = 0;
+	for(auto const& event : ensure(state)->casualty_events)
+		if(event.formation_id == formation_id && event.day == day && event.cause == cause) ++sequence;
+	auto seed = hash_combine(0x4c4f53534556454eULL, formation_id);
+	seed = hash_combine(seed, uint32_t(day));
+	seed = hash_combine(seed, uint8_t(cause));
+	for(;; ++sequence) {
+		auto candidate = hash_combine(seed, sequence);
+		if(candidate != 0 && !stable_id_in_use(state, candidate)) return candidate;
+	}
+}
+
 casualty_result apply_losses(sys::state& state, stable_id formation_id,
 	uint64_t requested_personnel_losses, std::span<casualty_request const> requested_equipment_losses,
-	stable_id event_id, int32_t day) {
+	stable_id event_id, int32_t day, persons::death_cause cause) {
 	casualty_result result;
-	if(stable_id_in_use(state, event_id) || !state.exact_population) return result;
+	if(stable_id_in_use(state, event_id) || !state.exact_population
+		|| uint8_t(cause) > uint8_t(persons::death_cause::attrition)) return result;
 	auto unit = find_formation(state, formation_id);
 	if(!unit || unit->status == formation_status::destroyed) return result;
 	for(auto const& existing : ensure(state)->casualty_events)
@@ -902,7 +918,7 @@ casualty_result apply_losses(sys::state& state, stable_id formation_id,
 		casualty_date = sys::date{uint16_t(day + 1)};
 	for(auto const& key : result.persons_killed) {
 		if(!persons::exact_population::unassign_military_person(state, key, formation_id)
-			|| !persons::kill_person(state, key, casualty_date, persons::death_cause::combat, false))
+			|| !persons::kill_person(state, key, casualty_date, cause, false))
 			return casualty_result{};
 		store->person_losses.push_back({event_id, formation_id, key, day});
 	}
@@ -913,7 +929,7 @@ casualty_result apply_losses(sys::state& state, stable_id formation_id,
 		store->equipment_losses.push_back({event_id, formation_id, request.equipment_model_id,
 			request.quantity, day});
 	}
-	store->casualty_events.push_back({event_id, formation_id, requested_personnel_losses, day});
+	store->casualty_events.push_back({event_id, formation_id, requested_personnel_losses, day, cause});
 	std::sort(store->person_losses.begin(), store->person_losses.end(), [](auto const& left, auto const& right) {
 		return std::tie(left.event_id, left.person.source_population_cell, left.person.ordinal)
 			< std::tie(right.event_id, right.person.source_population_cell, right.person.ordinal);
@@ -1045,7 +1061,8 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 	std::set<std::pair<uint32_t, uint64_t>> dead_person_keys;
 	for(auto const& event : store->casualty_events) {
 		if(event.event_id == 0 || !event_ids.insert(event.event_id).second
-			|| !find_formation(state, event.formation_id)) error("invalid or duplicate casualty event");
+			|| !find_formation(state, event.formation_id)
+			|| uint8_t(event.cause) > uint8_t(persons::death_cause::attrition)) error("invalid or duplicate casualty event");
 		if(!all_ids.insert(event.event_id).second) error("duplicate stable ID in casualty events");
 	}
 	for(auto const& loss : store->person_losses) {
@@ -1169,6 +1186,7 @@ uint64_t canonical_checksum(sys::state const& state) {
 	for(auto const& event : value.casualty_events) {
 		hash = hash_combine(hash, event.event_id); hash = hash_combine(hash, event.formation_id);
 		hash = hash_combine(hash, event.personnel_losses); hash = hash_combine(hash, uint32_t(event.day));
+		hash = hash_combine(hash, uint8_t(event.cause));
 	}
 	return hash;
 }
