@@ -17,7 +17,6 @@
 #include "economy.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "events.hpp"
-#include "persons/exact_population.hpp"
 
 #include <cassert>
 #include <cstdlib>
@@ -47,7 +46,7 @@ void reclassify_effect_population_cell(sys::state& state, dcon::pop_id source,
 	dcon::pop_type_id pop_type) {
 	bool const complete = demographics::reclassify_population_cell(state, source, destination,
 		culture, religion, pop_type,
-		persons::exact_population::population_transition_cause::scripted_reclassification);
+		persons::population_transition_cause::scripted_reclassification);
 	assert(complete && "scripted POP changes must reclassify canonical exact membership");
 	if(!complete) std::abort();
 }
@@ -3116,11 +3115,12 @@ void apply_exact_population_factor(sys::state& state, dcon::pop_id pop, float fa
 	assert(std::isfinite(factor));
 	if(!state.exact_population) std::abort();
 	if(!pop || !state.world.pop_is_valid(pop)) return;
-	auto source = persons::exact_population::source_cell_for_population(state, pop);
+	auto source = persons::source_population_cell_for_population(state, pop);
 	assert(source != 0 && "scripted population changes require a canonical cell");
 	if(source == 0) std::abort();
-	auto current = double(persons::exact_population::living_people_in_population_cell(state, source)) / 4.0;
-	(void)persons::exact_population::adjust_population_size(state, pop, current * (double(factor) - 1.0));
+	auto current = double(persons::living_people_in_population_cell(state, source)) / 4.0;
+	(void)persons::adjust_population_size(state, pop, current * (double(factor) - 1.0),
+		persons::death_cause::scripted);
 }
 uint32_t ef_neutrality(EFFECT_PARAMTERS) {
 	nations::destroy_diplomatic_relationships(ws, trigger::to_nation(primary_slot));
@@ -3130,7 +3130,7 @@ uint32_t ef_reduce_pop(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
 	apply_exact_population_factor(ws, trigger::to_pop(primary_slot), amount);
-	auto projection_ok = persons::exact_population::project_population_membership(ws);
+	auto projection_ok = persons::project_population_membership(ws);
 	assert(projection_ok);
 	return 0;
 }
@@ -3146,7 +3146,7 @@ uint32_t ef_reduce_pop_province(EFFECT_PARAMTERS) {
 	for(auto p : ws.world.province_get_pop_location(trigger::to_prov(primary_slot))) {
 		apply_exact_population_factor(ws, p.get_pop().id, amount);
 	}
-	bool const projection_ok = persons::exact_population::project_population_membership(ws);
+	bool const projection_ok = persons::project_population_membership(ws);
 	assert(projection_ok);
 	return 0;
 }
@@ -3158,7 +3158,7 @@ uint32_t ef_reduce_pop_nation(EFFECT_PARAMTERS) {
 			apply_exact_population_factor(ws, p.get_pop().id, amount);
 		}
 	}
-	bool const projection_ok = persons::exact_population::project_population_membership(ws);
+	bool const projection_ok = persons::project_population_membership(ws);
 	assert(projection_ok);
 	return 0;
 }
@@ -3170,7 +3170,7 @@ uint32_t ef_reduce_pop_state(EFFECT_PARAMTERS) {
 			apply_exact_population_factor(ws, p.get_pop().id, amount);
 		}
 	});
-	bool const projection_ok = persons::exact_population::project_population_membership(ws);
+	bool const projection_ok = persons::project_population_membership(ws);
 	assert(projection_ok);
 	return 0;
 }

@@ -47,6 +47,10 @@ namespace persons {
 struct exact_population_store;
 }
 
+namespace military {
+struct land_force_store;
+}
+
 namespace economy {
 struct exact_person_economy_store;
 struct causal_order_store;
@@ -755,6 +759,8 @@ struct alignas(64) state {
 	// Exact mass-population identity is imported once from scenario POP rows and
 	// then persisted with canonical runtime state; it does not allocate DCON actors.
 	mutable std::shared_ptr<persons::exact_population_store> exact_population;
+	// Canonical land formations, exact assignments, equipment, and local supply.
+	mutable std::shared_ptr<military::land_force_store> land_forces;
 	// Exact-person finance, goods, freight, causal order, and labor history are
 	// canonical runtime stores initialized with a new scenario and restored from saves.
 	mutable std::shared_ptr<economy::exact_person_economy_store> exact_person_economy;

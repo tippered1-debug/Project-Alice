@@ -5073,6 +5073,18 @@ object{
 	property{ name{ paid_in_equity } type{ float } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ lending_base_rate } type{ float } tag{ save } }
+	property{ name{ bank_settlement_currency } type{ commodity_id } tag{ save } }
+	property{ name{ bank_jurisdiction } type{ nation_id } tag{ save } }
+	property{ name{ bank_minimum_capital_ratio } type{ float } tag{ save } }
+	property{ name{ bank_liquidity_target } type{ float } tag{ save } }
+	property{ name{ bank_risk_appetite } type{ float } tag{ save } }
+	property{ name{ bank_lending_spread } type{ float } tag{ save } }
+	property{ name{ bank_max_single_borrower_exposure } type{ float } tag{ save } }
+	property{ name{ bank_reserve_requirement } type{ float } tag{ save } }
+	property{ name{ bank_capital_breach_grace_days } type{ uint16_t } tag{ save } }
+	property{ name{ bank_capital_breach_days } type{ uint16_t } tag{ save } }
+	property{ name{ bank_status } type{ uint8_t } tag{ save } }
+	property{ name{ bank_policy_configured } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -5231,6 +5243,9 @@ object{
 	property{ name{ status } type{ uint8_t } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ restructuring_count } type{ uint8_t } tag{ save } }
+	property{ name{ collateral_value } type{ float } tag{ save } }
+	property{ name{ recovered_amount } type{ float } tag{ save } }
+	property{ name{ written_off_amount } type{ float } tag{ save } }
 }
 
 object{
@@ -5247,6 +5262,7 @@ object{
 	storage_type{ erasable }
 	size{ 500000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ request_kind } type{ uint8_t } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
 	property{ name{ settlement } type{ commodity_id } tag{ save } }
@@ -5416,7 +5432,19 @@ object{
 	storage_type{ erasable }
 	size{ 100000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ balance } type{ float } tag{ save } }
+}
+
+object{
+	name{ bank_payment_instruction }
+	storage_type{ erasable }
+	size{ 1000000 }
+	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
+	property{ name{ amount } type{ float } tag{ save } }
+	property{ name{ requested_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -6920,6 +6948,20 @@ relationship{
 	tag{ save }
 	link{ object{ deposit_account } name{ deposit_account } type{ unique } }
 	link{ object{ commodity } name{ commodity } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ bank_payment_instruction_source }
+	tag{ save }
+	link{ object{ bank_payment_instruction } name{ bank_payment_instruction } type{ unique } }
+	link{ object{ deposit_account } name{ deposit_account } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ bank_payment_instruction_destination }
+	tag{ save }
+	link{ object{ bank_payment_instruction } name{ bank_payment_instruction } type{ unique } }
+	link{ object{ deposit_account } name{ deposit_account } type{ many } index_storage{ array } }
 }
 
 relationship{

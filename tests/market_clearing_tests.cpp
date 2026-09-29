@@ -26,7 +26,6 @@ TEST_CASE("market call auction respects reservation prices and priority", "[econ
 
 TEST_CASE("transformed market allocates scarce supply by economic purpose", "[economy][market-clearing]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const market = state->world.create_market();
 	auto const commodity = state->world.create_commodity();
 	state->world.market_resize_actual_probability_to_buy(state->world.commodity_size());
@@ -48,7 +47,6 @@ TEST_CASE("transformed market allocates scarce supply by economic purpose", "[ec
 
 TEST_CASE("classic market clearing remains proportional", "[economy][market-clearing]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = false;
 	auto const market = state->world.create_market();
 	auto const commodity = state->world.create_commodity();
 	market_clearing::begin_day(*state);

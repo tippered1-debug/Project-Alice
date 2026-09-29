@@ -2,6 +2,7 @@
 #include "system_state.hpp"
 
 #include <cmath>
+#include <limits>
 
 namespace economy::relations {
 
@@ -39,6 +40,9 @@ dcon::obligation_id create_obligation(sys::state& state, dcon::economic_actor_id
 	state.world.obligation_set_last_interest_accrual_date(obligation, creation_date);
 	state.world.obligation_set_status(obligation, uint8_t(obligation_status::active));
 	state.world.obligation_set_kind(obligation, uint8_t(kind));
+	state.world.obligation_set_collateral_value(obligation, 0.0f);
+	state.world.obligation_set_recovered_amount(obligation, 0.0f);
+	state.world.obligation_set_written_off_amount(obligation, 0.0f);
 	state.world.force_create_obligation_debtor(obligation, debtor);
 	state.world.force_create_obligation_creditor(obligation, creditor);
 	return obligation;
@@ -48,10 +52,15 @@ float accrue_interest(sys::state& state, dcon::obligation_id obligation, uint32_
 	if(!obligation || days == 0 || state.world.obligation_get_status(obligation) != uint8_t(obligation_status::active)) return 0.0f;
 	auto outstanding = state.world.obligation_get_principal_outstanding(obligation);
 	auto rate = state.world.obligation_get_annual_interest_rate(obligation);
-	auto interest = outstanding * rate * float(days) / 365.0f;
-	if(!finite_nonnegative(interest)) return 0.0f;
-	state.world.obligation_set_accrued_interest(obligation,
-		state.world.obligation_get_accrued_interest(obligation) + interest);
+	auto accrued = state.world.obligation_get_accrued_interest(obligation);
+	auto exact_interest = double(outstanding) * double(rate) * double(days) / 365.0;
+	auto exact_total = double(accrued) + exact_interest;
+	if(!finite_nonnegative(outstanding) || !finite_nonnegative(rate) || !finite_nonnegative(accrued)
+		|| !std::isfinite(exact_interest) || !std::isfinite(exact_total)
+		|| exact_interest > std::numeric_limits<float>::max()
+		|| exact_total > std::numeric_limits<float>::max()) return 0.0f;
+	auto interest = float(exact_interest);
+	state.world.obligation_set_accrued_interest(obligation, float(exact_total));
 	return interest;
 }
 

@@ -50,7 +50,7 @@ TEST_CASE("exact population overrides round-trip with their nonzero key", "[popu
 	auto other_site = f.state->world.create_site();
 	f.state->world.force_create_site_location(other_site, f.province);
 	exact_person_economy_tests::person_key key{uint32_t(f.pop.index()) + 1u, 1};
-	REQUIRE(persons::exact_population::set_alive(*f.state, key, false));
+	REQUIRE(persons::kill_person(*f.state, key, f.state->current_date, persons::death_cause::unspecified));
 	REQUIRE(persons::exact_population::set_home_site(*f.state, key, other_site));
 	auto snapshot = persons::exact_population::export_snapshot(*f.state);
 	REQUIRE(snapshot.overrides.size() == 1);
@@ -198,7 +198,7 @@ TEST_CASE("exact job search is explicit and does not bridge the worker", "[econo
 	auto applications = economy::exact_person_economy::applications_for_person(*f.state, worker);
 	REQUIRE(applications.size() == 1);
 	REQUIRE(economy::exact_person_economy::application(*f.state, applications.front())->offer == higher);
-	REQUIRE_FALSE(persons::exact_population::legacy_person_for_exact_person(*f.state, worker));
+	REQUIRE_FALSE(persons::materialized_profile(*f.state, worker));
 	REQUIRE(f.state->world.job_offer_get_openings(lower) == 1);
 }
 

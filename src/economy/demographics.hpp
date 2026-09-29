@@ -3,7 +3,7 @@
 #include "system_state_forward.hpp"
 #include "triggers.hpp"
 #include "prng.hpp"
-#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 
 namespace pop_demographics {
 
@@ -273,12 +273,12 @@ void apply_immigration(sys::state& state, uint32_t offset, uint32_t divisions, m
 // Returns the actual population moved after safety clamping.
 float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id target,
 	float requested_amount,
-	persons::exact_population::population_transition_cause cause =
-		persons::exact_population::population_transition_cause::population_merge);
+	persons::population_transition_cause cause =
+		persons::population_transition_cause::population_merge);
 bool reclassify_population_cell(sys::state& state, dcon::pop_id source,
 	dcon::province_id destination, dcon::culture_id culture, dcon::religion_id religion,
 	dcon::pop_type_id pop_type,
-	persons::exact_population::population_transition_cause cause);
+	persons::population_transition_cause cause);
 
 void remove_size_zero_pops(sys::state& state);
 void remove_small_pops(sys::state& state);

@@ -180,10 +180,10 @@ dcon::shipment_id dispatch_transfer(sys::state& state, dcon::site_id origin, dco
 	return shipment;
 }
 
-dcon::shipment_id dispatch_exact(sys::state& state, persons::exact_population::person_key owner,
+dcon::shipment_id dispatch_exact(sys::state& state, persons::person_key owner,
 	dcon::site_id origin, dcon::site_id destination, dcon::commodity_id commodity,
 	float amount, uint64_t exact_contract_id) {
-	if(!persons::exact_population::exists(state, owner) || !origin || !destination || origin == destination || !commodity || !std::isfinite(amount) || amount <= 0.0f) return {};
+	if(!persons::exists(state, owner) || !origin || !destination || origin == destination || !commodity || !std::isfinite(amount) || amount <= 0.0f) return {};
 	std::vector<planned_leg> plan;
 	if(!plan_route(state, origin, destination, plan)) return {};
 	auto removed = exact_person_goods::remove_stock(state, owner, origin, commodity, amount);

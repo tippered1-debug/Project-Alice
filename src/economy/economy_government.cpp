@@ -300,7 +300,7 @@ void update_production_administration(sys::state& state, dcon::nation_id n) {
 
 void collect_taxes(sys::state& state) {
 	using economy::exact_person_economy::person_key;
-	std::unordered_map<person_key, float, persons::exact_population::person_key_hash> wage_income;
+	std::unordered_map<person_key, float, persons::person_key_hash> wage_income;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		for(auto contract_id : economy::exact_person_economy::active_contracts_for_factory(state, factory)) {
 			auto contract = economy::exact_person_economy::contract(state, contract_id);
@@ -324,12 +324,12 @@ void collect_taxes(sys::state& state) {
 	struct taxpayer_income { person_key worker{}; dcon::nation_id nation{}; dcon::province_id province{}; float income = 0.0f; };
 	std::vector<taxpayer_income> taxpayers;
 	for(auto const& [worker, income] : wage_income) {
-		if(!std::isfinite(income) || income <= 0.0f || !persons::exact_population::alive(state, worker)) continue;
-		auto home = persons::exact_population::home_site(state, worker);
+		if(!std::isfinite(income) || income <= 0.0f || !persons::alive(state, worker)) continue;
+		auto home = persons::home_site(state, worker);
 		auto province = home ? state.world.site_get_province_from_site_location(home) : dcon::province_id{};
 		auto nation = province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
 		if(!province || !nation || !state.world.nation_is_valid(nation)) continue;
-		auto pop_type = persons::exact_population::source_pop_type(state, worker);
+		auto pop_type = persons::pop_type(state, worker);
 		auto strata = culture::pop_strata(state.world.pop_type_get_strata(pop_type));
 		int bucket = strata == culture::pop_strata::poor ? 0
 			: strata == culture::pop_strata::middle ? 1
@@ -347,7 +347,7 @@ void collect_taxes(sys::state& state) {
 	for(auto nation : state.world.in_nation) {
 		float tax_base[3]{};
 		for(auto const& taxpayer : taxpayers) if(taxpayer.nation == nation.id) {
-			auto pop_type = persons::exact_population::source_pop_type(state, taxpayer.worker);
+			auto pop_type = persons::pop_type(state, taxpayer.worker);
 			auto strata = culture::pop_strata(state.world.pop_type_get_strata(pop_type));
 			if(strata == culture::pop_strata::poor) tax_base[0] += taxpayer.income;
 			else if(strata == culture::pop_strata::middle) tax_base[1] += taxpayer.income;
@@ -376,7 +376,7 @@ void collect_taxes(sys::state& state) {
 		float collected = 0.0f;
 		for(auto const& taxpayer : taxpayers) {
 			if(taxpayer.nation != nation.id) continue;
-			auto pop_type = persons::exact_population::source_pop_type(state, taxpayer.worker);
+			auto pop_type = persons::pop_type(state, taxpayer.worker);
 			auto strata = culture::pop_strata(state.world.pop_type_get_strata(pop_type));
 			int bucket = strata == culture::pop_strata::poor ? 0
 				: strata == culture::pop_strata::middle ? 1

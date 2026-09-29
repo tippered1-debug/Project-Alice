@@ -46,6 +46,7 @@
 #include "governance/public_administration.hpp"
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
+#include "military/land_forces.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/exact_person_freight.hpp"
@@ -3426,6 +3427,7 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	::economy::physical::exact_person_goods::initialize_empty_store(*this);
 	::economy::physical::exact_person_freight::initialize_empty_store(*this);
 	::economy::physical::labor_dynamics::initialize_empty_store(*this);
+	::military::land_forces::initialize_empty_store(*this);
 	auto const population_bootstrap = persons::exact_population::bootstrap_from_current_pops(*this);
 	assert(population_bootstrap.complete && "canonical exact population bootstrap failed");
 	if(!population_bootstrap.complete) std::abort();
@@ -4555,11 +4557,14 @@ void state::single_game_tick() {
 		military::recover_org(*this);
 		military::update_siege_progress(*this);
 		military::update_movement(*this);
+		military::land_forces::sync_legacy_adapter_state(*this);
 		military::update_naval_battles(*this);
 		military::update_land_battles(*this);
+		military::land_forces::sync_legacy_adapter_state(*this);
 
 		military::advance_mobilizations(*this);
 		military::update_army_supply_reserves(*this);
+		military::land_forces::update_daily(*this);
 
 		province::update_colonization(*this);
 		military::update_cbs(*this); // may add/remove cbs to a nation
@@ -4677,6 +4682,12 @@ void state::single_game_tick() {
 		}
 
 		military::apply_regiment_damage(*this);
+		#ifndef NDEBUG
+		{
+			auto const land_force_validation = military::land_forces::validate_canonical_land_forces(*this);
+			assert(land_force_validation.valid && "canonical land-force invariants failed after the military phase");
+		}
+		#endif
 
 		if(ymd_date.day == 1) {
 			if(ymd_date.month == 1) {

@@ -23,7 +23,7 @@ namespace economy {
 
 struct exact_person_economy_store {
 	std::unordered_map<exact_person_economy::person_key, bool,
-		persons::exact_population::person_key_hash> participation_overrides;
+		persons::person_key_hash> participation_overrides;
 	std::vector<exact_person_economy::account_record> accounts;
 	std::unordered_map<uint64_t, std::size_t> account_by_id;
 	std::vector<exact_person_economy::application_record> applications;
@@ -75,8 +75,8 @@ bool offer_open(sys::state const& state, dcon::job_offer_id offer) {
 
 bool active_contract_on(sys::state const& state, contract_record const& record) {
 	return record.status == contract_status::active
-		&& persons::exact_population::exists(state, record.worker)
-		&& persons::exact_population::alive(state, record.worker)
+		&& persons::exists(state, record.worker)
+		&& persons::alive(state, record.worker)
 		&& (!state.current_date || !record.start_date || record.start_date <= state.current_date)
 		&& (!record.end_date || !state.current_date || record.end_date > state.current_date);
 }
@@ -97,7 +97,7 @@ bool valid_account_ref(sys::state const& state, account_ref ref) {
 			&& accounts::settlement_of(state, ref.dcon_account);
 	if(ref.kind == account_kind::exact) {
 		auto account = exact_account(state, ref.exact_account_id);
-		return account && persons::exact_population::exists(state, account->owner)
+		return account && persons::exists(state, account->owner)
 			&& account->settlement && state.world.commodity_is_valid(account->settlement)
 			&& std::isfinite(account->balance) && account->balance >= 0.0f;
 	}
@@ -126,18 +126,18 @@ bool has_open_pending_application(sys::state const& state, person_key worker) {
 }
 
 bool accepts_exact_worker(sys::state const& state, person_key worker, dcon::job_offer_id offer) {
-	if(!persons::exact_population::exists(state, worker)
-		|| !persons::exact_population::alive(state, worker)
+	if(!persons::exists(state, worker)
+		|| !persons::alive(state, worker)
 		|| !is_work_eligible(state, worker)
 		|| !is_labor_force_participant(state, worker)
 		|| separated_on_date(state, worker, state.current_date)
 		|| !offer_open(state, offer)
 		|| person_has_active_contract(state, worker)) return false;
-	auto type = persons::exact_population::source_pop_type(state, worker);
+	auto type = persons::pop_type(state, worker);
 	return state.world.job_offer_get_occupation(offer)
 		<= physical::household_mobility::qualification_rank(state, type)
 		&& physical::household_mobility::commute_adjusted_daily_wage(state,
-			persons::exact_population::home_site(state, worker), offer) > 0.0f;
+			persons::home_site(state, worker), offer) > 0.0f;
 }
 
 uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::job_offer_id offer) {
@@ -207,32 +207,32 @@ void sort_ids(std::vector<uint64_t>& ids) {
 } // namespace
 
 bool is_work_eligible(sys::state const& state, person_key worker) {
-	if(!persons::exact_population::exists(state, worker)
-		|| !persons::exact_population::alive(state, worker)) return false;
-	auto age = persons::exact_population::age_days(state, worker, state.current_date);
+	if(!persons::exists(state, worker)
+		|| !persons::alive(state, worker)) return false;
+	auto age = persons::age_days(state, worker, state.current_date);
 	return age >= persons::policy::minimum_working_age_days
 		&& age < persons::policy::maximum_working_age_days;
 }
 
 bool is_labor_force_participant(sys::state const& state, person_key worker) {
-	if(!persons::exact_population::exists(state, worker)) return false;
+	if(!persons::exists(state, worker)) return false;
 	auto store = ensure_store(state);
 	if(auto it = store->participation_overrides.find(worker); it != store->participation_overrides.end())
 		return it->second;
-	return persons::exact_population::is_source_workforce_anchor(state, worker) && is_work_eligible(state, worker);
+	return persons::is_source_workforce_anchor(state, worker) && is_work_eligible(state, worker);
 }
 
 bool is_unemployed(sys::state const& state, person_key worker) {
-	return persons::exact_population::exists(state, worker)
-		&& persons::exact_population::alive(state, worker)
+	return persons::exists(state, worker)
+		&& persons::alive(state, worker)
 		&& is_work_eligible(state, worker)
 		&& is_labor_force_participant(state, worker)
 		&& !person_has_active_contract(state, worker);
 }
 
 bool set_labor_force_participation(sys::state& state, person_key worker, bool participating) {
-	if(!persons::exact_population::exists(state, worker)) return false;
-	auto default_value = persons::exact_population::is_source_workforce_anchor(state, worker)
+	if(!persons::exists(state, worker)) return false;
+	auto default_value = persons::is_source_workforce_anchor(state, worker)
 		&& is_work_eligible(state, worker);
 	auto store = ensure_store(state);
 	if(participating == default_value) store->participation_overrides.erase(worker);
@@ -245,7 +245,7 @@ uint64_t participation_override_count(sys::state const& state) {
 }
 
 account_ref open_account(sys::state& state, person_key owner, dcon::commodity_id settlement) {
-	if(!persons::exact_population::exists(state, owner) || !settlement
+	if(!persons::exists(state, owner) || !settlement
 		|| !state.world.commodity_is_valid(settlement)) return {};
 	auto store = ensure_store(state);
 	for(auto const& account : store->accounts)
@@ -316,8 +316,8 @@ float population_cash_balance(sys::state const& state, dcon::pop_id population,
 		|| !state.world.commodity_is_valid(settlement)) return 0.0f;
 	double total = 0.0;
 	for(auto const& account : ensure_store(state)->accounts) {
-		if(account.settlement == settlement && persons::exact_population::alive(state, account.owner)
-			&& persons::exact_population::current_population_for_person(state, account.owner) == population)
+		if(account.settlement == settlement && persons::alive(state, account.owner)
+			&& persons::current_population(state, account.owner) == population)
 			total += std::max(0.0f, account.balance);
 	}
 	return std::isfinite(total) && total <= double(std::numeric_limits<float>::max())
@@ -331,27 +331,12 @@ bool apply_population_cash_effect(sys::state& state, dcon::pop_id population,
 	auto store = ensure_store(state);
 	std::vector<account_record*> affected;
 	for(auto& account : store->accounts)
-		if(account.settlement == settlement && persons::exact_population::alive(state, account.owner)
-			&& persons::exact_population::current_population_for_person(state, account.owner) == population)
+		if(account.settlement == settlement && persons::alive(state, account.owner)
+			&& persons::current_population(state, account.owner) == population)
 			affected.push_back(&account);
 	std::sort(affected.begin(), affected.end(), [](auto left, auto right) { return left->id < right->id; });
 	if(affected.empty() && amount > 0.0f) {
-		auto current_cell = persons::exact_population::source_cell_for_population(state, population);
-		if(current_cell == 0) return false;
-		auto catalog = persons::exact_population::export_snapshot(state);
-		persons::exact_population::person_key recipient{};
-		for(auto const& range : catalog.membership_ranges) {
-			if(range.current_population_cell != current_cell) continue;
-			for(uint64_t ordinal = range.first_ordinal; ordinal < range.first_ordinal + range.count; ++ordinal) {
-				persons::exact_population::person_key candidate{range.identity_population_cell, ordinal};
-				if(persons::exact_population::alive(state, candidate)
-					&& persons::exact_population::current_population_for_person(state, candidate) == population) {
-					recipient = candidate;
-					break;
-				}
-			}
-			if(recipient.source_population_cell != 0) break;
-		}
+		auto recipient = persons::first_living_person_in_population(state, population);
 		if(recipient.source_population_cell == 0) return false;
 		auto opened = open_account(state, recipient, settlement);
 		if(!opened) return false;
@@ -391,8 +376,8 @@ bool project_population_cash_balances(sys::state& state) {
 	if(!state.exact_population) std::abort();
 	std::unordered_map<uint32_t, double> totals;
 	for(auto const& account : ensure_store(state)->accounts) {
-		if(account.settlement != economy::money || !persons::exact_population::alive(state, account.owner)) continue;
-		auto population = persons::exact_population::current_population_for_person(state, account.owner);
+		if(account.settlement != economy::money || !persons::alive(state, account.owner)) continue;
+		auto population = persons::current_population(state, account.owner);
 		if(population) totals[population.index()] += std::max(0.0f, account.balance);
 	}
 	bool valid = true;
@@ -570,7 +555,7 @@ void process_pending_applications(sys::state& state) {
 }
 
 void process_job_search_for_exact_person(sys::state& state, person_key worker) {
-	if(!persons::exact_population::exists(state, worker) || !is_work_eligible(state, worker)
+	if(!persons::exists(state, worker) || !is_work_eligible(state, worker)
 		|| !is_labor_force_participant(state, worker) || person_has_active_contract(state, worker)
 		|| has_open_pending_application(state, worker)) return;
 	std::vector<dcon::job_offer_id> offers;
@@ -580,9 +565,9 @@ void process_job_search_for_exact_person(sys::state& state, person_key worker) {
 	for(auto offer : offers) {
 		if(!accepts_exact_worker(state, worker, offer)) continue;
 		auto offer_wage = physical::household_mobility::commute_adjusted_daily_wage(state,
-			persons::exact_population::home_site(state, worker), offer);
+			persons::home_site(state, worker), offer);
 		auto best_wage = best ? physical::household_mobility::commute_adjusted_daily_wage(state,
-			persons::exact_population::home_site(state, worker), best) : 0.0f;
+			persons::home_site(state, worker), best) : 0.0f;
 		if(!best || offer_wage > best_wage
 			|| (offer_wage == best_wage
 				&& offer.index() < best.index())) best = offer;
@@ -787,14 +772,14 @@ bool separated_on_date(sys::state const& state, person_key worker, sys::date dat
 }
 
 void note_separation(sys::state& state, person_key worker, sys::date date) {
-	if(!persons::exact_population::exists(state, worker) || !date) return;
+	if(!persons::exists(state, worker) || !date) return;
 	for(auto& [key, separated] : ensure_store(state)->last_separation_dates)
 		if(key == worker) { separated = date; return; }
 	ensure_store(state)->last_separation_dates.emplace_back(worker, date);
 }
 
 void enqueue_displaced_worker(sys::state& state, person_key worker) {
-	if(!persons::exact_population::exists(state, worker)) return;
+	if(!persons::exists(state, worker)) return;
 	for(auto existing : ensure_store(state)->displaced_workers)
 		if(existing == worker) return;
 	ensure_store(state)->displaced_workers.push_back(worker);
@@ -857,12 +842,12 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 	if(snapshot.version != snapshot_version) return false;
 	auto candidate = std::make_shared<exact_person_economy_store>();
 	for(auto const& [key, value] : snapshot.participation_overrides) {
-		if(!persons::exact_population::exists(state, key)
+		if(!persons::exists(state, key)
 			|| candidate->participation_overrides.contains(key)) return false;
 		candidate->participation_overrides.emplace(key, value);
 	}
 	for(auto const& record : snapshot.accounts) {
-		if(record.id == 0 || !persons::exact_population::exists(state, record.owner)
+		if(record.id == 0 || !persons::exists(state, record.owner)
 			|| !record.settlement || !state.world.commodity_is_valid(record.settlement)
 			|| !std::isfinite(record.balance) || record.balance < 0.0f
 			|| candidate->account_by_id.contains(record.id)) return false;
@@ -873,7 +858,7 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 		candidate->next_account_id = std::max(candidate->next_account_id, record.id + 1);
 	}
 	for(auto record : snapshot.applications) {
-		if(record.id == 0 || !persons::exact_population::exists(state, record.worker)
+		if(record.id == 0 || !persons::exists(state, record.worker)
 			|| !record.offer || !state.world.job_offer_is_valid(record.offer)
 			|| uint8_t(record.status) > uint8_t(application_status::withdrawn)) return false;
 		for(auto const& existing : candidate->applications)
@@ -885,7 +870,7 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 		candidate->next_application_id = std::max(candidate->next_application_id, record.id + 1);
 	}
 	for(auto record : snapshot.contracts) {
-		if(record.id == 0 || !persons::exact_population::exists(state, record.worker)
+		if(record.id == 0 || !persons::exists(state, record.worker)
 			|| !record.employer || !state.world.economic_actor_is_valid(record.employer)
 			|| bool(record.factory) == bool(record.institution)
 			|| (record.factory && !state.world.factory_is_valid(record.factory))
@@ -947,14 +932,14 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 		candidate->next_transaction_id = std::max(candidate->next_transaction_id, record.id + 1);
 	}
 	for(auto const& [worker, date] : snapshot.last_separation_dates) {
-		if(!persons::exact_population::exists(state, worker) || !date
+		if(!persons::exists(state, worker) || !date
 			|| (state.current_date && date > state.current_date)
 			|| std::any_of(candidate->last_separation_dates.begin(), candidate->last_separation_dates.end(),
 				[&](auto const& existing) { return existing.first == worker; })) return false;
 		candidate->last_separation_dates.emplace_back(worker, date);
 	}
 	for(auto worker : snapshot.displaced_workers) {
-		if(!persons::exact_population::exists(state, worker)
+		if(!persons::exists(state, worker)
 			|| std::any_of(candidate->displaced_workers.begin(), candidate->displaced_workers.end(),
 				[&](auto existing) { return existing == worker; })
 			|| std::any_of(candidate->contracts.begin(), candidate->contracts.end(),

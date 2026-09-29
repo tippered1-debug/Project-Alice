@@ -106,7 +106,7 @@ bool set_home_site(sys::state& state, dcon::person_id person, dcon::site_id site
 
 dcon::site_id home_site(sys::state const& state, dcon::person_id person) {
 	return person && state.world.person_is_valid(person)
-		? state.world.person_get_site_from_person_home_site(person) : dcon::site_id{};
+		? persons::home_site(state, person) : dcon::site_id{};
 }
 
 dcon::person_commodity_need_id set_need(sys::state& state, dcon::person_id person,
@@ -193,7 +193,7 @@ float spendable_cash(sys::state const& state, dcon::person_id person, dcon::comm
 }
 
 float consume_owned_goods(sys::state& state, dcon::person_id person, dcon::commodity_id commodity, float quantity) {
-	if(!person || !state.world.person_is_valid(person) || !state.world.person_get_alive(person) || !commodity || !std::isfinite(quantity) || quantity <= 0.0f)
+	if(!person || !state.world.person_is_valid(person) || !persons::alive(state, person) || !commodity || !std::isfinite(quantity) || quantity <= 0.0f)
 		return 0.0f;
 	auto actor = persons::actor_for_person(state, person);
 	auto site = home_site(state, person);
@@ -224,7 +224,7 @@ void process_purchase_decisions(sys::state& state) {
 	sort_ids(people);
 	std::vector<std::pair<dcon::market_id, dcon::commodity_id>> markets_to_match;
 	for(auto person : people) {
-		if(!state.world.person_get_alive(person)) continue;
+		if(!persons::alive(state, person)) continue;
 		auto site = home_site(state, person);
 		auto market = market_for_site(state, site);
 		auto actor = persons::actor_for_person(state, person);
@@ -280,7 +280,7 @@ void process_consumption(sys::state& state) {
 	});
 	sort_ids(people);
 	for(auto person : people) {
-		if(!state.world.person_get_alive(person)) continue;
+		if(!persons::alive(state, person)) continue;
 		for(auto need : needs_for(state, person)) {
 			auto commodity = state.world.person_commodity_need_get_commodity_from_person_commodity_need_commodity(need);
 			auto desired = state.world.person_commodity_need_get_desired_quantity_per_period(need);

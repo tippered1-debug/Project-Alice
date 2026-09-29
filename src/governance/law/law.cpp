@@ -131,7 +131,7 @@ bool instrument_is_effective(sys::state const& state, dcon::legal_instrument_id 
 
 dcon::legal_action_id authorized_enact(sys::state& state, dcon::person_id initiator,
 	dcon::legal_instrument_id instrument, sys::date enacted_on, sys::date effective_from) {
-	if(!is_draft(state, instrument) || effective_from < enacted_on || !initiator || !state.world.person_is_valid(initiator) || !state.world.person_get_alive(initiator)) return {};
+	if(!is_draft(state, instrument) || effective_from < enacted_on || !initiator || !state.world.person_is_valid(initiator) || !persons::alive(state, initiator)) return {};
 	auto nation = nation_scope(state, instrument);
 	auto territorial = territorial_scope(state, instrument);
 	dcon::office_tenure_id tenure{};
@@ -175,7 +175,7 @@ dcon::legal_action_id authorized_enact(sys::state& state, dcon::person_id initia
 
 dcon::legal_action_id authorized_repeal(sys::state& state, dcon::person_id initiator,
 	dcon::legal_instrument_id instrument, sys::date date) {
-	if(!instrument || !state.world.legal_instrument_is_valid(instrument) || state.world.legal_instrument_get_status(instrument) != uint8_t(legal_status::enacted) || date < state.world.legal_instrument_get_enacted_on(instrument) || date < state.world.legal_instrument_get_effective_from(instrument) || !initiator || !state.world.person_is_valid(initiator) || !state.world.person_get_alive(initiator)) return {};
+	if(!instrument || !state.world.legal_instrument_is_valid(instrument) || state.world.legal_instrument_get_status(instrument) != uint8_t(legal_status::enacted) || date < state.world.legal_instrument_get_enacted_on(instrument) || date < state.world.legal_instrument_get_effective_from(instrument) || !initiator || !state.world.person_is_valid(initiator) || !persons::alive(state, initiator)) return {};
 	auto office = state.world.legal_instrument_get_office_from_legal_instrument_authorizing_office(instrument);
 	auto institution = state.world.legal_instrument_get_institution_from_legal_instrument_issuing_institution(instrument);
 	auto nation = nation_scope(state, instrument);

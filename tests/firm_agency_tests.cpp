@@ -131,7 +131,6 @@ TEST_CASE("canonical procurement ignores mutable legacy market prices", "[econom
 TEST_CASE("canonical factory output ignores legacy intermediate clearing", "[economy][firm_agency][physical]") {
 	auto run = [](float supply, bool stocked) {
 		firm_agency_tests::fixture f;
-		f.state->force_age_of_transformation_ruleset = true;
 		for(auto labor_type : {economy::labor::no_education, economy::labor::basic_education,
 			economy::labor::high_education})
 			f.state->world.province_set_labor_demand_satisfaction(f.province, labor_type, 1.0f);

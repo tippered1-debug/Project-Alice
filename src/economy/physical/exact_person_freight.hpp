@@ -2,7 +2,7 @@
 
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
-#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -12,7 +12,7 @@ namespace sys { class state; }
 
 namespace economy::physical::exact_person_freight {
 
-using person_key = persons::exact_population::person_key;
+using person_key = persons::person_key;
 
 enum class request_status : uint8_t { pending = 0, contracted = 1, fulfilled = 2, canceled = 3 };
 enum class contract_status : uint8_t { accepted = 0, fulfilled = 1, canceled = 2 };

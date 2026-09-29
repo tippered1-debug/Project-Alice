@@ -137,7 +137,6 @@ TEST_CASE("human development sanitizes malformed simulation inputs",
 TEST_CASE("state adapter reads existing city housing education and POP literacy",
 		"[economy][demographics][human-development][integration]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const province = state->world.create_province();
 	auto const pop = state->world.create_pop();
 	state->world.force_create_pop_location(pop, province);
@@ -178,7 +177,6 @@ TEST_CASE("state adapter reads existing city housing education and POP literacy"
 TEST_CASE("an inactive housing market is demographically neutral",
 		"[economy][demographics][human-development][integration]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const province = state->world.create_province();
 	state->world.province_resize_demographics(demographics::size(*state));
 	// inputs_for_province reads every labor lane to derive job access, so the
@@ -239,10 +237,8 @@ TEST_CASE("overcrowding reaches monthly POP growth while classic growth is uncha
 	state->defines.life_rating_growth_bonus = 0.f;
 	state->defines.life_need_starvation_limit = 0.f;
 
-	state->force_age_of_transformation_ruleset = false;
 	REQUIRE(demographics::get_monthly_pop_growth_factor(*state, pop)
 		== Approx(0.001f));
-	state->force_age_of_transformation_ruleset = true;
 	REQUIRE(demographics::get_monthly_pop_growth_factor(*state, pop)
 		== Approx(0.001f - 0.0012f));
 

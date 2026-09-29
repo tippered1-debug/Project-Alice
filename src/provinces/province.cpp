@@ -2272,7 +2272,7 @@ void set_rgo(sys::state& state, dcon::province_id prov, dcon::commodity_id c) {
 					auto const moved = demographics::reclassify_population_cell(state, pop, prov,
 						state.world.pop_get_culture(pop), state.world.pop_get_religion(pop),
 						state.culture_definitions.laborers,
-						persons::exact_population::population_transition_cause::scripted_reclassification);
+						persons::population_transition_cause::scripted_reclassification);
 					assert(moved && "RGO type change must reclassify canonical exact population");
 					if(!moved) std::abort();
 				}
@@ -2283,7 +2283,7 @@ void set_rgo(sys::state& state, dcon::province_id prov, dcon::commodity_id c) {
 					auto const moved = demographics::reclassify_population_cell(state, pop, prov,
 						state.world.pop_get_culture(pop), state.world.pop_get_religion(pop),
 						state.culture_definitions.farmers,
-						persons::exact_population::population_transition_cause::scripted_reclassification);
+						persons::population_transition_cause::scripted_reclassification);
 					assert(moved && "RGO type change must reclassify canonical exact population");
 					if(!moved) std::abort();
 				}

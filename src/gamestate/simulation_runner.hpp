@@ -1374,8 +1374,8 @@ struct synthetic_lab_result {
 		auto const registration = persons::exact_population::register_population_cell(state, pop);
 		assert(registration.result == persons::exact_population::status::created);
 	}
-	(void)persons::exact_population::adjust_population_size(state, worker_pop, 800'000.0);
-	(void)persons::exact_population::adjust_population_size(state, owner_pop, 200'000.0);
+	(void)persons::adjust_population_size(state, worker_pop, 800'000.0);
+	(void)persons::adjust_population_size(state, owner_pop, 200'000.0);
 	auto const population_projection = persons::exact_population::project_population_membership(state);
 	assert(population_projection);
 	if(!economy::exact_person_economy::apply_population_cash_effect(state,

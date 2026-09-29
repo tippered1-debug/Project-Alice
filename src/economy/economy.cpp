@@ -9,6 +9,7 @@
 #include "economy/firm_agency.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/industrial_dynamics.hpp"
+#include "economy/banking/banking.hpp"
 #include "market_access.hpp"
 #include "cargo_transit.hpp"
 #include "construction.hpp"
@@ -44,7 +45,6 @@
 #include "economy/physical/household_mobility.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/exact_person_economy.hpp"
-#include "persons/exact_population.hpp"
 #include "world/spatial_runtime.hpp"
 #include "governance/public_administration.hpp"
 #include <vector>
@@ -762,32 +762,32 @@ void update_pops_employment(sys::state& state) {
 	assert(state.exact_population && "exact employment projection requires canonical population");
 	if(!state.exact_population) std::abort();
 	update_employment(state, false, 0.0f);
-	using person_key = persons::exact_population::person_key;
-	std::unordered_set<person_key, persons::exact_population::person_key_hash> employed;
+	using person_key = persons::person_key;
+	std::unordered_set<person_key, persons::person_key_hash> employed;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		for(auto id : exact_person_economy::active_contracts_for_factory(state, factory)) {
 		auto record = exact_person_economy::contract(state, id);
-			if(record && persons::exact_population::alive(state, record->worker)) employed.insert(record->worker);
+			if(record && persons::alive(state, record->worker)) employed.insert(record->worker);
 		}
 	});
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		for(auto institution : governance::institutions_of(state, nation)) {
 			for(auto id : exact_person_economy::active_contracts_for_institution(state, institution)) {
 				auto record = exact_person_economy::contract(state, id);
-				if(record && persons::exact_population::alive(state, record->worker)) employed.insert(record->worker);
+				if(record && persons::alive(state, record->worker)) employed.insert(record->worker);
 			}
 		}
 	});
 	std::unordered_map<uint32_t, uint64_t> employed_by_cell;
 	for(auto worker : employed) {
-		auto cell = persons::exact_population::current_population_cell(state, worker);
+		auto cell = persons::current_population_cell(state, worker);
 		if(cell != 0) ++employed_by_cell[cell];
 	}
 	state.world.for_each_pop([&](dcon::pop_id pop) {
-		auto cell = persons::exact_population::source_cell_for_population(state, pop);
+		auto cell = persons::source_population_cell_for_population(state, pop);
 		assert(cell != 0 && "employment projection requires every DCON POP to have canonical identity");
 		if(cell == 0) std::abort();
-		auto total = persons::exact_population::living_people_in_population_cell(state, cell);
+		auto total = persons::living_people_in_population_cell(state, cell);
 		auto count = employed_by_cell[cell];
 		auto fraction = total > 0 ? std::clamp(float(count) / float(total), 0.0f, 1.0f) : 0.0f;
 		pop_demographics::set_raw_employment(state, pop, fraction);
@@ -1885,6 +1885,17 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	set_profile_point(state, "random data");
 
 	sanity_check(state);
+	// Interbank payment instructions are settled together after the day's
+	// banking commands, using stable transaction IDs and reserve netting.
+	(void)banking::clear_interbank_payments(state, state.current_date);
+	banking::update_bank_statuses(state, state.current_date);
+#ifndef NDEBUG
+	{
+		std::vector<std::string> banking_errors;
+		assert(banking::validate_canonical_banking_state(state, banking_errors)
+			&& "canonical banking invariants failed after the daily settlement phase");
+	}
+#endif
 }
 
 void regenerate_unsaved_values(sys::state& state) {

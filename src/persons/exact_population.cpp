@@ -9,6 +9,8 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <numeric>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -21,15 +23,28 @@ struct exact_population_store {
 	std::unordered_map<uint32_t, uint32_t> pop_slot_by_source;
 	std::unordered_set<uint32_t> retired_source_cells;
 	std::vector<exact_population::person_range> retired_people;
+	std::vector<exact_population::death_range> deaths;
 	std::vector<exact_population::birth_cohort> birth_cohorts;
 	std::vector<exact_population::population_membership_range> membership_ranges;
+	std::vector<exact_population::military_assignment_range> military_assignments;
 	std::vector<exact_population::population_transition_record> transitions;
 	std::vector<exact_population::population_transfer_remainder> transfer_remainders;
 	std::unordered_map<exact_population::person_key, exact_population::exact_person_override,
 		exact_population::person_key_hash> overrides;
 	std::unordered_map<exact_population::person_key, dcon::person_id,
 		exact_population::person_key_hash> bridges;
+	std::unordered_map<uint32_t, exact_population::person_key> person_by_profile;
 };
+
+std::size_t person_key_hash::operator()(person_key key) const noexcept {
+	uint64_t value = uint64_t(key.source_population_cell) * 0x9e3779b97f4a7c15ULL ^ key.ordinal;
+	value ^= value >> 30;
+	value *= 0xbf58476d1ce4e5b9ULL;
+	value ^= value >> 27;
+	value *= 0x94d049bb133111ebULL;
+	value ^= value >> 31;
+	return std::size_t(value);
+}
 
 } // namespace persons
 
@@ -81,6 +96,37 @@ bool retired_ordinal(exact_population_store const& store, person_key key) {
 	return false;
 }
 
+uint64_t living_count_strided(exact_population_store const& store, uint32_t source_cell,
+	uint64_t first_ordinal, uint64_t count, uint32_t stride) {
+	if(count == 0 || stride == 0) return 0;
+	auto cell = store.cell_by_source.find(source_cell);
+	if(cell == store.cell_by_source.end()) return 0;
+	auto const literal_count = store.cells[cell->second].literal_count;
+	if(first_ordinal >= literal_count || count - 1 > (literal_count - 1 - first_ordinal) / stride) return 0;
+	auto const last_ordinal = first_ordinal + (count - 1) * uint64_t(stride);
+	uint64_t dead = 0;
+	for(auto const& range : store.retired_people) {
+		if(range.source_population_cell != source_cell) continue;
+		auto const range_end = range.first_ordinal + range.count;
+		if(range_end <= first_ordinal || range.first_ordinal > last_ordinal) continue;
+		auto const first_match = range.first_ordinal <= first_ordinal ? 0
+			: (range.first_ordinal - first_ordinal + stride - 1) / stride;
+		auto const last_match = std::min<uint64_t>(count - 1,
+			(range_end - 1 - first_ordinal) / stride);
+		if(last_match >= first_match) dead += last_match - first_match + 1;
+	}
+	uint64_t live = count - std::min(count, dead);
+	for(auto const& [key, override] : store.overrides) {
+		if(key.source_population_cell != source_cell || !override.has_alive
+			|| key.ordinal < first_ordinal || key.ordinal > last_ordinal
+			|| (key.ordinal - first_ordinal) % stride != 0) continue;
+		auto const default_alive = !retired_ordinal(store, key);
+		if(override.alive && !default_alive) ++live;
+		else if(!override.alive && default_alive && live != 0) --live;
+	}
+	return live;
+}
+
 birth_cohort const* birth_cohort_for(exact_population_store const& store, person_key key) {
 	auto found = std::upper_bound(store.birth_cohorts.begin(), store.birth_cohorts.end(), key,
 		[](person_key value, birth_cohort const& cohort) {
@@ -116,6 +162,30 @@ void normalize_retired_ranges(exact_population_store& store) {
 	store.retired_people = std::move(merged);
 }
 
+void normalize_death_ranges(exact_population_store& store) {
+	std::sort(store.deaths.begin(), store.deaths.end(), [](auto const& left, auto const& right) {
+		if(left.source_population_cell != right.source_population_cell)
+			return left.source_population_cell < right.source_population_cell;
+		if(left.first_ordinal != right.first_ordinal)
+			return left.first_ordinal < right.first_ordinal;
+		if(left.death_day != right.death_day) return left.death_day < right.death_day;
+		return left.cause < right.cause;
+	});
+	std::vector<death_range> merged;
+	merged.reserve(store.deaths.size());
+	for(auto const& range : store.deaths) {
+		if(range.count == 0) continue;
+		if(!merged.empty() && merged.back().source_population_cell == range.source_population_cell
+			&& merged.back().death_day == range.death_day && merged.back().cause == range.cause
+			&& range.first_ordinal == merged.back().first_ordinal + merged.back().count) {
+			merged.back().count += range.count;
+		} else {
+			merged.push_back(range);
+		}
+	}
+	store.deaths = std::move(merged);
+}
+
 void normalize_membership_ranges(exact_population_store& store) {
 	std::sort(store.membership_ranges.begin(), store.membership_ranges.end(), [](auto const& left, auto const& right) {
 		return left.identity_population_cell == right.identity_population_cell
@@ -133,6 +203,56 @@ void normalize_membership_ranges(exact_population_store& store) {
 		}
 	}
 	store.membership_ranges = std::move(merged);
+}
+
+void normalize_military_assignments(exact_population_store& store) {
+	std::sort(store.military_assignments.begin(), store.military_assignments.end(), [](auto const& left, auto const& right) {
+		return std::tie(left.source_population_cell, left.first_ordinal, left.ordinal_stride,
+			left.formation_id, left.training_days_remaining)
+			< std::tie(right.source_population_cell, right.first_ordinal, right.ordinal_stride,
+				right.formation_id, right.training_days_remaining);
+	});
+	std::vector<exact_population::military_assignment_range> merged;
+	merged.reserve(store.military_assignments.size());
+	for(auto const& range : store.military_assignments) {
+		if(range.count == 0) continue;
+		if(!merged.empty()) {
+			auto& previous = merged.back();
+			auto const can_multiply = previous.ordinal_stride != 0
+				&& previous.count <= std::numeric_limits<uint64_t>::max() / previous.ordinal_stride;
+			bool const compatible = can_multiply
+				&& previous.source_population_cell == range.source_population_cell
+				&& previous.ordinal_stride == range.ordinal_stride
+				&& previous.formation_id == range.formation_id
+				&& previous.training_days_remaining == range.training_days_remaining
+				&& previous.first_ordinal <= std::numeric_limits<uint64_t>::max()
+					- previous.count * uint64_t(previous.ordinal_stride)
+				&& previous.first_ordinal + previous.count * uint64_t(previous.ordinal_stride)
+					== range.first_ordinal;
+			if(compatible) {
+				previous.count += range.count;
+				continue;
+			}
+		}
+		merged.push_back(range);
+	}
+	store.military_assignments = std::move(merged);
+}
+
+exact_population::military_assignment_range const* assignment_range_for(
+	exact_population_store const& store, exact_population::person_key key) {
+	auto found = std::upper_bound(store.military_assignments.begin(), store.military_assignments.end(), key,
+		[](exact_population::person_key value, exact_population::military_assignment_range const& range) {
+			return std::tie(value.source_population_cell, value.ordinal)
+				< std::tie(range.source_population_cell, range.first_ordinal);
+		});
+	if(found == store.military_assignments.begin()) return nullptr;
+	--found;
+	if(found->source_population_cell != key.source_population_cell || found->ordinal_stride == 0
+		|| key.ordinal < found->first_ordinal) return nullptr;
+	auto const delta = key.ordinal - found->first_ordinal;
+	return delta % found->ordinal_stride == 0 && delta / found->ordinal_stride < found->count
+		? &*found : nullptr;
 }
 
 uint64_t living_count_in_range(exact_population_store const& store, uint32_t identity_cell,
@@ -204,6 +324,21 @@ std::vector<person_range> living_ranges_in_interval(exact_population_store const
 		if(key.source_population_cell == identity_cell && override.has_alive && !override.alive && key.ordinal >= first_ordinal && key.ordinal < end_ordinal && !retired_ordinal(store, key))
 			blocked.push_back({identity_cell, 0, key.ordinal, 1});
 	}
+	for(auto const& assignment : store.military_assignments) {
+		if(assignment.source_population_cell != identity_cell || assignment.count == 0
+			|| assignment.ordinal_stride == 0) continue;
+		auto const last = assignment.first_ordinal
+			+ (assignment.count - 1) * uint64_t(assignment.ordinal_stride);
+		if(last < first_ordinal || assignment.first_ordinal >= end_ordinal) continue;
+		auto const first_index = assignment.first_ordinal < first_ordinal
+			? (first_ordinal - assignment.first_ordinal + assignment.ordinal_stride - 1) / assignment.ordinal_stride : 0;
+		for(auto index = first_index; index < assignment.count; ++index) {
+			auto ordinal = assignment.first_ordinal + index * uint64_t(assignment.ordinal_stride);
+			if(ordinal >= end_ordinal) break;
+			if(ordinal >= first_ordinal && !retired_ordinal(store, {identity_cell, ordinal}))
+				blocked.push_back({identity_cell, 0, ordinal, 1});
+		}
+	}
 	std::sort(blocked.begin(), blocked.end(), [](auto const& left, auto const& right) {
 		return left.first_ordinal < right.first_ordinal;
 	});
@@ -228,9 +363,10 @@ std::vector<person_range> living_ranges_in_interval(exact_population_store const
 	return result;
 }
 
-uint64_t retire_oldest_members_in_cell(exact_population_store& store,
+std::vector<person_range> retire_oldest_members_in_cell(exact_population_store& store,
 	uint32_t current_cell, uint64_t requested) {
-	if(requested == 0) return 0;
+	std::vector<person_range> retired_ranges;
+	if(requested == 0) return retired_ranges;
 	auto remaining = std::min(requested, living_count_in_population_cell(store, current_cell));
 	auto const initially_available = remaining;
 	std::vector<population_membership_range> ranges;
@@ -242,12 +378,21 @@ uint64_t retire_oldest_members_in_cell(exact_population_store& store,
 			range.first_ordinal, range.count)) {
 			if(remaining == 0) break;
 			auto count = std::min(remaining, live.count);
-			store.retired_people.push_back({live.source_population_cell, 0, live.first_ordinal, count});
+			person_range newly_retired{live.source_population_cell, 0, live.first_ordinal, count};
+			retired_ranges.push_back(newly_retired);
+			store.retired_people.push_back(newly_retired);
 			remaining -= count;
 		}
 	}
 	normalize_retired_ranges(store);
-	return initially_available - remaining;
+	if(initially_available != remaining) {
+		std::sort(retired_ranges.begin(), retired_ranges.end(), [](auto const& left, auto const& right) {
+			return left.source_population_cell == right.source_population_cell
+				? left.first_ordinal < right.first_ordinal
+				: left.source_population_cell < right.source_population_cell;
+		});
+	}
+	return retired_ranges;
 }
 
 uint64_t live_count_for_cell(exact_population_store const& store, cell_descriptor const& descriptor) {
@@ -451,10 +596,6 @@ uint32_t bootstrap_age_days(cell_descriptor const& cell, person_key key) {
 
 } // namespace
 
-std::size_t person_key_hash::operator()(person_key key) const noexcept {
-	return std::size_t(mix(uint64_t(key.source_population_cell) * 0x9e3779b97f4a7c15ULL ^ key.ordinal));
-}
-
 registration_result register_population_cell(sys::state& state, dcon::pop_id pop, dcon::site_id requested_home_site) {
 	registration_result result;
 	if(!pop || !state.world.pop_is_valid(pop)) return result;
@@ -500,6 +641,10 @@ registration_result register_population_cell(sys::state& state, dcon::pop_id pop
 
 registration_result register_synthetic_population_cell(sys::state& state, cell_descriptor descriptor) {
 	return add_descriptor(state, descriptor);
+}
+
+void initialize_empty_store(sys::state& state) {
+	if(!state.exact_population) state.exact_population = std::make_shared<exact_population_store>();
 }
 
 world_bootstrap_result bootstrap_from_current_pops(sys::state& state) {
@@ -630,9 +775,15 @@ population_transfer_result transfer_population_membership(sys::state& state,
 }
 
 int64_t adjust_population_size(sys::state& state, dcon::pop_id pop, double size_delta) {
+	return persons::adjust_population_size(state, pop, size_delta);
+}
+
+population_adjustment_result adjust_population_size_storage(sys::state& state, dcon::pop_id pop,
+	double size_delta, int32_t death_day, uint8_t cause) {
+	population_adjustment_result result;
 	assert(state.exact_population && "exact population must be initialized before demographic simulation");
 	if(!state.exact_population) std::abort();
-	if(!pop || !state.world.pop_is_valid(pop) || !std::isfinite(size_delta)) return 0;
+	if(!pop || !state.world.pop_is_valid(pop) || !std::isfinite(size_delta)) return result;
 	auto const source = source_cell_for_population(state, pop);
 	if(source == 0) {
 		assert(false && "population row is missing its exact identity binding");
@@ -645,12 +796,12 @@ int64_t adjust_population_size(sys::state& state, dcon::pop_id pop, double size_
 		std::abort();
 	}
 	long double const exact_delta = std::round(static_cast<long double>(size_delta) * 4.0L);
-	if(exact_delta > static_cast<long double>(std::numeric_limits<int64_t>::max()) || exact_delta < static_cast<long double>(std::numeric_limits<int64_t>::min())) return 0;
+	if(exact_delta > static_cast<long double>(std::numeric_limits<int64_t>::max()) || exact_delta < static_cast<long double>(std::numeric_limits<int64_t>::min())) return result;
 	auto delta = int64_t(exact_delta);
 	if(delta > 0) {
 		auto const amount = uint64_t(delta);
 		auto& cell = store->cells[index];
-		if(amount > std::numeric_limits<uint64_t>::max() - cell.literal_count) return 0;
+		if(amount > std::numeric_limits<uint64_t>::max() - cell.literal_count) return result;
 		auto const first = cell.literal_count;
 		cell.literal_count += amount;
 		append_default_membership(*store, cell, first, amount);
@@ -669,17 +820,27 @@ int64_t adjust_population_size(sys::state& state, dcon::pop_id pop, double size_
 				? left.first_ordinal < right.first_ordinal
 				: left.source_population_cell < right.source_population_cell;
 		});
+		result.changed = delta;
 	} else if(delta < 0) {
 		auto const requested = uint64_t(-(delta + 1)) + 1u;
-		auto const retired = retire_oldest_members_in_cell(*store, source, requested);
-		return -int64_t(retired);
+		result.deaths = retire_oldest_members_in_cell(*store, source, requested);
+		uint64_t retired = 0;
+		for(auto const& range : result.deaths) {
+			retired += range.count;
+			store->deaths.push_back({range.source_population_cell, 0, range.first_ordinal,
+				range.count, death_day, cause, {}});
+		}
+		normalize_death_ranges(*store);
+		result.changed = -int64_t(retired);
+	} else {
+		result.changed = 0;
 	}
-	return delta;
+	return result;
 }
 
 bool transfer_population_person_membership(sys::state& state, person_key key,
 	dcon::pop_id destination, population_transition_cause cause) {
-	if(!exists(state, key) || !alive(state, key) || !destination || !state.world.pop_is_valid(destination)) return false;
+	if(!persons::exact_population::exists(state, key) || !persons::exact_population::alive(state, key) || !destination || !state.world.pop_is_valid(destination)) return false;
 	assert(state.exact_population && "exact population store must be initialized before transfer");
 	auto membership = membership_range_for(*state.exact_population, key);
 	auto destination_cell = source_cell_for_population(state, destination);
@@ -730,8 +891,8 @@ bool transfer_population_person_membership(sys::state& state, person_key key,
 uint32_t current_population_cell(sys::state const& state, person_key key) {
 	assert(state.exact_population && "exact population must exist for person lookup");
 	if(!state.exact_population) std::abort();
-	assert(exists(state, key) && "person key must resolve in canonical population");
-	if(!exists(state, key)) std::abort();
+	assert(persons::exact_population::exists(state, key) && "person key must resolve in canonical population");
+	if(!persons::exact_population::exists(state, key)) std::abort();
 	auto range = membership_range_for(*state.exact_population, key);
 	assert(range && "person must have a canonical membership range");
 	if(!range) std::abort();
@@ -739,7 +900,40 @@ uint32_t current_population_cell(sys::state const& state, person_key key) {
 }
 
 dcon::pop_id current_population_for_person(sys::state const& state, person_key key) {
-	return population_for_source_cell(state, current_population_cell(state, key));
+	return population_for_source_cell(state, persons::exact_population::current_population_cell(state, key));
+}
+
+person_key first_living_person_in_population(sys::state const& state, dcon::pop_id population) {
+	auto current_cell = source_cell_for_population(state, population);
+	if(current_cell == 0) return {};
+	auto store = ensure_store(state);
+	for(auto const& range : store->membership_ranges) {
+		if(range.current_population_cell != current_cell) continue;
+		std::vector<person_range> dead;
+		auto const end = range.first_ordinal + range.count;
+		for(auto const& retired : store->retired_people) {
+			if(retired.source_population_cell != range.identity_population_cell) continue;
+			auto first = std::max(range.first_ordinal, retired.first_ordinal);
+			auto last = std::min(end, retired.first_ordinal + retired.count);
+			if(last > first) dead.push_back({range.identity_population_cell, 0, first, last - first});
+		}
+		for(auto const& [key, override] : store->overrides)
+			if(key.source_population_cell == range.identity_population_cell && override.has_alive
+				&& !override.alive && key.ordinal >= range.first_ordinal && key.ordinal < end
+				&& !retired_ordinal(*store, key))
+				dead.push_back({range.identity_population_cell, 0, key.ordinal, 1});
+		std::sort(dead.begin(), dead.end(), [](auto const& a, auto const& b) {
+			return a.first_ordinal < b.first_ordinal;
+		});
+		auto cursor = range.first_ordinal;
+		for(auto const& blocked : dead) {
+			if(blocked.first_ordinal > cursor) break;
+			cursor = std::max(cursor, blocked.first_ordinal + blocked.count);
+			if(cursor >= end) break;
+		}
+		if(cursor < end) return {range.identity_population_cell, cursor};
+	}
+	return {};
 }
 
 uint64_t living_people_in_population_cell(sys::state const& state, uint32_t population_cell) {
@@ -814,46 +1008,145 @@ bool exists(sys::state const& state, person_key key) {
 bool alive(sys::state const& state, person_key key) {
 	assert(state.exact_population && "exact population must exist for person state lookup");
 	if(!state.exact_population) std::abort();
-	if(!exists(state, key)) return false;
+	if(!persons::exact_population::exists(state, key)) return false;
 	if(auto override = find_override(state, key); override && override->has_alive) return override->alive;
 	return !retired_ordinal(*state.exact_population, key);
 }
 
+uint64_t living_people_in_person_range(sys::state const& state, uint32_t source_population_cell,
+	uint64_t first_ordinal, uint64_t count, uint32_t ordinal_stride) {
+	assert(state.exact_population && "exact population must exist for range lookup");
+	if(!state.exact_population) std::abort();
+	return living_count_strided(*state.exact_population, source_population_cell,
+		first_ordinal, count, ordinal_stride);
+}
+
+std::vector<military_assignment_range> military_assignments_for_formation(
+	sys::state const& state, uint64_t formation_id) {
+	std::vector<military_assignment_range> result;
+	for(auto const& assignment : ensure_store(state)->military_assignments)
+		if(assignment.formation_id == formation_id) result.push_back(assignment);
+	return result;
+}
+
+uint64_t military_personnel_count(sys::state const& state, uint64_t formation_id) {
+	uint64_t result = 0;
+	for(auto const& assignment : ensure_store(state)->military_assignments)
+		if(assignment.formation_id == formation_id) result += assignment.count;
+	return result;
+}
+
+std::vector<military_assignment_range> all_military_assignments(sys::state const& state) {
+	return ensure_store(state)->military_assignments;
+}
+
+bool has_military_assignment(sys::state const& state, person_key key, uint64_t* formation_id) {
+	auto assignment = assignment_range_for(*ensure_store(state), key);
+	if(assignment && formation_id) *formation_id = assignment->formation_id;
+	return assignment != nullptr;
+}
+
+bool assign_military_range(sys::state& state, military_assignment_range const& range) {
+	if(range.formation_id == 0 || range.source_population_cell == 0 || range.count == 0
+		|| (range.ordinal_stride != 1 && range.ordinal_stride != 4)) return false;
+	auto descriptor = find_cell(state, range.source_population_cell);
+	if(!descriptor || range.first_ordinal >= descriptor->literal_count
+		|| range.count - 1 > (descriptor->literal_count - 1 - range.first_ordinal) / range.ordinal_stride
+		|| living_people_in_person_range(state, range.source_population_cell, range.first_ordinal,
+			range.count, range.ordinal_stride) != range.count) return false;
+	auto store = ensure_store(state);
+	auto last = range.first_ordinal + (range.count - 1) * uint64_t(range.ordinal_stride);
+	for(auto const& existing : store->military_assignments) {
+		if(existing.source_population_cell != range.source_population_cell) continue;
+		auto existing_last = existing.first_ordinal + (existing.count - 1) * uint64_t(existing.ordinal_stride);
+		auto low = std::max(range.first_ordinal, existing.first_ordinal);
+		auto high = std::min(last, existing_last);
+		if(low > high) continue;
+		auto period = std::lcm(range.ordinal_stride, existing.ordinal_stride);
+		for(uint64_t candidate = low; candidate <= std::min<uint64_t>(high, low + period); ++candidate)
+			if((candidate - range.first_ordinal) % range.ordinal_stride == 0
+				&& (candidate - existing.first_ordinal) % existing.ordinal_stride == 0) return false;
+	}
+	store->military_assignments.push_back(range);
+	normalize_military_assignments(*store);
+	return true;
+}
+
+bool unassign_military_person(sys::state& state, person_key key, uint64_t expected_formation_id) {
+	auto store = ensure_store(state);
+	auto assignment = assignment_range_for(*store, key);
+	if(!assignment || assignment->formation_id != expected_formation_id) return false;
+	auto old = *assignment;
+	auto const offset = (key.ordinal - old.first_ordinal) / old.ordinal_stride;
+	std::vector<military_assignment_range> updated;
+	updated.reserve(store->military_assignments.size() + 1);
+	for(auto const& range : store->military_assignments) {
+		if(&range != assignment) { updated.push_back(range); continue; }
+		if(offset != 0) { auto before = old; before.count = offset; updated.push_back(before); }
+		if(offset + 1 < old.count) {
+			auto after = old;
+			after.first_ordinal = key.ordinal + old.ordinal_stride;
+			after.count = old.count - offset - 1;
+			updated.push_back(after);
+		}
+	}
+	store->military_assignments = std::move(updated);
+	normalize_military_assignments(*store);
+	return true;
+}
+
+uint64_t unassign_all_military_personnel(sys::state& state, uint64_t formation_id) {
+	auto store = ensure_store(state);
+	uint64_t count = 0;
+	for(auto const& assignment : store->military_assignments) {
+		if(assignment.formation_id != formation_id) continue;
+		if(std::numeric_limits<uint64_t>::max() - count < assignment.count) return 0;
+		count += assignment.count;
+	}
+	std::erase_if(store->military_assignments, [&](auto const& assignment) {
+		return assignment.formation_id == formation_id;
+	});
+	return count;
+}
+
+void advance_military_training(sys::state& state) {
+	auto store = ensure_store(state);
+	for(auto& assignment : store->military_assignments)
+		if(assignment.training_days_remaining != 0) --assignment.training_days_remaining;
+	normalize_military_assignments(*store);
+}
+
 bool set_alive(sys::state& state, person_key key, bool value) {
-	if(!exists(state, key)) return false;
+	if(!persons::exact_population::exists(state, key)) return false;
+	if(value) return persons::exact_population::alive(state, key);
+	return persons::kill_person(state, key, state.current_date, persons::death_cause::unspecified);
+}
+
+bool retire_person(sys::state& state, person_key key, int32_t death_day, uint8_t cause) {
+	if(!persons::exact_population::exists(state, key) || !persons::exact_population::alive(state, key) || cause > uint8_t(persons::death_cause::attrition)) return false;
+	if(has_military_assignment(state, key)) return false;
 	auto store = ensure_store(state);
 	auto existing_override = find_override(state, key);
-	if(value) {
-		std::vector<person_range> remaining;
-		remaining.reserve(store->retired_people.size() + 1);
-		for(auto const& range : store->retired_people) {
-			if(range.source_population_cell != key.source_population_cell || key.ordinal < range.first_ordinal || key.ordinal - range.first_ordinal >= range.count) {
-				remaining.push_back(range);
-				continue;
-			}
-			auto before = key.ordinal - range.first_ordinal;
-			auto after = range.count - before - 1;
-			if(before != 0) remaining.push_back({range.source_population_cell, 0, range.first_ordinal, before});
-			if(after != 0) remaining.push_back({range.source_population_cell, 0, key.ordinal + 1, after});
-		}
-		store->retired_people = std::move(remaining);
-		normalize_retired_ranges(*store);
-		if(existing_override && existing_override->has_alive) {
-			auto override = mutable_override(state, key);
-			override->has_alive = false;
-			override->alive = true;
-		}
-	} else {
-		store->retired_people.push_back({key.source_population_cell, 0, key.ordinal, 1});
-		normalize_retired_ranges(*store);
-		if(existing_override && existing_override->has_alive) {
-			auto override = mutable_override(state, key);
-			override->has_alive = false;
-			override->alive = true;
-		}
+	store->retired_people.push_back({key.source_population_cell, 0, key.ordinal, 1});
+	normalize_retired_ranges(*store);
+	store->deaths.push_back({key.source_population_cell, 0, key.ordinal, 1, death_day, cause, {}});
+	normalize_death_ranges(*store);
+	if(existing_override && existing_override->has_alive) {
+		auto override = mutable_override(state, key);
+		override->has_alive = false;
+		override->alive = true;
 	}
 	remove_empty_override(state, key);
 	return true;
+}
+
+int32_t death_day_index(sys::state const& state, person_key key) {
+	if(!persons::exact_population::exists(state, key)) return std::numeric_limits<int32_t>::min();
+	for(auto const& death : ensure_store(state)->deaths)
+		if(death.source_population_cell == key.source_population_cell
+			&& key.ordinal >= death.first_ordinal && key.ordinal - death.first_ordinal < death.count)
+			return death.death_day;
+	return std::numeric_limits<int32_t>::min();
 }
 
 persons::birth_day_index_t birth_day_index(sys::state const& state, person_key key) {
@@ -867,17 +1160,17 @@ persons::birth_day_index_t birth_day_index(sys::state const& state, person_key k
 }
 
 int32_t age_days(sys::state const& state, person_key key, sys::date current_day) {
-	if(!exists(state, key) || !current_day) return -1;
-	return clamp_day(int64_t(current_day.to_raw_value() - 1) - int64_t(birth_day_index(state, key)));
+	if(!persons::exact_population::exists(state, key) || !current_day) return -1;
+	return clamp_day(int64_t(current_day.to_raw_value() - 1) - int64_t(persons::exact_population::birth_day_index(state, key)));
 }
 
 int32_t age_years(sys::state const& state, person_key key, sys::date current_day) {
-	auto days = age_days(state, key, current_day);
+	auto days = persons::exact_population::age_days(state, key, current_day);
 	return days < 0 ? -1 : days / 365;
 }
 
 dcon::site_id home_site(sys::state const& state, person_key key) {
-	auto descriptor = find_cell(state, current_population_cell(state, key));
+	auto descriptor = find_cell(state, persons::exact_population::current_population_cell(state, key));
 	if(!descriptor) return {};
 	if(auto override = find_override(state, key); override && override->has_home_site)
 		return override->home_site;
@@ -885,9 +1178,13 @@ dcon::site_id home_site(sys::state const& state, person_key key) {
 }
 
 bool set_home_site(sys::state& state, person_key key, dcon::site_id site) {
-	if(!exists(state, key) || !site || !state.world.site_is_valid(site)) return false;
+	return persons::set_home_site(state, key, site);
+}
+
+bool set_home_site_storage(sys::state& state, person_key key, dcon::site_id site) {
+	if(!persons::exact_population::exists(state, key) || !site || !state.world.site_is_valid(site)) return false;
 	auto override = mutable_override(state, key);
-	if(site == home_site(state, key)) {
+	if(site == persons::exact_population::home_site(state, key)) {
 		override->has_home_site = false;
 		override->home_site = {};
 	} else {
@@ -899,22 +1196,40 @@ bool set_home_site(sys::state& state, person_key key, dcon::site_id site) {
 }
 
 dcon::culture_id source_culture(sys::state const& state, person_key key) {
-	auto descriptor = find_cell(state, current_population_cell(state, key));
+	auto descriptor = find_cell(state, key);
 	return descriptor ? descriptor->source_culture : dcon::culture_id{};
 }
 
 dcon::religion_id source_religion(sys::state const& state, person_key key) {
-	auto descriptor = find_cell(state, current_population_cell(state, key));
+	auto descriptor = find_cell(state, key);
 	return descriptor ? descriptor->source_religion : dcon::religion_id{};
 }
 
 dcon::pop_type_id source_pop_type(sys::state const& state, person_key key) {
-	auto descriptor = find_cell(state, current_population_cell(state, key));
+	auto descriptor = find_cell(state, key);
+	return descriptor ? descriptor->source_pop_type : dcon::pop_type_id{};
+}
+
+dcon::culture_id current_culture(sys::state const& state, person_key key) {
+	if(!persons::exact_population::exists(state, key) || !persons::exact_population::alive(state, key)) return {};
+	auto descriptor = find_cell(state, persons::exact_population::current_population_cell(state, key));
+	return descriptor ? descriptor->source_culture : dcon::culture_id{};
+}
+
+dcon::religion_id current_religion(sys::state const& state, person_key key) {
+	if(!persons::exact_population::exists(state, key) || !persons::exact_population::alive(state, key)) return {};
+	auto descriptor = find_cell(state, persons::exact_population::current_population_cell(state, key));
+	return descriptor ? descriptor->source_religion : dcon::religion_id{};
+}
+
+dcon::pop_type_id current_pop_type(sys::state const& state, person_key key) {
+	if(!persons::exact_population::exists(state, key) || !persons::exact_population::alive(state, key)) return {};
+	auto descriptor = find_cell(state, persons::exact_population::current_population_cell(state, key));
 	return descriptor ? descriptor->source_pop_type : dcon::pop_type_id{};
 }
 
 bool is_source_workforce_anchor(sys::state const& state, person_key key) {
-	return exists(state, key) && key.ordinal % 4u == 0u;
+	return persons::exact_population::exists(state, key) && key.ordinal % 4u == 0u;
 }
 
 std::optional<cell_descriptor> descriptor_for_cell(sys::state const& state, uint32_t source_population_cell) {
@@ -955,30 +1270,69 @@ void retire_population_cell(sys::state& state, dcon::pop_id pop) {
 	store->source_by_pop_slot.erase(found);
 }
 
-dcon::person_id legacy_person_for_exact_person(sys::state const& state, person_key key) {
-	if(!exists(state, key)) return {};
+dcon::person_id profile_for_person(sys::state const& state, person_key key) {
+	if(!persons::exact_population::exists(state, key)) return {};
 	auto store = ensure_store(state);
 	auto it = store->bridges.find(key);
 	return it != store->bridges.end() && state.world.person_is_valid(it->second) ? it->second : dcon::person_id{};
 }
 
-dcon::person_id materialize_legacy_person_bridge(sys::state& state, person_key key) {
-	if(!exists(state, key)) return {};
+dcon::person_id materialize_person_profile(sys::state& state, person_key key) {
+	if(!persons::exact_population::exists(state, key)) return {};
 	auto store = ensure_store(state);
 	if(auto existing = store->bridges.find(key); existing != store->bridges.end())
 		return state.world.person_is_valid(existing->second) ? existing->second : dcon::person_id{};
-	if(key.ordinal > uint64_t(std::numeric_limits<uint32_t>::max())) return {};
-	auto descriptor = find_cell(state, key);
-	auto person = persons::create_person_with_birth_day(state, birth_day_index(state, key));
+	if(!membership_range_for(*store, key)) return {};
+	auto person = persons::detail::create_profile_record_with_birth_day(state,
+		persons::exact_population::birth_day_index(state, key));
 	state.world.person_set_source_population_cell(person, key.source_population_cell);
-	state.world.person_set_source_population_ordinal(person, uint32_t(key.ordinal));
-	state.world.person_set_source_pop_type(person, source_pop_type(state, key));
-	state.world.person_set_source_culture(person, source_culture(state, key));
-	state.world.person_set_source_religion(person, source_religion(state, key));
-	if(auto site = home_site(state, key)) state.world.force_create_person_home_site(person, site);
-	if(!alive(state, key)) state.world.person_set_alive(person, uint8_t(0));
+	state.world.person_set_source_population_ordinal(person,
+		key.ordinal <= uint64_t(std::numeric_limits<uint32_t>::max()) ? uint32_t(key.ordinal) : 0u);
+	state.world.person_set_source_pop_type(person, persons::exact_population::source_pop_type(state, key));
+	state.world.person_set_source_culture(person, persons::exact_population::source_culture(state, key));
+	state.world.person_set_source_religion(person, persons::exact_population::source_religion(state, key));
+	if(auto site = persons::exact_population::home_site(state, key)) state.world.force_create_person_home_site(person, site);
+	if(!persons::exact_population::alive(state, key)) {
+		state.world.person_set_alive(person, uint8_t(0));
+		auto death_day = persons::exact_population::death_day_index(state, key);
+		if(death_day != std::numeric_limits<int32_t>::min() && death_day >= 0
+			&& death_day <= int32_t(std::numeric_limits<uint16_t>::max() - 1))
+			state.world.person_set_death_date(person, sys::date{uint16_t(death_day + 1)});
+	}
 	store->bridges.emplace(key, person);
+	store->person_by_profile.emplace(uint32_t(person.index()) + 1u, key);
 	return person;
+}
+
+dcon::person_id create_individual_person(sys::state& state, persons::birth_day_index_t birth_day) {
+	if(!state.exact_population) persons::exact_population::initialize_empty_store(state);
+	auto store = ensure_store(state);
+	auto const maximum = maximum_source_cell(*store);
+	if(maximum == std::numeric_limits<uint32_t>::max()) return {};
+	cell_descriptor descriptor;
+	descriptor.source_population_cell = maximum + 1u;
+	descriptor.literal_count = 1;
+	descriptor.bootstrap_base_day = birth_day;
+	descriptor.demographic_seed = uint64_t(descriptor.source_population_cell) * 0x9e3779b97f4a7c15ULL;
+	if(add_descriptor(state, descriptor).result != status::created) return {};
+	birth_cohort cohort;
+	cohort.source_population_cell = descriptor.source_population_cell;
+	cohort.count = 1;
+	cohort.birth_day = birth_day;
+	store->birth_cohorts.push_back(cohort);
+	std::sort(store->birth_cohorts.begin(), store->birth_cohorts.end(), [](auto const& left, auto const& right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.first_ordinal < right.first_ordinal
+			: left.source_population_cell < right.source_population_cell;
+	});
+	return materialize_person_profile(state, {descriptor.source_population_cell, 0});
+}
+
+person_key person_for_profile(sys::state const& state, dcon::person_id profile) {
+	if(!profile || !state.world.person_is_valid(profile)) return {};
+	auto store = ensure_store(state);
+	auto found = store->person_by_profile.find(uint32_t(profile.index()) + 1u);
+	return found == store->person_by_profile.end() ? person_key{} : found->second;
 }
 
 catalog_snapshot export_snapshot(sys::state const& state) {
@@ -989,14 +1343,29 @@ catalog_snapshot export_snapshot(sys::state const& state) {
 	result.retired_source_cells.assign(store->retired_source_cells.begin(), store->retired_source_cells.end());
 	std::sort(result.retired_source_cells.begin(), result.retired_source_cells.end());
 	result.retired_people = store->retired_people;
+	result.deaths = store->deaths;
 	result.birth_cohorts = store->birth_cohorts;
 	result.membership_ranges = store->membership_ranges;
+	result.military_assignments = store->military_assignments;
 	result.transitions = store->transitions;
 	result.transfer_remainders = store->transfer_remainders;
 	std::sort(result.membership_ranges.begin(), result.membership_ranges.end(), [](auto const& left, auto const& right) {
 		return left.identity_population_cell == right.identity_population_cell
 			? left.first_ordinal < right.first_ordinal
 			: left.identity_population_cell < right.identity_population_cell;
+	});
+	std::sort(result.cells.begin(), result.cells.end(), [](auto const& left, auto const& right) {
+		return left.source_population_cell < right.source_population_cell;
+	});
+	std::sort(result.retired_people.begin(), result.retired_people.end(), [](auto const& left, auto const& right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.first_ordinal < right.first_ordinal
+			: left.source_population_cell < right.source_population_cell;
+	});
+	std::sort(result.deaths.begin(), result.deaths.end(), [](auto const& left, auto const& right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.first_ordinal < right.first_ordinal
+			: left.source_population_cell < right.source_population_cell;
 	});
 	std::sort(result.transfer_remainders.begin(), result.transfer_remainders.end(), [](auto const& left, auto const& right) {
 		return left.from_population_cell == right.from_population_cell
@@ -1027,6 +1396,64 @@ catalog_snapshot export_snapshot(sys::state const& state) {
 	return result;
 }
 
+namespace {
+
+int32_t snapshot_death_day(exact_population_store const& store, person_key key) {
+	for(auto const& death : store.deaths)
+		if(death.source_population_cell == key.source_population_cell
+			&& key.ordinal >= death.first_ordinal && key.ordinal - death.first_ordinal < death.count)
+			return death.death_day;
+	return std::numeric_limits<int32_t>::min();
+}
+
+bool snapshot_alive(exact_population_store const& store, person_key key) {
+	auto it = store.overrides.find(key);
+	if(it != store.overrides.end() && it->second.has_alive) return it->second.alive;
+	return !retired_ordinal(store, key);
+}
+
+int32_t snapshot_birth_day(exact_population_store const& store, person_key key) {
+	if(auto cohort = birth_cohort_for(store, key)) return cohort->birth_day;
+	auto it = store.cell_by_source.find(key.source_population_cell);
+	if(it == store.cell_by_source.end()) return 0;
+	auto const& descriptor = store.cells[it->second];
+	return clamp_day(int64_t(descriptor.bootstrap_base_day)
+		- int64_t(bootstrap_age_days(descriptor, key)));
+}
+
+dcon::site_id snapshot_home_site(exact_population_store const& store, person_key key) {
+	if(auto override = store.overrides.find(key); override != store.overrides.end()
+		&& override->second.has_home_site) return override->second.home_site;
+	auto membership = membership_range_for(store, key);
+	if(!membership) return {};
+	auto descriptor = store.cell_by_source.find(membership->current_population_cell);
+	return descriptor == store.cell_by_source.end() ? dcon::site_id{} : store.cells[descriptor->second].home_site;
+}
+
+bool profile_matches_snapshot(sys::state const& state, exact_population_store const& store,
+	person_key key, dcon::person_id profile) {
+	auto const profile_ordinal = key.ordinal <= uint64_t(std::numeric_limits<uint32_t>::max())
+		? uint32_t(key.ordinal) : 0u;
+	if(!profile || !state.world.person_is_valid(profile)
+		|| !state.world.person_get_birth_day_known(profile)
+		|| state.world.person_get_birth_day_index(profile) != snapshot_birth_day(store, key)
+		|| bool(state.world.person_get_alive(profile)) != snapshot_alive(store, key)
+		|| state.world.person_get_source_population_cell(profile) != key.source_population_cell
+		|| state.world.person_get_source_population_ordinal(profile) != profile_ordinal
+		|| state.world.person_get_source_culture(profile) != persons::exact_population::source_culture(state, key)
+		|| state.world.person_get_source_religion(profile) != persons::exact_population::source_religion(state, key)
+		|| state.world.person_get_source_pop_type(profile) != persons::exact_population::source_pop_type(state, key)
+		|| state.world.person_get_site_from_person_home_site(profile) != snapshot_home_site(store, key)) return false;
+	auto death_day = snapshot_death_day(store, key);
+	if(snapshot_alive(store, key)) return death_day == std::numeric_limits<int32_t>::min();
+	auto expected = death_day >= 0 && death_day <= int32_t(std::numeric_limits<uint16_t>::max() - 1)
+		? sys::date{uint16_t(death_day + 1)} : sys::date{};
+	return death_day != std::numeric_limits<int32_t>::min()
+		&& state.world.person_get_death_date(profile) == expected;
+}
+
+} // namespace
+
 bool import_snapshot(sys::state& state, catalog_snapshot const& snapshot) {
 	if(snapshot.bootstrap_version != bootstrap_semantics_version) return false;
 	if(!snapshot.has_source_bindings || !snapshot.has_current_membership) return false;
@@ -1046,6 +1473,48 @@ bool import_snapshot(sys::state& state, catalog_snapshot const& snapshot) {
 	}
 	normalize_retired_ranges(*candidate);
 	if(candidate->retired_people.size() != snapshot.retired_people.size()) return false;
+	for(auto const& death : snapshot.deaths) {
+		auto descriptor = find_cell_index(*candidate, death.source_population_cell);
+		if(death.reserved != 0 || death.reserved_tail[0] != 0 || death.reserved_tail[1] != 0
+			|| death.reserved_tail[2] != 0 || descriptor == std::numeric_limits<std::size_t>::max()
+			|| death.count == 0 || death.first_ordinal >= candidate->cells[descriptor].literal_count
+			|| death.count > candidate->cells[descriptor].literal_count - death.first_ordinal
+			|| death.cause > uint8_t(persons::death_cause::attrition)
+			|| (state.current_date && death.death_day > state.current_date.to_raw_value() - 1)) return false;
+		candidate->deaths.push_back(death);
+	}
+	normalize_death_ranges(*candidate);
+	if(candidate->deaths.size() != snapshot.deaths.size()) return false;
+	for(std::size_t i = 1; i < candidate->deaths.size(); ++i) {
+		auto const& previous = candidate->deaths[i - 1];
+		auto const& current = candidate->deaths[i];
+		if(previous.source_population_cell == current.source_population_cell
+			&& current.first_ordinal < previous.first_ordinal + previous.count) return false;
+	}
+	for(auto const& retired : candidate->retired_people) {
+		auto cursor = retired.first_ordinal;
+		auto end = retired.first_ordinal + retired.count;
+		for(auto const& death : candidate->deaths) {
+			if(death.source_population_cell != retired.source_population_cell
+				|| death.first_ordinal + death.count <= cursor) continue;
+			if(death.first_ordinal > cursor) break;
+			cursor = std::min(end, death.first_ordinal + death.count);
+			if(cursor == end) break;
+		}
+		if(cursor != end) return false;
+	}
+	for(auto const& death : candidate->deaths) {
+		person_range requested{death.source_population_cell, 0, death.first_ordinal, death.count};
+		bool covered = false;
+		for(auto const& retired : candidate->retired_people)
+			if(retired.source_population_cell == requested.source_population_cell
+				&& requested.first_ordinal >= retired.first_ordinal
+				&& requested.first_ordinal + requested.count <= retired.first_ordinal + retired.count) {
+				covered = true;
+				break;
+			}
+		if(!covered) return false;
+	}
 	for(auto const& cohort : snapshot.birth_cohorts) {
 		auto descriptor = find_cell_index(*candidate, cohort.source_population_cell);
 		if(cohort.reserved != 0 || cohort.reserved_tail != 0 || descriptor == std::numeric_limits<std::size_t>::max() || cohort.count == 0 || cohort.first_ordinal >= candidate->cells[descriptor].literal_count || cohort.count > candidate->cells[descriptor].literal_count - cohort.first_ordinal || state.current_date && cohort.birth_day > state.current_date.to_raw_value() - 1 || cohort.home_site && !state.world.site_is_valid(cohort.home_site) || cohort.culture && !state.world.culture_is_valid(cohort.culture) || cohort.religion && !state.world.religion_is_valid(cohort.religion) || cohort.pop_type && !state.world.pop_type_is_valid(cohort.pop_type)) return false;
@@ -1086,6 +1555,33 @@ bool import_snapshot(sys::state& state, catalog_snapshot const& snapshot) {
 		}
 		if(range_index != candidate->membership_ranges.size()) return false;
 	}
+	candidate->military_assignments = snapshot.military_assignments;
+	normalize_military_assignments(*candidate);
+	if(candidate->military_assignments.size() != snapshot.military_assignments.size()) return false;
+	for(size_t i = 0; i < candidate->military_assignments.size(); ++i) {
+		auto const& assignment = candidate->military_assignments[i];
+		auto cell = find_cell_index(*candidate, assignment.source_population_cell);
+		if(assignment.reserved != 0 || assignment.formation_id == 0 || assignment.count == 0
+			|| (assignment.ordinal_stride != 1 && assignment.ordinal_stride != 4)
+			|| cell == std::numeric_limits<std::size_t>::max()
+			|| assignment.first_ordinal >= candidate->cells[cell].literal_count
+			|| assignment.count - 1 > (candidate->cells[cell].literal_count - 1 - assignment.first_ordinal) / assignment.ordinal_stride
+			|| living_count_strided(*candidate, assignment.source_population_cell,
+				assignment.first_ordinal, assignment.count, assignment.ordinal_stride) != assignment.count) return false;
+		for(size_t j = i + 1; j < candidate->military_assignments.size(); ++j) {
+			auto const& other = candidate->military_assignments[j];
+			if(assignment.source_population_cell != other.source_population_cell) continue;
+			auto last = assignment.first_ordinal + (assignment.count - 1) * uint64_t(assignment.ordinal_stride);
+			auto other_last = other.first_ordinal + (other.count - 1) * uint64_t(other.ordinal_stride);
+			auto low = std::max(assignment.first_ordinal, other.first_ordinal);
+			auto high = std::min(last, other_last);
+			if(low > high) continue;
+			auto period = std::lcm(assignment.ordinal_stride, other.ordinal_stride);
+			for(uint64_t ordinal = low; ordinal <= std::min<uint64_t>(high, low + period); ++ordinal)
+				if((ordinal - assignment.first_ordinal) % assignment.ordinal_stride == 0
+					&& (ordinal - other.first_ordinal) % other.ordinal_stride == 0) return false;
+		}
+	}
 	for(auto const& event : snapshot.transitions) {
 		auto identity_index = find_cell_index(*candidate, event.identity_population_cell);
 		if(event.reserved[0] != 0 || event.reserved[1] != 0 || event.reserved[2] != 0 || event.reserved_tail != 0 || identity_index == std::numeric_limits<std::size_t>::max() || event.from_population_cell == 0 || event.to_population_cell == 0 || event.from_population_cell == event.to_population_cell || find_cell_index(*candidate, event.from_population_cell) == std::numeric_limits<std::size_t>::max() || find_cell_index(*candidate, event.to_population_cell) == std::numeric_limits<std::size_t>::max() || event.cause > uint8_t(population_transition_cause::scripted_reclassification) || event.count == 0 || event.first_ordinal >= candidate->cells[identity_index].literal_count || event.count > candidate->cells[identity_index].literal_count - event.first_ordinal || state.current_date && event.transition_day > state.current_date.to_raw_value() - 1) return false;
@@ -1110,8 +1606,9 @@ bool import_snapshot(sys::state& state, catalog_snapshot const& snapshot) {
 		candidate->overrides.emplace(override.key, override);
 	}
 	for(auto const& bridge : snapshot.bridges) {
-		if(!candidate->cell_by_source.contains(bridge.key.source_population_cell) || bridge.key.ordinal >= candidate->cells[candidate->cell_by_source.at(bridge.key.source_population_cell)].literal_count || !bridge.legacy_person || !state.world.person_is_valid(bridge.legacy_person) || candidate->bridges.contains(bridge.key)) return false;
-		candidate->bridges.emplace(bridge.key, bridge.legacy_person);
+		if(!candidate->cell_by_source.contains(bridge.key.source_population_cell) || bridge.key.ordinal >= candidate->cells[candidate->cell_by_source.at(bridge.key.source_population_cell)].literal_count || !bridge.profile || !state.world.person_is_valid(bridge.profile) || candidate->bridges.contains(bridge.key) || candidate->person_by_profile.contains(uint32_t(bridge.profile.index()) + 1u) || !profile_matches_snapshot(state, *candidate, bridge.key, bridge.profile)) return false;
+		candidate->bridges.emplace(bridge.key, bridge.profile);
+		candidate->person_by_profile.emplace(uint32_t(bridge.profile.index()) + 1u, bridge.key);
 	}
 	state.exact_population = std::move(candidate);
 	return true;

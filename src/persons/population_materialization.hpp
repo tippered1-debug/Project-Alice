@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dcon_generated.hpp"
+#include "persons/persons.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -14,10 +15,7 @@ inline constexpr uint32_t literal_person_multiplier = 4;
 inline constexpr uint32_t supported_person_capacity = 100000;
 inline constexpr uint32_t supported_economic_actor_capacity = 50000;
 
-struct person_key {
-	uint32_t source_population_cell = 0;
-	uint32_t ordinal = 0;
-};
+using person_key = persons::person_key;
 
 enum class materialization_status : uint8_t {
 	created,

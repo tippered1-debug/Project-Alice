@@ -9,7 +9,7 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/individual_consumption.hpp"
 #include "governance/governance.hpp"
-#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 #include "provinces/province.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -46,7 +46,7 @@ dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 }
 
 dcon::pop_id pop_for_cell_id(sys::state const& state, uint32_t source_cell) {
-	return persons::exact_population::population_for_source_cell(state, source_cell);
+	return persons::population_for_source_cell(state, source_cell);
 }
 
 dcon::pop_id pop_for_person_cell(sys::state& state, uint32_t source_cell,
@@ -65,8 +65,6 @@ dcon::pop_id pop_for_person_cell(sys::state& state, uint32_t source_cell,
 
 dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id province,
 	dcon::pop_id source) {
-	assert(state.exact_population && "exact population must exist before household mobility");
-	if(!state.exact_population) std::abort();
 	if(!province || !source) return {};
 	auto culture = state.world.pop_get_culture(source);
 	auto religion = state.world.pop_get_religion(source);
@@ -90,9 +88,8 @@ dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id
 		state.world.pop_set_is_primary_or_accepted_culture(result,
 			state.world.pop_get_is_primary_or_accepted_culture(source));
 	}
-	if(persons::exact_population::source_cell_for_population(state, result) == 0) {
-		auto registration = persons::exact_population::register_population_cell(state, result);
-		if(registration.result != persons::exact_population::status::created && registration.result != persons::exact_population::status::already_registered) {
+	if(persons::source_population_cell_for_population(state, result) == 0) {
+		if(!persons::register_population_cell(state, result)) {
 			assert(false && "new household population cell must register in exact population");
 			std::abort();
 		}
@@ -103,17 +100,15 @@ dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id
 bool transfer_population_unit(sys::state& state, uint32_t source_cell,
 	dcon::province_id origin, dcon::province_id destination,
 	dcon::culture_id culture, dcon::religion_id religion, dcon::pop_type_id type,
-	persons::exact_population::person_key member) {
-	assert(state.exact_population && "exact population must exist for household migration");
-	if(!state.exact_population) std::abort();
+	persons::person_key member) {
 	if(!source_cell || !origin || !destination || origin == destination) return false;
-	if(persons::exact_population::current_population_cell(state, member) != source_cell) return false;
+	if(persons::current_population_cell(state, member) != source_cell) return false;
 	auto source = pop_for_person_cell(state, source_cell, origin, culture, religion, type);
 	if(!source) return false;
 	auto target = find_or_create_population_cell(state, destination, source);
 	if(!target || target == source) return false;
-	return persons::exact_population::transfer_population_person_membership(state, member,
-		target, persons::exact_population::population_transition_cause::household_relocation);
+	return persons::transfer_population_membership(state, member,
+		target, persons::population_transition_cause::household_relocation);
 }
 
 bool same_nation(sys::state const& state, dcon::province_id left, dcon::province_id right) {
@@ -129,7 +124,7 @@ bool destination_has_urban_housing(sys::state const& state, dcon::province_id pr
 			province, advanced_province_buildings::list::local_cities_and_towns) > epsilon;
 }
 
-void move_exact_household_stock(sys::state& state, persons::exact_population::person_key person,
+void move_exact_household_stock(sys::state& state, persons::person_key person,
 	dcon::site_id origin, dcon::site_id destination) {
 	if(!origin || !destination || origin == destination) return;
 	state.world.for_each_commodity([&](dcon::commodity_id commodity) {
@@ -188,7 +183,7 @@ std::vector<need_item> consumption_profile(sys::state const& state,
 	return consolidated;
 }
 
-void process_exact_household(sys::state& state, persons::exact_population::person_key person,
+void process_exact_household(sys::state& state, persons::person_key person,
 	dcon::pop_type_id type, dcon::site_id home, float daily_income,
 	std::unordered_set<uint32_t>& matched_markets) {
 	auto market = market_for_site(state, home);
@@ -237,41 +232,42 @@ uint8_t qualification_rank(sys::state const& state, dcon::pop_type_id type) {
 	return 0;
 }
 
-bool relocate_for_job(sys::state& state, persons::exact_population::person_key person,
+bool relocate_for_job(sys::state& state, persons::person_key person,
 	dcon::site_id workplace) {
-	if(!persons::exact_population::exists(state, person) || !persons::exact_population::alive(state, person) || !workplace || !state.world.site_is_valid(workplace)) return false;
-	auto home = persons::exact_population::home_site(state, person);
+	if(!persons::exists(state, person) || !persons::alive(state, person) || !workplace || !state.world.site_is_valid(workplace)) return false;
+	auto home = persons::home_site(state, person);
 	if(!home || home == workplace) return false;
 	auto origin = state.world.site_get_province_from_site_location(home);
 	auto destination = state.world.site_get_province_from_site_location(workplace);
 	if(!origin || !destination || !same_nation(state, origin, destination) || !destination_has_urban_housing(state, destination)) return false;
 	auto distance = province::direct_distance_km(state, origin, destination);
 	if(!std::isfinite(distance) || distance < long_commute_km) return false;
-	auto source_cell = persons::exact_population::current_population_cell(state, person);
-	auto descriptor = persons::exact_population::descriptor_for_cell(state, source_cell);
-	if(!descriptor) return false;
-	auto source = persons::exact_population::population_for_source_cell(state, source_cell);
-	if(!source || state.world.pop_get_culture(source) != descriptor->source_culture || state.world.pop_get_religion(source) != descriptor->source_religion || state.world.pop_get_poptype(source) != descriptor->source_pop_type) return false;
+	auto source_cell = persons::current_population_cell(state, person);
+	auto culture = persons::current_culture(state, person);
+	auto religion = persons::current_religion(state, person);
+	auto type = persons::pop_type(state, person);
+	auto source = persons::population_for_source_cell(state, source_cell);
+	if(!source || state.world.pop_get_culture(source) != culture
+		|| state.world.pop_get_religion(source) != religion
+		|| state.world.pop_get_poptype(source) != type) return false;
 	if(!transfer_population_unit(state, source_cell, origin, destination,
-		descriptor->source_culture, descriptor->source_religion, descriptor->source_pop_type, person)) return false;
-	if(!persons::exact_population::set_home_site(state, person, workplace)) return false;
+		culture, religion, type, person)) return false;
+	if(!persons::set_home_site(state, person, workplace)) return false;
 	move_exact_household_stock(state, person, home, workplace);
 	return true;
 }
 
 void update_employed_households(sys::state& state) {
-	assert(state.exact_population && "exact population must exist for household simulation");
-	if(!state.exact_population) std::abort();
 	std::unordered_set<uint32_t> matched_exact_markets;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
 			auto record = exact_person_economy::contract(state, contract_id);
-			if(!record || !persons::exact_population::alive(state, record->worker)) continue;
+			if(!record || !persons::alive(state, record->worker)) continue;
 			auto income = record->pay_period_days != 0
 				? record->wage_rate * record->labor_capacity / float(record->pay_period_days) : 0.0f;
 			process_exact_household(state, record->worker,
-				persons::exact_population::source_pop_type(state, record->worker),
-				persons::exact_population::home_site(state, record->worker), income,
+				persons::pop_type(state, record->worker),
+				persons::home_site(state, record->worker), income,
 				matched_exact_markets);
 		}
 	});
@@ -279,12 +275,12 @@ void update_employed_households(sys::state& state) {
 		for(auto institution : governance::institutions_of(state, nation)) {
 			for(auto contract_id : exact_person_economy::active_contracts_for_institution(state, institution)) {
 				auto record = exact_person_economy::contract(state, contract_id);
-				if(!record || !persons::exact_population::alive(state, record->worker)) continue;
+				if(!record || !persons::alive(state, record->worker)) continue;
 				auto income = record->pay_period_days != 0
 					? record->wage_rate * record->labor_capacity / float(record->pay_period_days) : 0.0f;
 				process_exact_household(state, record->worker,
-					persons::exact_population::source_pop_type(state, record->worker),
-					persons::exact_population::home_site(state, record->worker), income,
+					persons::pop_type(state, record->worker),
+					persons::home_site(state, record->worker), income,
 					matched_exact_markets);
 			}
 		}

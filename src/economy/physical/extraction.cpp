@@ -28,7 +28,7 @@ dcon::resource_extraction_right_id create_right(sys::state& state, dcon::person_
 	dcon::office_id office, dcon::resource_deposit_id deposit, dcon::economic_actor_id holder,
 	dcon::nation_id granting_nation, sys::date valid_from, sys::date valid_until,
 	float max_daily_quantity, sys::date date) {
-	if(!initiator || !office || !deposit || !holder || !granting_nation || valid_until < valid_from || !finite_nonnegative(max_daily_quantity) || date < valid_from || date >= valid_until || !state.world.person_get_alive(initiator)) return {};
+	if(!initiator || !office || !deposit || !holder || !granting_nation || valid_until < valid_from || !finite_nonnegative(max_daily_quantity) || date < valid_from || date >= valid_until || !persons::alive(state, initiator)) return {};
 	auto province = state.world.site_get_province_from_site_location(
 		state.world.resource_deposit_get_site_from_resource_deposit_site(deposit));
 	auto institution = governance::institution_for_office(state, office);

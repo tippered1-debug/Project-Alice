@@ -255,14 +255,12 @@ TEST_CASE("global shipment clearing is a legacy no-op and a hard transformed lim
 	"[economy][trade][capacity][clearing]") {
 	auto fixture = make_land_trade_fixture();
 
-	fixture.state->force_age_of_transformation_ruleset = false;
 	auto const legacy = world_trade::clear_trade_shipments(*fixture.state);
 	REQUIRE_FALSE(legacy.enabled);
 	REQUIRE(legacy.requested(fixture.route) == Approx(80.0f));
 	REQUIRE(legacy.actual(fixture.route) == Approx(80.0f));
 	REQUIRE(legacy.scale(fixture.route) == Approx(1.0f));
 
-	fixture.state->force_age_of_transformation_ruleset = true;
 	auto const transformed =
 		world_trade::clear_trade_shipments(*fixture.state);
 	REQUIRE(transformed.enabled);
@@ -285,7 +283,6 @@ TEST_CASE("global shipment clearing is a legacy no-op and a hard transformed lim
 TEST_CASE("valid transport endpoints retain residual connectivity at zero staffing",
 		"[economy][trade][capacity][clearing][connectivity]") {
 	auto fixture = make_land_trade_fixture();
-	fixture.state->force_age_of_transformation_ruleset = true;
 	for(auto market : {fixture.market_a, fixture.market_b}) {
 		auto const state_instance =
 			fixture.state->world.market_get_zone_from_local_market(market);
@@ -307,7 +304,6 @@ TEST_CASE("valid transport endpoints retain residual connectivity at zero staffi
 TEST_CASE("shipment clearing only transports commodity-backed orders",
 	"[economy][trade][capacity][clearing]") {
 	auto fixture = make_land_trade_fixture();
-	fixture.state->force_age_of_transformation_ruleset = true;
 	fixture.state->world.market_set_actual_probability_to_buy(
 		fixture.market_a, fixture.commodity, 0.25f);
 
@@ -323,7 +319,6 @@ TEST_CASE("shipment clearing only transports commodity-backed orders",
 TEST_CASE("progressive clearing reuses capacity stranded behind another bottleneck",
 	"[economy][trade][capacity][clearing]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const commodity = state->world.create_commodity();
 
 	std::array<dcon::market_id, 3> markets{};
@@ -376,7 +371,6 @@ TEST_CASE("progressive clearing reuses capacity stranded behind another bottlene
 TEST_CASE("Age of Transformation congestion reaches scalar trade payments while legacy stays unchanged",
 	"[economy][trade][capacity][integration]") {
 	auto fixture = make_land_trade_fixture();
-	fixture.state->force_age_of_transformation_ruleset = false;
 	auto const legacy = economy::explain_trade_route_commodity(
 		*fixture.state, fixture.route, fixture.commodity);
 	auto const legacy_capacity = world_trade::evaluate_route_capacity(*fixture.state, fixture.route);
@@ -386,7 +380,6 @@ TEST_CASE("Age of Transformation congestion reaches scalar trade payments while 
 	REQUIRE(std::isfinite(legacy.transport_cost));
 	REQUIRE(legacy.transport_cost > 0.0f);
 
-	fixture.state->force_age_of_transformation_ruleset = true;
 	auto const transformed_capacity = world_trade::evaluate_route_capacity(*fixture.state, fixture.route);
 	auto const transformed = economy::explain_trade_route_commodity(
 		*fixture.state, fixture.route, fixture.commodity);
@@ -411,7 +404,6 @@ TEST_CASE("Age of Transformation congestion reaches scalar trade payments while 
 	REQUIRE(transformed.amount_target
 		== Approx(legacy.amount_target * 0.625f));
 
-	fixture.state->force_age_of_transformation_ruleset = false;
 	auto const legacy_again = economy::explain_trade_route_commodity(
 		*fixture.state, fixture.route, fixture.commodity);
 	REQUIRE(legacy_again.transport_cost == Approx(legacy.transport_cost));
@@ -421,12 +413,10 @@ TEST_CASE("Age of Transformation congestion reaches scalar trade payments while 
 TEST_CASE("Age of Transformation congestion reaches production trade payment buffers",
 	"[economy][trade][capacity][integration]") {
 	auto fixture = make_land_trade_fixture();
-	fixture.state->force_age_of_transformation_ruleset = false;
 	auto const legacy = collect_trade_payments(fixture);
 	auto const legacy_detail = economy::explain_trade_route_commodity(
 		*fixture.state, fixture.route, fixture.commodity);
 
-	fixture.state->force_age_of_transformation_ruleset = true;
 	auto const capacity = world_trade::evaluate_route_capacity(*fixture.state, fixture.route);
 	auto const transformed = collect_trade_payments(fixture);
 	auto const transformed_detail = economy::explain_trade_route_commodity(
@@ -454,7 +444,6 @@ TEST_CASE("Age of Transformation congestion reaches production trade payment buf
 			* transformed_detail.payment_per_unit));
 	REQUIRE(transformed.export_0 == Approx(50.0f));
 
-	fixture.state->force_age_of_transformation_ruleset = false;
 	auto const legacy_again = collect_trade_payments(fixture);
 	REQUIRE(legacy_again.payment_0 == Approx(legacy.payment_0));
 	REQUIRE(legacy_again.payment_1 == Approx(legacy.payment_1));

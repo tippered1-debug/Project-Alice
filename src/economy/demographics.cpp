@@ -14,7 +14,7 @@
 #include "price.hpp"
 #include "demographics_templates.hpp"
 #include "province.hpp"
-#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 
 #include <limits>
 #include <cmath>
@@ -2752,25 +2752,23 @@ void apply_issues(sys::state& state, uint32_t offset, uint32_t divisions, issues
 }
 
 void update_growth(sys::state& state, uint32_t offset, uint32_t divisions) {
-	assert(state.exact_population && "exact population must be bootstrapped before growth simulation");
-	if(!state.exact_population) std::abort();
 	execute_staggered_blocks(offset, divisions, state.world.pop_size(), [&](auto ids) {
 		ve::apply([&](dcon::pop_id pop) {
 			auto province = state.world.pop_get_province_from_pop_location(pop);
 			auto owner = province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
 			if(!owner) return;
-			auto source = persons::exact_population::source_cell_for_population(state, pop);
+			auto source = persons::source_population_cell_for_population(state, pop);
 			if(source == 0) {
 				assert(false && "population row has no canonical identity during growth");
 				std::abort();
 			}
-			auto const people = persons::exact_population::living_people_in_population_cell(state, source);
+			auto const people = persons::living_people_in_population_cell(state, source);
 			auto const canonical_size = double(people) / 4.0;
 			auto const size_delta = canonical_size * double(get_monthly_pop_growth_factor(state, pop));
-			(void)persons::exact_population::adjust_population_size(state, pop, size_delta);
+			(void)persons::adjust_population_size(state, pop, size_delta, persons::death_cause::demographic);
 		}, ids);
 	});
-	if(!persons::exact_population::project_population_membership(state))
+	if(!persons::project_population_membership(state))
 		std::abort();
 }
 
@@ -4124,23 +4122,20 @@ float get_estimated_emigration(sys::state& state, dcon::pop_id ids) {
 }
 
 float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id target,
-	float requested_amount, persons::exact_population::population_transition_cause cause) {
+	float requested_amount, persons::population_transition_cause cause) {
 	if(!source || !target || source == target || !state.world.pop_is_valid(source) || !state.world.pop_is_valid(target) || !std::isfinite(requested_amount) || requested_amount <= 0.f) {
 		return 0.f;
 	}
-	assert(state.exact_population && "exact population must be initialized before demographic transfers");
-	if(!state.exact_population) std::abort();
-	auto const source_cell = persons::exact_population::source_cell_for_population(state, source);
-	auto const target_cell = persons::exact_population::source_cell_for_population(state, target);
+	auto const source_cell = persons::source_population_cell_for_population(state, source);
+	auto const target_cell = persons::source_population_cell_for_population(state, target);
 	assert(source_cell != 0 && target_cell != 0
 		&& "population transfer requires canonical source and destination cells");
 	if(source_cell == 0 || target_cell == 0) std::abort();
-	auto const source_size = float(persons::exact_population::living_people_in_population_cell(state, source_cell)) / 4.f;
+	auto const source_size = float(persons::living_people_in_population_cell(state, source_cell)) / 4.f;
 	if(!std::isfinite(source_size) || source_size <= 0.f) return 0.f;
 	auto requested = std::min(requested_amount, source_size);
 	if(source_size - requested < 1.f) requested = source_size;
-	auto transfer = persons::exact_population::transfer_population_membership(state,
-		source, target, requested, cause);
+	auto transfer = persons::transfer_population(state, source, target, requested, cause);
 	assert(transfer.complete && "canonical population membership transfer failed");
 	if(!transfer.complete) std::abort();
 	return float(transfer.people_moved) / 4.f;
@@ -4163,8 +4158,8 @@ dcon::pop_id find_or_make_pop(sys::state& state, dcon::province_id loc, dcon::cu
 	for(auto pl : state.world.province_get_pop_location(loc)) {
 		if(pl.get_pop().get_culture() == cid && pl.get_pop().get_religion() == rid && pl.get_pop().get_poptype() == ptid) {
 			auto result = pl.get_pop();
-			if(persons::exact_population::source_cell_for_population(state, result.id) == 0)
-				(void)persons::exact_population::register_population_cell(state, result.id);
+			if(persons::source_population_cell_for_population(state, result.id) == 0)
+				(void)persons::register_population_cell(state, result.id);
 			return result;
 		}
 	}
@@ -4271,16 +4266,14 @@ dcon::pop_id find_or_make_pop(sys::state& state, dcon::province_id loc, dcon::cu
 			});
 		}
 	}
-	(void)persons::exact_population::register_population_cell(state, np.id);
+	(void)persons::register_population_cell(state, np.id);
 	return np;
 }
 } // namespace impl
 
 bool reclassify_population_cell(sys::state& state, dcon::pop_id source,
 	dcon::province_id destination, dcon::culture_id culture, dcon::religion_id religion,
-	dcon::pop_type_id pop_type, persons::exact_population::population_transition_cause cause) {
-	assert(state.exact_population && "scripted population changes require canonical exact population");
-	if(!state.exact_population) std::abort();
+	dcon::pop_type_id pop_type, persons::population_transition_cause cause) {
 	assert(source && state.world.pop_is_valid(source)
 		&& "scripted population changes require a live source cell");
 	if(!source || !state.world.pop_is_valid(source)) std::abort();
@@ -4289,7 +4282,7 @@ bool reclassify_population_cell(sys::state& state, dcon::pop_id source,
 		assert(false && "scripted population destination must be valid");
 		std::abort();
 	}
-	if(persons::exact_population::source_cell_for_population(state, source) == 0) {
+	if(persons::source_population_cell_for_population(state, source) == 0) {
 		assert(false && "scripted population source has no canonical identity cell");
 		std::abort();
 	}
@@ -4304,8 +4297,8 @@ bool reclassify_population_cell(sys::state& state, dcon::pop_id source,
 		state.world.pop_set_is_primary_or_accepted_culture(target,
 			nations::nation_accepts_culture(state, owner, culture));
 	if(target == source) return true;
-	float const source_size = float(persons::exact_population::living_people_in_population_cell(state,
-		persons::exact_population::source_cell_for_population(state, source))) / 4.0f;
+	float const source_size = float(persons::living_people_in_population_cell(state,
+		persons::source_population_cell_for_population(state, source))) / 4.0f;
 	if(source_size <= 0.0f) return true;
 	auto const moved = transfer_pop_amount(state, source, target, source_size, cause);
 	return std::abs(moved - source_size) <= 0.0001f;
@@ -4319,7 +4312,7 @@ void apply_type_changes(sys::state& state, uint32_t offset, uint32_t divisions, 
 						auto target_pop = impl::find_or_make_pop(state, state.world.pop_get_province_from_pop_location(p),
 								state.world.pop_get_culture(p), state.world.pop_get_religion(p), promotion_buf.types.get(p), pop_demographics::get_literacy(state, p));
 						transfer_pop_amount(state, p, target_pop, promotion_buf.amounts.get(p),
-							persons::exact_population::population_transition_cause::promotion);
+							persons::population_transition_cause::promotion);
 					}
 				},
 				ids);
@@ -4332,7 +4325,7 @@ void apply_type_changes(sys::state& state, uint32_t offset, uint32_t divisions, 
 						auto target_pop = impl::find_or_make_pop(state, state.world.pop_get_province_from_pop_location(p),
 								state.world.pop_get_culture(p), state.world.pop_get_religion(p), demotion_buf.types.get(p), pop_demographics::get_literacy(state, p));
 						transfer_pop_amount(state, p, target_pop, demotion_buf.amounts.get(p),
-							persons::exact_population::population_transition_cause::demotion);
+							persons::population_transition_cause::demotion);
 					}
 				},
 				ids);
@@ -4364,7 +4357,7 @@ void apply_assimilation(sys::state& state, uint32_t offset, uint32_t divisions, 
 					auto target_pop = impl::find_or_make_pop(state, l, cul, rel,
 						pop_type, pop_demographics::get_literacy(state, p));
 					transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p),
-						persons::exact_population::population_transition_cause::assimilation);
+						persons::population_transition_cause::assimilation);
 				}
 			}
 		},
@@ -4393,7 +4386,7 @@ void apply_internal_migration(sys::state& state, uint32_t offset, uint32_t divis
 								state.world.pop_get_religion(p), state.world.pop_get_poptype(p), pop_demographics::get_literacy(state, p));
 
 						auto const moved = transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p),
-							persons::exact_population::population_transition_cause::internal_migration);
+							persons::population_transition_cause::internal_migration);
 
 						auto cur_pop_location = state.world.pop_get_province_from_pop_location(p);
 						state.world.province_set_daily_net_migration(cur_pop_location, state.world.province_get_daily_net_migration(cur_pop_location) - moved);
@@ -4421,7 +4414,7 @@ void apply_colonial_migration(sys::state& state, uint32_t offset, uint32_t divis
 								state.world.pop_get_religion(p), state.world.pop_get_poptype(p), pop_demographics::get_literacy(state, p));
 
 						auto const moved = transfer_pop_amount(state, p, target_pop, pbuf.amounts.get(p),
-							persons::exact_population::population_transition_cause::colonial_migration);
+							persons::population_transition_cause::colonial_migration);
 
 						auto cur_pop_location = state.world.pop_get_province_from_pop_location(p);
 						state.world.province_set_daily_net_migration(cur_pop_location, state.world.province_get_daily_net_migration(cur_pop_location) - moved);
@@ -4445,7 +4438,7 @@ void apply_immigration(sys::state& state, uint32_t offset, uint32_t divisions, m
 								state.world.pop_get_religion(p), state.world.pop_get_poptype(p), pop_demographics::get_literacy(state, p));
 
 						auto const moved = transfer_pop_amount(state, p, target_pop, amount,
-							persons::exact_population::population_transition_cause::immigration);
+							persons::population_transition_cause::immigration);
 
 						auto cur_pop_location = state.world.pop_get_province_from_pop_location(p);
 						state.world.province_set_daily_net_immigration(cur_pop_location, state.world.province_get_daily_net_immigration(cur_pop_location) - moved);
@@ -4527,7 +4520,7 @@ bool merge_cleanup_pop(sys::state& state, dcon::pop_id source) {
 		auto population_moved = source_size == 0.f;
 		if(source_size > 0.f) {
 			auto const moved = transfer_pop_amount(state, source, target, source_size,
-				persons::exact_population::population_transition_cause::population_merge);
+				persons::population_transition_cause::population_merge);
 			population_moved = moved == source_size && state.world.pop_get_size(source) == 0.f;
 		}
 		if(!population_moved) {
@@ -4565,13 +4558,13 @@ void fixup_state_only_pops(sys::state& state) {
 						state.world.pop_get_religion(pop), pop_type, pop_demographics::get_literacy(state, pop));
 					auto const source_size = state.world.pop_get_size(pop);
 					auto const moved = transfer_pop_amount(state, pop, new_pop, source_size,
-						persons::exact_population::population_transition_cause::population_merge);
+						persons::population_transition_cause::population_merge);
 					if(moved != source_size || state.world.pop_get_size(pop) != 0.f) {
 						continue;
 					}
 					relink_pop_dependents(state, pop, new_pop);
 					if constexpr(DeletePops) {
-						persons::exact_population::retire_population_cell(state, pop);
+						persons::retire_population_cell(state, pop);
 						state.world.delete_pop(pop);
 					}
 				}
@@ -4587,7 +4580,7 @@ void remove_size_zero_pops(sys::state& state) {
 		dcon::pop_id m{dcon::pop_id::value_base_t(last)};
 		if(state.world.pop_get_size(m) < 1.0f) {
 			if(merge_cleanup_pop(state, m)) {
-				persons::exact_population::retire_population_cell(state, m);
+				persons::retire_population_cell(state, m);
 				state.world.delete_pop(m);
 			}
 		}
@@ -4600,7 +4593,7 @@ void remove_small_pops(sys::state& state) {
 		dcon::pop_id m{ dcon::pop_id::value_base_t(last) };
 		if(state.world.pop_get_size(m) < 20.0f) {
 			if(merge_cleanup_pop(state, m)) {
-				persons::exact_population::retire_population_cell(state, m);
+				persons::retire_population_cell(state, m);
 				state.world.delete_pop(m);
 			}
 		}
@@ -4635,15 +4628,14 @@ float calculate_nation_sol(sys::state& state, dcon::nation_id nation_id) {
 }
 
 void reduce_pop_size_safe(sys::state& state, dcon::pop_id pop_id, int32_t amount) {
-	assert(state.exact_population && "exact population must be initialized before reducing population");
-	if(!state.exact_population) std::abort();
 	if(!pop_id || !state.world.pop_is_valid(pop_id) || amount <= 0) return;
-	auto source = persons::exact_population::source_cell_for_population(state, pop_id);
+	auto source = persons::source_population_cell_for_population(state, pop_id);
 	assert(source != 0 && "population reduction requires a canonical cell");
 	if(source == 0) std::abort();
-	auto people = persons::exact_population::living_people_in_population_cell(state, source);
+	auto people = persons::living_people_in_population_cell(state, source);
 	auto requested = std::min<uint64_t>(people, uint64_t(amount) * 4u);
-	(void)persons::exact_population::adjust_population_size(state, pop_id, -double(requested) / 4.0);
+	(void)persons::adjust_population_size(state, pop_id, -double(requested) / 4.0,
+		persons::death_cause::demographic);
 }
 
 void modify_militancy(sys::state& state, dcon::nation_id n, float v) {

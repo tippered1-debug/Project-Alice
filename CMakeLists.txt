@@ -258,6 +258,7 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	${ALICE_INCREMENTAL_SOURCES_LIST_GAMESTATE}
 	"${PROJECT_SOURCE_DIR}/src/map/map_modes.cpp"
 	"${PROJECT_SOURCE_DIR}/src/military/military.cpp"
+	"${PROJECT_SOURCE_DIR}/src/military/land_forces.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/nations.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/diplomatic_crisis_dynamics.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"

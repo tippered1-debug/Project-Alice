@@ -400,5 +400,5 @@ TEST_CASE("exact labor wage can fund remote purchase, freight, arrival, and cons
 	REQUIRE(economy::physical::exact_person_goods::process_consumption(*f.state, worker, f.output)
 		== Approx(1.0f * (1.0f - 0.0005f)));
 	REQUIRE(economy::physical::exact_person_goods::unmet_need(*f.state, worker, f.output) > 0.0f);
-	REQUIRE_FALSE(persons::exact_population::legacy_person_for_exact_person(*f.state, worker));
+	REQUIRE_FALSE(persons::materialized_profile(*f.state, worker));
 }

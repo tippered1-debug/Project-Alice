@@ -22,10 +22,6 @@ void sort_ids(std::vector<Id>& ids) {
 	});
 }
 
-uint32_t source_cell_key(dcon::pop_id pop) {
-	return uint32_t(pop.index()) + 1u;
-}
-
 bool literal_count(sys::state const& state, dcon::pop_id pop, uint32_t& count) {
 	auto size = state.world.pop_get_size(pop);
 	if(!std::isfinite(size) || size < 0.0f) return false;
@@ -86,16 +82,6 @@ dcon::site_id deterministic_home_site(sys::state& state, dcon::pop_id pop, dcon:
 	return site;
 }
 
-void initialize_person(sys::state& state, dcon::person_id person, dcon::pop_id pop,
-	uint32_t source_cell, uint32_t ordinal, dcon::site_id home_site) {
-	state.world.person_set_source_population_cell(person, source_cell);
-	state.world.person_set_source_population_ordinal(person, ordinal);
-	state.world.person_set_source_pop_type(person, state.world.pop_get_poptype(pop));
-	state.world.person_set_source_culture(person, state.world.pop_get_culture(pop));
-	state.world.person_set_source_religion(person, state.world.pop_get_religion(pop));
-	state.world.force_create_person_home_site(person, home_site);
-}
-
 uint64_t stable_age_hash(person_key key) {
 	uint64_t value = uint64_t(key.source_population_cell) * 0x9e3779b97f4a7c15ULL;
 	value ^= uint64_t(key.ordinal) + 0x517cc1b727220a95ULL + (value << 6) + (value >> 2);
@@ -143,7 +129,20 @@ cell_materialization_result materialize_population_cell_with_status(sys::state& 
 		result.status = materialization_status::missing_home_province;
 		return result;
 	}
-	auto source_cell = source_cell_key(pop);
+	auto registration = exact_population::register_population_cell(state, pop, site);
+	if(registration.result != exact_population::status::created
+		&& registration.result != exact_population::status::already_registered) {
+		result.status = registration.result == exact_population::status::overflow
+			? materialization_status::overflow : materialization_status::invalid_source;
+		return result;
+	}
+	auto source_cell = registration.descriptor.source_population_cell;
+	count = registration.descriptor.literal_count > std::numeric_limits<uint32_t>::max()
+		? std::numeric_limits<uint32_t>::max() : uint32_t(registration.descriptor.literal_count);
+	if(!capacity_available(state, count)) {
+		result.status = materialization_status::capacity_exceeded;
+		return result;
+	}
 	marker = state.world.create_population_materialization();
 	state.world.population_materialization_set_source_population_cell(marker, source_cell);
 	state.world.population_materialization_set_materialized_person_count(marker, count);
@@ -152,8 +151,12 @@ cell_materialization_result materialize_population_cell_with_status(sys::state& 
 	result.persons.reserve(count);
 	for(uint32_t ordinal = 0; ordinal < count; ++ordinal) {
 		person_key key{source_cell, ordinal};
-		auto person = create_person_with_birth_day(state, bootstrap_birth_day(state.current_date, key));
-		initialize_person(state, person, pop, source_cell, ordinal, site);
+		auto person = persons::materialize_profile(state, key);
+		if(!person) {
+			result.persons.clear();
+			result.status = materialization_status::capacity_exceeded;
+			return result;
+		}
 		state.world.force_create_population_materialization_person(marker, person);
 		result.persons.push_back(person);
 	}
@@ -268,7 +271,7 @@ materialization_measurement measure_synthetic_population_materialization(sys::st
 	state.world.force_create_pop_location(pop, province);
 	auto const registration = exact_population::register_population_cell(state, pop, site);
 	if(registration.result != exact_population::status::created) return {};
-	(void)exact_population::adjust_population_size(state, pop,
+	(void)persons::adjust_population_size(state, pop,
 		double(count) / double(literal_person_multiplier));
 	if(!exact_population::project_population_membership(state)) return {};
 	auto persons_before = state.world.person_size();
@@ -297,8 +300,7 @@ materialization_status materialization_status_for_population_cell(sys::state con
 }
 
 person_key key_for_person(sys::state const& state, dcon::person_id person) {
-	if(!person || !state.world.person_is_valid(person)) return {};
-	return {state.world.person_get_source_population_cell(person), state.world.person_get_source_population_ordinal(person)};
+	return persons::canonical_key(state, person);
 }
 
 bool is_materialized_person(sys::state const& state, dcon::person_id person) {
@@ -307,7 +309,7 @@ bool is_materialized_person(sys::state const& state, dcon::person_id person) {
 
 dcon::site_id home_site_for_materialized_person(sys::state const& state, dcon::person_id person) {
 	return is_materialized_person(state, person)
-		? state.world.person_get_site_from_person_home_site(person) : dcon::site_id{};
+		? persons::home_site(state, key_for_person(state, person)) : dcon::site_id{};
 }
 
 } // namespace persons::population_materialization

@@ -23,7 +23,7 @@
 #include "validation.hpp"
 #include "policy_execution.hpp"
 #include "nations/strategic_statecraft.hpp"
-#include "persons/exact_population.hpp"
+#include "military/land_forces.hpp"
 
 namespace military {
 
@@ -5690,6 +5690,8 @@ void update_battle_leaders(sys::state& state, dcon::naval_battle_id b) {
 
 void delete_regiment_safe_wrapper(sys::state& state, dcon::regiment_id reg) {
 	if(state.world.regiment_is_valid(reg)) {
+		if(military::land_forces::initialized(state))
+			(void)military::land_forces::clear_legacy_regiment_mapping(state, reg);
 		auto army = state.world.regiment_get_army_from_army_membership(reg);
 		auto battle = state.world.army_get_battle_from_army_battle_participation(army);
 		if(battle) {
@@ -6312,6 +6314,21 @@ float reduce_regiment_strength_safe(sys::state& state, dcon::regiment_id reg, fl
 	state.world.regiment_set_strength(reg, state.world.regiment_get_strength(reg) - actual_str_reduction);
 	return actual_str_reduction;
 }
+
+uint64_t legacy_land_loss_event_id(sys::state const& state, dcon::regiment_id regiment,
+	regiment_dmg_source source) {
+	uint64_t value = 0x4c414e444c4f5353ULL;
+	value ^= uint64_t(state.current_date.to_raw_value()) * 0x9e3779b97f4a7c15ULL;
+	value ^= uint64_t(uint32_t(regiment.index()) + 1u) * 0xbf58476d1ce4e5b9ULL;
+	value ^= uint64_t(uint8_t(source)) * 0x94d049bb133111ebULL;
+	value ^= value >> 30;
+	value *= 0xbf58476d1ce4e5b9ULL;
+	value ^= value >> 27;
+	value *= 0x94d049bb133111ebULL;
+	value ^= value >> 31;
+	return value == 0 ? 1 : value;
+}
+
 float reduce_ship_strength_safe(sys::state& state, dcon::ship_id reg, float value) {
 	float actual_str_reduction = std::min(state.world.ship_get_strength(reg), value);
 	state.world.ship_set_strength(reg, state.world.ship_get_strength(reg) - actual_str_reduction);
@@ -6321,8 +6338,14 @@ float reduce_ship_strength_safe(sys::state& state, dcon::ship_id reg, float valu
 
 template<regiment_dmg_source damage_source>
 float regiment_take_str_damage(sys::state& state, dcon::regiment_id reg, float value) {
+	if(!military::land_forces::formation_for_legacy_regiment(state, reg)) {
+		assert(false && "land regiment damage requires a canonical formation mapping");
+		return 0.0f;
+	}
 	regiment_add_pending_damage_safe<damage_source>(state, reg, value);
-	return reduce_regiment_strength_safe(state, reg, value);
+	auto day = state.current_date ? int32_t(state.current_date.to_raw_value() - 1) : 0;
+	return military::land_forces::apply_legacy_regiment_damage(state, reg, value,
+		legacy_land_loss_event_id(state, reg, damage_source), day);
 }
 
 float regiment_take_org_damage(sys::state& state, dcon::regiment_id reg, float value) {
@@ -6668,8 +6691,10 @@ void apply_monthly_attrition_to_navy(sys::state& state, dcon::navy_id navy) {
 }
 
 void apply_attrition(sys::state& state) {
-
-	concurrency::parallel_for(uint32_t(0), state.world.province_size(), [&](int32_t i) {
+	// Canonical casualties mutate shared exact-person and formation ledgers. Keep
+	// province traversal stable and serial so the same world produces the same
+	// casualty selection regardless of worker scheduling.
+	for(uint32_t i = 0; i < state.world.province_size(); ++i) {
 		dcon::province_id prov{ dcon::province_id::value_base_t(i) };
 		assert(state.world.province_is_valid(prov));
 
@@ -6679,89 +6704,44 @@ void apply_attrition(sys::state& state) {
 		for(auto nv : state.world.province_get_navy_location(prov)) {
 			apply_monthly_attrition_to_navy(state, nv.get_navy());
 		}
-	});
+	}
 }
 
 void apply_regiment_damage(sys::state& state) {
 	for(uint32_t i = state.world.regiment_size(); i-- > 0;) {
 		dcon::regiment_id s{ dcon::regiment_id::value_base_t(i) };
 		if(state.world.regiment_is_valid(s)) {
-			auto& pending_combat_damage = state.world.regiment_get_pending_combat_damage(s);
-			auto& pending_attrition_damage = state.world.regiment_get_pending_attrition_damage(s);
-			auto& current_strength = state.world.regiment_get_strength(s);
-			auto backing_pop = state.world.regiment_get_pop_from_regiment_source(s);
+			auto pending_combat_damage = state.world.regiment_get_pending_combat_damage(s);
+			auto pending_attrition_damage = state.world.regiment_get_pending_attrition_damage(s);
 			auto in_nation = state.world.army_get_controller_from_army_control(state.world.regiment_get_army_from_army_membership(s));
-
-		
+			if(!military::land_forces::formation_for_legacy_regiment(state, s)) {
+				assert((pending_combat_damage <= 0.0f && pending_attrition_damage <= 0.0f)
+					&& "unmapped legacy regiment damage cannot be applied");
+				state.world.regiment_set_pending_combat_damage(s, 0.0f);
+				state.world.regiment_set_pending_attrition_damage(s, 0.0f);
+				continue;
+			}
 			if(pending_combat_damage > 0) {
-				auto tech_nation = tech_nation_for_regiment(state, s);
 				if(bool(in_nation)) {
 					// give war exhaustion for the losses
 					auto& current_war_ex = state.world.nation_get_war_exhaustion(in_nation);
 					auto extra_war_ex = get_war_exhaustion_from_land_losses<regiment_dmg_source::combat>(state, pending_combat_damage, in_nation);
 					state.world.nation_set_war_exhaustion(in_nation, std::min(current_war_ex + extra_war_ex, state.world.nation_get_modifier_values(in_nation, sys::national_mod_offsets::max_war_exhaustion)));
 				}
-				if(backing_pop) {
-					float damage_modifier = std::max(state.defines.soldier_to_pop_damage - state.world.nation_get_modifier_values(tech_nation, sys::national_mod_offsets::soldier_to_pop_loss), 0.0f);
-					auto source = persons::exact_population::source_cell_for_population(state, backing_pop);
-					assert(source != 0 && "military casualties require a canonical population cell");
-					auto casualty_size = state.defines.pop_size_per_regiment * pending_combat_damage * damage_modifier;
-					(void)persons::exact_population::adjust_population_size(state, backing_pop, -casualty_size);
-				}
 				state.world.regiment_set_pending_combat_damage(s, 0.0f);
 			}
 			if(pending_attrition_damage > 0) {
-				auto tech_nation = tech_nation_for_regiment(state, s);
 				if(bool(in_nation)) {
 					// give war exhaustion for the losses
 					auto& current_war_ex = state.world.nation_get_war_exhaustion(in_nation);
 					auto extra_war_ex = get_war_exhaustion_from_land_losses<regiment_dmg_source::attrition>(state, pending_attrition_damage, in_nation);
 					state.world.nation_set_war_exhaustion(in_nation, std::min(current_war_ex + extra_war_ex, state.world.nation_get_modifier_values(in_nation, sys::national_mod_offsets::max_war_exhaustion)));
 				}
-				if(backing_pop) {
-					float damage_modifier = std::max(state.defines.soldier_to_pop_damage - state.world.nation_get_modifier_values(tech_nation, sys::national_mod_offsets::soldier_to_pop_loss), 0.0f);
-					auto source = persons::exact_population::source_cell_for_population(state, backing_pop);
-					assert(source != 0 && "military attrition requires a canonical population cell");
-					auto casualty_size = state.defines.pop_size_per_regiment * pending_attrition_damage * damage_modifier;
-					(void)persons::exact_population::adjust_population_size(state, backing_pop, -casualty_size);
-				}
 				state.world.regiment_set_pending_attrition_damage(s, 0.0f);
 			}
-			
-			auto backing_source = backing_pop
-				? persons::exact_population::source_cell_for_population(state, backing_pop) : 0u;
-			assert(!backing_pop || backing_source != 0);
-			auto psize = backing_source
-				? float(persons::exact_population::living_people_in_population_cell(state, backing_source)) / 4.0f
-				: 0.0f;
-			// Check if the regiment has no attached pop without having been deleted (from demotion, migration etc).
-			// The find soldier function cannot find a pop for an invalid nation id (rebel armies) so it will take care of that
-			if(!bool(backing_pop)) {
-				// try to find a new pop to replace the old. if not possible, then delete the regiment
-				auto new_pop = find_available_soldier_anywhere(state, in_nation, state.world.regiment_get_type(s));
-				if(bool(new_pop)) {
-					state.world.try_create_regiment_source(s, new_pop);
-				}
-				else {
-					military::delete_regiment_safe_wrapper(state, s);
-				}
-			}
-			else if(psize <= 1.0f) {
-				// try to find a new pop
-				auto new_pop = find_available_soldier_anywhere(state, in_nation, state.world.regiment_get_type(s));
-				if(bool(new_pop)) {
-					state.world.try_create_regiment_source(s, new_pop);
-				}
-				else {
-					military::delete_regiment_safe_wrapper(state, s);
-				}
-				persons::exact_population::retire_population_cell(state, backing_pop);
-				state.world.delete_pop(backing_pop);
-			}
+			(void)military::land_forces::sync_legacy_regiment_projection(state, s);
 		}
 	}
-	if(!persons::exact_population::project_population_membership(state))
-		assert(false && "military casualty projection failed");
 }
 
 uint16_t unit_type_to_battle_regiment_type(unit_type utype) {
@@ -6950,6 +6930,10 @@ float get_reg_str_damage(const sys::state& state, dcon::regiment_id damage_deale
 		// if the damage dealer is defending, set fort mod to 1;
 		fort_mod = 1.f;
 	}
+	if(military::land_forces::formation_for_legacy_regiment(state, damage_dealer)) {
+		unit_dmg_stat = military::land_forces::formation_combat_stat(state, damage_dealer, attacker);
+		unit_dmg_support = 1.0f;
+	}
 	// if the damage dealer is in the backline (can use support)
 	if(backline) {
 		unit_dmg_support = dmg_dealer_stats.support;
@@ -6985,6 +6969,10 @@ float get_reg_org_damage(const sys::state& state, dcon::regiment_id damage_deale
 		unit_dmg_stat = dmg_dealer_stats.defence_or_hull;
 		// if the damage dealer is defending, set fort mod to 1;
 		fort_mod = 1.f;
+	}
+	if(military::land_forces::formation_for_legacy_regiment(state, damage_dealer)) {
+		unit_dmg_stat = military::land_forces::formation_combat_stat(state, damage_dealer, attacker);
+		unit_dmg_support = 1.0f;
 	}
 	// if the damage dealer is in the backline (can use support)
 	if(backline) {
@@ -7351,9 +7339,13 @@ float regiment_heuristic_score(const sys::state& state, dcon::regiment_id regime
 
 	// calculate a heurstic of how effective this unit will be. On the backline xp & military tactics does not matter as they reduce damage taken, and backline isnt expected to take damage directly
 	if constexpr(Line == battle_line::backline) {
+		if(military::land_forces::formation_for_legacy_regiment(state, regiment))
+			damage_stat_val = military::land_forces::formation_combat_stat(state, regiment, Role == battle_role::attacker);
 		return state.world.regiment_get_strength(regiment) * (damage_stat_val * 0.1f + 1.0f) * support_mod;
 	}
 	else {
+		if(military::land_forces::formation_for_legacy_regiment(state, regiment))
+			damage_stat_val = military::land_forces::formation_combat_stat(state, regiment, Role == battle_role::attacker);
 		return state.world.regiment_get_strength(regiment) * (damage_stat_val * 0.1f + 1.0f) * support_mod * (state.defines.base_military_tactics + state.world.nation_get_modifier_values(tech_nation, sys::national_mod_offsets::military_tactics));
 	}
 }
@@ -7719,11 +7711,28 @@ void update_land_battles(sys::state& state) {
 	auto isize = state.world.land_battle_size();
 	auto to_delete = ve::vectorizable_buffer<uint8_t, dcon::land_battle_id>(isize);
 
-	concurrency::parallel_for(0, int32_t(isize), [&](int32_t index) {
+	// Canonical casualty application mutates shared identity and loss ledgers.
+	// Process battles in stable DCON order until that state has a partitioned writer.
+	for(int32_t index = 0; index < int32_t(isize); ++index) {
 		dcon::land_battle_id b{ dcon::land_battle_id::value_base_t(index) };
 
 		if(!state.world.land_battle_is_valid(b))
-			return;
+			continue;
+
+		bool canonical_mapping_complete = true;
+		for(auto participation : state.world.land_battle_get_army_battle_participation(b)) {
+			for(auto membership : participation.get_army().get_army_membership()) {
+				auto regiment = membership.get_regiment();
+				if(!military::land_forces::formation_for_legacy_regiment(state, regiment)
+					|| !military::land_forces::sync_legacy_regiment_projection(state, regiment)) {
+					canonical_mapping_complete = false;
+				}
+			}
+		}
+		if(!canonical_mapping_complete) {
+			assert(false && "land battle rejected: every regiment requires an authored canonical formation mapping");
+			continue;
+		}
 
 
 		if(state.world.land_battle_get_start_date(b) == state.current_date) {
@@ -7840,12 +7849,12 @@ void update_land_battles(sys::state& state) {
 
 		if(!def_front[0].regiment) {
 			to_delete.set(b, uint8_t(1));
-			return;
+			continue;
 		} else if(!att_front[0].regiment) {
 			to_delete.set(b, uint8_t(2));
-			return;
+			continue;
 		}
-	});
+	}
 
 	for(auto i = isize; i-- > 0;) {
 		dcon::land_battle_id b{ dcon::land_battle_id::value_base_t(i) };
@@ -9489,10 +9498,12 @@ bool is_national_army_supply_source(sys::state& state, dcon::nation_id owner, dc
 }
 
 bool is_operational_supply_depot(sys::state& state, dcon::nation_id owner, dcon::province_id province) {
-	return province && is_supply_depot(state, province)
+	if(!province || state.world.province_get_nation_from_province_ownership(province) != owner
+		|| state.world.province_get_nation_from_province_control(province) != owner) return false;
+	if(military::land_forces::initialized(state))
+		return military::land_forces::depot_inventory_at(state, owner, province) > 0.0001;
+	return is_supply_depot(state, province)
 		&& state.world.province_get_supply_depot_owner(province) == owner
-		&& state.world.province_get_nation_from_province_ownership(province) == owner
-		&& state.world.province_get_nation_from_province_control(province) == owner
 		&& state.world.province_get_supply_depot_stockpile(province) > 0.0001f;
 }
 
@@ -9525,7 +9536,7 @@ float supply_infrastructure_factor(sys::state& state, dcon::province_id from, dc
 
 army_supply_access_data calculate_army_supply_route(sys::state& state, dcon::nation_id owner, dcon::province_id location,
 		std::vector<dcon::province_adjacency_id>* land_edges = nullptr, std::vector<dcon::province_id>* ports = nullptr,
-		bool allow_depots = true) {
+		bool allow_depots = true, dcon::province_id required_source = {}) {
 	army_supply_access_data result;
 	if(!owner || !location || location.index() >= state.province_definitions.first_sea_province.index()) {
 		return result;
@@ -9560,6 +9571,7 @@ army_supply_access_data calculate_army_supply_route(sys::state& state, dcon::nat
 		return province::distance_km(state, adjacency) / (infrastructure * control);
 	};
 	auto end_func = [&](dcon::province_id province) {
+		if(required_source) return province == required_source && supply_route_has_friendly_control(state, owner, province);
 		return is_national_army_supply_source(state, owner, province)
 			|| (allow_depots && is_operational_supply_depot(state, owner, province));
 	};
@@ -9622,7 +9634,9 @@ army_supply_access_data calculate_army_supply_route(sys::state& state, dcon::nat
 	result.source_is_depot = !is_national_army_supply_source(state, owner, result.source)
 		&& is_operational_supply_depot(state, owner, result.source);
 	if(result.source_is_depot) {
-		result.depot_stockpile = state.world.province_get_supply_depot_stockpile(result.source);
+		result.depot_stockpile = military::land_forces::initialized(state)
+			? float(military::land_forces::depot_inventory_at(state, owner, result.source))
+			: state.world.province_get_supply_depot_stockpile(result.source);
 		result.depot_capacity = supply_depot_capacity(state, result.source);
 	}
 	result.distance_factor = 1.0f / (1.0f + result.distance_km / 2000.0f);
@@ -9644,6 +9658,11 @@ army_supply_access_data calculate_army_supply_route(sys::state& state, dcon::nat
 
 army_supply_access_data calculate_army_supply_access(sys::state& state, dcon::nation_id owner, dcon::province_id location) {
 	return calculate_army_supply_route(state, owner, location);
+}
+
+army_supply_access_data calculate_army_supply_access_from_source(sys::state& state,
+	dcon::nation_id owner, dcon::province_id source, dcon::province_id destination) {
+	return calculate_army_supply_route(state, owner, destination, nullptr, nullptr, true, source);
 }
 
 namespace {
@@ -9685,6 +9704,7 @@ bool is_supply_depot(sys::state& state, dcon::province_id province) {
 }
 
 void update_supply_depots(sys::state& state) {
+	if(military::land_forces::initialized(state)) return;
 	state.supply_depot_incoming_cache.assign(state.world.province_size(), 0.0f);
 	state.supply_depot_served_armies_cache.assign(state.world.province_size(), 0);
 	state.supply_depot_connected_cache.assign(state.world.province_size(), 0);
@@ -9720,6 +9740,7 @@ void update_supply_depots(sys::state& state) {
 }
 
 void update_army_supply_cache(sys::state& state) {
+	auto const canonical_forces = military::land_forces::initialized(state);
 	auto const army_count = state.world.army_size();
 	state.army_supply_access_cache.assign(army_count, army_supply_access_data{});
 	state.army_supply_capacity_factor_cache.assign(army_count, 1.0f);
@@ -9743,13 +9764,22 @@ void update_army_supply_cache(sys::state& state) {
 		if(!owner) continue;
 		auto& route = routes[id];
 		route.destination = location;
+		bool all_formations_mapped = true;
 		float replacement_load = 0.0f;
 		for(auto membership : army.get_army_membership()) {
 			auto regiment = membership.get_regiment();
-			auto weight = regiment_logistics_weight(state, regiment);
-			route.demand += weight;
-			replacement_load += weight * std::clamp(1.0f - regiment.get_strength(), 0.0f, 1.0f);
+			if(canonical_forces) {
+				auto formation_id = military::land_forces::formation_for_legacy_regiment(state, regiment.id);
+				if(!formation_id) { all_formations_mapped = false; continue; }
+				route.demand += float(military::land_forces::logistics_demand(state, formation_id));
+				replacement_load += float(military::land_forces::replacement_load(state, formation_id));
+			} else {
+				auto weight = regiment_logistics_weight(state, regiment.id);
+				route.demand += weight;
+				replacement_load += weight * std::clamp(1.0f - regiment.get_strength(), 0.0f, 1.0f);
+			}
 		}
+		if(!all_formations_mapped) continue;
 		if(route.demand <= 0.0f) route.demand = 1.0f;
 		state.army_supply_army_demand_cache[id] = route.demand;
 		auto access = location
@@ -9799,6 +9829,9 @@ void update_army_supply_cache(sys::state& state) {
 		state.army_supply_route_demand_cache[id] = bottleneck_demand;
 	}
 
+	// Legacy depots allocate an implicit daily draw. Canonical forces draw only
+	// through explicit physical shipments into local formation inventory.
+	if(!canonical_forces) {
 	// Depots allocate a day's dispatch by priority tier. Armies within a tier
 	// receive the same fraction, so iteration order cannot influence outcomes.
 	for(auto depot : state.world.in_province) {
@@ -9823,11 +9856,13 @@ void update_army_supply_cache(sys::state& state) {
 			available = std::max(0.0f, available - requested * factor);
 		}
 	}
+	}
 
 	// Materialize a complete per-army snapshot once. Cached readers can then
 	// remain O(1), including replacement-load diagnostics.
 	for(auto army : state.world.in_army) {
-		if(!army.get_controller_from_army_control()) continue;
+		auto owner = army.get_controller_from_army_control();
+		if(!owner) continue;
 		auto id = army.id.index();
 		auto& result = state.army_supply_access_cache[id];
 		result.army_demand = state.army_supply_army_demand_cache[id];
@@ -9839,8 +9874,10 @@ void update_army_supply_cache(sys::state& state) {
 			result.route_demand = state.army_supply_route_demand_cache[id];
 			result.effective_supply *= result.capacity_factor;
 			if(result.source_is_depot) {
-				result.depot_delivery_factor = state.army_supply_depot_delivery_cache[id];
-				result.depot_stockpile = state.world.province_get_supply_depot_stockpile(result.source);
+			result.depot_delivery_factor = state.army_supply_depot_delivery_cache[id];
+				result.depot_stockpile = canonical_forces
+					? float(military::land_forces::depot_inventory_at(state, owner, result.source))
+					: state.world.province_get_supply_depot_stockpile(result.source);
 				result.depot_capacity = supply_depot_capacity(state, result.source);
 				result.effective_supply *= result.depot_delivery_factor;
 			}
@@ -9893,8 +9930,13 @@ float army_replacement_logistics_load(sys::state& state, dcon::army_id army) {
 	float load = 0.0f;
 	for(auto membership : state.world.army_get_army_membership(army)) {
 		auto regiment = membership.get_regiment();
-		load += regiment_logistics_weight(state, regiment) *
-			std::clamp(1.0f - state.world.regiment_get_strength(regiment), 0.0f, 1.0f);
+		if(military::land_forces::initialized(state)) {
+			auto formation_id = military::land_forces::formation_for_legacy_regiment(state, regiment);
+			if(formation_id) load += float(military::land_forces::replacement_load(state, formation_id));
+		} else {
+			load += regiment_logistics_weight(state, regiment) *
+				std::clamp(1.0f - state.world.regiment_get_strength(regiment), 0.0f, 1.0f);
+		}
 	}
 	return load;
 }
@@ -9912,6 +9954,24 @@ float calculate_army_supply_reserve_daily_change(sys::state& state, dcon::army_i
 }
 
 void update_army_supply_reserves(sys::state& state) {
+	if(military::land_forces::initialized(state)) {
+		for(auto army : state.world.in_army) {
+			float reserve = 1.0f;
+			bool has_formation = false;
+			bool fully_mapped = true;
+			for(auto membership : army.get_army_membership()) {
+				auto formation_id = military::land_forces::formation_for_legacy_regiment(
+					state, membership.get_regiment());
+				if(!formation_id) { fully_mapped = false; continue; }
+				has_formation = true;
+				auto status = military::land_forces::derive_readiness(state, formation_id);
+				reserve = std::min(reserve, std::clamp(status.supply_days / 3.0f, 0.0f, 1.0f));
+			}
+			army.set_supply_reserve(fully_mapped && has_formation ? reserve : 0.0f);
+		}
+		invalidate_army_supply_cache(state);
+		return;
+	}
 	update_supply_depots(state);
 	update_army_supply_cache(state);
 	for(auto army : state.world.in_army) {
@@ -10409,30 +10469,13 @@ template float unit_calculate_reinforcement<reinforcement_estimation_type::month
 template float unit_calculate_reinforcement<reinforcement_estimation_type::full_supplies>(sys::state& state, dcon::regiment_id reg, bool potential_reinf);
 
 void reinforce_regiments(sys::state& state) {
-	/*
-	A unit that is not retreating, not embarked, not in combat is reinforced (has its strength increased) by:
-define:REINFORCE_SPEED x (technology-reinforcement-modifier + 1.0) x (2 if in owned province, 0.1 in an unowned port province, 1
-in a controlled province, 0.5 if in a province adjacent to a province with a war ally, 0.25 in a hostile, unblockaded port,
-and 0.1 in any other hostile province) x (national-reinforce-speed-modifier + 1) x army-supplies x (number of actual regiments /
-max possible regiments (feels like a bug to me) or 0.5 if mobilized)
-	*/
-
-	for(auto ar : state.world.in_army) {
-		if(ar.get_navy_from_army_transport() || ar.get_is_retreating())
-			continue;
-
-		auto in_nation = ar.get_controller_from_army_control();
-		auto combined = calculate_army_combined_reinforce<reinforcement_estimation_type::today>(state, ar);
-		for(auto reg : ar.get_army_membership()) {
-			auto reinforcement = regiment_calculate_reinforcement(state, reg.get_regiment(), combined);
-			assert(std::isfinite(reinforcement));
-			reg.get_regiment().set_strength(reg.get_regiment().get_strength() + reinforcement);
-			auto old_experience = reg.get_regiment().get_experience();
-			auto lost_xp = old_experience - (old_experience / (reinforcement / 3 + 1));
-			adjust_regiment_experience(state, in_nation.id, reg.get_regiment(), -lost_xp);
-		}
-	}
-	// reset all reinforcement buffers
+	// Regiment strength is only a one-way battle/UI projection. Physical personnel,
+	// equipment, and local supply can only change through canonical land-force APIs.
+	for(auto army : state.world.in_army)
+		for(auto membership : army.get_army_membership())
+			(void)military::land_forces::sync_legacy_regiment_projection(state,
+				membership.get_regiment());
+	// Retire the old national reinforcement signal; it cannot create material.
 	for(auto nation : state.world.in_nation) {
 		if(bool(nation)) {
 			state.world.nation_set_land_reinforcement_buffer(nation, 0.0f);
@@ -10631,6 +10674,15 @@ void end_mobilization(sys::state& state, dcon::nation_id n) {
 	});
 }
 void advance_mobilizations(sys::state& state) {
+	if(military::land_forces::initialized(state)) {
+		// The old POP-to-regiment generator has no exact-person or equipment issue
+		// path. Orders must use recruit_personnel plus physical shipments.
+		for(auto nation : state.world.in_nation) {
+			nation.set_mobilization_remaining(0);
+			nation.get_mobilization_schedule().clear();
+		}
+		return;
+	}
 	for(auto n : state.world.in_nation) {
 		auto& to_mobilize = n.get_mobilization_remaining();
 		if(to_mobilize > 0) {
@@ -11079,6 +11131,14 @@ bool pop_eligible_for_mobilization(sys::state& state, dcon::pop_id p) {
 }
 template<regiment_dmg_source damage_source>
 void disband_regiment_w_pop_death(sys::state& state, dcon::regiment_id reg_id) {
+	if(auto formation_id = military::land_forces::formation_for_legacy_regiment(state, reg_id)) {
+		if(military::land_forces::personnel_count(state, formation_id) != 0) {
+			assert(false && "canonical formation cannot be deleted while exact personnel remain assigned");
+			return;
+		}
+		military::delete_regiment_safe_wrapper(state, reg_id);
+		return;
+	}
 	auto base_pop = state.world.regiment_get_pop_from_regiment_source(reg_id);
 	auto army = state.world.regiment_get_army_from_army_membership(reg_id);
 	auto controller = state.world.army_get_controller_from_army_control(army);

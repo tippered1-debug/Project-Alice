@@ -2,6 +2,7 @@
 #include "system_state.hpp"
 #include "serialization.hpp"
 #include "actors/ownership.hpp"
+#include "economy/banking/banking.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/exact_person_freight.hpp"
@@ -9,6 +10,7 @@
 #include "economy/physical/labor_dynamics.hpp"
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
+#include "military/land_forces.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -59,7 +61,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 8;
+constexpr uint16_t exact_runtime_save_version = 10;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -71,6 +73,7 @@ struct exact_runtime_snapshot {
 	economy::physical::exact_person_freight::freight_snapshot freight;
 	economy::physical::labor_dynamics::snapshot labor;
 	economy::causal_order::snapshot causal_order;
+	military::land_forces::snapshot land_forces;
 	uint16_t extension_version = 0;
 	bool extension_found = false;
 	bool present = false;
@@ -151,7 +154,7 @@ bool read_pod_vector(uint8_t const*& ptr, uint8_t const* end,
 	return read_framed_vector(ptr, end, values, exact_runtime_max_records);
 }
 
-using exact_person_key = persons::exact_population::person_key;
+using exact_person_key = persons::person_key;
 
 uint8_t* write_person_key(uint8_t* ptr, exact_person_key key) {
 	ptr = memcpy_serialize(ptr, key.source_population_cell);
@@ -193,13 +196,16 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	auto const& freight = snapshot.freight;
 	auto const& labor = snapshot.labor;
 	auto const& causal = snapshot.causal_order;
+	auto const& land_forces = snapshot.land_forces;
 	std::size_t size = 6 * sizeof(uint32_t);
 	size += pod_vector_size(population.cells) + pod_vector_size(population.bridges)
 		+ pod_vector_size(population.source_bindings)
 		+ pod_vector_size(population.retired_source_cells)
 		+ pod_vector_size(population.retired_people)
+		+ pod_vector_size(population.deaths)
 		+ pod_vector_size(population.birth_cohorts)
 		+ pod_vector_size(population.membership_ranges)
+		+ pod_vector_size(population.military_assignments)
 		+ pod_vector_size(population.transitions)
 		+ pod_vector_size(population.transfer_remainders);
 	size += sizeof(uint32_t) + population.overrides.size() *
@@ -215,6 +221,13 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 		+ pod_vector_size(freight.shipment_owners);
 	size += sizeof(uint64_t) + pod_vector_size(labor.events);
 	size += sizeof(uint64_t) + pod_vector_size(causal.dcon_sequences);
+	size += sizeof(uint32_t) + pod_vector_size(land_forces.equipment_models)
+		+ pod_vector_size(land_forces.templates) + pod_vector_size(land_forces.template_equipment)
+		+ pod_vector_size(land_forces.template_consumables) + pod_vector_size(land_forces.formations)
+		+ pod_vector_size(land_forces.equipment)
+		+ pod_vector_size(land_forces.consumables) + pod_vector_size(land_forces.stockpiles)
+		+ pod_vector_size(land_forces.shipments) + pod_vector_size(land_forces.person_losses)
+		+ pod_vector_size(land_forces.equipment_losses) + pod_vector_size(land_forces.casualty_events);
 	return size;
 }
 
@@ -226,6 +239,7 @@ exact_runtime_snapshot capture_exact_runtime_snapshot(sys::state const& state) {
 	result.freight = economy::physical::exact_person_freight::export_snapshot(state);
 	result.labor = economy::physical::labor_dynamics::export_snapshot(state);
 	result.causal_order = economy::causal_order::export_snapshot(state);
+	result.land_forces = military::land_forces::export_snapshot(state);
 	result.present = true;
 	return result;
 }
@@ -253,6 +267,7 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	auto const& freight = snapshot.freight;
 	auto const& labor = snapshot.labor;
 	auto const& causal = snapshot.causal_order;
+	auto const& land_forces = snapshot.land_forces;
 	ptr = memcpy_serialize(ptr, population.bootstrap_version);
 	ptr = write_pod_vector(ptr, population.cells);
 	ptr = memcpy_serialize(ptr, uint32_t(population.overrides.size()));
@@ -267,8 +282,10 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = write_pod_vector(ptr, population.source_bindings);
 	ptr = write_pod_vector(ptr, population.retired_source_cells);
 	ptr = write_pod_vector(ptr, population.retired_people);
+	ptr = write_pod_vector(ptr, population.deaths);
 	ptr = write_pod_vector(ptr, population.birth_cohorts);
 	ptr = write_pod_vector(ptr, population.membership_ranges);
+	ptr = write_pod_vector(ptr, population.military_assignments);
 	ptr = write_pod_vector(ptr, population.transitions);
 	ptr = write_pod_vector(ptr, population.transfer_remainders);
 
@@ -307,6 +324,19 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = memcpy_serialize(ptr, causal.version);
 	ptr = memcpy_serialize(ptr, causal.next_sequence);
 	ptr = write_pod_vector(ptr, causal.dcon_sequences);
+	ptr = memcpy_serialize(ptr, land_forces.version);
+	ptr = write_pod_vector(ptr, land_forces.equipment_models);
+	ptr = write_pod_vector(ptr, land_forces.templates);
+	ptr = write_pod_vector(ptr, land_forces.template_equipment);
+	ptr = write_pod_vector(ptr, land_forces.template_consumables);
+	ptr = write_pod_vector(ptr, land_forces.formations);
+	ptr = write_pod_vector(ptr, land_forces.equipment);
+	ptr = write_pod_vector(ptr, land_forces.consumables);
+	ptr = write_pod_vector(ptr, land_forces.stockpiles);
+	ptr = write_pod_vector(ptr, land_forces.shipments);
+	ptr = write_pod_vector(ptr, land_forces.person_losses);
+	ptr = write_pod_vector(ptr, land_forces.equipment_losses);
+	ptr = write_pod_vector(ptr, land_forces.casualty_events);
 	assert(std::size_t(ptr - payload_start) == payload_size);
 	return ptr;
 }
@@ -350,6 +380,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	auto& freight = result.freight;
 	auto& labor = result.labor;
 	auto& causal = result.causal_order;
+	auto& land_forces = result.land_forces;
 	bool valid = std::size_t(payload_end - ptr) >= 6 * sizeof(uint32_t);
 	if(valid) ptr = memcpy_deserialize(ptr, population.bootstrap_version);
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.cells);
@@ -373,8 +404,10 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	population.has_source_bindings = valid;
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.retired_source_cells);
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.retired_people);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.deaths);
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.birth_cohorts);
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.membership_ranges);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.military_assignments);
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.transitions);
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.transfer_remainders);
 	population.has_current_membership = valid;
@@ -425,6 +458,21 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 		ptr = memcpy_deserialize(ptr, causal.next_sequence);
 	else if(valid) valid = false;
 	if(valid) valid = read_pod_vector(ptr, payload_end, causal.dcon_sequences);
+	if(valid && std::size_t(payload_end - ptr) >= sizeof(land_forces.version))
+		ptr = memcpy_deserialize(ptr, land_forces.version);
+	else if(valid) valid = false;
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.equipment_models);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.templates);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.template_equipment);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.template_consumables);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.formations);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.equipment);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.consumables);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.stockpiles);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.shipments);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.person_losses);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.equipment_losses);
+	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.casualty_events);
 	valid = valid && ptr == payload_end;
 	if(valid) result.present = true;
 	else {
@@ -444,18 +492,20 @@ void clear_exact_runtime_state(sys::state& state) {
 	economy::physical::exact_person_freight::clear_store(state);
 	economy::physical::labor_dynamics::clear_store(state);
 	economy::causal_order::clear_store(state);
+	military::land_forces::clear_store(state);
 }
 
 bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
 	clear_exact_runtime_state(state);
 	if(!snapshot.present) return false;
 	auto clear_on_failure = [&] { clear_exact_runtime_state(state); };
-	bool const restored = persons::exact_population::import_snapshot(state, snapshot.population)
+	bool restored = persons::exact_population::import_snapshot(state, snapshot.population)
 		&& economy::causal_order::import_snapshot(state, snapshot.causal_order)
 		&& economy::exact_person_economy::import_snapshot(state, snapshot.economy)
 		&& economy::physical::exact_person_goods::import_snapshot(state, snapshot.goods)
 		&& economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
 		&& economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor);
+	if(restored) restored = military::land_forces::import_snapshot(state, snapshot.land_forces);
 	if(!restored) clear_on_failure();
 	return restored;
 }
@@ -1643,9 +1693,12 @@ bool validate_strategic_statecraft_world_state(sys::state& state) {
 }
 
 bool canonical_runtime_loaded(sys::state const& state) {
-	return bool(state.exact_population) && bool(state.exact_person_economy)
+	std::vector<std::string> banking_errors;
+	return economy::banking::validate_canonical_banking_state(state, banking_errors)
+		&& bool(state.exact_population) && bool(state.exact_person_economy)
 		&& bool(state.exact_person_goods) && bool(state.exact_person_freight)
 		&& bool(state.labor_dynamics) && bool(state.causal_order)
+		&& military::land_forces::initialized(state)
 		&& state.strategic_statecraft_initialized
 		&& state.strategic_interests.size() == state.world.nation_size()
 		&& state.transformation_government_state.size() == state.world.nation_size()

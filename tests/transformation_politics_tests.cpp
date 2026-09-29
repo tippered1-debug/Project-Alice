@@ -464,7 +464,6 @@ TEST_CASE("movement pressure is explainable and legacy compatible", "[politics][
 
 TEST_CASE("flagship politics turns reform clicks into a visible bill", "[politics][transformation][legislation]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const nation = state->world.create_nation();
 	auto const issue = state->world.create_issue();
 	state->world.nation_resize_issues(state->world.issue_size());
@@ -496,7 +495,6 @@ TEST_CASE("flagship politics turns reform clicks into a visible bill", "[politic
 TEST_CASE("an incumbent reelection records the actual winning vote share",
 	"[politics][transformation][election]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const nation = state->world.create_nation();
 	auto const party = state->world.create_political_party();
 	state->world.nation_set_ruling_party(nation, party);
@@ -541,7 +539,6 @@ TEST_CASE("electoral mandate survives the versioned save extension",
 TEST_CASE("flagship politics can queue a military or economic reform bill",
 	"[politics][transformation][legislation][reform]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	state->local_player_nation = state->world.create_nation();
 	state->cheat_data.always_allow_reforms = true;
 	auto const reform = state->world.create_reform();
@@ -561,7 +558,6 @@ TEST_CASE("flagship politics can queue a military or economic reform bill",
 TEST_CASE("wealth-backed groups can outweigh equal popular reform support",
 	"[politics][transformation][reform][integration]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const capitalist_type = state->world.create_pop_type();
 	auto const worker_type = state->world.create_pop_type();
 	state->culture_definitions.capitalists = capitalist_type;

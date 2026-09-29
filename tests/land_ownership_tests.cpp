@@ -107,7 +107,6 @@ TEST_CASE("slave intensity creates a plantation belt inside the US profile",
 TEST_CASE("historical profile initializes a province exactly once",
 		"[economy][ownership][history][integration]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const farmers = state->world.create_pop_type();
 	auto const laborers = state->world.create_pop_type();
 	auto const aristocrats = state->world.create_pop_type();
@@ -413,7 +412,6 @@ TEST_CASE("disabled land market is an exact no-op",
 TEST_CASE("province land market transfers real POP savings",
 		"[economy][ownership][market][integration]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	state->start_date =
 		sys::absolute_time_point(sys::year_month_day{1836, 1, 1});
 	state->current_date = sys::date{0};

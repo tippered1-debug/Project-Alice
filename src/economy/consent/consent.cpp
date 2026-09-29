@@ -82,7 +82,7 @@ dcon::organization_decision_mandate_id create_mandate(sys::state& state, dcon::o
 
 bool can_decide_for_actor(sys::state const& state, dcon::person_id person, dcon::economic_actor_id actor,
 	decision_kind kind, sys::date date) {
-	if(!person || !state.world.person_is_valid(person) || !state.world.person_get_alive(person)
+	if(!person || !state.world.person_is_valid(person) || !persons::alive(state, person)
 		|| !actor || !state.world.economic_actor_is_valid(actor) || !valid_decision_kind(kind)) return false;
 	if(persons::actor_for_person(state, person) == actor) return true;
 	auto organization = actors::organizations::organization_for_actor(state, actor);

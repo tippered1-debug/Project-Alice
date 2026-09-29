@@ -867,7 +867,7 @@ void fix_slaves_in_province(sys::state& state, dcon::nation_id owner, dcon::prov
 				auto const moved = demographics::reclassify_population_cell(state, pop, p,
 					state.world.pop_get_culture(pop), state.world.pop_get_religion(pop),
 					mine ? state.culture_definitions.laborers : state.culture_definitions.farmers,
-					persons::exact_population::population_transition_cause::scripted_reclassification);
+					persons::population_transition_cause::scripted_reclassification);
 				assert(moved && "abolishing slavery must reclassify canonical exact population");
 				if(!moved) std::abort();
 			}

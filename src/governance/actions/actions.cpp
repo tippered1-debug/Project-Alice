@@ -1,5 +1,6 @@
 #include "actions.hpp"
 
+#include "persons/persons.hpp"
 #include "system_state.hpp"
 
 namespace governance::actions {
@@ -27,7 +28,7 @@ dcon::institutional_action_id record_dismissal(sys::state& s, dcon::person_id in
 }
 
 dcon::institutional_action_id authorized_appoint(sys::state& s, dcon::person_id initiator, dcon::person_id target_person, dcon::office_id target_office, sys::date date) {
-	if(!initiator || !target_person || !target_office || !s.world.person_get_alive(initiator)) return {};
+	if(!initiator || !target_person || !target_office || !persons::alive(s, initiator)) return {};
 	if(persons::active_tenure_for(s, target_office)) return {};
 	auto institution = governance::institution_for_office(s, target_office);
 	auto nation = governance::nation_of(s, institution);
@@ -38,7 +39,7 @@ dcon::institutional_action_id authorized_appoint(sys::state& s, dcon::person_id 
 }
 
 dcon::institutional_action_id authorized_dismiss(sys::state& s, dcon::person_id initiator, dcon::office_id target_office, sys::date date) {
-	if(!initiator || !target_office || !s.world.person_get_alive(initiator)) return {};
+	if(!initiator || !target_office || !persons::alive(s, initiator)) return {};
 	auto tenure = persons::active_tenure_for(s, target_office);
 	if(!tenure) return {};
 	auto target_person = s.world.office_tenure_get_person_from_office_tenure_person(tenure);

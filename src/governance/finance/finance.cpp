@@ -47,7 +47,7 @@ struct authority_context {
 bool authority_for_treasury(sys::state const& state, dcon::person_id initiator,
 	authority_kind kind, dcon::monetary_account_id treasury_account, sys::date date,
 	authority_context& result) {
-	if(!initiator || !state.world.person_is_valid(initiator) || !state.world.person_get_alive(initiator) || !treasury_account || !state.world.monetary_account_is_valid(treasury_account)) return false;
+	if(!initiator || !state.world.person_is_valid(initiator) || !persons::alive(state, initiator) || !treasury_account || !state.world.monetary_account_is_valid(treasury_account)) return false;
 	result.institution = treasury_institution_for(state, treasury_account);
 	if(!result.institution) return false;
 	auto nation = governance::nation_of(state, result.institution);

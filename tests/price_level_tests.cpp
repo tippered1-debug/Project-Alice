@@ -35,7 +35,6 @@ TEST_CASE("price-level helpers sanitize invalid and degenerate inputs",
 TEST_CASE("market CPI follows a local POP basket and deflates local wages",
 		"[economy][prices][integration]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto const money = state->world.create_commodity();
 	auto const food = state->world.create_commodity();
 	auto const workers = state->world.create_pop_type();

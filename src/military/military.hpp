@@ -507,6 +507,8 @@ economy::commodity_set get_required_supply(sys::state& state, dcon::nation_id ow
 economy::commodity_set get_required_supply(sys::state& state, dcon::nation_id owner, dcon::navy_id navy);
 
 army_supply_access_data calculate_army_supply_access(sys::state& state, dcon::nation_id owner, dcon::province_id location);
+army_supply_access_data calculate_army_supply_access_from_source(sys::state& state,
+	dcon::nation_id owner, dcon::province_id source, dcon::province_id destination);
 army_supply_access_data calculate_army_supply_access(sys::state& state, dcon::army_id army);
 // Reads the last explicitly rebuilt batch; intended for loops over many armies.
 army_supply_access_data calculate_army_supply_access_cached(sys::state& state, dcon::army_id army);

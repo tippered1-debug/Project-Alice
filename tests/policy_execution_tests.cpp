@@ -96,7 +96,6 @@ TEST_CASE("state-backed policy execution joins administration control labor fund
 TEST_CASE("national policy execution is population weighted and stays bounded",
 	"[politics][capacity][integration]") {
 	auto state = std::make_unique<sys::state>();
-	state->force_age_of_transformation_ruleset = true;
 	auto nation = state->world.create_nation();
 	auto core = state->world.create_province();
 	auto periphery = state->world.create_province();

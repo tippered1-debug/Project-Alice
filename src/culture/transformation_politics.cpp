@@ -1,6 +1,5 @@
 #include "transformation_politics.hpp"
 #include "economy/exact_person_economy.hpp"
-#include "persons/exact_population.hpp"
 #include "money.hpp"
 
 #include "culture.hpp"
@@ -501,10 +500,10 @@ population_sample sample_from_pop(sys::state const& state, dcon::pop_id pop) {
 	if(result.role == population_role::enslaved)
 		result.political_organization = std::min(0.05f, result.political_organization);
 	if(result.population > 0.0f) {
-		auto population_cell = persons::exact_population::source_cell_for_population(state, pop);
+		auto population_cell = persons::source_population_cell_for_population(state, pop);
 		assert(population_cell != 0 && "political population sample requires a canonical population cell");
 		if(population_cell == 0) std::abort();
-		auto literal_people = persons::exact_population::living_people_in_population_cell(state, population_cell);
+		auto literal_people = persons::living_people_in_population_cell(state, population_cell);
 		auto population_units = std::max(1.0, double(literal_people) * 0.25);
 		result.savings_per_capita = nonnegative(economy::exact_person_economy::population_cash_balance(
 			state, pop, economy::money)) / float(population_units);

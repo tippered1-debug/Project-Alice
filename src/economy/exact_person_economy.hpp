@@ -3,7 +3,7 @@
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
 #include "economy/relations/relations.hpp"
-#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -13,7 +13,7 @@ namespace sys { class state; }
 
 namespace economy::exact_person_economy {
 
-using person_key = persons::exact_population::person_key;
+using person_key = persons::person_key;
 
 enum class account_kind : uint8_t { invalid = 0, dcon = 1, exact = 2 };
 

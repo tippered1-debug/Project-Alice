@@ -23,7 +23,7 @@ dcon::shipment_id dispatch(sys::state&, dcon::site_id origin, dcon::site_id dest
 dcon::shipment_id dispatch_transfer(sys::state&, dcon::site_id origin, dcon::site_id destination,
 	dcon::commodity_id commodity, float quantity, dcon::economic_actor_id seller,
 	dcon::economic_actor_id buyer);
-dcon::shipment_id dispatch_exact(sys::state&, persons::exact_population::person_key owner,
+dcon::shipment_id dispatch_exact(sys::state&, persons::person_key owner,
 	dcon::site_id origin, dcon::site_id destination, dcon::commodity_id commodity,
 	float quantity, uint64_t exact_contract_id);
 void advance(sys::state&);

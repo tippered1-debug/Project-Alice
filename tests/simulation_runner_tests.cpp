@@ -76,7 +76,6 @@ simulation_diagnostics_fixture make_simulation_diagnostics_fixture() {
 	fixture.state->world.province_set_control_ratio(fixture.province, 0.7f);
 	fixture.state->world.nation_set_stockpiles(fixture.nation, economy::money, 10.0f);
 	fixture.state->defines.loan_base_interest = 0.03f;
-	fixture.state->force_age_of_transformation_ruleset = true;
 	fixture.state->transformation_politics_cache.assign(
 		fixture.state->world.nation_size(), politics::transformation::nation_result{});
 	auto& political = fixture.state->transformation_politics_cache[fixture.nation.index()];

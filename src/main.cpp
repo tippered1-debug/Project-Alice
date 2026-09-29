@@ -66,6 +66,7 @@
 #include "policy_execution.cpp"
 #include "culture.cpp"
 #include "military.cpp"
+#include "military/land_forces.cpp"
 #include "debug_string_convertions.cpp"
 #include "modifiers.cpp"
 #include "province.cpp"

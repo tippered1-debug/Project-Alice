@@ -167,8 +167,6 @@ TEST_CASE("loaded scenario remains equal through its first ticks",
 		sys::network_mode_type::host);
 	auto game_state_2 = load_testing_scenario_file_with_save(
 		sys::network_mode_type::host);
-	game_state_1->force_age_of_transformation_ruleset = true;
-	game_state_2->force_age_of_transformation_ruleset = true;
 	game_state_1->current_scene.game_in_progress = true;
 	game_state_2->current_scene.game_in_progress = true;
 	game_state_1->game_seed = test_game_seed;

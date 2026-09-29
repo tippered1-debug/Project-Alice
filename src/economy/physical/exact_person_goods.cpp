@@ -103,7 +103,7 @@ dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 }
 
 float refresh_unmet(sys::state const& state, need_record& need) {
-	auto owned = stock_quantity(state, need.owner, persons::exact_population::home_site(state, need.owner), need.commodity);
+	auto owned = stock_quantity(state, need.owner, persons::home_site(state, need.owner), need.commodity);
 	need.unmet_quantity = std::max(0.0f, need.desired_quantity_per_period
 		- std::max(0.0f, need.consumed_this_period) - owned);
 	return need.unmet_quantity;
@@ -137,14 +137,14 @@ std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
 
 float stock_quantity(sys::state const& state, person_key owner, dcon::site_id site,
 	dcon::commodity_id commodity) {
-	if(!persons::exact_population::exists(state, owner) || !site || !commodity) return 0.0f;
+	if(!persons::exists(state, owner) || !site || !commodity) return 0.0f;
 	auto record = stock_for(state, owner, site, commodity);
 	return record ? std::max(0.0f, record->quantity) : 0.0f;
 }
 
 float add_stock(sys::state& state, person_key owner, dcon::site_id site,
 	dcon::commodity_id commodity, float amount) {
-	if(!persons::exact_population::exists(state, owner) || !site || !state.world.site_is_valid(site) || !commodity || !state.world.commodity_is_valid(commodity) || !positive_finite(amount)) return 0.0f;
+	if(!persons::exists(state, owner) || !site || !state.world.site_is_valid(site) || !commodity || !state.world.commodity_is_valid(commodity) || !positive_finite(amount)) return 0.0f;
 	auto record = stock_for(state, owner, site, commodity);
 	auto current = record ? record->quantity : 0.0f;
 	if(!nonnegative_finite(current) || amount > std::numeric_limits<float>::max() - current) return 0.0f;
@@ -167,7 +167,7 @@ float remove_stock(sys::state& state, person_key owner, dcon::site_id site,
 }
 
 bool set_need(sys::state& state, person_key owner, dcon::commodity_id commodity, float desired) {
-	if(!persons::exact_population::exists(state, owner) || !commodity || !state.world.commodity_is_valid(commodity) || !nonnegative_finite(desired)) return false;
+	if(!persons::exists(state, owner) || !commodity || !state.world.commodity_is_valid(commodity) || !nonnegative_finite(desired)) return false;
 	auto record = need_for(state, owner, commodity);
 	if(!record) {
 		record = &ensure_store(state)->needs.emplace_back();
@@ -187,7 +187,7 @@ float unmet_need(sys::state const& state, person_key owner, dcon::commodity_id c
 	if(auto record = need_for(state, owner, commodity)) {
 		return std::max(0.0f, record->desired_quantity_per_period
 			- std::max(0.0f, record->consumed_this_period)
-			- stock_quantity(state, owner, persons::exact_population::home_site(state, owner), commodity));
+			- stock_quantity(state, owner, persons::home_site(state, owner), commodity));
 	}
 	return 0.0f;
 }
@@ -208,9 +208,9 @@ void begin_period(sys::state& state, sys::date period) {
 
 float process_consumption(sys::state& state, person_key owner, dcon::commodity_id commodity) {
 	auto record = need_for(state, owner, commodity);
-	if(!record || !persons::exact_population::alive(state, owner)) return 0.0f;
+	if(!record || !persons::alive(state, owner)) return 0.0f;
 	auto remaining = std::max(0.0f, record->desired_quantity_per_period - record->consumed_this_period);
-	auto site = persons::exact_population::home_site(state, owner);
+	auto site = persons::home_site(state, owner);
 	auto amount = std::min(remaining, stock_quantity(state, owner, site, commodity));
 	auto consumed = remove_stock(state, owner, site, commodity, amount);
 	record->consumed_this_period += consumed;
@@ -224,7 +224,7 @@ uint64_t post_bid(sys::state& state, person_key buyer, economy::exact_person_eco
 	dcon::site_id destination, dcon::market_id market, dcon::commodity_id commodity,
 	float quantity, float limit_price, order_purpose purpose) {
 	using namespace economy::exact_person_economy;
-	if(!persons::exact_population::exists(state, buyer) || !persons::exact_population::alive(state, buyer) || account.kind != account_kind::exact || owner_of(state, account) != buyer || !destination || !market || !commodity || !state.world.site_is_valid(destination) || !state.world.market_is_valid(market) || !state.world.commodity_is_valid(commodity) || !positive_finite(quantity) || !positive_finite(limit_price)) return 0;
+	if(!persons::exists(state, buyer) || !persons::alive(state, buyer) || account.kind != account_kind::exact || owner_of(state, account) != buyer || !destination || !market || !commodity || !state.world.site_is_valid(destination) || !state.world.market_is_valid(market) || !state.world.commodity_is_valid(commodity) || !positive_finite(quantity) || !positive_finite(limit_price)) return 0;
 	auto free = balance(state, account) - reserved_exact(state, account.exact_account_id);
 	if(!std::isfinite(free) || free + epsilon < quantity * limit_price) return 0;
 	auto id = next_id(ensure_store(state)->next_bid_id);
@@ -329,15 +329,15 @@ void expire(sys::state& state, sys::date date) {
 
 void cancel_dead_person_orders(sys::state& state) {
 	for(auto& bid : ensure_store(state)->bids)
-		if(bid.status == order_status::active && !persons::exact_population::alive(state, bid.buyer)) {
+		if(bid.status == order_status::active && !persons::alive(state, bid.buyer)) {
 			bid.status = order_status::canceled;
 			bid.reserved_amount = 0.0f;
 		}
 }
 
 bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commodity_id commodity) {
-	if(!persons::exact_population::exists(state, buyer) || !persons::exact_population::alive(state, buyer)) return false;
-	auto site = persons::exact_population::home_site(state, buyer);
+	if(!persons::exists(state, buyer) || !persons::alive(state, buyer)) return false;
+	auto site = persons::home_site(state, buyer);
 	auto market = market_for_site(state, site);
 	auto record = need_for(state, buyer, commodity);
 	if(!site || !market || !record || active_equivalent_bid(state, buyer, site, commodity)) return false;
@@ -417,7 +417,7 @@ std::vector<market_activity_record> market_activity_for_date(sys::state const& s
 	}
 	for(auto const& need : ensure_store(state)->needs) {
 		if(need.last_consumed_on != date || need.last_consumed_quantity <= 0.0f) continue;
-		auto home = persons::exact_population::home_site(state, need.owner);
+		auto home = persons::home_site(state, need.owner);
 		if(auto record = get_record(market_for_site(state, home), need.commodity))
 			record->consumed_quantity += need.last_consumed_quantity;
 	}
@@ -476,15 +476,15 @@ bool import_snapshot(sys::state& state, goods_snapshot const& snapshot) {
 	if(snapshot.version != snapshot_version) return false;
 	auto candidate = std::make_shared<exact_person_goods_store>();
 	for(auto const& record : snapshot.stocks) {
-		if(!persons::exact_population::exists(state, record.owner) || !record.site || !state.world.site_is_valid(record.site) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.quantity)) return false;
+		if(!persons::exists(state, record.owner) || !record.site || !state.world.site_is_valid(record.site) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.quantity)) return false;
 		candidate->stocks.push_back(record);
 	}
 	for(auto const& record : snapshot.needs) {
-		if(!persons::exact_population::exists(state, record.owner) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !nonnegative_finite(record.desired_quantity_per_period) || !nonnegative_finite(record.consumed_this_period) || !nonnegative_finite(record.unmet_quantity)) return false;
+		if(!persons::exists(state, record.owner) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !nonnegative_finite(record.desired_quantity_per_period) || !nonnegative_finite(record.consumed_this_period) || !nonnegative_finite(record.unmet_quantity)) return false;
 		candidate->needs.push_back(record);
 	}
 	for(auto record : snapshot.bids) {
-		if(!record.id || !persons::exact_population::exists(state, record.buyer) || !economy::exact_person_economy::account_exists(state,
+		if(!record.id || !persons::exists(state, record.buyer) || !economy::exact_person_economy::account_exists(state,
 				economy::exact_person_economy::account_ref::from_exact(record.exact_account_id)) || economy::exact_person_economy::owner_of(state,
 				economy::exact_person_economy::account_ref::from_exact(record.exact_account_id)) != record.buyer || !record.destination || !state.world.site_is_valid(record.destination) || !record.market || !state.world.market_is_valid(record.market) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.original_quantity) || !nonnegative_finite(record.remaining_quantity) || record.remaining_quantity > record.original_quantity + epsilon || !positive_finite(record.limit_price) || !nonnegative_finite(record.reserved_amount) || uint8_t(record.status) > uint8_t(order_status::filled)) return false;
 		if(record.causal_sequence == 0) record.causal_sequence = economy::causal_order::allocate(state, economy::causal_order::event_kind::goods_bid);

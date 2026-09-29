@@ -2,7 +2,7 @@
 
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
-#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -26,7 +26,7 @@ struct separation_event {
 	dcon::economic_actor_id employer{};
 	// Exact firm contract ID.
 	uint64_t contract_id = 0;
-	persons::exact_population::person_key exact_worker{};
+	persons::person_key exact_worker{};
 	separation_reason reason = separation_reason::employer_layoff;
 	float labor_capacity = 0.0f;
 	float wage_rate = 0.0f;
@@ -39,9 +39,10 @@ struct snapshot {
 	std::vector<separation_event> events;
 };
 
-bool is_unemployed(sys::state const&, persons::exact_population::person_key);
+bool is_unemployed(sys::state const&, persons::person_key);
 bool quit_exact_employment(sys::state&, uint64_t,
 	separation_reason reason = separation_reason::worker_quit);
+void close_person_relations_on_death(sys::state&, persons::person_key, sys::date);
 
 void process_factory_labor_dynamics(sys::state&);
 void process_displaced_job_search(sys::state&);
@@ -49,7 +50,7 @@ void retire_dead_exact_workers(sys::state&);
 
 uint64_t separation_event_count(sys::state const&);
 std::optional<separation_event> separation_event_at(sys::state const&, uint64_t id);
-std::vector<persons::exact_population::person_key> displaced_exact_workers(sys::state const&);
+std::vector<persons::person_key> displaced_exact_workers(sys::state const&);
 snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, snapshot const&);
 void initialize_empty_store(sys::state&);

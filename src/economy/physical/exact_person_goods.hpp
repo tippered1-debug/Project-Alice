@@ -12,7 +12,7 @@ namespace sys { class state; }
 
 namespace economy::physical::exact_person_goods {
 
-using person_key = persons::exact_population::person_key;
+using person_key = persons::person_key;
 
 enum class order_status : uint8_t { active = 0, canceled = 1, filled = 2 };
 enum class order_purpose : uint8_t { general = 0 };

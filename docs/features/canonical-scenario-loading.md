@@ -1,10 +1,10 @@
 # Canonical Scenario Firms and Ownership
 
-Every scenario must provide five tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `assets.csv`, `ownership.csv`, and `loans.csv`. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
+Every scenario must provide seven tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `assets.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
 
 ## Firms
 
-`firms.csv` has columns `firm_id;kind;settlement;opening_cash;retained_earnings;paid_in_equity`. `kind` is `company`, `bank`, `fund`, `cooperative`, `state_entity`, or `other`. `settlement` is the exact commodity key from scenario content. Opening cash becomes the firm's account in that settlement. A firm operating several plants shares its company account across the portfolio. Retained earnings and paid-in equity are saved on the organization and updated by canonical firm profits and owner contributions.
+`firms.csv` has columns `firm_id;kind;settlement;opening_cash;retained_earnings;paid_in_equity`. `kind` is `company`, `bank`, `fund`, `cooperative`, `state_entity`, or `other`. `settlement` is the exact commodity key from scenario content. Opening cash becomes the firm's account in that settlement. A firm operating several plants shares its company account across the portfolio. Retained earnings and paid-in equity are saved on the organization and updated by canonical firm profits and owner contributions. Bank rows must set `opening_cash` to zero; reserves and customer deposits come from the bank tables below.
 
 Example row: `steel_co;company;money;12000;4500;8000`.
 
@@ -28,9 +28,17 @@ Example rows: `us_pittsburgh_steel;firm;steel_co;1;1;1`, `equity:steel_co;capita
 
 ## Opening loans
 
-`loans.csv` has columns `loan_id;asset_id;creditor_type;creditor_id;principal;annual_rate;creation_date;due_date;accrued_interest`. It loads only declared firm-specific obligations and does not credit cash a second time. A `firm` creditor must be a declared bank using the debtor's settlement commodity. `capital_owner` creditors must be declared governments. Dates use `YYYY-MM-DD`; creation cannot predate the campaign start or postdate the selected scenario date. Imported accrued interest is the opening value, so interest accrual starts from the selected scenario date. The loan is linked to the operator actor and exact factory asset; listed principal is not added to any account balance.
+`loans.csv` has columns `loan_id;asset_id;creditor_type;creditor_id;principal;annual_rate;creation_date;due_date;accrued_interest;collateral_value`. It loads only declared bank-to-firm obligations and does not credit cash a second time. `creditor_type` must be `firm`; `creditor_id` must name a declared bank using the debtor's settlement commodity. Dates use `YYYY-MM-DD`; creation cannot predate the campaign start or postdate the selected scenario date. Imported accrued interest is the opening value, so interest accrual starts from the selected scenario date. The loan is linked to the operator actor and exact factory asset; listed principal is not added to any account balance. `collateral_value` is the authored value pledged to that loan, not an inferred recovery or cash balance.
 
-Example row: `steel_mortgage_01;us_pittsburgh_steel;firm;clearing_bank;5000;0.06;1836-01-01;1846-01-01;120`.
+Example row: `steel_mortgage_01;us_pittsburgh_steel;firm;clearing_bank;5000;0.06;1836-01-01;1846-01-01;120;9000`.
+
+## Banks and opening deposits
+
+`banks.csv` has columns `bank_id;jurisdiction;settlement;opening_reserves;opening_equity;opening_deposit_liabilities;lending_base_rate;minimum_capital_ratio;liquidity_target;risk_appetite;lending_spread;max_single_borrower_exposure;reserve_requirement;capital_breach_grace_days`. Each `bank_id` must reference exactly one `firms.csv` row with `kind=bank`. `jurisdiction` is an active three-letter country tag; `settlement` must equal the bank firm's settlement commodity. Every policy value is required and saved on the bank. Ratios and spread are authored fractions from 0 to 1; no fallback rate or hidden lending limits are applied.
+
+`bank_deposits.csv` has columns `deposit_id;bank_id;owner_type;owner_id;opening_balance`. `owner_type` is `firm` or `capital_owner`, and each account owner is explicitly declared in the corresponding table. A bank can have one customer deposit account per owner. The sum of each bank's account balances must equal `opening_deposit_liabilities` in `banks.csv`.
+
+Opening equity is derived from the complete balance sheet after reserves, deposits, and declared loans load. It must equal `opening_equity` in `banks.csv` and `paid_in_equity + retained_earnings` in `firms.csv`. A mismatch rejects the scenario with the bank ID and the authored and derived values. The loader never creates a balancing asset or liability.
 
 ## Stable identity and validation
 

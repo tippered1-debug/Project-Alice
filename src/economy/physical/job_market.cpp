@@ -55,7 +55,7 @@ bool exact_worker_qualifies_for_offer(sys::state const& state,
 	economy::exact_person_economy::person_key worker, dcon::job_offer_id offer) {
 	return offer && state.world.job_offer_get_occupation(offer)
 		<= household_mobility::qualification_rank(state,
-			persons::exact_population::source_pop_type(state, worker));
+			persons::pop_type(state, worker));
 }
 
 template<typename Id>
@@ -237,7 +237,7 @@ void process_worker_choices(sys::state& state) {
 		dcon::institution_id institution) {
 		auto contract = economy::exact_person_economy::contract(state, contract_id);
 		if(!contract || contract->pay_period_days == 0) return;
-		auto home = persons::exact_population::home_site(state, contract->worker);
+		auto home = persons::home_site(state, contract->worker);
 		if(!home) return;
 		auto current_wage = contract->wage_rate * contract->labor_capacity
 			/ float(contract->pay_period_days);

@@ -63,11 +63,11 @@ changes are stored in a sparse map keyed by the exact PersonKey, so changing
 one individual cannot change a neighbor or allocate state for the rest of the
 cell.
 
-`materialize_legacy_person_bridge` is an explicit, idempotent compatibility
+`persons::materialize_profile` is an explicit, idempotent sparse profile
 projection. It creates exactly one DCON Person and its existing mandatory
-EconomicActor for the requested key, records the mapping, and copies the
-canonical signed birth/source state. Registering a catalog cell, probing a key,
-or changing an overlay creates zero DCON Persons and zero EconomicActors.
+EconomicActor for the requested key, records the two-way mapping, and copies
+the canonical signed birth/source state. Registering a catalog cell, probing a
+key, or changing an overlay creates zero DCON Persons and zero EconomicActors.
 
 ## Scale and persistence boundary
 

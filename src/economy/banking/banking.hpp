@@ -4,6 +4,7 @@
 #include "date_interface.hpp"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace sys { class state; }
@@ -12,13 +13,39 @@ namespace economy::banking {
 
 struct balance_sheet {
 	float settlement_assets = 0.0f;
-	float loan_assets = 0.0f;
+	float loan_assets = 0.0f; // performing principal only
+	float accrued_interest_receivable = 0.0f;
 	float public_debt_assets = 0.0f;
 	float total_assets = 0.0f;
 	float deposit_liabilities = 0.0f;
 	float other_financial_liabilities = 0.0f;
 	float total_liabilities = 0.0f;
 	float net_worth = 0.0f;
+	float capital_ratio = 0.0f;
+	float liquidity_ratio = 0.0f;
+	float required_liquidity = 0.0f;
+};
+
+enum class bank_status : uint8_t { solvent = 0, constrained = 1, insolvent = 2 };
+
+struct bank_policy {
+	dcon::nation_id jurisdiction{};
+	dcon::commodity_id settlement{};
+	float lending_base_rate = 0.0f;
+	float minimum_capital_ratio = 0.0f;
+	float liquidity_target = 0.0f;
+	float risk_appetite = 0.0f;
+	float lending_spread = 0.0f;
+	float max_single_borrower_exposure = 0.0f;
+	float reserve_requirement = 0.0f;
+	uint16_t capital_breach_grace_days = 0;
+};
+
+struct bank_clearing_result {
+	uint32_t settled = 0;
+	uint32_t rejected = 0;
+	uint32_t deferred = 0;
+	float reserves_settled = 0.0f;
 };
 
 struct loan_service_result {
@@ -40,15 +67,17 @@ struct factory_credit_result {
 
 dcon::organization_id create_bank(sys::state&);
 bool set_bank_lending_base_rate(sys::state&, dcon::organization_id, float annual_rate);
+bool configure_bank_policy(sys::state&, dcon::organization_id, bank_policy const&);
+bank_status status_of(sys::state const&, dcon::organization_id);
 
 dcon::monetary_account_id open_reserve_account(sys::state&, dcon::organization_id bank,
-	dcon::commodity_id settlement);
+	dcon::commodity_id settlement, uint64_t canonical_id = 0);
 dcon::monetary_account_id reserve_account_for(sys::state const&, dcon::organization_id bank,
 	dcon::commodity_id settlement);
 bool bootstrap_set_reserve_balance(sys::state&, dcon::monetary_account_id, float);
 
 dcon::deposit_account_id open_deposit_account(sys::state&, dcon::organization_id bank,
-	dcon::economic_actor_id owner, dcon::commodity_id settlement);
+	dcon::economic_actor_id owner, dcon::commodity_id settlement, uint64_t canonical_id = 0);
 float deposit_balance(sys::state const&, dcon::deposit_account_id);
 bool bootstrap_set_deposit_balance(sys::state&, dcon::deposit_account_id, float);
 
@@ -58,10 +87,17 @@ dcon::obligation_id originate_loan_with_consent(sys::state&, dcon::organization_
 
 bool transfer_deposit(sys::state&, dcon::deposit_account_id source,
 	dcon::deposit_account_id destination, float amount, sys::date timestamp);
+bool queue_interbank_payment(sys::state&, dcon::deposit_account_id source,
+	dcon::deposit_account_id destination, float amount, sys::date timestamp,
+	uint64_t stable_transaction_key);
+bank_clearing_result clear_interbank_payments(sys::state&, sys::date today);
 float repay_loan(sys::state&, dcon::obligation_id, dcon::deposit_account_id borrower_account,
 	float amount, sys::date timestamp);
 float accrue_loan_interest(sys::state&, dcon::obligation_id, uint32_t days);
+bool mark_loan_defaulted(sys::state&, dcon::obligation_id);
 bool write_off_loan(sys::state&, dcon::obligation_id);
+float resolve_defaulted_loan(sys::state&, dcon::obligation_id,
+	dcon::monetary_account_id recovery_source, float requested_recovery, sys::date timestamp);
 
 // Accrues interest once per elapsed day and services matured loans from the
 // borrower's bank deposits and operating account. Unpaid matured loans default
@@ -78,5 +114,8 @@ float indicative_factory_loan_rate(sys::state const&, dcon::factory_id,
 
 balance_sheet bank_balance_sheet(sys::state const&, dcon::organization_id bank,
 	dcon::commodity_id settlement);
+void update_bank_statuses(sys::state&, sys::date today);
+bool validate_canonical_banking_state(sys::state const&, std::vector<std::string>& errors);
+bool canonical_banking_checksum(sys::state const&, uint64_t& checksum);
 
 } // namespace economy::banking

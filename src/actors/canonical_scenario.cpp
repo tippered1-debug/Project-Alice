@@ -3,14 +3,18 @@
 #include "actors/organizations/organizations.hpp"
 #include "actors/ownership.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "economy/banking/banking.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
+#include "military/land_forces.hpp"
 #include "nations/nations.hpp"
 #include "parsing/parsers.hpp"
 #include "parsers_declarations.hpp"
 #include "persons/persons.hpp"
+#include "persons/exact_population.hpp"
 #include "system_state.hpp"
+#include "world/spatial_runtime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,6 +25,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -234,9 +239,33 @@ struct loan_record {
 	float principal = 0.0f;
 	float annual_rate = 0.0f;
 	float accrued_interest = 0.0f;
+	float collateral_value = 0.0f;
 	std::string creation_date_text;
 	std::string due_date_text;
 	uint32_t line = 0;
+};
+
+struct bank_record {
+	std::string id;
+	std::string jurisdiction_key;
+	std::string settlement_key;
+	uint32_t line = 0;
+	dcon::nation_id jurisdiction{};
+	dcon::commodity_id settlement{};
+	economy::banking::bank_policy policy{};
+	float opening_reserves = 0.0f;
+	float opening_equity = 0.0f;
+	float opening_deposit_liabilities = 0.0f;
+	dcon::organization_id organization{};
+};
+
+struct bank_deposit_record {
+	std::string id;
+	std::string bank_id;
+	std::string owner_type;
+	std::string owner_id;
+	uint32_t line = 0;
+	float opening_balance = 0.0f;
 };
 
 struct owner_binding {
@@ -291,27 +320,24 @@ std::optional<sys::year_month_day> parse_iso_date(std::string_view value) {
 	return sys::year_month_day{ year, uint16_t(month), uint16_t(day) };
 }
 
-bool resolve_person_reference(sys::state const& state, std::string const& value,
+bool resolve_person_reference(sys::state& state, std::string const& value,
 	dcon::person_id& result) {
 	auto separator = value.find(':');
 	if(separator == std::string::npos || value.find(':', separator + 1) != std::string::npos) return false;
 	uint32_t cell = 0;
-	uint32_t ordinal = 0;
+	uint64_t ordinal = 0;
 	if(!parse_integer(std::string_view(value).substr(0, separator), cell)
 		|| !parse_integer(std::string_view(value).substr(separator + 1), ordinal) || cell == 0) return false;
-	state.world.for_each_person([&](dcon::person_id person) {
-		if(state.world.person_get_source_population_cell(person) == cell
-			&& state.world.person_get_source_population_ordinal(person) == ordinal)
-			result = person;
-	});
+	persons::person_key key{cell, ordinal};
+	if(!persons::exists(state, key) || !persons::alive(state, key)) return false;
+	result = persons::materialize_profile(state, key);
 	return result && state.world.person_is_valid(result)
-		&& state.world.person_get_alive(result)
 		&& bool(persons::actor_for_person(state, result));
 }
 
 bool read_and_parse_tables(simple_fs::directory const& common,
 	parsers::error_handler& err, table& firms, table& owners, table& assets,
-	table& ownerships, table& loans) {
+	table& ownerships, table& loans, table& banks, table& bank_deposits) {
 	static constexpr std::array<std::string_view, 6> firms_header = {
 		"firm_id", "kind", "settlement", "opening_cash", "retained_earnings", "paid_in_equity"
 	};
@@ -324,8 +350,17 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	static constexpr std::array<std::string_view, 6> ownership_header = {
 		"asset_id", "owner_type", "owner_id", "ownership", "voting", "economic"
 	};
-	static constexpr std::array<std::string_view, 9> loans_header = {
-		"loan_id", "asset_id", "creditor_type", "creditor_id", "principal", "annual_rate", "creation_date", "due_date", "accrued_interest"
+	static constexpr std::array<std::string_view, 10> loans_header = {
+		"loan_id", "asset_id", "creditor_type", "creditor_id", "principal", "annual_rate", "creation_date", "due_date", "accrued_interest", "collateral_value"
+	};
+	static constexpr std::array<std::string_view, 14> banks_header = {
+		"bank_id", "jurisdiction", "settlement", "opening_reserves", "opening_equity",
+		"opening_deposit_liabilities", "lending_base_rate", "minimum_capital_ratio",
+		"liquidity_target", "risk_appetite", "lending_spread", "max_single_borrower_exposure",
+		"reserve_requirement", "capital_breach_grace_days"
+	};
+	static constexpr std::array<std::string_view, 5> bank_deposits_header = {
+		"deposit_id", "bank_id", "owner_type", "owner_id", "opening_balance"
 	};
 	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
 	auto before = err.accumulated_errors.size();
@@ -334,12 +369,16 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	auto a = read_table(canonical, "assets.csv", assets_header, err);
 	auto s = read_table(canonical, "ownership.csv", ownership_header, err);
 	auto l = read_table(canonical, "loans.csv", loans_header, err);
-	if(!f || !o || !a || !s || !l || err.accumulated_errors.size() != before) return false;
+	auto b = read_table(canonical, "banks.csv", banks_header, err);
+	auto d = read_table(canonical, "bank_deposits.csv", bank_deposits_header, err);
+	if(!f || !o || !a || !s || !l || !b || !d || err.accumulated_errors.size() != before) return false;
 	firms = std::move(*f);
 	owners = std::move(*o);
 	assets = std::move(*a);
 	ownerships = std::move(*s);
 	loans = std::move(*l);
+	banks = std::move(*b);
+	bank_deposits = std::move(*d);
 	return true;
 }
 
@@ -475,8 +514,8 @@ bool parse_tables(sys::state& state, parsers::scenario_building_context& context
 		value.due_date_text = source.cells[7];
 		value.line = source.line;
 		if(!valid_key(value.id)) add_row_error(err, "loans.csv", source.line, "loan_id must use ASCII letters, digits, '.', '_' or '-'");
-		if(value.creditor_type != "firm" && value.creditor_type != "capital_owner")
-			add_row_error(err, "loans.csv", source.line, "creditor_type must be 'firm' or 'capital_owner'");
+		if(value.creditor_type != "firm")
+			add_row_error(err, "loans.csv", source.line, "creditor_type must be 'firm'; canonical firm loans require an explicitly declared bank creditor");
 		if(!valid_key(value.creditor_id)) add_row_error(err, "loans.csv", source.line, "creditor_id must use ASCII letters, digits, '.', '_' or '-'");
 		if(!parse_float(source.cells[4], value.principal) || value.principal <= 0.0f)
 			add_row_error(err, "loans.csv", source.line, "principal must be finite and positive");
@@ -484,9 +523,137 @@ bool parse_tables(sys::state& state, parsers::scenario_building_context& context
 			add_row_error(err, "loans.csv", source.line, "annual_rate must be finite and nonnegative");
 		if(!parse_float(source.cells[8], value.accrued_interest) || value.accrued_interest < 0.0f)
 			add_row_error(err, "loans.csv", source.line, "accrued_interest must be finite and nonnegative");
+		if(!parse_float(source.cells[9], value.collateral_value) || value.collateral_value < 0.0f)
+			add_row_error(err, "loans.csv", source.line, "collateral_value must be finite and nonnegative");
 		loans.push_back(std::move(value));
 	}
 	return err.accumulated_errors.size() == before;
+}
+
+bool parse_bank_tables(sys::state& state, parsers::error_handler& err,
+	table const& bank_table, table const& deposit_table,
+	std::vector<firm_record> const& firms, std::vector<owner_record> const& owners,
+	std::vector<bank_record>& banks, std::vector<bank_deposit_record>& deposits) {
+	auto initial_errors = err.accumulated_errors.size();
+	std::unordered_map<std::string, firm_record const*> firms_by_id;
+	for(auto const& firm : firms) firms_by_id.emplace(firm.id, &firm);
+	std::unordered_set<std::string> bank_ids;
+	for(auto const& source : bank_table.rows) {
+		bank_record value;
+		value.id = source.cells[0];
+		value.jurisdiction_key = source.cells[1];
+		value.settlement_key = source.cells[2];
+		value.line = source.line;
+		if(!valid_key(value.id)) add_row_error(err, "banks.csv", source.line, "bank_id must use ASCII letters, digits, '.', '_' or '-'");
+		if(!bank_ids.insert(value.id).second) add_row_error(err, "banks.csv", source.line, "duplicate bank_id '" + value.id + "'");
+		auto firm = firms_by_id.find(value.id);
+		if(firm == firms_by_id.end() || firm->second->kind != ownership::actor_kind::bank)
+			add_row_error(err, "banks.csv", source.line, "bank_id must reference a firm row with kind 'bank'");
+		value.jurisdiction = find_nation_by_tag(state, value.jurisdiction_key);
+		if(!value.jurisdiction) add_row_error(err, "banks.csv", source.line, "jurisdiction must name an active three-letter country tag");
+		if(firm != firms_by_id.end() && firm->second->settlement_key != value.settlement_key)
+			add_row_error(err, "banks.csv", source.line, "settlement must match the bank firm's settlement currency");
+		if(!parse_float(source.cells[3], value.opening_reserves) || value.opening_reserves < 0.0f)
+			add_row_error(err, "banks.csv", source.line, "opening_reserves must be finite and nonnegative");
+		if(!parse_float(source.cells[4], value.opening_equity))
+			add_row_error(err, "banks.csv", source.line, "opening_equity must be finite");
+		if(!parse_float(source.cells[5], value.opening_deposit_liabilities) || value.opening_deposit_liabilities < 0.0f)
+			add_row_error(err, "banks.csv", source.line, "opening_deposit_liabilities must be finite and nonnegative");
+		if(!parse_float(source.cells[6], value.policy.lending_base_rate))
+			add_row_error(err, "banks.csv", source.line, "lending_base_rate must be finite");
+		if(!parse_float(source.cells[7], value.policy.minimum_capital_ratio))
+			add_row_error(err, "banks.csv", source.line, "minimum_capital_ratio must be finite");
+		if(!parse_float(source.cells[8], value.policy.liquidity_target))
+			add_row_error(err, "banks.csv", source.line, "liquidity_target must be finite");
+		if(!parse_float(source.cells[9], value.policy.risk_appetite))
+			add_row_error(err, "banks.csv", source.line, "risk_appetite must be finite");
+		if(!parse_float(source.cells[10], value.policy.lending_spread))
+			add_row_error(err, "banks.csv", source.line, "lending_spread must be finite");
+		if(!parse_float(source.cells[11], value.policy.max_single_borrower_exposure))
+			add_row_error(err, "banks.csv", source.line, "max_single_borrower_exposure must be finite");
+		if(!parse_float(source.cells[12], value.policy.reserve_requirement))
+			add_row_error(err, "banks.csv", source.line, "reserve_requirement must be finite");
+		if(!parse_integer(source.cells[13], value.policy.capital_breach_grace_days))
+			add_row_error(err, "banks.csv", source.line, "capital_breach_grace_days must be an unsigned 16-bit integer");
+		auto fraction = [](float parameter) {
+			return std::isfinite(parameter) && parameter >= 0.0f && parameter <= 1.0f;
+		};
+		if(!fraction(value.policy.minimum_capital_ratio))
+			add_row_error(err, "banks.csv", source.line, "minimum_capital_ratio must be between 0 and 1");
+		if(!fraction(value.policy.liquidity_target))
+			add_row_error(err, "banks.csv", source.line, "liquidity_target must be between 0 and 1");
+		if(!fraction(value.policy.risk_appetite))
+			add_row_error(err, "banks.csv", source.line, "risk_appetite must be between 0 and 1");
+		if(!fraction(value.policy.lending_spread))
+			add_row_error(err, "banks.csv", source.line, "lending_spread must be between 0 and 1");
+		if(!fraction(value.policy.max_single_borrower_exposure))
+			add_row_error(err, "banks.csv", source.line, "max_single_borrower_exposure must be between 0 and 1");
+		if(!fraction(value.policy.reserve_requirement))
+			add_row_error(err, "banks.csv", source.line, "reserve_requirement must be between 0 and 1");
+		if(std::isfinite(value.policy.lending_base_rate)
+			&& (value.policy.lending_base_rate < 0.0f || value.policy.lending_base_rate > 1.0f))
+			add_row_error(err, "banks.csv", source.line, "lending_base_rate must be between 0 and 1");
+		if(std::isfinite(value.policy.lending_base_rate) && std::isfinite(value.policy.lending_spread)
+			&& value.policy.lending_base_rate + value.policy.lending_spread > 1.0f)
+			add_row_error(err, "banks.csv", source.line, "lending_base_rate plus lending_spread cannot exceed 1");
+		value.settlement = firm == firms_by_id.end() ? dcon::commodity_id{} : firm->second->settlement;
+		value.policy.jurisdiction = value.jurisdiction;
+		value.policy.settlement = value.settlement;
+		if(firm != firms_by_id.end()) {
+			value.organization = firm->second->organization;
+			if(firm->second->opening_cash != 0.0f)
+				add_row_error(err, "firms.csv", firm->second->line,
+					"bank opening cash must be zero; authored bank reserves belong in banks.csv");
+			if(std::abs(firm->second->paid_in_equity + firm->second->retained_earnings - value.opening_equity)
+				> 1.0e-4f * std::max(1.0f, std::abs(value.opening_equity)))
+				add_row_error(err, "banks.csv", source.line,
+					"opening_equity must equal the bank firm's paid_in_equity plus retained_earnings");
+		}
+		banks.push_back(std::move(value));
+	}
+	for(auto const& firm : firms) {
+		if(firm.kind == ownership::actor_kind::bank && !bank_ids.contains(firm.id))
+			add_row_error(err, "banks.csv", 0, "bank firm '" + firm.id + "' has no authored bank policy and opening balance sheet");
+	}
+
+	std::unordered_map<std::string, bank_record const*> banks_by_id;
+	for(auto const& bank : banks) banks_by_id.emplace(bank.id, &bank);
+	std::unordered_map<std::string, owner_record const*> owners_by_id;
+	for(auto const& owner : owners) owners_by_id.emplace(owner.id, &owner);
+	std::unordered_set<std::string> deposit_ids;
+	std::set<std::pair<std::string, std::string>> owner_accounts;
+	std::unordered_map<std::string, double> opening_deposit_totals;
+	for(auto const& source : deposit_table.rows) {
+		bank_deposit_record value;
+		value.id = source.cells[0];
+		value.bank_id = source.cells[1];
+		value.owner_type = source.cells[2];
+		value.owner_id = source.cells[3];
+		value.line = source.line;
+		if(!valid_key(value.id) || !deposit_ids.insert(value.id).second)
+			add_row_error(err, "bank_deposits.csv", source.line, "deposit_id must be valid and unique");
+		if(!banks_by_id.contains(value.bank_id))
+			add_row_error(err, "bank_deposits.csv", source.line, "bank_id must reference an explicitly declared bank");
+		if(value.owner_type == "firm") {
+			if(!firms_by_id.contains(value.owner_id)) add_row_error(err, "bank_deposits.csv", source.line, "firm owner_id is not declared in firms.csv");
+		} else if(value.owner_type == "capital_owner") {
+			if(!owners_by_id.contains(value.owner_id)) add_row_error(err, "bank_deposits.csv", source.line, "capital_owner owner_id is not declared in capital_owners.csv");
+		} else add_row_error(err, "bank_deposits.csv", source.line, "owner_type must be 'firm' or 'capital_owner'");
+		if(!parse_float(source.cells[4], value.opening_balance) || value.opening_balance < 0.0f)
+			add_row_error(err, "bank_deposits.csv", source.line, "opening_balance must be finite and nonnegative");
+		if(!owner_accounts.emplace(value.bank_id, value.owner_type + ":" + value.owner_id).second)
+			add_row_error(err, "bank_deposits.csv", source.line, "a bank may have only one deposit account per declared owner");
+		opening_deposit_totals[value.bank_id] += value.opening_balance;
+		deposits.push_back(std::move(value));
+	}
+	for(auto const& bank : banks) {
+		auto actual = opening_deposit_totals[bank.id];
+		if(std::abs(actual - bank.opening_deposit_liabilities)
+			> 1.0e-4 * std::max(1.0, std::abs(double(bank.opening_deposit_liabilities))))
+			add_row_error(err, "banks.csv", bank.line,
+				"opening_deposit_liabilities does not equal the sum of explicitly declared bank_deposits.csv accounts for '" + bank.id + "'");
+	}
+	return err.accumulated_errors.size() == initial_errors;
 }
 
 bool load_firms(sys::state& state, parsers::scenario_building_context& context,
@@ -526,7 +693,10 @@ bool load_firms(sys::state& state, parsers::scenario_building_context& context,
 		state.world.asset_set_appraised_value(firm.equity_asset,
 			std::max(0.0f, firm.paid_in_equity + firm.retained_earnings));
 
-		if(economy::accounts::find_account(state, firm.actor, firm.settlement)) {
+		if(firm.kind == ownership::actor_kind::bank) {
+			// Bank cash and deposits are authored as reserve and customer liability
+			// accounts by banks.csv and bank_deposits.csv below.
+		} else if(economy::accounts::find_account(state, firm.actor, firm.settlement)) {
 			add_row_error(err, "firms.csv", firm.line, "firm '" + firm.id + "' already has an account for settlement '" + firm.settlement_key + "'");
 		} else {
 			auto account = economy::accounts::open_account(state, firm.actor, firm.settlement);
@@ -615,6 +785,80 @@ bool load_capital_owners(sys::state& state, parsers::scenario_building_context& 
 		owners_by_id.emplace(owner.id, owner_binding{ owner.actor, owner.kind == "government", owner.kind == "person" });
 	}
 	(void)context;
+	return err.accumulated_errors.size() == initial_errors;
+}
+
+bool load_banks(sys::state& state, parsers::error_handler& err,
+	std::vector<bank_record>& banks, std::vector<bank_deposit_record>& deposits,
+	std::vector<firm_record> const& firms,
+	std::unordered_map<std::string, owner_binding> const& owners_by_id,
+	std::unordered_map<uint64_t, std::string>& account_ids) {
+	auto initial_errors = err.accumulated_errors.size();
+	std::sort(banks.begin(), banks.end(), [](auto const& left, auto const& right) { return left.id < right.id; });
+	std::unordered_map<std::string, firm_record const*> firms_by_id;
+	std::unordered_map<std::string, bank_record*> banks_by_id;
+	for(auto const& firm : firms) firms_by_id.emplace(firm.id, &firm);
+	for(auto& bank : banks) banks_by_id.emplace(bank.id, &bank);
+	for(auto& bank : banks) {
+		auto firm = firms_by_id.find(bank.id);
+		if(firm == firms_by_id.end() || firm->second->kind != ownership::actor_kind::bank) continue;
+		bank.organization = firm->second->organization;
+		if(!economy::banking::configure_bank_policy(state, bank.organization, bank.policy)) {
+			add_row_error(err, "banks.csv", bank.line, "could not configure authored bank policy for '" + bank.id + "'");
+			continue;
+		}
+		auto reserve_key = "account:bank-reserve:" + bank.id + ":" + bank.settlement_key;
+		auto reserve = economy::banking::open_reserve_account(state, bank.organization, bank.settlement, stable_id(reserve_key));
+		if(!reserve || !economy::banking::bootstrap_set_reserve_balance(state, reserve, bank.opening_reserves)) {
+			add_row_error(err, "banks.csv", bank.line, "could not create opening reserve account for bank '" + bank.id + "'");
+			continue;
+		}
+		std::string error;
+		assign_id(state.world.monetary_account_get_canonical_id(reserve),
+			[&](uint64_t id) { state.world.monetary_account_set_canonical_id(reserve, id); },
+			reserve_key, account_ids, error);
+		if(!error.empty()) add_row_error(err, "banks.csv", bank.line, error);
+	}
+	std::sort(deposits.begin(), deposits.end(), [](auto const& left, auto const& right) {
+		if(left.bank_id != right.bank_id) return left.bank_id < right.bank_id;
+		return left.id < right.id;
+	});
+	std::unordered_map<std::string, double> total_by_bank;
+	for(auto const& record : deposits) {
+		auto bank = banks_by_id.find(record.bank_id);
+		if(bank == banks_by_id.end()) continue;
+		dcon::economic_actor_id owner{};
+		if(record.owner_type == "firm") {
+			auto firm = firms_by_id.find(record.owner_id);
+			if(firm != firms_by_id.end()) owner = firm->second->actor;
+		} else if(record.owner_type == "capital_owner") {
+			auto capital_owner = owners_by_id.find(record.owner_id);
+			if(capital_owner != owners_by_id.end()) owner = capital_owner->second.actor;
+		}
+		if(!owner) {
+			add_row_error(err, "bank_deposits.csv", record.line, "deposit owner '" + record.owner_type + ":" + record.owner_id + "' resolves to no canonical actor");
+			continue;
+		}
+		auto id_key = "deposit:" + record.id;
+		auto account = economy::banking::open_deposit_account(state, bank->second->organization,
+			owner, bank->second->settlement, stable_id(id_key));
+		if(!account || !economy::banking::bootstrap_set_deposit_balance(state, account, record.opening_balance)) {
+			add_row_error(err, "bank_deposits.csv", record.line, "could not create authored deposit account '" + record.id + "'");
+			continue;
+		}
+		std::string error;
+		assign_id(state.world.deposit_account_get_canonical_id(account),
+			[&](uint64_t id) { state.world.deposit_account_set_canonical_id(account, id); },
+			id_key, account_ids, error);
+		if(!error.empty()) add_row_error(err, "bank_deposits.csv", record.line, error);
+		total_by_bank[record.bank_id] += record.opening_balance;
+	}
+	for(auto const& bank : banks) {
+		if(std::abs(total_by_bank[bank.id] - double(bank.opening_deposit_liabilities))
+			> 1.0e-4 * std::max(1.0, std::abs(double(bank.opening_deposit_liabilities))))
+			add_row_error(err, "banks.csv", bank.line,
+				"loaded deposit accounts do not equal opening_deposit_liabilities for bank '" + bank.id + "'");
+	}
 	return err.accumulated_errors.size() == initial_errors;
 }
 
@@ -861,7 +1105,6 @@ bool load_ownership(sys::state& state, parsers::error_handler& err,
 bool load_loans(sys::state& state, parsers::error_handler& err,
 	std::vector<firm_record> const& firms, std::vector<asset_record> const& assets,
 	std::vector<loan_record>& loans,
-	std::unordered_map<std::string, owner_binding> const& owners_by_id,
 	std::unordered_map<uint64_t, std::string>& obligation_ids) {
 	auto initial_errors = err.accumulated_errors.size();
 	std::sort(loans.begin(), loans.end(), [](auto const& left, auto const& right) { return left.id < right.id; });
@@ -883,18 +1126,12 @@ bool load_loans(sys::state& state, parsers::error_handler& err,
 		auto debtor = firm_by_id.find(asset->second->operator_id);
 		if(debtor == firm_by_id.end()) continue;
 		dcon::economic_actor_id creditor{};
-		if(loan.creditor_type == "firm") {
-			auto firm = firm_by_id.find(loan.creditor_id);
-			if(firm != firm_by_id.end() && firm->second->kind == ownership::actor_kind::bank
-				&& firm->second->settlement == debtor->second->settlement)
-				creditor = firm->second->actor;
-			else add_row_error(err, "loans.csv", loan.line,
-				"firm creditor must be an explicitly declared bank with the debtor's settlement commodity");
-		} else {
-			auto owner = owners_by_id.find(loan.creditor_id);
-			if(owner != owners_by_id.end() && owner->second.government) creditor = owner->second.actor;
-			else add_row_error(err, "loans.csv", loan.line, "capital_owner creditor must be an explicitly declared government institution");
-		}
+		auto firm = firm_by_id.find(loan.creditor_id);
+		if(firm != firm_by_id.end() && firm->second->kind == ownership::actor_kind::bank
+			&& firm->second->settlement == debtor->second->settlement)
+			creditor = firm->second->actor;
+		else add_row_error(err, "loans.csv", loan.line,
+			"creditor must be an explicitly declared bank with the debtor's settlement commodity");
 		if(!creditor) continue;
 		if(creditor == debtor->second->actor) {
 			add_row_error(err, "loans.csv", loan.line, "debtor and creditor resolve to the same economic actor");
@@ -928,6 +1165,7 @@ bool load_loans(sys::state& state, parsers::error_handler& err,
 			continue;
 		}
 		state.world.obligation_set_accrued_interest(obligation, loan.accrued_interest);
+		state.world.obligation_set_collateral_value(obligation, loan.collateral_value);
 		state.world.obligation_set_last_interest_accrual_date(obligation, state.current_date);
 		state.world.force_create_obligation_factory(obligation, asset->second->factory);
 		std::string error;
@@ -937,6 +1175,324 @@ bool load_loans(sys::state& state, parsers::error_handler& err,
 		if(!error.empty()) add_row_error(err, "loans.csv", loan.line, error);
 	}
 	return err.accumulated_errors.size() == initial_errors;
+}
+
+bool load_land_forces(sys::state& state, parsers::scenario_building_context const& context,
+	simple_fs::directory const& common, parsers::error_handler& err) {
+	static constexpr std::array<std::string_view, 8> equipment_header = {
+		"equipment_id", "category", "commodity", "mass", "reliability", "attack", "defense", "range_km"
+	};
+	static constexpr std::array<std::string_view, 2> templates_header = {
+		"template_id", "personnel_authorization"
+	};
+	static constexpr std::array<std::string_view, 3> template_equipment_header = {
+		"template_id", "equipment_id", "quantity"
+	};
+	static constexpr std::array<std::string_view, 4> template_consumables_header = {
+		"template_id", "consumable", "per_person", "per_equipment_tonne"
+	};
+	static constexpr std::array<std::string_view, 8> formations_header = {
+		"formation_id", "parent_formation_id", "template_id", "owner_tag", "province_id",
+		"status", "operational_tempo", "legacy_regiment_index"
+	};
+	static constexpr std::array<std::string_view, 6> personnel_header = {
+		"formation_id", "source_population_cell", "first_ordinal", "count", "ordinal_stride", "training_days"
+	};
+	static constexpr std::array<std::string_view, 3> formation_equipment_header = {
+		"formation_id", "equipment_id", "quantity"
+	};
+	static constexpr std::array<std::string_view, 3> formation_consumables_header = {
+		"formation_id", "consumable", "quantity"
+	};
+	static constexpr std::array<std::string_view, 8> stockpiles_header = {
+		"stockpile_id", "owner_tag", "province_id", "stockpile_kind", "cargo_kind",
+		"equipment_id", "consumable", "quantity"
+	};
+	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
+	auto before = err.accumulated_errors.size();
+	auto equipment_rows = read_table(canonical, "military_equipment.csv", equipment_header, err);
+	auto template_rows = read_table(canonical, "formation_templates.csv", templates_header, err);
+	auto template_equipment_rows = read_table(canonical, "formation_template_equipment.csv", template_equipment_header, err);
+	auto template_consumable_rows = read_table(canonical, "formation_template_consumables.csv", template_consumables_header, err);
+	auto formation_rows = read_table(canonical, "military_formations.csv", formations_header, err);
+	auto personnel_rows = read_table(canonical, "formation_personnel.csv", personnel_header, err);
+	auto holding_rows = read_table(canonical, "formation_equipment.csv", formation_equipment_header, err);
+	auto inventory_rows = read_table(canonical, "formation_consumables.csv", formation_consumables_header, err);
+	auto stockpile_rows = read_table(canonical, "military_stockpiles.csv", stockpiles_header, err);
+	if(!equipment_rows || !template_rows || !template_equipment_rows || !template_consumable_rows
+		|| !formation_rows || !personnel_rows || !holding_rows || !inventory_rows || !stockpile_rows
+		|| err.accumulated_errors.size() != before) return false;
+
+	auto qualified = [](std::string_view domain, std::string_view key) {
+		return std::string("land-force:") + std::string(domain) + ":" + std::string(key);
+	};
+	std::unordered_map<uint64_t, std::string> ids;
+	std::unordered_map<std::string, uint64_t> equipment_ids;
+	std::unordered_map<std::string, uint64_t> template_ids;
+	std::unordered_map<std::string, uint64_t> formation_ids;
+	std::unordered_map<std::string, uint64_t> stockpile_ids;
+	auto declare_id = [&](std::string_view domain, std::string const& key, std::string const& file,
+		uint32_t line) -> uint64_t {
+		if(!valid_key(key)) {
+			add_row_error(err, file, line, "stable ID key must use ASCII letters, digits, '.', '_' or '-'");
+			return 0;
+		}
+		auto q = qualified(domain, key);
+		auto id = stable_id(q);
+		std::string collision;
+		if(!claim_id(ids, id, q, collision)) {
+			add_row_error(err, file, line, collision);
+			return 0;
+		}
+		return id;
+	};
+	auto reference_id = [&](std::string_view domain, std::string const& key) {
+		return key.empty() ? uint64_t(0) : stable_id(qualified(domain, key));
+	};
+	for(auto const& source : equipment_rows->rows) {
+		military::land_forces::equipment_model model;
+		model.id = declare_id("equipment", source.cells[0], "military_equipment.csv", source.line);
+		if(!parse_integer(source.cells[1], model.category))
+			add_row_error(err, "military_equipment.csv", source.line, "category must be an unsigned integer");
+		if(!source.cells[2].empty()) {
+			model.commodity = find_commodity(context, source.cells[2]);
+			if(!model.commodity) add_row_error(err, "military_equipment.csv", source.line, "commodity references a missing product");
+		}
+		if(!parse_float(source.cells[3], model.mass) || model.mass <= 0.0f)
+			add_row_error(err, "military_equipment.csv", source.line, "mass must be finite and positive");
+		if(!parse_float(source.cells[4], model.reliability) || model.reliability < 0.0f || model.reliability > 1.0f)
+			add_row_error(err, "military_equipment.csv", source.line, "reliability must be in [0,1]");
+		if(!parse_float(source.cells[5], model.attack) || model.attack < 0.0f)
+			add_row_error(err, "military_equipment.csv", source.line, "attack must be finite and nonnegative");
+		if(!parse_float(source.cells[6], model.defense) || model.defense < 0.0f)
+			add_row_error(err, "military_equipment.csv", source.line, "defense must be finite and nonnegative");
+		if(!parse_float(source.cells[7], model.range_km) || model.range_km < 0.0f)
+			add_row_error(err, "military_equipment.csv", source.line, "range_km must be finite and nonnegative");
+		if(model.id != 0) equipment_ids.emplace(source.cells[0], model.id);
+		if(model.id != 0 && !military::land_forces::add_equipment_model(state, model))
+			add_row_error(err, "military_equipment.csv", source.line, "duplicate equipment ID or invalid equipment model");
+	}
+	for(auto const& source : template_rows->rows) {
+		military::land_forces::formation_template item;
+		item.id = declare_id("template", source.cells[0], "formation_templates.csv", source.line);
+		if(!parse_integer(source.cells[1], item.personnel_authorization) || item.personnel_authorization == 0)
+			add_row_error(err, "formation_templates.csv", source.line, "personnel_authorization must be a positive integer");
+		if(item.id != 0) template_ids.emplace(source.cells[0], item.id);
+		if(item.id != 0 && !military::land_forces::add_template(state, item))
+			add_row_error(err, "formation_templates.csv", source.line, "duplicate template ID or invalid template");
+	}
+	for(auto const& source : template_equipment_rows->rows) {
+		military::land_forces::template_equipment_authorization item;
+		item.template_id = reference_id("template", source.cells[0]);
+		item.equipment_model_id = reference_id("equipment", source.cells[1]);
+		if(item.template_id == 0 || !template_ids.contains(source.cells[0]))
+			add_row_error(err, "formation_template_equipment.csv", source.line, "template_id references a missing template");
+		if(item.equipment_model_id == 0 || !equipment_ids.contains(source.cells[1]))
+			add_row_error(err, "formation_template_equipment.csv", source.line, "equipment_id references a missing equipment model");
+		if(!parse_integer(source.cells[2], item.quantity) || item.quantity == 0)
+			add_row_error(err, "formation_template_equipment.csv", source.line, "quantity must be a positive integer");
+		if(item.template_id && item.equipment_model_id && !military::land_forces::authorize_template_equipment(state, item))
+			add_row_error(err, "formation_template_equipment.csv", source.line, "duplicate or invalid template equipment authorization");
+	}
+	for(auto const& source : template_consumable_rows->rows) {
+		military::land_forces::template_consumable_requirement item;
+		item.template_id = reference_id("template", source.cells[0]);
+		if(source.cells[1] == "food") item.kind = military::land_forces::consumable_kind::food;
+		else if(source.cells[1] == "fuel") item.kind = military::land_forces::consumable_kind::fuel;
+		else if(source.cells[1] == "ammunition") item.kind = military::land_forces::consumable_kind::ammunition;
+		else add_row_error(err, "formation_template_consumables.csv", source.line, "consumable must be food, fuel, or ammunition");
+		float per_person = 0.0f, per_tonne = 0.0f;
+		if(!parse_float(source.cells[2], per_person) || per_person < 0.0f)
+			add_row_error(err, "formation_template_consumables.csv", source.line, "per_person must be finite and nonnegative");
+		if(!parse_float(source.cells[3], per_tonne) || per_tonne < 0.0f)
+			add_row_error(err, "formation_template_consumables.csv", source.line, "per_equipment_tonne must be finite and nonnegative");
+		item.per_person = per_person;
+		item.per_equipment_tonne = per_tonne;
+		if(item.template_id && !military::land_forces::set_template_consumable_requirement(state, item))
+			add_row_error(err, "formation_template_consumables.csv", source.line, "template_id references a missing template or requirement is invalid");
+	}
+	struct authored_formation {
+		row const* source = nullptr;
+		military::land_forces::formation value{};
+		std::string key;
+		std::string parent_key;
+		std::optional<uint32_t> legacy_regiment_index;
+		bool valid = true;
+	};
+	std::vector<authored_formation> formations;
+	for(auto const& source : formation_rows->rows) {
+		authored_formation item;
+		item.source = &source;
+		item.key = source.cells[0];
+		item.parent_key = source.cells[1];
+		item.value.id = declare_id("formation", item.key, "military_formations.csv", source.line);
+		if(!item.parent_key.empty()) item.value.parent_id = reference_id("formation", item.parent_key);
+		item.value.template_id = reference_id("template", source.cells[2]);
+		if(!template_ids.contains(source.cells[2])) add_row_error(err, "military_formations.csv", source.line, "template_id references a missing template"), item.valid = false;
+		item.value.owner = find_nation_by_tag(state, source.cells[3]);
+		if(!item.value.owner) add_row_error(err, "military_formations.csv", source.line, "owner_tag references a missing nation"), item.valid = false;
+		uint32_t original_province = 0;
+		auto province_ok = parse_integer(source.cells[4], original_province);
+		auto province = province_ok ? province_from_original_id(state, context, original_province) : dcon::province_id{};
+		item.value.location = province ? world::spatial_runtime::site_for_province(state, province) : dcon::site_id{};
+		if(!item.value.location) add_row_error(err, "military_formations.csv", source.line, "province_id has no canonical site"), item.valid = false;
+		if(source.cells[5] == "active") item.value.status = military::land_forces::formation_status::active;
+		else if(source.cells[5] == "reserve") item.value.status = military::land_forces::formation_status::reserve;
+		else if(source.cells[5] == "destroyed") item.value.status = military::land_forces::formation_status::destroyed;
+		else add_row_error(err, "military_formations.csv", source.line, "status must be active, reserve, or destroyed"), item.valid = false;
+		if(!parse_float(source.cells[6], item.value.operational_tempo) || item.value.operational_tempo < 0.0f || item.value.operational_tempo > 1.0f)
+			add_row_error(err, "military_formations.csv", source.line, "operational_tempo must be in [0,1]"), item.valid = false;
+		if(!source.cells[7].empty()) {
+			uint32_t index = 0;
+			if(!parse_integer(source.cells[7], index))
+				add_row_error(err, "military_formations.csv", source.line, "legacy_regiment_index must be an unsigned runtime index or empty"), item.valid = false;
+			else item.legacy_regiment_index = index;
+		}
+		if(item.value.id != 0) formation_ids.emplace(item.key, item.value.id);
+		formations.push_back(std::move(item));
+	}
+	std::unordered_map<std::string, authored_formation*> formations_by_key;
+	for(auto& item : formations) formations_by_key.emplace(item.key, &item);
+	std::vector<authored_formation*> pending;
+	for(auto& item : formations) pending.push_back(&item);
+	while(!pending.empty()) {
+		bool made_progress = false;
+		for(auto it = pending.begin(); it != pending.end();) {
+			auto item = *it;
+			if(!item->valid || item->value.id == 0) { it = pending.erase(it); made_progress = true; continue; }
+			if(!item->parent_key.empty()) {
+				auto parent = formations_by_key.find(item->parent_key);
+				if(parent == formations_by_key.end()) {
+					add_row_error(err, "military_formations.csv", item->source->line, "parent_formation_id references a missing formation");
+					item->valid = false;
+					it = pending.erase(it);
+					made_progress = true;
+					continue;
+				}
+				if(!military::land_forces::find_formation(state, parent->second->value.id)) { ++it; continue; }
+			}
+			if(!military::land_forces::create_formation(state, item->value)) {
+				add_row_error(err, "military_formations.csv", item->source->line, "formation has invalid parent, owner, location, template, or duplicate ID");
+				item->valid = false;
+				it = pending.erase(it);
+				made_progress = true;
+				continue;
+			}
+			if(item->legacy_regiment_index) {
+				auto regiment = dcon::regiment_id{dcon::regiment_id::value_base_t(*item->legacy_regiment_index)};
+				auto army = state.world.regiment_is_valid(regiment)
+					? state.world.regiment_get_army_from_army_membership(regiment) : dcon::army_id{};
+				if(!army || state.world.army_get_controller_from_army_control(army) != item->value.owner
+					|| !military::land_forces::map_legacy_regiment(state, item->value.id, regiment)) {
+					add_row_error(err, "military_formations.csv", item->source->line,
+						"legacy_regiment_index must resolve to one existing regiment owned by owner_tag");
+					item->valid = false;
+				}
+			}
+			it = pending.erase(it);
+			made_progress = true;
+		}
+		if(!made_progress) {
+			for(auto item : pending) add_row_error(err, "military_formations.csv", item->source->line,
+				"parent formation cycle prevents deterministic creation");
+			break;
+		}
+	}
+	for(auto const& source : personnel_rows->rows) {
+		auto formation_id = reference_id("formation", source.cells[0]);
+		uint32_t source_cell = 0, stride = 1;
+		uint64_t first = 0, count = 0;
+		uint16_t training = 0;
+		if(!formation_ids.contains(source.cells[0]) || !military::land_forces::find_formation(state, formation_id))
+			add_row_error(err, "formation_personnel.csv", source.line, "formation_id references a missing formation");
+		if(!parse_integer(source.cells[1], source_cell) || source_cell == 0)
+			add_row_error(err, "formation_personnel.csv", source.line, "source_population_cell must be positive");
+		if(!parse_integer(source.cells[2], first) || !parse_integer(source.cells[3], count) || count == 0)
+			add_row_error(err, "formation_personnel.csv", source.line, "first_ordinal and positive count are required");
+		if(!parse_integer(source.cells[4], stride) || (stride != 1 && stride != 4))
+			add_row_error(err, "formation_personnel.csv", source.line, "ordinal_stride must be 1 or 4");
+		if(!parse_integer(source.cells[5], training))
+			add_row_error(err, "formation_personnel.csv", source.line, "training_days must be an unsigned 16-bit value");
+		auto source_pop = persons::population_for_source_cell(state, source_cell);
+		auto source_province = source_pop ? state.world.pop_get_province_from_pop_location(source_pop) : dcon::province_id{};
+		auto formation = military::land_forces::find_formation(state, formation_id);
+		if(!source_pop || !source_province || !formation
+			|| state.world.province_get_nation_from_province_ownership(source_province) != formation->owner)
+			add_row_error(err, "formation_personnel.csv", source.line, "personnel range must reference a living source POP owned by the formation nation");
+		if(source_cell && count && stride && formation
+			&& !persons::exact_population::assign_military_range(state,
+				{source_cell, stride, first, count, formation_id, training, 0}))
+			add_row_error(err, "formation_personnel.csv", source.line, "personnel range is dead, duplicated, outside its source cell, or exceeds identity storage");
+	}
+	for(auto const& source : holding_rows->rows) {
+		auto formation_id = reference_id("formation", source.cells[0]);
+		auto equipment_id = reference_id("equipment", source.cells[1]);
+		uint64_t quantity = 0;
+		if(!formation_ids.contains(source.cells[0]) || !military::land_forces::find_formation(state, formation_id))
+			add_row_error(err, "formation_equipment.csv", source.line, "formation_id references a missing formation");
+		if(!equipment_ids.contains(source.cells[1]) || !military::land_forces::find_equipment_model(state, equipment_id))
+			add_row_error(err, "formation_equipment.csv", source.line, "equipment_id references a missing model");
+		if(!parse_integer(source.cells[2], quantity))
+			add_row_error(err, "formation_equipment.csv", source.line, "quantity must be an unsigned integer");
+		if(formation_id && equipment_id && !military::land_forces::set_initial_equipment_holding(state, formation_id, equipment_id, quantity))
+			add_row_error(err, "formation_equipment.csv", source.line, "equipment holding is not authorized or exceeds template quantity");
+	}
+	for(auto const& source : inventory_rows->rows) {
+		auto formation_id = reference_id("formation", source.cells[0]);
+		military::land_forces::consumable_kind kind = military::land_forces::consumable_kind::food;
+		if(source.cells[1] == "fuel") kind = military::land_forces::consumable_kind::fuel;
+		else if(source.cells[1] == "ammunition") kind = military::land_forces::consumable_kind::ammunition;
+		else if(source.cells[1] != "food") add_row_error(err, "formation_consumables.csv", source.line, "consumable must be food, fuel, or ammunition");
+		float quantity = 0.0f;
+		if(!parse_float(source.cells[2], quantity) || quantity < 0.0f)
+			add_row_error(err, "formation_consumables.csv", source.line, "quantity must be finite and nonnegative");
+		if(!formation_ids.contains(source.cells[0]) || !military::land_forces::find_formation(state, formation_id))
+			add_row_error(err, "formation_consumables.csv", source.line, "formation_id references a missing formation");
+		if(formation_id && !military::land_forces::set_initial_consumable_inventory(state, formation_id, kind, quantity))
+			add_row_error(err, "formation_consumables.csv", source.line, "duplicate or invalid formation inventory");
+	}
+	for(auto const& source : stockpile_rows->rows) {
+		military::land_forces::stockpile item;
+		item.id = declare_id("stockpile", source.cells[0], "military_stockpiles.csv", source.line);
+		item.owner = find_nation_by_tag(state, source.cells[1]);
+		if(!item.owner) add_row_error(err, "military_stockpiles.csv", source.line, "owner_tag references a missing nation");
+		uint32_t original_province = 0;
+		auto parsed_province = parse_integer(source.cells[2], original_province);
+		auto province = parsed_province ? province_from_original_id(state, context, original_province) : dcon::province_id{};
+		item.location = province ? world::spatial_runtime::site_for_province(state, province) : dcon::site_id{};
+		if(!item.location) add_row_error(err, "military_stockpiles.csv", source.line, "province_id has no canonical site");
+		if(source.cells[3] == "warehouse") item.kind = military::land_forces::stockpile_kind::warehouse;
+		else if(source.cells[3] == "depot") item.kind = military::land_forces::stockpile_kind::depot;
+		else add_row_error(err, "military_stockpiles.csv", source.line, "stockpile_kind must be warehouse or depot");
+		if(source.cells[4] == "equipment") item.cargo = military::land_forces::cargo_kind::equipment;
+		else if(source.cells[4] == "consumable") item.cargo = military::land_forces::cargo_kind::consumable;
+		else add_row_error(err, "military_stockpiles.csv", source.line, "cargo_kind must be equipment or consumable");
+		if(item.cargo == military::land_forces::cargo_kind::equipment) {
+			item.equipment_model_id = reference_id("equipment", source.cells[5]);
+			if(!equipment_ids.contains(source.cells[5])) add_row_error(err, "military_stockpiles.csv", source.line, "equipment_id references a missing model");
+		} else {
+			if(!source.cells[5].empty()) add_row_error(err, "military_stockpiles.csv", source.line, "equipment_id must be empty for consumable cargo");
+			if(source.cells[6] == "fuel") item.consumable = military::land_forces::consumable_kind::fuel;
+			else if(source.cells[6] == "ammunition") item.consumable = military::land_forces::consumable_kind::ammunition;
+			else if(source.cells[6] != "food") add_row_error(err, "military_stockpiles.csv", source.line, "consumable must be food, fuel, or ammunition");
+		}
+		float quantity = 0.0f;
+		if(!parse_float(source.cells[7], quantity) || quantity < 0.0f)
+			add_row_error(err, "military_stockpiles.csv", source.line, "quantity must be finite and nonnegative");
+		item.quantity = quantity;
+		if(item.id != 0) stockpile_ids.emplace(source.cells[0], item.id);
+		if(item.id != 0 && !military::land_forces::create_stockpile(state, item))
+			add_row_error(err, "military_stockpiles.csv", source.line, "duplicate or invalid stockpile record");
+	}
+	state.world.for_each_regiment([&](dcon::regiment_id regiment) {
+		if(!military::land_forces::formation_for_legacy_regiment(state, regiment))
+			add_row_error(err, "military_formations.csv", 0,
+				"legacy regiment index " + std::to_string(regiment.index()) + " has no canonical formation mapping");
+	});
+	auto validation = military::land_forces::validate_canonical_land_forces(state);
+	for(auto const& message : validation.errors)
+		add_row_error(err, "military_formations.csv", 0, message);
+	return err.accumulated_errors.size() == before;
 }
 
 void clear_legacy_producer_support(sys::state& state) {
@@ -959,7 +1515,10 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	table asset_table;
 	table ownership_table;
 	table loan_table;
-	if(!read_and_parse_tables(common, err, firm_table, owner_table, asset_table, ownership_table, loan_table)) {
+	table bank_table;
+	table bank_deposit_table;
+	if(!read_and_parse_tables(common, err, firm_table, owner_table, asset_table,
+		ownership_table, loan_table, bank_table, bank_deposit_table)) {
 		err.fatal = true;
 		return false;
 	}
@@ -968,8 +1527,12 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	std::vector<asset_record> assets;
 	std::vector<stake_record> stakes;
 	std::vector<loan_record> loans;
+	std::vector<bank_record> banks;
+	std::vector<bank_deposit_record> bank_deposits;
 	if(!parse_tables(state, context, err, firm_table, owner_table, asset_table,
-		ownership_table, loan_table, firms, owners, assets, stakes, loans)) {
+		ownership_table, loan_table, firms, owners, assets, stakes, loans)
+		|| !parse_bank_tables(state, err, bank_table, bank_deposit_table,
+			firms, owners, banks, bank_deposits)) {
 		err.fatal = true;
 		return false;
 	}
@@ -990,13 +1553,27 @@ bool load(sys::state& state, simple_fs::directory const& common,
 		asset_ids, account_ids, assets_by_id)
 		|| !load_capital_owners(state, context, err, owners, owners_by_id,
 			actor_ids, institution_ids, account_ids)
+		|| !load_banks(state, err, banks, bank_deposits, firms, owners_by_id, account_ids)
 		|| !load_assets(state, context, err, assets, firms, firm_by_id, asset_ids, site_ids,
 			assets_by_id, asset_row_by_id)
 		|| !load_ownership(state, err, firms, owners, assets, stakes, owners_by_id,
 			assets_by_id, stake_ids)
-		|| !load_loans(state, err, firms, assets, loans, owners_by_id, obligation_ids)) {
+			|| !load_loans(state, err, firms, assets, loans, obligation_ids)
+		|| !load_land_forces(state, context, common, err)) {
 		err.fatal = true;
 		return false;
+	}
+	economy::banking::update_bank_statuses(state, state.current_date);
+	for(auto const& bank : banks) {
+		auto firm = std::find_if(firms.begin(), firms.end(), [&](auto const& row) { return row.id == bank.id; });
+		if(firm == firms.end() || !firm->organization) continue;
+		auto balance_sheet = economy::banking::bank_balance_sheet(state, firm->organization, bank.settlement);
+		if(std::abs(balance_sheet.net_worth - bank.opening_equity)
+			> 1.0e-4f * std::max(1.0f, std::abs(bank.opening_equity)))
+			add_row_error(err, "banks.csv", bank.line,
+				"opening balance sheet does not balance to opening_equity for bank '" + bank.id
+				+ "' (authored=" + std::to_string(bank.opening_equity)
+				+ ", derived=" + std::to_string(balance_sheet.net_worth) + ")");
 	}
 
 	clear_legacy_producer_support(state);
@@ -1005,6 +1582,13 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	if(!invariant_errors.empty()) {
 		for(auto const& message : invariant_errors)
 			err.accumulated_errors += "canonical ownership invariant: " + message + "\n";
+		err.fatal = true;
+		return false;
+	}
+	std::vector<std::string> banking_errors;
+	if(!economy::banking::validate_canonical_banking_state(state, banking_errors)) {
+		for(auto const& message : banking_errors)
+			err.accumulated_errors += "canonical banking invariant: " + message + "\n";
 		err.fatal = true;
 		return false;
 	}
