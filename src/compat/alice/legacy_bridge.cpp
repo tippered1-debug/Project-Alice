@@ -1,17 +1,16 @@
 #include "legacy_bridge.hpp"
 #include "system_state.hpp"
 #include "world/spatial_runtime.hpp"
+#include <cstdlib>
 
 namespace compat::alice {
 
 dcon::province_id province_for_factory(sys::state const& state, dcon::factory_id factory) {
 	auto site = world::site::site_for_factory(state, factory);
-	if(site) {
-		auto province = world::site::province_for_site(state, site);
-		if(province)
-			return province;
-	}
-	return state.world.factory_get_province_from_factory_location(factory);
+	if(!site || !state.world.site_is_valid(site)) std::abort();
+	auto const province = world::site::province_for_site(state, site);
+	if(!province || !state.world.province_is_valid(province)) std::abort();
+	return province;
 }
 
 void bootstrap_factory_sites(sys::state& state) {

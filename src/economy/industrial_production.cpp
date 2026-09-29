@@ -10,7 +10,7 @@
 #include "economy/payroll.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/firm_agency.hpp"
-#include "economy/physical/concrete_labor.hpp"
+#include "economy/exact_person_economy.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -21,7 +21,7 @@ float finite_nonnegative(float value, float fallback = 0.0f) {
 	return std::isfinite(value) && value >= 0.0f ? value : fallback;
 }
 float labor_units(sys::state const& state, dcon::factory_id factory) {
-	return std::max(0.0f, physical::concrete_labor::labor_supplied_to_factory(state, factory));
+	return std::max(0.0f, exact_person_economy::labor_supplied_to_factory(state, factory));
 }
 }
 
@@ -39,23 +39,20 @@ bool set_productivity_factor(sys::state& state, dcon::factory_id factory, float 
 
 void bootstrap_factory(sys::state& state, dcon::factory_id factory) {
 	if(!factory || !state.world.factory_is_valid(factory)) return;
-	bool already_canonical = state.world.factory_get_canonical_production(factory);
 	auto type = state.world.factory_get_building_type(factory);
 	auto base_workforce = type ? float(state.world.factory_type_get_base_workforce(type)) : 0.0f;
 	auto output = type ? state.world.factory_type_get_output(type) : dcon::commodity_id{};
-	if(!already_canonical) {
-		auto size = finite_nonnegative(state.world.factory_get_size(factory));
-		auto technology = finite_nonnegative(state.world.factory_get_technology_scale(factory), 1.0f);
-		state.world.factory_set_productive_capacity(factory, base_workforce > 0.0f ? size / base_workforce : 0.0f);
-		state.world.factory_set_productivity_factor(factory, technology > 0.0f ? technology : 1.0f);
-		// Legacy/UI utilization remains available, but canonical production is
-		// decided from firm economics below rather than this compatibility field.
-		state.world.factory_set_target_utilization(factory, 0.0f);
-		state.world.factory_set_actual_utilization(factory, 0.0f);
-		state.world.factory_set_canonical_production(factory, output && !state.world.commodity_get_is_local(output)
-			&& !state.world.commodity_get_money_rgo(output));
+	auto size = finite_nonnegative(state.world.factory_get_size(factory));
+	auto technology = finite_nonnegative(state.world.factory_get_technology_scale(factory), 1.0f);
+	if(!type || !output || base_workforce <= 0.0f) {
+		assert(false && "every factory must have a valid canonical production recipe");
+		std::abort();
 	}
-	if(state.world.factory_get_canonical_production(factory) && !state.world.factory_get_payroll_settlement(factory)) {
+	state.world.factory_set_productive_capacity(factory, size / base_workforce);
+	state.world.factory_set_productivity_factor(factory, technology > 0.0f ? technology : 1.0f);
+	state.world.factory_set_target_utilization(factory, 0.0f);
+	state.world.factory_set_actual_utilization(factory, 0.0f);
+	if(!state.world.factory_get_payroll_settlement(factory)) {
 		auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
 		dcon::commodity_id settlement{};
 		bool ambiguous = false;
@@ -78,7 +75,10 @@ bool plan_factory_inputs(sys::state& state, dcon::factory_id factory, dcon::prov
 	auto type = state.world.factory_get_building_type(factory);
 	auto site = world::site::site_for_factory(state, factory);
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
-	if(!type || !site || !owner) return false;
+	if(!type || !site || !owner) {
+		assert(false && "canonical factory requires a recipe, site, and firm operator");
+		return false;
+	}
 	auto decision = firm_agency::decide_factory(state, factory);
 	auto desired = decision.desired_units;
 	auto reliability = state.world.factory_get_agency_expected_input_reliability(factory);
@@ -97,17 +97,20 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	auto province = compat::alice::province_for_factory(state, factory);
 	auto site = world::site::site_for_factory(state, factory);
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
-	if(!type || !province || !site || !owner) return 0.0f;
+	if(!type || !province || !site || !owner) {
+		assert(false && "canonical factory requires a recipe, site, and firm operator");
+		return 0.0f;
+	}
 	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
 	auto productivity = finite_nonnegative(state.world.factory_get_productivity_factor(factory), 1.0f);
 	auto desired = firm_agency::decide_factory(state, factory).desired_units;
 	auto planned = std::min(desired, labor_units(state, factory));
 	auto market = state.world.state_instance_get_market_from_local_market(state.world.province_get_state_membership(province));
 	auto available = physical::factory_inputs::evaluate(state, site, owner, state.world.factory_type_get_inputs(type), market, planned);
-	// A canonical factory is allowed to consume only concrete inputs.  Recipes
-	// with unsupported legacy-only inputs remain on the compatibility path and
-	// cannot silently scale canonical physical output.
-	if(!available.active || !available.fully_canonical) return 0.0f;
+	if(!available.active) {
+		assert(false && "canonical factory input recipe is not physically executable");
+		return 0.0f;
+	}
 	auto ratio = available.physical_ratio;
 	if(!std::isfinite(ratio)) ratio = 0.0f;
 	auto actual_units = std::clamp(planned * std::clamp(ratio, 0.0f, 1.0f), 0.0f, capacity);

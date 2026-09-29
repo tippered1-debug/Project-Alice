@@ -183,8 +183,7 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 			s.world.monetary_account_get_commodity_from_monetary_account_settlement(
 				s.world.capital_project_get_monetary_account_from_capital_project_account(p)));
 		auto output = s.world.factory_type_get_output(s.world.capital_project_get_factory_type(p));
-		s.world.factory_set_canonical_production(f, output && !s.world.commodity_get_is_local(output)
-		&& !s.world.commodity_get_money_rgo(output));
+		assert(output && "new factories require a physical output commodity");
 		s.world.force_create_factory_location(f, province);
 		s.world.force_create_factory_site(f, project_site);
 		auto asset = s.world.create_asset();
@@ -221,7 +220,7 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::factory_expansion)) {
 		auto factory = s.world.capital_project_get_factory_from_capital_project_target_factory(p);
 		if(!factory || !s.world.factory_is_valid(factory)
-			|| !s.world.factory_get_canonical_production(factory)) return false;
+			) return false;
 		auto added_capacity = std::max(0.0f, s.world.capital_project_get_planned_daily_capacity(p));
 		s.world.factory_set_productive_capacity(factory,
 			s.world.factory_get_productive_capacity(factory) + added_capacity);
@@ -248,7 +247,7 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 
 dcon::capital_project_id create_factory_expansion(sys::state& s, dcon::factory_id factory,
 	float added_capacity, dcon::commodity_id settlement) {
-	if(!factory || !s.world.factory_is_valid(factory) || !s.world.factory_get_canonical_production(factory)
+	if(!factory || !s.world.factory_is_valid(factory)
 		|| !std::isfinite(added_capacity) || added_capacity <= 0.0f) return {};
 	auto owner = actors::organizations::operator_actor_for_factory(s, factory);
 	auto responsible = actors::organizations::operator_organization_for_factory(s, factory);

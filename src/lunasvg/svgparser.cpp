@@ -285,8 +285,7 @@ static bool matchSelector(const Selector& selector, const SVGElement* element)
         if(matchSimpleSelector(*it, element)) {
             combinator = it->combinator;
             ++it;
-        } else if(combinator != SimpleSelector::Combinator::Descendant
-            && combinator != SimpleSelector::Combinator::InDirectAdjacent) {
+        } else if(combinator != SimpleSelector::Combinator::Descendant && combinator != SimpleSelector::Combinator::InDirectAdjacent) {
             return false;
         }
     }
@@ -372,7 +371,7 @@ static bool parseAttributeSelector(std::string_view& input, SimpleSelector& simp
     if(a.matchType != AttributeSelector::MatchType::None) {
         skipOptionalSpaces(input);
         if(!readCSSIdentifier(input, a.value)) {
-            if(input.empty() || !(input.front() == '\"' || input.front() == '\''))
+            if(input.empty() || !input.front() == '\"' || input.front() == '\'')
                 return false;
             auto quote = input.front();
             input.remove_prefix(1);
@@ -584,8 +583,7 @@ static SelectorList parseQuerySelectors(std::string_view input)
 {
     SelectorList selectors;
     stripLeadingAndTrailingSpaces(input);
-    if(!parseSelectors(input, selectors)
-        || !input.empty()) {
+    if(!parseSelectors(input, selectors) || !input.empty()) {
         return SelectorList();
     }
 
@@ -854,7 +852,7 @@ bool Document::parse(const char* data, size_t length)
             if(!skipDelimiter(input, '='))
                 return false;
             skipOptionalSpaces(input);
-            if(input.empty() || !(input.front() == '\"' || input.front() == '\''))
+            if(input.empty() || !input.front() == '\"' || input.front() == '\'')
                 return false;
             auto quote = input.front();
             input.remove_prefix(1);

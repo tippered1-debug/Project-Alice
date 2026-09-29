@@ -2327,7 +2327,7 @@ measure_result  demographicswindow_main_table_t::place_item(sys::state& state, u
 	if(std::holds_alternative<nation_row_option>(values[index])) {
 		if(pops_header_pool.empty()) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 		if(nation_row_pool.empty()) nation_row_pool.emplace_back(make_demographicswindow_nation_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1])) {
 			if(destination) {
 				if(pops_header_pool.size() <= size_t(pops_header_pool_used)) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 				if(nation_row_pool.size() <= size_t(nation_row_pool_used)) nation_row_pool.emplace_back(make_demographicswindow_nation_row(state));
@@ -2369,7 +2369,7 @@ measure_result  demographicswindow_main_table_t::place_item(sys::state& state, u
 	if(std::holds_alternative<state_row_option>(values[index])) {
 		if(pops_header_pool.empty()) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 		if(state_row_pool.empty()) state_row_pool.emplace_back(make_demographicswindow_state_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1])) {
 			if(destination) {
 				if(pops_header_pool.size() <= size_t(pops_header_pool_used)) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 				if(state_row_pool.size() <= size_t(state_row_pool_used)) state_row_pool.emplace_back(make_demographicswindow_state_row(state));
@@ -2411,7 +2411,7 @@ measure_result  demographicswindow_main_table_t::place_item(sys::state& state, u
 	if(std::holds_alternative<province_row_option>(values[index])) {
 		if(pops_header_pool.empty()) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 		if(province_row_pool.empty()) province_row_pool.emplace_back(make_demographicswindow_province_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1])) {
 			if(destination) {
 				if(pops_header_pool.size() <= size_t(pops_header_pool_used)) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 				if(province_row_pool.size() <= size_t(province_row_pool_used)) province_row_pool.emplace_back(make_demographicswindow_province_row(state));
@@ -2453,7 +2453,7 @@ measure_result  demographicswindow_main_table_t::place_item(sys::state& state, u
 	if(std::holds_alternative<pop_row_option>(values[index])) {
 		if(pops_header_pool.empty()) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 		if(pop_row_pool.empty()) pop_row_pool.emplace_back(make_demographicswindow_pop_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<nation_row_option>(values[index - 1]) && !std::holds_alternative<state_row_option>(values[index - 1]) && !std::holds_alternative<province_row_option>(values[index - 1]) && !std::holds_alternative<pop_row_option>(values[index - 1])) {
 			if(destination) {
 				if(pops_header_pool.size() <= size_t(pops_header_pool_used)) pops_header_pool.emplace_back(make_demographicswindow_pops_header(state));
 				if(pop_row_pool.size() <= size_t(pop_row_pool_used)) pop_row_pool.emplace_back(make_demographicswindow_pop_row(state));
@@ -3771,7 +3771,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_spacer_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_spacer){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_spacer){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_spacer){
@@ -3785,7 +3785,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_location_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_location){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_location){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_location){
@@ -3799,7 +3799,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_size_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_size){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_size){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_size){
@@ -3813,7 +3813,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_culture_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_culture){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_culture){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_culture){
@@ -3827,7 +3827,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_job_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_job){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_job){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_job){
@@ -3841,7 +3841,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_religion_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_religion){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_religion){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_religion){
@@ -3855,7 +3855,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_ideology_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_ideology){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_ideology){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_ideology){
@@ -3869,7 +3869,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_issues_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_issues){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_issues){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_issues){
@@ -3883,7 +3883,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_militancy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_militancy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_militancy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_militancy){
@@ -3897,7 +3897,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_consciousness_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_consciousness){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_consciousness){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_consciousness){
@@ -3911,7 +3911,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_employment){
@@ -3925,7 +3925,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_literacy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_literacy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_literacy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_literacy){
@@ -3939,7 +3939,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_money_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_money){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_money){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_money){
@@ -3953,7 +3953,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_needs_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_needs){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_needs){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_needs){
@@ -3967,7 +3967,7 @@ void demographicswindow_nation_row_frames_t::render(sys::state & state, int32_t 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_rebels_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_rebels){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_rebels){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_rebels){
@@ -5181,7 +5181,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_spacer_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_spacer){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_spacer){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_spacer){
@@ -5195,7 +5195,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_location_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_location){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_location){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_location){
@@ -5209,7 +5209,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_size_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_size){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_size){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_size){
@@ -5223,7 +5223,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_culture_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_culture){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_culture){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_culture){
@@ -5237,7 +5237,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_job_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_job){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_job){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_job){
@@ -5251,7 +5251,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_religion_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_religion){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_religion){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_religion){
@@ -5265,7 +5265,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_ideology_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_ideology){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_ideology){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_ideology){
@@ -5279,7 +5279,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_issues_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_issues){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_issues){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_issues){
@@ -5293,7 +5293,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_militancy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_militancy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_militancy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_militancy){
@@ -5307,7 +5307,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_consciousness_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_consciousness){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_consciousness){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_consciousness){
@@ -5321,7 +5321,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_employment){
@@ -5335,7 +5335,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_literacy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_literacy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_literacy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_literacy){
@@ -5349,7 +5349,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_money_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_money){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_money){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_money){
@@ -5363,7 +5363,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_needs_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_needs){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_needs){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_needs){
@@ -5377,7 +5377,7 @@ void demographicswindow_state_row_frames_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_rebels_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_rebels){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_rebels){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_rebels){
@@ -6227,7 +6227,7 @@ void demographicswindow_province_row_job_t::update_tooltip(sys::state& state, in
 		text::add_space_to_layout_box(state, contents, box);
 		text::add_to_layout_box(state, contents, box, text::fp_percentage_one_place{ total > 0.0f ? graph_content[temp_index].amount / total : 0.0f });
 		text::close_layout_box(contents, box);
-		if(gamerule::age_of_transformation_enabled(state)) {
+		{
 			auto const province = province_row.content;
 			auto const tenants = std::clamp(
 				state.world.province_get_land_use_tenant_share(province),
@@ -6737,7 +6737,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_spacer_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_spacer){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_spacer){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_spacer){
@@ -6751,7 +6751,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_location_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_location){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_location){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_location){
@@ -6765,7 +6765,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_size_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_size){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_size){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_size){
@@ -6779,7 +6779,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_culture_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_culture){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_culture){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_culture){
@@ -6793,7 +6793,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_job_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_job){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_job){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_job){
@@ -6807,7 +6807,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_religion_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_religion){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_religion){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_religion){
@@ -6821,7 +6821,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_ideology_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_ideology){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_ideology){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_ideology){
@@ -6835,7 +6835,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_issues_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_issues){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_issues){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_issues){
@@ -6849,7 +6849,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_militancy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_militancy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_militancy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_militancy){
@@ -6863,7 +6863,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_consciousness_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_consciousness){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_consciousness){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_consciousness){
@@ -6877,7 +6877,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_employment){
@@ -6891,7 +6891,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_literacy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_literacy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_literacy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_literacy){
@@ -6905,7 +6905,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_money_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_money){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_money){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_money){
@@ -6919,7 +6919,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_needs_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_needs){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_needs){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_needs){
@@ -6933,7 +6933,7 @@ void demographicswindow_province_row_frames_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_rebels_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_rebels){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_rebels){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_rebels){
@@ -7632,9 +7632,7 @@ void demographicswindow_pop_row_job_t::update_tooltip(sys::state& state, int32_t
 // BEGIN pop_row::job::tooltip
 	text::add_line(state, contents, state.world.pop_get_poptype(pop_row.value).get_name());
 	auto const pop_type = state.world.pop_get_poptype(pop_row.value);
-	if(gamerule::age_of_transformation_enabled(state)
-			&& (pop_type == state.culture_definitions.farmers
-				|| pop_type == state.culture_definitions.laborers)) {
+	if(pop_type == state.culture_definitions.farmers || pop_type == state.culture_definitions.laborers) {
 		auto const province =
 			state.world.pop_get_province_from_pop_location(pop_row.value);
 		auto const tenants = std::clamp(
@@ -8196,7 +8194,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_spacer_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_spacer){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_spacer){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_spacer){
@@ -8210,7 +8208,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_location_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_location){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_location){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_location){
@@ -8224,7 +8222,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_size_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_size){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_size){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_size){
@@ -8238,7 +8236,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_culture_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_culture){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_culture){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_culture){
@@ -8252,7 +8250,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_job_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_job){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_job){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_job){
@@ -8266,7 +8264,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_religion_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_religion){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_religion){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_religion){
@@ -8280,7 +8278,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_ideology_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_ideology){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_ideology){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_ideology){
@@ -8294,7 +8292,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_issues_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_issues){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_issues){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_issues){
@@ -8308,7 +8306,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_militancy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_militancy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_militancy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_militancy){
@@ -8322,7 +8320,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_consciousness_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_consciousness){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_consciousness){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_consciousness){
@@ -8336,7 +8334,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_employment){
@@ -8350,7 +8348,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_literacy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_literacy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_literacy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_literacy){
@@ -8364,7 +8362,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_money_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_money){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_money){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_money){
@@ -8378,7 +8376,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_needs_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_needs){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_needs){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_needs){
@@ -8392,7 +8390,7 @@ void demographicswindow_pop_row_frames_t::render(sys::state & state, int32_t x, 
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_rebels_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_rebels){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_rebels){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_rebels){
@@ -11445,7 +11443,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_spacer_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_spacer){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_spacer){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_spacer_column_start + table_source->table_spacer_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_spacer){
@@ -11464,7 +11462,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_location_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_location){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_location){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_location_column_start + table_source->table_location_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_location){
@@ -11498,7 +11496,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_size_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_size){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_size){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_size_column_start + table_source->table_size_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_size){
@@ -11532,7 +11530,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_culture_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_culture){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_culture){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_culture_column_start + table_source->table_culture_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_culture){
@@ -11566,7 +11564,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_job_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_job){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_job){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_job_column_start + table_source->table_job_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_job){
@@ -11600,7 +11598,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_religion_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_religion){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_religion){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_religion_column_start + table_source->table_religion_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_religion){
@@ -11629,7 +11627,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_ideology_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_ideology){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_ideology){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_ideology_column_start + table_source->table_ideology_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_ideology){
@@ -11648,7 +11646,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_issues_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_issues){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_issues){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_issues_column_start + table_source->table_issues_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_issues){
@@ -11672,7 +11670,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_militancy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_militancy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_militancy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_militancy_column_start + table_source->table_militancy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_militancy){
@@ -11701,7 +11699,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_consciousness_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_consciousness){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_consciousness){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_consciousness_column_start + table_source->table_consciousness_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_consciousness){
@@ -11730,7 +11728,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_employment_column_start + table_source->table_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_employment){
@@ -11759,7 +11757,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_literacy_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_literacy){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_literacy){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_literacy_column_start + table_source->table_literacy_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_literacy){
@@ -11788,7 +11786,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_money_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_money){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_money){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_money_column_start + table_source->table_money_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_money){
@@ -11817,7 +11815,7 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_needs_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_needs){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_needs){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_needs_column_start + table_source->table_needs_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_needs){
@@ -11846,14 +11844,14 @@ void demographicswindow_pops_header_content_t::render(sys::state & state, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->table_rebels_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_rebels){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_rebels){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start + table_source->table_rebels_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_rebels){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y), float(table_source->table_rebels_column_width), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->table_rebels_column_start), float(y + base_data.size.y - 2), float(table_source->table_rebels_column_width), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
-	auto col_color_rebels = state.ui_templates.colors[table_source->table_rebels_header_text_color]; 	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	auto col_color_rebels = state.ui_templates.colors[table_source->table_rebels_header_text_color]; 	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }

@@ -11,6 +11,7 @@
 #include "politics.hpp"
 #include "economy_stats.hpp"
 #include "economy.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "money.hpp"
 #include "province.hpp"
 
@@ -1302,8 +1303,11 @@ TRIGGER_FUNCTION(tf_state_id_state) {
 }
 TRIGGER_FUNCTION(tf_cash_reserves) {
 	auto ratio = read_float_from_payload(tval + 1);
-	auto target = economy::desired_needs_spending(ws, to_pop(primary_slot));
-	auto savings_qnty = ws.world.pop_get_savings(to_pop(primary_slot));
+	auto pop = to_pop(primary_slot);
+	auto target = economy::desired_needs_spending(ws, pop);
+	auto savings_qnty = ve::apply([&ws](dcon::pop_id id) {
+		return economy::exact_person_economy::population_cash_balance(ws, id, economy::money);
+	}, pop);
 	return compare_values(tval[0], ve::select(target != 0.0f, savings_qnty * 100.0f / target, 100.0f), ratio);
 }
 TRIGGER_FUNCTION(tf_unemployment_nation) {

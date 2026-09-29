@@ -45,11 +45,10 @@ void reform_description(sys::state& state, text::columnar_layout& contents, dcon
 
 	text::add_line(state, contents, "reform_research_cost", text::variable_type::cost, int64_t(cost + 0.99f));
 	text::add_line_break_to_layout(state, contents);
-	if(gamerule::age_of_transformation_enabled(state)) {
+	{
 		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation)) {
 			text::add_line(state, contents, "alice_aot_bill_header");
-			if(bill->target == politics::transformation::legislation_target::reform
-				&& bill->reform == ref) {
+			if(bill->target == politics::transformation::legislation_target::reform && bill->reform == ref) {
 				if(bill->stage != politics::transformation::legislation_stage::implementation)
 					text::add_line(state, contents, "alice_aot_bill_withdraw_hint");
 				text::add_line(state, contents, "alice_aot_bill_stage",
@@ -126,8 +125,7 @@ public:
 		auto const content = retrieve<dcon::reform_option_id>(state, parent);
 		auto const* bill = politics::transformation::active_bill(
 			state, state.local_player_nation);
-		if(bill && bill->target == politics::transformation::legislation_target::reform
-			&& bill->reform == content) {
+		if(bill && bill->target == politics::transformation::legislation_target::reform && bill->reform == content) {
 			set_text(state, transformation_bill_row_text(state, *bill));
 		} else {
 			set_text(state, text::get_name_as_string(
@@ -145,8 +143,7 @@ public:
 	void button_action(sys::state& state) noexcept override {
 		auto content = retrieve<dcon::reform_option_id>(state, parent);
 		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation);
-			bill && bill->target == politics::transformation::legislation_target::reform
-			&& bill->reform == content) {
+			bill && bill->target == politics::transformation::legislation_target::reform && bill->reform == content) {
 			command::withdraw_transformation_bill(state, state.local_player_nation);
 		} else {
 			command::enact_reform(state, state.local_player_nation, content);
@@ -160,8 +157,7 @@ public:
 	void on_update(sys::state& state) noexcept override {
 		auto content = retrieve<dcon::reform_option_id>(state, parent);
 		if(auto const* bill = politics::transformation::active_bill(state, state.local_player_nation);
-			bill && bill->target == politics::transformation::legislation_target::reform
-			&& bill->reform == content) {
+			bill && bill->target == politics::transformation::legislation_target::reform && bill->reform == content) {
 			disabled = !command::can_withdraw_transformation_bill(state, state.local_player_nation);
 		} else {
 			disabled = !command::can_enact_reform(state, state.local_player_nation, content);

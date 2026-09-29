@@ -136,10 +136,10 @@ set to one or more of the following values.	*/
 			return 0;
 		}
 		/*	make sure it is a type we can upload	*/
-		if((header->sPixelFormat.dwFlags & DDPF_FOURCC) &&
-		!((header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('1' << 24)))
-		|| (header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('3' << 24)))
-		|| (header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('5' << 24))))) {
+		if((header->sPixelFormat.dwFlags & DDPF_FOURCC)
+			&& !(header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('1' << 24))
+				|| header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('3' << 24))
+				|| header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('5' << 24)))) {
 			return 0;
 		}
 		if((header->sCaps.dwCaps1 & DDSCAPS_TEXTURE) == 0) {
@@ -196,7 +196,7 @@ set to one or more of the following values.	*/
 
 		uint32_t dds_full_size = dds_main_size;
 		uint32_t mipmaps = 0;
-		if((header->sCaps.dwCaps1 & DDSCAPS_MIPMAP) != 0 && (header->dwMipMapCount > 1)) {
+		if((header->sCaps.dwCaps1 & DDSCAPS_MIPMAP) != 0 && header->dwMipMapCount > 1) {
 			mipmaps = header->dwMipMapCount - 1;
 			for(uint32_t i = 1; i <= mipmaps; ++i) {
 				uint32_t w = std::max<uint32_t>(width >> i, 1);
@@ -463,10 +463,10 @@ set to one or more of the following values.	*/
 			return 0;
 		}
 		/*	make sure it is a type we can upload	*/
-		if((header->sPixelFormat.dwFlags & DDPF_FOURCC) &&
-		!((header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('1' << 24)))
-		|| (header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('3' << 24)))
-		|| (header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('5' << 24))))) {
+		if((header->sPixelFormat.dwFlags & DDPF_FOURCC)
+			&& !(header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('1' << 24))
+				|| header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('3' << 24))
+				|| header->sPixelFormat.dwFourCC == (('D' << 0) | ('X' << 8) | ('T' << 16) | ('5' << 24)))) {
 			return 0;
 		}
 		if((header->sCaps.dwCaps1 & DDSCAPS_TEXTURE) == 0) {
@@ -523,7 +523,7 @@ set to one or more of the following values.	*/
 
 		uint32_t dds_full_size = dds_main_size;
 		uint32_t mipmaps = 0;
-		if((header->sCaps.dwCaps1 & DDSCAPS_MIPMAP) != 0 && (header->dwMipMapCount > 1)) {
+		if((header->sCaps.dwCaps1 & DDSCAPS_MIPMAP) != 0 && header->dwMipMapCount > 1) {
 			mipmaps = header->dwMipMapCount - 1;
 			for(uint32_t i = 1; i <= mipmaps; ++i) {
 				uint32_t w = std::max<uint32_t>(width >> i, 1);

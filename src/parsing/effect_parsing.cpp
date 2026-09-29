@@ -1505,13 +1505,11 @@ int32_t simplify_effect(uint16_t* source) {
 		if((source[0] & effect::code_mask) == effect::generic_scope) {
 			if(source_size == 2) {
 				return 0; // simplify empty scope to nothing
-			} else if(((source[0] & effect::scope_has_limit) == 0) && effect::effect_scope_has_single_member(source)) {
+			} else if((source[0] & effect::scope_has_limit) == 0 && effect::effect_scope_has_single_member(source)) {
 				std::copy(source + 2, source + source_size, source);
 				source_size -= 2;
 			}
-		} else if((source[0] & effect::code_mask) == effect::owner_scope_province
-		&& (source[0] & effect::scope_has_limit) == 0
-		&& (source[0] & effect::is_random_scope) == 0) {
+		} else if((source[0] & effect::code_mask) == effect::owner_scope_province && (source[0] & effect::scope_has_limit) == 0 && (source[0] & effect::is_random_scope) == 0) {
 			bool can_elim = true;
 			auto sub_units_start = source + 2 + effect::effect_scope_data_payload(source[0]);
 			while(sub_units_start < source + source_size && can_elim) {
@@ -1542,11 +1540,7 @@ int32_t simplify_effect(uint16_t* source) {
 				std::copy(source + 2, source + source_size, source);
 				source_size -= 2;
 			}
-		} else if((source[0] & effect::code_mask) == effect::integer_scope
-			&& (source[0] & effect::scope_has_limit) == 0
-			&& (source[0] & effect::is_random_scope) == 0
-			&& source[1] == 4
-			&& effect::effect_scope_has_single_member(source)) {
+		} else if((source[0] & effect::code_mask) == effect::integer_scope && (source[0] & effect::scope_has_limit) == 0 && (source[0] & effect::is_random_scope) == 0 && source[1] == 4 && effect::effect_scope_has_single_member(source)) {
 			auto sub_units_start = source + 2 + effect::effect_scope_data_payload(source[0]);
 			auto const old_size = 1 + effect::get_generic_effect_payload_size(source);
 			if(sub_units_start[0] == effect::change_province_name) {

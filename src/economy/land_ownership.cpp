@@ -40,105 +40,6 @@ distribution from_shares(std::array<float, owner_group_count> const& value) {
 	});
 }
 
-owner_group group_for_pop(sys::state const& state, dcon::pop_id pop) {
-	auto const type = state.world.pop_get_poptype(pop);
-	if(type == state.culture_definitions.aristocrat)
-		return owner_group::landed_elites;
-	if(type == state.culture_definitions.capitalists)
-		return owner_group::capitalists;
-	return owner_group::smallholders;
-}
-
-bool participates_as_smallholder(sys::state const& state, dcon::pop_id pop) {
-	auto const type = state.world.pop_get_poptype(pop);
-	return type == state.culture_definitions.farmers
-		|| type == state.culture_definitions.laborers;
-}
-
-bool participates(sys::state const& state, dcon::pop_id pop) {
-	auto const group = group_for_pop(state, pop);
-	return group != owner_group::smallholders
-		|| participates_as_smallholder(state, pop);
-}
-
-void apply_cash_delta(sys::state& state, dcon::province_id province,
-		owner_group group, float cash_delta, float group_savings,
-		float group_population) {
-	if(!std::isfinite(cash_delta) || std::abs(cash_delta) <= 0.000001f)
-		return;
-
-	std::vector<dcon::pop_id> recipients;
-	for(auto location : state.world.province_get_pop_location(province)) {
-		auto const pop = location.get_pop().id;
-		if(participates(state, pop) && group_for_pop(state, pop) == group)
-			recipients.push_back(pop);
-	}
-
-	if(recipients.empty()) {
-		(void)cash_delta;
-		return;
-	}
-
-	auto remaining = std::abs(cash_delta);
-	for(std::size_t i = 0; i < recipients.size(); ++i) {
-		auto const pop = recipients[i];
-		auto const current =
-			finite_nonnegative(state.world.pop_get_savings(pop));
-		float weight = 0.f;
-		if(cash_delta < 0.f && group_savings > 0.f)
-			weight = current / group_savings;
-		else if(cash_delta > 0.f && group_savings > 0.f)
-			// Existing savings are the best already-persisted proxy for each
-			// POP's share of its class holding. Seller proceeds therefore do
-			// not get redistributed merely because a POP is numerous.
-			weight = current / group_savings;
-		else if(cash_delta > 0.f)
-			weight = 1.f / float(recipients.size());
-		auto amount = i + 1 == recipients.size()
-			? remaining
-			: std::min(remaining, std::abs(cash_delta) * weight);
-		if(cash_delta < 0.f)
-			amount = std::min(amount, current);
-		state.world.pop_set_savings(pop,
-			cash_delta < 0.f ? current - amount : current + amount);
-		remaining = std::max(0.f, remaining - amount);
-	}
-}
-
-void apply_state_cash_delta(sys::state& state, dcon::nation_id nation,
-		float cash_delta) {
-	(void)state; (void)nation; (void)cash_delta;
-}
-
-void apply_treasury_cost(sys::state& state, dcon::nation_id nation,
-		float cost) {
-	(void)state; (void)nation; (void)cost;
-}
-
-void apply_foreign_cash_delta(sys::state& state, dcon::nation_id target,
-		float cash_delta) {
-	if(!target || !std::isfinite(cash_delta))
-		return;
-	float total_investment = 0.f;
-	for(auto relation :
-			state.world.nation_get_unilateral_relationship_as_target(target)) {
-		total_investment +=
-			finite_nonnegative(relation.get_foreign_investment());
-	}
-	if(total_investment <= 0.f) {
-		apply_state_cash_delta(state, target, cash_delta);
-		return;
-	}
-	for(auto relation :
-			state.world.nation_get_unilateral_relationship_as_target(target)) {
-		auto const weight =
-			finite_nonnegative(relation.get_foreign_investment())
-			/ total_investment;
-		auto const investor = relation.get_source().id;
-		(void)investor; (void)weight;
-	}
-}
-
 } // namespace
 
 distribution normalize(distribution value) {
@@ -228,8 +129,7 @@ historical_profile profile_for_tag(uint32_t identifying_int) {
 historical_profile profile_for(sys::state const& state,
 		dcon::province_id province) {
 	auto const stored = state.world.province_get_land_profile(province);
-	if(stored >= uint8_t(historical_profile::demographic)
-			&& stored <= uint8_t(historical_profile::latin_latifundia))
+	if(stored >= uint8_t(historical_profile::demographic) && stored <= uint8_t(historical_profile::latin_latifundia))
 		return historical_profile(stored);
 	auto const nation =
 		state.world.province_get_nation_from_province_ownership(province);
@@ -319,8 +219,7 @@ distribution historical_initial_distribution(historical_profile profile,
 }
 
 void initialize_historical_profiles(sys::state& state) {
-	if(!gamerule::age_of_transformation_enabled(state))
-		return;
+
 
 	province::for_each_land_province(state, [&](dcon::province_id province) {
 		if(state.world.province_get_land_profile(province) != 0)
@@ -417,7 +316,6 @@ land_use_distribution classify_land_use(float rural_population,
 market_config configuration_for(sys::state const& state,
 		dcon::province_id province) {
 	market_config config;
-	config.enabled = gamerule::age_of_transformation_enabled(state);
 	auto const nation =
 		state.world.province_get_nation_from_province_ownership(province);
 	auto const laws = politics::transformation::laws::for_nation(state, nation);
@@ -466,8 +364,6 @@ market_result clear_market(distribution current,
 	result.before = normalize(current);
 	result.target = result.before;
 	result.after = result.before;
-	if(!config.enabled)
-		return result;
 	result.enabled = true;
 
 	result.land_value = std::isfinite(land_value)
@@ -631,180 +527,6 @@ market_result clear_market(distribution current,
 	for(std::size_t i = 0; i < owner_group_count; ++i)
 		finances[i].liquid_savings = savings[i];
 	return clear_market(current, finances, land_value, config);
-}
-
-void update_markets(sys::state& state) {
-	if(!gamerule::age_of_transformation_enabled(state))
-		return;
-	auto const date = state.current_date.to_ymd(state.start_date);
-
-	province::for_each_land_province(state, [&](dcon::province_id province) {
-		auto const current_daily_rent =
-			finite_nonnegative(state.world.province_get_rgo_profit(province));
-		auto const smoothed_rent = update_smoothed_rent(
-			state.world.province_get_smoothed_land_rent(province),
-			current_daily_rent);
-		state.world.province_set_smoothed_land_rent(
-			province, smoothed_rent);
-		if(date.day != 1)
-			return;
-
-		auto const nation =
-			state.world.province_get_nation_from_province_ownership(province);
-		auto const config = configuration_for(state, province);
-
-		std::array<group_finance, owner_group_count> finances{};
-		std::array<float, owner_group_count> population{};
-		auto const state_instance =
-			state.world.province_get_state_membership(province);
-		auto const market = state_instance
-			? state.world.state_instance_get_market_from_local_market(
-				state_instance) : dcon::market_id{};
-		for(auto location : state.world.province_get_pop_location(province)) {
-			auto const pop = location.get_pop().id;
-			if(!participates(state, pop))
-				continue;
-			auto const group = group_for_pop(state, pop);
-			auto const i = index(group);
-			auto const size =
-				finite_nonnegative(state.world.pop_get_size(pop));
-			auto const savings =
-				finite_nonnegative(state.world.pop_get_savings(pop));
-			auto const life_needs = market
-				? finite_nonnegative(state.world.market_get_life_needs_costs(
-					market, state.world.pop_get_poptype(pop))) * size * 30.f
-				: 0.f;
-			auto const need_shortfall = std::clamp(
-				1.f - pop_demographics::get_life_needs(state, pop),
-				0.f, 1.f);
-			auto const employment = size > 0.f
-				? std::clamp(
-					pop_demographics::get_employment(state, pop) / size,
-					0.f, 1.f) : 1.f;
-			auto const debt_stress = life_needs > 0.f
-				? std::clamp((life_needs - savings) / life_needs,
-					0.f, 1.f) : 0.f;
-			finances[i].liquid_savings += savings;
-			finances[i].monthly_essential_needs += life_needs;
-			finances[i].hardship += size
-				* (0.5f * need_shortfall
-					+ 0.3f * (1.f - employment)
-					+ 0.2f * debt_stress);
-			population[i] += size;
-		}
-		for(std::size_t i = 0; i < 3; ++i) {
-			if(population[i] > 0.f)
-				finances[i].hardship /= population[i];
-		}
-
-		auto const current = distribution{
-			state.world.province_get_landowners_share(province),
-			state.world.province_get_capitalists_share(province),
-			std::max(0.f, 1.f
-				- state.world.province_get_landowners_share(province)
-				- state.world.province_get_capitalists_share(province)
-				- state.world.province_get_state_land_share(province)
-				- state.world.province_get_foreign_land_share(province)),
-			state.world.province_get_state_land_share(province),
-			state.world.province_get_foreign_land_share(province),
-		};
-		auto const foreign_investment = nation
-			? nations::get_foreign_investment(state, nation) : 0.f;
-		finances[index(owner_group::state)].liquid_savings = 0.f;
-		finances[index(owner_group::foreign)].liquid_savings =
-			config.foreign_investment_allowed
-				? finite_nonnegative(foreign_investment) : 0.f;
-		auto const daily_rgo_income = std::max(
-			smoothed_rent,
-			0.f
-				* economy::pops::trade_dividents_rate);
-		auto const land_value = std::max(1.f,
-			daily_rgo_income * 365.f * 10.f);
-		auto const result = clear_market(
-			current, finances, land_value, config);
-		float total_bids = 0.f;
-		float total_asks = 0.f;
-		for(std::size_t i = 0; i < owner_group_count; ++i) {
-			total_bids += result.bids[i];
-			total_asks += result.asks[i];
-		}
-		state.world.province_set_land_market_turnover(
-			province, result.turnover);
-		state.world.province_set_land_market_value(
-			province, result.land_value);
-		state.world.province_set_land_market_bids(
-			province, total_bids);
-		state.world.province_set_land_market_asks(
-			province, total_asks);
-		state.world.province_set_land_market_distress_asks(
-			province, result.distress_asks);
-		state.world.province_set_land_market_tax(
-			province, result.land_tax);
-		state.world.province_set_land_reform_turnover(
-			province, result.reform_turnover);
-		state.world.province_set_land_reform_compensation(
-			province, result.reform_compensation);
-		state.world.province_set_land_elite_resistance(
-			province, result.elite_resistance);
-		auto const land_use = classify_land_use(
-			population[index(owner_group::smallholders)],
-			result.after.smallholders, config.tenant_protection);
-		state.world.province_set_land_use_tenant_share(
-			province, land_use.tenants);
-		state.world.province_set_land_use_landless_share(
-			province, land_use.landless_laborers);
-		state.world.province_set_smallholder_land_change(
-			province,
-			result.after.smallholders - result.before.smallholders);
-		state.world.province_set_landowner_land_change(
-			province,
-			result.after.landed_elites - result.before.landed_elites);
-		state.world.province_set_capitalist_land_change(
-			province,
-			result.after.capitalists - result.before.capitalists);
-		state.world.province_set_state_land_change(
-			province, result.after.state - result.before.state);
-		state.world.province_set_foreign_land_change(
-			province, result.after.foreign - result.before.foreign);
-		for(std::size_t i = 0; i < 3; ++i) {
-			apply_cash_delta(state, province, owner_group(i),
-				result.cash_delta[i],
-				finances[i].liquid_savings, population[i]);
-		}
-		apply_state_cash_delta(state, nation,
-			result.cash_delta[index(owner_group::state)]);
-		apply_foreign_cash_delta(state, nation,
-			result.cash_delta[index(owner_group::foreign)]);
-		apply_treasury_cost(state, nation, result.public_cost);
-		float collected_land_tax = 0.f;
-		auto const post_market_shares = shares(result.after);
-		for(std::size_t i = 0; i < 3; ++i) {
-			auto const due = std::min(
-				std::max(0.f, finances[i].liquid_savings
-					+ result.cash_delta[i]),
-				result.land_tax * post_market_shares[i]);
-			apply_cash_delta(state, province, owner_group(i), -due,
-				finances[i].liquid_savings, population[i]);
-			collected_land_tax += due;
-		}
-		auto const foreign_due = std::min(
-			std::max(0.f,
-				finances[index(owner_group::foreign)].liquid_savings
-				+ result.cash_delta[index(owner_group::foreign)]),
-			result.land_tax * post_market_shares[
-				index(owner_group::foreign)]);
-		apply_foreign_cash_delta(state, nation, -foreign_due);
-		collected_land_tax += foreign_due;
-		apply_state_cash_delta(state, nation, collected_land_tax);
-		state.world.province_set_landowners_share(
-			province, result.after.landed_elites);
-		state.world.province_set_capitalists_share(
-			province, result.after.capitalists);
-		state.world.province_set_state_land_share(
-			province, result.after.state);
-		state.world.province_set_foreign_land_share(
-			province, result.after.foreign);
-	});
 }
 
 } // namespace economy::land_ownership

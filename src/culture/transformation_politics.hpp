@@ -75,10 +75,6 @@ struct population_sample {
 };
 
 struct ruleset_config {
-	// This is the compatibility boundary. When false, every high-level entry
-	// point returns enabled=false and no caller should alter legacy politics.
-	bool enabled = false;
-
 	float wealth_reference = 1.0f;
 	float base_power = 0.25f;
 	float wealth_power_weight = 1.25f;
@@ -254,7 +250,6 @@ struct issue_support_result {
 };
 
 struct movement_pressure_inputs {
-	bool enabled = false;
 	float political_power_support = 0.0f;
 	float coalition_support = 0.0f;
 	float legitimacy = 1.0f;
@@ -283,7 +278,6 @@ struct movement_pressure_breakdown {
 // deliberately separate from ordinary support: a concession made under street
 // pressure is not the same thing as a parliamentary mandate.
 struct concession_pressure_inputs {
-	bool enabled = false;
 	float matching_movement_population = 0.0f;
 	float matching_movement_radicalism = 0.0f;
 	float rebel_population = 0.0f;

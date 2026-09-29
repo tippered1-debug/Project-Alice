@@ -3,10 +3,7 @@
 #include "deposits.hpp"
 #include "inventory.hpp"
 #include "system_state.hpp"
-#include "province.hpp"
-#include "economy_production.hpp"
 #include "commodity_logistics.hpp"
-#include "economy_stats.hpp"
 #include "world_trade_capacity.hpp"
 #include "actors/ownership.hpp"
 #include "economy/physical/extraction.hpp"
@@ -16,10 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <functional>
 #include <limits>
-#include <queue>
-#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -31,18 +25,10 @@ enum class lifecycle : uint8_t { queued = 0, travelling = 1, delivered = 2, bloc
 
 struct planned_leg {
 	world_trade::transport_mode mode = world_trade::transport_mode::local;
-	dcon::trade_route_id trade_route{};
 	dcon::site_id origin{};
 	dcon::site_id destination{};
 	float distance = 0.0f;
 	uint32_t traversal_days = 1;
-};
-
-struct market_path_step {
-	dcon::market_id market{};
-	dcon::trade_route_id route{};
-	world_trade::transport_mode mode = world_trade::transport_mode::land;
-	float distance = 0.0f;
 };
 
 dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
@@ -53,209 +39,44 @@ dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 	return zone ? state.world.state_instance_get_market_from_local_market(zone) : dcon::market_id{};
 }
 
-float local_distance(sys::state& state, dcon::site_id origin, dcon::site_id destination) {
-	auto from = state.world.site_get_province_from_site_location(origin);
-	auto to = state.world.site_get_province_from_site_location(destination);
-	return from && to ? std::max(0.0f, province::direct_distance(state, from, to)) : 0.0f;
-}
-
 bool plan_spatial_route(sys::state const& state, dcon::site_id origin,
 	dcon::site_id destination, std::vector<planned_leg>& result) {
 	if(!origin || !destination || origin == destination) return false;
 	auto route = world::spatial_runtime::route_for_sites(state, origin, destination);
-	if(!route.connected || !std::isfinite(route.distance) || route.distance < 0.0f
-		|| !std::isfinite(route.travel_days) || route.travel_days <= 0.0f
-		|| route.edges.empty()) return false;
-	result.push_back({ world_trade::transport_mode::land, {}, origin, destination,
+	if(!route.connected || !std::isfinite(route.distance) || route.distance < 0.0f) return false;
+	if(route.edges.empty()) {
+		auto const origin_node = world::spatial_runtime::node_for_site(state, origin);
+		if(!origin_node || origin_node != world::spatial_runtime::node_for_site(state, destination))
+			return false;
+		result.push_back({ world_trade::transport_mode::local, origin, destination,
+			route.distance, 1 });
+		return true;
+	}
+	if(!std::isfinite(route.travel_days) || route.travel_days <= 0.0f) return false;
+	result.push_back({ world_trade::transport_mode::land, origin, destination,
 		route.distance, uint32_t(std::max(1.0f, std::ceil(route.travel_days))) });
-	return true;
-}
-
-bool finite_route_distance(float distance) {
-	return std::isfinite(distance) && distance >= 0.0f && distance < 99998.0f;
-}
-
-bool best_route_mode(sys::state const& state, dcon::trade_route_id route,
-	world_trade::transport_mode& mode, float& distance) {
-	if(!route || !state.world.trade_route_is_valid(route)
-		|| state.world.trade_route_get_is_trade_forbidden(route)) return false;
-	auto market_a = state.world.trade_route_get_connected_markets(route, 0);
-	auto market_b = state.world.trade_route_get_connected_markets(route, 1);
-	if(!market_a || !market_b) return false;
-	auto physically_feasible = [&](world_trade::transport_mode candidate) {
-		return world_trade::canonical_capacity(state, market_a, candidate) > 0.0f
-			&& world_trade::canonical_capacity(state, market_b, candidate) > 0.0f;
-	};
-	bool found = false;
-	if(state.world.trade_route_get_is_land_route(route) && physically_feasible(world_trade::transport_mode::land)) {
-		auto candidate = state.world.trade_route_get_land_distance(route);
-		if(finite_route_distance(candidate)) {
-			mode = world_trade::transport_mode::land;
-			distance = candidate;
-			found = true;
-		}
-	}
-	if(state.world.trade_route_get_is_sea_route(route) && physically_feasible(world_trade::transport_mode::sea)) {
-		auto candidate = state.world.trade_route_get_sea_distance(route);
-		if(finite_route_distance(candidate) && (!found || candidate < distance)) {
-			mode = world_trade::transport_mode::sea;
-			distance = candidate;
-			found = true;
-		}
-	}
-	return found;
-}
-
-bool find_market_path(sys::state const& state, dcon::market_id origin,
-	dcon::market_id destination, std::vector<market_path_step>& result) {
-	if(!origin || !destination || !state.world.market_is_valid(origin)
-		|| !state.world.market_is_valid(destination)) return false;
-	if(origin == destination) return true;
-
-	auto const market_count = state.world.market_size();
-	std::vector<float> distance(market_count, std::numeric_limits<float>::infinity());
-	std::vector<dcon::market_id> previous(market_count);
-	std::vector<dcon::trade_route_id> previous_route(market_count);
-	std::vector<world_trade::transport_mode> previous_mode(market_count,
-		world_trade::transport_mode::land);
-	using queue_item = std::tuple<float, uint32_t, uint32_t>;
-	std::priority_queue<queue_item, std::vector<queue_item>, std::greater<queue_item>> queue;
-	distance[origin.index()] = 0.0f;
-	queue.emplace(0.0f, 0, uint32_t(origin.index()));
-
-	while(!queue.empty()) {
-		auto [current_distance, unused_tie, current_index] = queue.top();
-		(void)unused_tie;
-		queue.pop();
-		dcon::market_id current{ dcon::market_id::value_base_t(current_index) };
-		if(current_distance != distance[current.index()]) continue;
-		if(current == destination) break;
-		std::vector<dcon::trade_route_id> routes;
-		state.world.market_for_each_trade_route(current, [&](dcon::trade_route_id route) {
-			routes.push_back(route);
-		});
-		std::sort(routes.begin(), routes.end(), [](auto a, auto b) { return a.index() < b.index(); });
-		for(auto route : routes) {
-			world_trade::transport_mode mode{};
-			float edge_distance = 0.0f;
-			if(!best_route_mode(state, route, mode, edge_distance)) continue;
-			auto a = state.world.trade_route_get_connected_markets(route, 0);
-			auto b = state.world.trade_route_get_connected_markets(route, 1);
-			auto next = a == current ? b : (b == current ? a : dcon::market_id{});
-			if(!next || next.index() >= distance.size()) continue;
-			auto candidate = current_distance + edge_distance;
-			bool better = candidate < distance[next.index()];
-			if(!better && candidate == distance[next.index()]) {
-				better = !previous_route[next.index()]
-					|| route.index() < previous_route[next.index()].index();
-			}
-			if(!better) continue;
-			distance[next.index()] = candidate;
-			previous[next.index()] = current;
-			previous_route[next.index()] = route;
-			previous_mode[next.index()] = mode;
-			queue.emplace(candidate, uint32_t(next.index()), uint32_t(next.index()));
-		}
-	}
-	if(!std::isfinite(distance[destination.index()])) return false;
-
-	std::vector<market_path_step> reverse;
-	for(auto current = destination; current != origin; current = previous[current.index()]) {
-		if(!previous[current.index()] || !previous_route[current.index()]) return false;
-		float edge_distance = 0.0f;
-		auto edge_mode = previous_mode[current.index()];
-		if(!best_route_mode(state, previous_route[current.index()], edge_mode, edge_distance)) return false;
-		reverse.push_back({ current, previous_route[current.index()], edge_mode, edge_distance });
-	}
-	std::reverse(reverse.begin(), reverse.end());
-	result = std::move(reverse);
 	return true;
 }
 
 bool plan_route(sys::state& state, dcon::site_id origin, dcon::site_id destination,
 	std::vector<planned_leg>& result) {
-	if(!origin || !destination || origin == destination
-		|| !state.world.site_is_valid(origin) || !state.world.site_is_valid(destination)) return false;
-	if(plan_spatial_route(state, origin, destination, result)) return true;
-	auto origin_market = market_for_site(state, origin);
-	auto destination_market = market_for_site(state, destination);
-	if(!origin_market && !destination_market) {
-		result.push_back({ world_trade::transport_mode::local, {}, origin, destination,
-			local_distance(state, origin, destination) });
-		return result.size() <= 255;
-	}
-	if(!origin_market || !destination_market) return false;
-
-	auto origin_hub = deposits::market_hub_for(state, origin_market);
-	auto destination_hub = deposits::market_hub_for(state, destination_market);
-	if(origin_market == destination_market) {
-		if(!origin_hub || !destination_hub) {
-			result.push_back({ world_trade::transport_mode::local, {}, origin, destination,
-				local_distance(state, origin, destination) });
-			return true;
-		}
-		if(origin != origin_hub)
-			result.push_back({ world_trade::transport_mode::local, {}, origin, origin_hub,
-				local_distance(state, origin, origin_hub) });
-		if(origin_hub != destination_hub)
-			result.push_back({ world_trade::transport_mode::local, {}, origin_hub, destination_hub,
-				local_distance(state, origin_hub, destination_hub) });
-		if(destination_hub != destination)
-			result.push_back({ world_trade::transport_mode::local, {}, destination_hub, destination,
-				local_distance(state, destination_hub, destination) });
-		return !result.empty() && result.size() <= 255;
-	}
-
-	if(!origin_hub || !destination_hub) return false;
-	std::vector<market_path_step> path;
-	if(!find_market_path(state, origin_market, destination_market, path)) return false;
-	if(origin != origin_hub)
-		result.push_back({ world_trade::transport_mode::local, {}, origin, origin_hub,
-			local_distance(state, origin, origin_hub) });
-	auto current_hub = origin_hub;
-	for(auto const& step : path) {
-		auto next_hub = deposits::market_hub_for(state, step.market);
-		if(!next_hub) return false;
-		result.push_back({ step.mode, step.route, current_hub, next_hub, step.distance });
-		current_hub = next_hub;
-	}
-	if(current_hub != destination)
-		result.push_back({ world_trade::transport_mode::local, {}, current_hub, destination,
-			local_distance(state, current_hub, destination) });
-	return !result.empty() && result.size() <= 255;
+	if(!origin || !destination || origin == destination || !state.world.site_is_valid(origin) || !state.world.site_is_valid(destination)) return false;
+	return plan_spatial_route(state, origin, destination, result)
+		&& !result.empty() && result.size() <= 255;
 }
 
 float canonical_leg_capacity(sys::state const& state, dcon::shipment_route_leg_id leg) {
 	if(!leg || !state.world.shipment_route_leg_is_valid(leg)) return 0.0f;
-	auto mode = world_trade::transport_mode(state.world.shipment_route_leg_get_mode(leg));
-	if(mode != world_trade::transport_mode::local) {
-		auto route = state.world.shipment_route_leg_get_trade_route(leg);
-		if(!route || !state.world.trade_route_is_valid(route)) {
-			auto spatial = world::spatial_runtime::route_for_sites(state,
-				state.world.shipment_route_leg_get_origin_site(leg),
-				state.world.shipment_route_leg_get_destination_site(leg));
-			return spatial.connected ? spatial.bottleneck_capacity : 0.0f;
-		}
-		auto a = state.world.trade_route_get_connected_markets(route, 0);
-		auto b = state.world.trade_route_get_connected_markets(route, 1);
-		return std::min(world_trade::canonical_capacity(state, a, mode),
-			world_trade::canonical_capacity(state, b, mode));
-	}
 	auto site = state.world.shipment_route_leg_get_origin_site(leg);
 	auto destination = state.world.shipment_route_leg_get_destination_site(leg);
 	if(auto spatial = world::spatial_runtime::route_for_sites(state, site, destination);
 		spatial.connected && spatial.bottleneck_capacity > 0.0f)
-		return spatial.bottleneck_capacity;
-	auto market = market_for_site(state, site);
-	auto capacity = world_trade::canonical_capacity(state, market, mode);
-	// Only sites without a market mapping use the explicit transitional local
-	// resource. A mapped market's zero physical capacity remains zero.
-	return market ? capacity : 100.0f;
+		return std::isfinite(spatial.bottleneck_capacity)
+			? spatial.bottleneck_capacity : std::numeric_limits<float>::max();
+	return 0.0f;
 }
 
 uint64_t capacity_key(sys::state const& state, dcon::shipment_route_leg_id leg) {
-	auto route = state.world.shipment_route_leg_get_trade_route(leg);
-	if(route) return uint64_t(route.index()) + 1;
 	auto origin = state.world.shipment_route_leg_get_origin_site(leg);
 	auto destination = state.world.shipment_route_leg_get_destination_site(leg);
 	auto market = market_for_site(state, origin);
@@ -299,7 +120,6 @@ dcon::shipment_id create_shipment_from_plan(sys::state& state,
 		auto const& planned = plan[index];
 		auto leg = state.world.create_shipment_route_leg();
 		state.world.shipment_route_leg_set_mode(leg, uint8_t(planned.mode));
-		state.world.shipment_route_leg_set_trade_route(leg, planned.trade_route);
 		state.world.shipment_route_leg_set_origin_site(leg, planned.origin);
 		state.world.shipment_route_leg_set_destination_site(leg, planned.destination);
 		state.world.shipment_route_leg_set_sequence(leg, uint8_t(index));
@@ -317,25 +137,16 @@ dcon::shipment_id create_shipment_from_plan(sys::state& state,
 
 } // namespace
 
-uint32_t compatibility_travel_days(float distance) noexcept {
-	if(!std::isfinite(distance) || distance <= 0.0f)
-		return 1;
-	return uint32_t(std::max(1.0f, std::ceil(distance / compatibility_distance_units_per_day)));
-}
-
 bool can_dispatch(sys::state& state, dcon::site_id origin, dcon::site_id destination,
 	dcon::commodity_id commodity, float quantity) {
-	if(!origin || !destination || !commodity || !state.world.site_is_valid(origin)
-		|| !state.world.site_is_valid(destination) || !state.world.commodity_is_valid(commodity)
-		|| !std::isfinite(quantity) || quantity <= 0.0f) return false;
+	if(!origin || !destination || !commodity || !state.world.site_is_valid(origin) || !state.world.site_is_valid(destination) || !state.world.commodity_is_valid(commodity) || !std::isfinite(quantity) || quantity <= 0.0f) return false;
 	route_quote quote;
 	return quote_route(state, origin, destination, quote);
 }
 
 bool quote_route(sys::state& state, dcon::site_id origin, dcon::site_id destination,
 	route_quote& quote) {
-	if(!origin || !destination || !state.world.site_is_valid(origin)
-		|| !state.world.site_is_valid(destination)) return false;
+	if(!origin || !destination || !state.world.site_is_valid(origin) || !state.world.site_is_valid(destination)) return false;
 	std::vector<planned_leg> plan;
 	if(!plan_route(state, origin, destination, plan) || plan.empty() || plan.size() > 255)
 		return false;
@@ -345,7 +156,6 @@ bool quote_route(sys::state& state, dcon::site_id origin, dcon::site_id destinat
 		if(!std::isfinite(leg.distance) || leg.distance < 0.0f) return false;
 		quote.distance += leg.distance;
 		quote.required_mode_mask |= uint8_t(1u << uint8_t(leg.mode));
-		if(!quote.primary_trade_route && leg.trade_route) quote.primary_trade_route = leg.trade_route;
 	}
 	return std::isfinite(quote.distance);
 }
@@ -357,7 +167,7 @@ dcon::shipment_id dispatch(sys::state& state, dcon::site_id origin, dcon::site_i
 
 dcon::shipment_id dispatch_transfer(sys::state& state, dcon::site_id origin, dcon::site_id destination,
 	dcon::commodity_id commodity, float amount, dcon::economic_actor_id seller, dcon::economic_actor_id buyer) {
-	if(!origin || !destination || !commodity || (!seller != !buyer) || !std::isfinite(amount) || amount <= 0.0f)
+	if(!origin || !destination || !commodity || !seller != !buyer || !std::isfinite(amount) || amount <= 0.0f)
 		return dcon::shipment_id{};
 	std::vector<planned_leg> plan;
 	if(!plan_route(state, origin, destination, plan))
@@ -373,8 +183,7 @@ dcon::shipment_id dispatch_transfer(sys::state& state, dcon::site_id origin, dco
 dcon::shipment_id dispatch_exact(sys::state& state, persons::exact_population::person_key owner,
 	dcon::site_id origin, dcon::site_id destination, dcon::commodity_id commodity,
 	float amount, uint64_t exact_contract_id) {
-	if(!persons::exact_population::exists(state, owner) || !origin || !destination || origin == destination
-		|| !commodity || !std::isfinite(amount) || amount <= 0.0f) return {};
+	if(!persons::exact_population::exists(state, owner) || !origin || !destination || origin == destination || !commodity || !std::isfinite(amount) || amount <= 0.0f) return {};
 	std::vector<planned_leg> plan;
 	if(!plan_route(state, origin, destination, plan)) return {};
 	auto removed = exact_person_goods::remove_stock(state, owner, origin, commodity, amount);
@@ -407,8 +216,7 @@ void advance(sys::state& state) {
 	}
 
 	for(auto shipment : shipments) {
-		if(!state.world.shipment_is_valid(shipment)
-			|| lifecycle(state.world.shipment_get_lifecycle(shipment)) != lifecycle::queued) continue;
+		if(!state.world.shipment_is_valid(shipment) || lifecycle(state.world.shipment_get_lifecycle(shipment)) != lifecycle::queued) continue;
 		auto legs = route_legs(state, shipment);
 		auto profile = logistics::profile_for(state, state.world.shipment_get_commodity(shipment));
 		auto current = state.world.shipment_get_current_leg(shipment);
@@ -438,8 +246,7 @@ void advance(sys::state& state) {
 	}
 
 	for(auto shipment : shipments) {
-		if(!state.world.shipment_is_valid(shipment)
-			|| lifecycle(state.world.shipment_get_lifecycle(shipment)) != lifecycle::travelling) continue;
+		if(!state.world.shipment_is_valid(shipment) || lifecycle(state.world.shipment_get_lifecycle(shipment)) != lifecycle::travelling) continue;
 		auto days = state.world.shipment_get_remaining_days(shipment);
 		if(days > 1) {
 			state.world.shipment_set_remaining_days(shipment, days - 1);
@@ -479,62 +286,78 @@ void process_arrivals(sys::state& state) {
 	advance(state);
 }
 
+void project_route_volumes_to_legacy_view(sys::state& state) {
+	// Trade-route volume is a UI/read-model field. It is derived from shipments
+	// physically occupying their current route leg; it never creates trade.
+	state.world.for_each_trade_route([&](dcon::trade_route_id route) {
+		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+			state.world.trade_route_set_volume(route, commodity, 0.0f);
+		});
+	});
+
+	state.world.for_each_shipment([&](dcon::shipment_id shipment) {
+		auto const status = lifecycle(state.world.shipment_get_lifecycle(shipment));
+		if(status != lifecycle::queued && status != lifecycle::travelling) return;
+		auto const quantity = state.world.shipment_get_remaining_quantity(shipment);
+		if(!std::isfinite(quantity) || quantity <= 0.0f) return;
+		auto const legs = route_legs(state, shipment);
+		auto const current = state.world.shipment_get_current_leg(shipment);
+		if(current >= legs.size()) return;
+		auto const leg = legs[current];
+		auto const route = state.world.shipment_route_leg_get_trade_route(leg);
+		if(!route || !state.world.trade_route_is_valid(route)) return;
+		auto const origin = market_for_site(state,
+			state.world.shipment_route_leg_get_origin_site(leg));
+		auto const destination = market_for_site(state,
+			state.world.shipment_route_leg_get_destination_site(leg));
+		auto const market_a = state.world.trade_route_get_connected_markets(route, 0);
+		auto const market_b = state.world.trade_route_get_connected_markets(route, 1);
+		float direction = 0.0f;
+		if(origin == market_a && destination == market_b) direction = 1.0f;
+		else if(origin == market_b && destination == market_a) direction = -1.0f;
+		if(direction == 0.0f) return;
+		auto const commodity = state.world.shipment_get_commodity(shipment);
+		auto const old_volume = state.world.trade_route_get_volume(route, commodity);
+		state.world.trade_route_set_volume(route, commodity,
+			old_volume + direction * quantity);
+	});
+}
+
 void process_rgo_output(sys::state& state) {
 	// Canonical deposits are the only source of canonical extraction.  In
 	// particular this path never consults province.rgo_output.
+	state.world.for_each_province([&](dcon::province_id province) {
+		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+			state.world.province_set_rgo_output(province, commodity, 0.0f);
+			state.world.province_set_rgo_output_per_worker(province, commodity, 0.0f);
+		});
+	});
 	state.world.for_each_resource_deposit([&](dcon::resource_deposit_id deposit) {
-		if(state.world.resource_deposit_get_legacy_compatibility_deposit(deposit)) return;
 		auto commodity = state.world.resource_deposit_get_commodity(deposit);
-		if(!commodity || state.world.commodity_get_is_local(commodity) || state.world.commodity_get_money_rgo(commodity)) return;
+		if(!commodity) {
+			assert(false && "canonical resource deposit requires a commodity");
+			std::abort();
+		}
 		auto operator_actor = actors::ownership::operator_for_deposit(state, deposit);
 		auto site = state.world.resource_deposit_get_site_from_resource_deposit_site(deposit);
 		auto province = site ? state.world.site_get_province_from_site_location(site) : dcon::province_id{};
 		auto zone = province ? state.world.province_get_state_membership(province) : dcon::state_instance_id{};
 		auto market = zone ? state.world.state_instance_get_market_from_local_market(zone) : dcon::market_id{};
 		auto hub = market ? deposits::market_hub_for(state, market) : dcon::site_id{};
-		if(!operator_actor || !site || !hub) return;
+		if(!operator_actor || !site || !hub) {
+			assert(false && "canonical resource deposit requires an operator, site, and market hub");
+			std::abort();
+		}
 		auto target = state.world.resource_deposit_get_target_daily_extraction(deposit);
 		auto amount = extraction::extract_resource(state, deposit, operator_actor, target, state.current_date);
+		if(amount > 0.0f) {
+			auto previous = state.world.province_get_rgo_output(province, commodity);
+			state.world.province_set_rgo_output(province, commodity, previous + amount);
+		}
 		if(amount > 0.0f && !dispatch(state, site, hub, commodity, amount, operator_actor)) {
 			// Extraction is already a committed physical event. A failed dispatch
 			// leaves the operator stock at the extraction site for a later retry.
 		}
-	});
-}
-
-void process_legacy_rgo_output(sys::state& state) {
-	// Explicit compatibility boundary.  This is retained for old callers that
-	// still consume the Alice RGO aggregate; it must never be called by the
-	// canonical physical production path.
-	state.world.for_each_province([&](dcon::province_id province) {
-		auto zone = state.world.province_get_state_membership(province);
-		auto market = state.world.state_instance_get_market_from_local_market(zone);
-		auto hub = deposits::market_hub_for(state, market);
-		if(!hub)
-			return;
-		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-			if(state.world.commodity_get_rgo_amount(commodity) <= 0.0f
-				|| state.world.commodity_get_money_rgo(commodity))
-				return;
-			auto output = state.world.province_get_rgo_output(province, commodity);
-			if(output <= 0.0f)
-				return;
-			if(state.world.commodity_get_is_local(commodity)) {
-				register_domestic_supply(state, market, commodity, output, economy_reason::rgo);
-				return;
-			}
-			auto deposit = deposits::deposit_for(state, province, commodity);
-			if(!deposit || !state.world.resource_deposit_get_legacy_compatibility_deposit(deposit))
-				return;
-			auto extraction = deposit ? state.world.resource_deposit_get_site_from_resource_deposit_site(deposit) : dcon::site_id{};
-			if(!extraction)
-				return;
-			auto owner = actors::ownership::operator_for_deposit(state, deposit);
-			if(!owner)
-				return;
-			inventory::add(state, extraction, commodity, output, owner);
-			dispatch(state, extraction, hub, commodity, output, owner);
-		});
 	});
 }
 

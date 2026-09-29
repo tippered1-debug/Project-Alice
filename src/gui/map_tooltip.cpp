@@ -962,8 +962,7 @@ void relation_map_tt_box(sys::state& state, text::columnar_layout& contents, dco
 	if(prov.value < state.province_definitions.first_sea_province.value) {
 		auto box = text::open_layout_box(contents);
 
-		if(dcon::fatten(state.world, state.map_state.selected_province).is_valid()
-		&& dcon::fatten(state.world, state.map_state.selected_province).get_nation_from_province_ownership() != fat.get_nation_from_province_ownership()) {
+		if(dcon::fatten(state.world, state.map_state.selected_province).is_valid() && dcon::fatten(state.world, state.map_state.selected_province).get_nation_from_province_ownership() != fat.get_nation_from_province_ownership()) {
 			text::substitution_map sub;
 			auto rel = state.world.get_diplomatic_relation_by_diplomatic_pair(fat.get_nation_from_province_ownership().id, dcon::fatten(state.world, state.map_state.selected_province).get_nation_from_province_ownership());
 			auto fat_rel = dcon::fatten(state.world, rel);
@@ -972,8 +971,7 @@ void relation_map_tt_box(sys::state& state, text::columnar_layout& contents, dco
 			text::add_to_substitution_map(sub, text::variable_type::relation, int32_t(fat_rel.get_value()));
 			text::localised_format_box(state, contents, box, std::string_view("relation_between"), sub);
 
-		} else if(!dcon::fatten(state.world, state.map_state.selected_province).is_valid()
-			&& dcon::fatten(state.world, state.local_player_nation) != fat.get_nation_from_province_ownership()) {
+		} else if(!dcon::fatten(state.world, state.map_state.selected_province).is_valid() && dcon::fatten(state.world, state.local_player_nation) != fat.get_nation_from_province_ownership()) {
 			text::substitution_map sub;
 			auto rel = state.world.get_diplomatic_relation_by_diplomatic_pair(fat.get_nation_from_province_ownership().id, state.local_player_nation);
 			auto fat_rel = dcon::fatten(state.world, rel);
@@ -1002,9 +1000,7 @@ void naval_map_tt_box(sys::state& state, text::columnar_layout& contents, dcon::
 	auto fat = dcon::fatten(state.world, prov);
 	country_name_box(state, contents, prov);
 
-	if(prov.value < state.province_definitions.first_sea_province.value
-	&& fat.get_nation_from_province_ownership().id.value == state.local_player_nation.value
-	&& fat.get_is_coast()) {
+	if(prov.value < state.province_definitions.first_sea_province.value && fat.get_nation_from_province_ownership().id.value == state.local_player_nation.value && fat.get_is_coast()) {
 		auto box = text::open_layout_box(contents);
 		if(fat.get_building_level(uint8_t(economy::province_building_type::naval_base)) == 0) {
 			dcon::province_id navalprov{};

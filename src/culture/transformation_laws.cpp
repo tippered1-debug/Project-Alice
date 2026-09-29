@@ -74,12 +74,9 @@ snapshot for_nation(sys::state const& state, dcon::nation_id nation) {
 		result.land_tax = land_tax_regime::standard;
 	else if(selected_option_is(state, nation, "alice_land_tax_high"))
 		result.land_tax = land_tax_regime::high;
-	if(selected_option_is(state, nation, "alice_collective_bargaining_recognized")
-		|| selected_option_is(state, nation, "state_controlled"))
+	if(selected_option_is(state, nation, "alice_collective_bargaining_recognized") || selected_option_is(state, nation, "state_controlled"))
 		result.collective_bargaining = collective_bargaining_regime::recognized;
-	else if(selected_option_is(state, nation, "alice_collective_bargaining_protected")
-		|| selected_option_is(state, nation, "non_socialist")
-		|| selected_option_is(state, nation, "all_trade_unions"))
+	else if(selected_option_is(state, nation, "alice_collective_bargaining_protected") || selected_option_is(state, nation, "non_socialist") || selected_option_is(state, nation, "all_trade_unions"))
 		result.collective_bargaining = collective_bargaining_regime::protected_right;
 	return result;
 }

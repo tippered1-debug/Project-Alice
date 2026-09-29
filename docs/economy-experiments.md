@@ -12,7 +12,7 @@ the runner and establishes a baseline before a gameplay change is added:
 ```sh
 python3 scripts/run_economy_experiment.py \
   build/macos-arm64-debug/AliceIncremental 1.bin \
-  --days 365 --snapshot-every 30 --common-arg=--age-of-transformation
+  --days 365 --snapshot-every 30
 ```
 
 When an experiment introduces a runtime-selectable candidate switch, state the
@@ -24,7 +24,7 @@ of unemployment:
 ```sh
 python3 scripts/run_economy_experiment.py \
   build/macos-arm64-debug/AliceIncremental 1.bin \
-  --days 3650 --common-arg=--age-of-transformation \
+  --days 3650 \
   --candidate-arg=--factory-growth-cap \
   --min-gdp-relative-change=-0.01 --min-life-needs-delta=-0.005 \
   --max-unemployment-delta=0.01

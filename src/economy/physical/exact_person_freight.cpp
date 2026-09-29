@@ -11,7 +11,9 @@
 #include "system_state.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 
@@ -34,13 +36,15 @@ constexpr uint32_t snapshot_version = 1;
 constexpr float epsilon = 1.0e-5f;
 
 std::shared_ptr<exact_person_freight_store> ensure_store(sys::state& state) {
-	if(!state.exact_person_freight)
-		state.exact_person_freight = std::make_shared<exact_person_freight_store>();
+	assert(state.exact_person_freight && "exact person freight store must be initialized before simulation");
+	if(!state.exact_person_freight) std::abort();
 	return state.exact_person_freight;
 }
 
 std::shared_ptr<exact_person_freight_store> ensure_store(sys::state const& state) {
-	return ensure_store(const_cast<sys::state&>(state));
+	assert(state.exact_person_freight && "exact person freight store must be initialized before lookup");
+	if(!state.exact_person_freight) std::abort();
+	return state.exact_person_freight;
 }
 
 bool positive_finite(float value) { return std::isfinite(value) && value > 0.0f; }
@@ -96,8 +100,7 @@ float reserved_source_quantity(sys::state const& state, person_key owner,
 	dcon::site_id source, dcon::commodity_id commodity) {
 	float result = 0.0f;
 	for(auto const& record : ensure_store(state)->requests)
-		if(record.requester == owner && record.source == source && record.commodity == commodity
-			&& record.status == request_status::pending) result += record.quantity;
+		if(record.requester == owner && record.source == source && record.commodity == commodity && record.status == request_status::pending) result += record.quantity;
 	return std::max(0.0f, result);
 }
 
@@ -109,8 +112,7 @@ float incoming_quantity(sys::state const& state, person_key owner, dcon::site_id
 		if(request.status == request_status::pending) result += request.quantity;
 	}
 	for(auto const& contract : ensure_store(state)->contracts) {
-		if(contract.requester != owner || contract.destination != destination || contract.commodity != commodity
-			|| contract.status != contract_status::accepted) continue;
+		if(contract.requester != owner || contract.destination != destination || contract.commodity != commodity || contract.status != contract_status::accepted) continue;
 		if(contract.shipment && state.world.shipment_is_valid(contract.shipment))
 			result += std::max(0.0f, state.world.shipment_get_remaining_quantity(contract.shipment));
 	}
@@ -119,11 +121,7 @@ float incoming_quantity(sys::state const& state, person_key owner, dcon::site_id
 
 uint64_t create_request(sys::state& state, person_key requester, dcon::site_id source,
 	dcon::site_id destination, dcon::commodity_id commodity, float quantity, uint64_t originating_fill_id) {
-	if(!persons::exact_population::exists(state, requester) || !persons::exact_population::alive(state, requester)
-		|| !source || !destination || source == destination || !state.world.site_is_valid(source)
-		|| !state.world.site_is_valid(destination) || !commodity || !state.world.commodity_is_valid(commodity)
-		|| !positive_finite(quantity)
-		|| exact_person_goods::stock_quantity(state, requester, source, commodity)
+	if(!persons::exact_population::exists(state, requester) || !persons::exact_population::alive(state, requester) || !source || !destination || source == destination || !state.world.site_is_valid(source) || !state.world.site_is_valid(destination) || !commodity || !state.world.commodity_is_valid(commodity) || !positive_finite(quantity) || exact_person_goods::stock_quantity(state, requester, source, commodity)
 			- float(reserved_source_quantity(state, requester, source, commodity)) + epsilon < quantity) return 0;
 	auto profile = logistics::profile_for(state, commodity);
 	auto id = next_id(ensure_store(state)->next_request_id);
@@ -160,8 +158,7 @@ uint64_t shipment_owner_count(sys::state const& state) { return ensure_store(sta
 
 uint64_t match_request(sys::state& state, uint64_t request_id) {
 	auto request = request_for(state, request_id);
-	if(!request || request->status != request_status::pending
-		|| !persons::exact_population::exists(state, request->requester)) return 0;
+	if(!request || request->status != request_status::pending || !persons::exact_population::exists(state, request->requester)) return 0;
 	shipments::route_quote route;
 	if(!shipments::quote_route(state, request->source, request->destination, route)) return 0;
 	request->route_distance = route.distance; request->primary_trade_route = route.primary_trade_route;
@@ -230,7 +227,8 @@ uint64_t match_request(sys::state& state, uint64_t request_id) {
 }
 
 void process_pending_requests(sys::state& state) {
-	if(!state.exact_person_freight) return;
+	assert(state.exact_person_freight && "exact person freight store must be initialized before routing");
+	if(!state.exact_person_freight) std::abort();
 	for(auto id : pending_request_ids(state)) (void)match_request(state, id);
 }
 
@@ -253,8 +251,7 @@ void cancel_request(sys::state& state, uint64_t request_id) {
 }
 
 bool register_shipment_owner(sys::state& state, dcon::shipment_id shipment, person_key owner, uint64_t contract_id) {
-	if(!shipment || !state.world.shipment_is_valid(shipment) || !persons::exact_population::exists(state, owner)
-		|| !contract_for(state, contract_id)) return false;
+	if(!shipment || !state.world.shipment_is_valid(shipment) || !persons::exact_population::exists(state, owner) || !contract_for(state, contract_id)) return false;
 	if(shipment_owner_for(state, shipment)) return false;
 	ensure_store(state)->shipment_owners.push_back({shipment, owner, contract_id});
 	return true;
@@ -269,24 +266,13 @@ bool complete_external_shipment(sys::state& state, dcon::shipment_id shipment, f
 	auto owner_record = shipment_owner_for(state, shipment);
 	if(!owner_record) return false;
 	auto contract = contract_for(state, owner_record->contract_id);
-	if(!contract || contract->status != contract_status::accepted || contract->shipment != shipment
-		|| contract->requester != owner_record->owner) return false;
+	if(!contract || contract->status != contract_status::accepted || contract->shipment != shipment || contract->requester != owner_record->owner) return false;
 	auto request = request_for(state, contract->request_id);
-	if(!request || request->status != request_status::contracted
-		|| request->requester != contract->requester || request->source != contract->source
-		|| request->destination != contract->destination || request->commodity != contract->commodity) return false;
-	if(!persons::exact_population::exists(state, owner_record->owner)
-		|| !contract->source || !contract->destination || contract->source == contract->destination
-		|| !state.world.site_is_valid(contract->source) || !state.world.site_is_valid(contract->destination)
-		|| !contract->commodity || !state.world.commodity_is_valid(contract->commodity)
-		|| !contract->offer || !state.world.freight_offer_is_valid(contract->offer)
-		|| !contract->carrier || !state.world.carrier_is_valid(contract->carrier)) return false;
+	if(!request || request->status != request_status::contracted || request->requester != contract->requester || request->source != contract->source || request->destination != contract->destination || request->commodity != contract->commodity) return false;
+	if(!persons::exact_population::exists(state, owner_record->owner) || !contract->source || !contract->destination || contract->source == contract->destination || !state.world.site_is_valid(contract->source) || !state.world.site_is_valid(contract->destination) || !contract->commodity || !state.world.commodity_is_valid(contract->commodity) || !contract->offer || !state.world.freight_offer_is_valid(contract->offer) || !contract->carrier || !state.world.carrier_is_valid(contract->carrier)) return false;
 	auto shipment_origin_relation = state.world.shipment_get_shipment_origin(shipment);
 	auto shipment_destination_relation = state.world.shipment_get_shipment_destination(shipment);
-	if(!shipment_origin_relation || !shipment_destination_relation
-		|| state.world.shipment_origin_get_site(shipment_origin_relation) != contract->source
-		|| state.world.shipment_destination_get_site(shipment_destination_relation) != contract->destination
-		|| state.world.shipment_get_commodity(shipment) != contract->commodity) return false;
+	if(!shipment_origin_relation || !shipment_destination_relation || state.world.shipment_origin_get_site(shipment_origin_relation) != contract->source || state.world.shipment_destination_get_site(shipment_destination_relation) != contract->destination || state.world.shipment_get_commodity(shipment) != contract->commodity) return false;
 	auto remaining = state.world.shipment_get_remaining_quantity(shipment);
 	if(!nonnegative_finite(remaining) || surviving_quantity > remaining + epsilon) return false;
 	auto mappings = std::count_if(ensure_store(state)->shipment_owners.begin(),
@@ -294,10 +280,8 @@ bool complete_external_shipment(sys::state& state, dcon::shipment_id shipment, f
 	if(mappings != 1) return false;
 	auto existing_stock = exact_person_goods::stock_quantity(state, owner_record->owner,
 		contract->destination, contract->commodity);
-	if(!nonnegative_finite(existing_stock)
-		|| surviving_quantity > std::numeric_limits<float>::max() - existing_stock) return false;
-	if(surviving_quantity > epsilon
-		&& exact_person_goods::add_stock(state, owner_record->owner, contract->destination,
+	if(!nonnegative_finite(existing_stock) || surviving_quantity > std::numeric_limits<float>::max() - existing_stock) return false;
+	if(surviving_quantity > epsilon && exact_person_goods::add_stock(state, owner_record->owner, contract->destination,
 			contract->commodity, surviving_quantity) != surviving_quantity) return false;
 
 	freight_market::release_capacity(state, contract->offer, contract->carrier, contract->cargo_units);
@@ -321,12 +305,7 @@ bool import_snapshot(sys::state& state, freight_snapshot const& snapshot) {
 	if(snapshot.version != snapshot_version) return false;
 	auto candidate = std::make_shared<exact_person_freight_store>();
 	for(auto record : snapshot.requests) {
-		if(!record.id || !persons::exact_population::exists(state, record.requester) || !record.source || !record.destination
-			|| !state.world.site_is_valid(record.source) || !state.world.site_is_valid(record.destination)
-			|| record.source == record.destination || !record.commodity || !state.world.commodity_is_valid(record.commodity)
-			|| !positive_finite(record.quantity) || !nonnegative_finite(record.cargo_units)
-			|| uint8_t(record.status) > uint8_t(request_status::canceled)
-			|| std::any_of(candidate->requests.begin(), candidate->requests.end(),
+		if(!record.id || !persons::exact_population::exists(state, record.requester) || !record.source || !record.destination || !state.world.site_is_valid(record.source) || !state.world.site_is_valid(record.destination) || record.source == record.destination || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.quantity) || !nonnegative_finite(record.cargo_units) || uint8_t(record.status) > uint8_t(request_status::canceled) || std::any_of(candidate->requests.begin(), candidate->requests.end(),
 				[&](auto const& existing) { return existing.id == record.id; })) return false;
 		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::freight_request);
 		if(record.causal_sequence == 0) return false;
@@ -339,45 +318,14 @@ bool import_snapshot(sys::state& state, freight_snapshot const& snapshot) {
 		auto payer = exact_person_economy::account_ref::from_exact(record.exact_payer_account_id);
 		auto carrier_account = exact_person_economy::account_ref::from_dcon(record.carrier_account);
 		auto payment = exact_person_economy::transaction(state, record.exact_payment_transaction_id);
-		if(!record.id || !record.request_id || !record.offer || !state.world.freight_offer_is_valid(record.offer)
-			|| !record.carrier || !state.world.carrier_is_valid(record.carrier) || !record.carrier_account
-			|| !state.world.monetary_account_is_valid(record.carrier_account)
-			|| !record.exact_payer_account_id
-			|| !exact_person_economy::account_exists(state, payer)
-			|| !persons::exact_population::exists(state, record.requester)
-			|| exact_person_economy::owner_of(state, payer) != record.requester
-			|| !record.commodity || !state.world.commodity_is_valid(record.commodity) || !record.source || !record.destination
-			|| !state.world.site_is_valid(record.source) || !state.world.site_is_valid(record.destination)
-			|| !positive_finite(record.quantity) || !nonnegative_finite(record.cargo_units)
-			|| !positive_finite(record.agreed_freight_price) || !record.exact_payment_transaction_id
-			|| !payment || payment->kind != relations::transaction_kind::freight
-			|| payment->source != payer || payment->destination != carrier_account
-			|| payment->settlement != exact_person_economy::settlement_of(state, payer)
-			|| payment->settlement != accounts::settlement_of(state, record.carrier_account)
-			|| !approximately_equal(payment->amount, record.agreed_freight_price)
-			|| state.world.freight_offer_get_carrier_from_freight_offer_carrier(record.offer) != record.carrier
-			|| state.world.carrier_get_monetary_account_from_carrier_account(record.carrier) != record.carrier_account
-			|| uint8_t(record.status) > uint8_t(contract_status::canceled)
-			|| std::any_of(candidate->contracts.begin(), candidate->contracts.end(),
-				[&](auto const& existing) { return existing.id == record.id || existing.request_id == record.request_id; })
-			|| request == candidate->requests.end()
-			|| request->requester != record.requester || request->source != record.source
-			|| request->destination != record.destination || request->commodity != record.commodity
-			|| (record.status == contract_status::accepted
-				&& (request->status != request_status::contracted
-					|| !record.shipment || !state.world.shipment_is_valid(record.shipment)))
-			|| (record.status == contract_status::fulfilled && request->status != request_status::fulfilled)
-			|| (record.status != contract_status::accepted && record.shipment)) return false;
+		if(!record.id || !record.request_id || !record.offer || !state.world.freight_offer_is_valid(record.offer) || !record.carrier || !state.world.carrier_is_valid(record.carrier) || !record.carrier_account || !state.world.monetary_account_is_valid(record.carrier_account) || !record.exact_payer_account_id || !exact_person_economy::account_exists(state, payer) || !persons::exact_population::exists(state, record.requester) || exact_person_economy::owner_of(state, payer) != record.requester || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !record.source || !record.destination || !state.world.site_is_valid(record.source) || !state.world.site_is_valid(record.destination) || !positive_finite(record.quantity) || !nonnegative_finite(record.cargo_units) || !positive_finite(record.agreed_freight_price) || !record.exact_payment_transaction_id || !payment || payment->kind != relations::transaction_kind::freight || payment->source != payer || payment->destination != carrier_account || payment->settlement != exact_person_economy::settlement_of(state, payer) || payment->settlement != accounts::settlement_of(state, record.carrier_account) || !approximately_equal(payment->amount, record.agreed_freight_price) || state.world.freight_offer_get_carrier_from_freight_offer_carrier(record.offer) != record.carrier || state.world.carrier_get_monetary_account_from_carrier_account(record.carrier) != record.carrier_account || uint8_t(record.status) > uint8_t(contract_status::canceled) || std::any_of(candidate->contracts.begin(), candidate->contracts.end(),
+				[&](auto const& existing) { return existing.id == record.id || existing.request_id == record.request_id; }) || request == candidate->requests.end() || request->requester != record.requester || request->source != record.source || request->destination != record.destination || request->commodity != record.commodity || record.status == contract_status::accepted && request->status != request_status::contracted || !record.shipment || !state.world.shipment_is_valid(record.shipment) || record.status == contract_status::fulfilled && request->status != request_status::fulfilled || record.status != contract_status::accepted && record.shipment) return false;
 		candidate->contracts.push_back(record); candidate->next_contract_id = std::max(candidate->next_contract_id, record.id + 1);
 	}
 	for(auto const& record : snapshot.shipment_owners) {
 		auto contract = std::find_if(candidate->contracts.begin(), candidate->contracts.end(),
 			[&](auto const& candidate_contract) { return candidate_contract.id == record.contract_id; });
-		if(!record.shipment || !state.world.shipment_is_valid(record.shipment) || !persons::exact_population::exists(state, record.owner)
-			|| contract == candidate->contracts.end() || contract->status != contract_status::accepted
-			|| contract->requester != record.owner
-			|| contract->shipment != record.shipment
-			|| std::any_of(candidate->shipment_owners.begin(), candidate->shipment_owners.end(),
+		if(!record.shipment || !state.world.shipment_is_valid(record.shipment) || !persons::exact_population::exists(state, record.owner) || contract == candidate->contracts.end() || contract->status != contract_status::accepted || contract->requester != record.owner || contract->shipment != record.shipment || std::any_of(candidate->shipment_owners.begin(), candidate->shipment_owners.end(),
 				[&](auto const& existing) { return existing.shipment == record.shipment; })) return false;
 		candidate->shipment_owners.push_back(record);
 	}
@@ -395,6 +343,12 @@ bool import_snapshot(sys::state& state, freight_snapshot const& snapshot) {
 	}
 	state.exact_person_freight = std::move(candidate);
 	return true;
+}
+
+void initialize_empty_store(sys::state& state) {
+	assert(!state.exact_person_freight && "exact person freight store initialized more than once");
+	if(state.exact_person_freight) std::abort();
+	state.exact_person_freight = std::make_shared<exact_person_freight_store>();
 }
 
 void clear_store(sys::state& state) { state.exact_person_freight.reset(); }

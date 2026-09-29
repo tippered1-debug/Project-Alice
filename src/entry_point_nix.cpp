@@ -256,7 +256,6 @@ int main(int argc, char* argv[]) {
 	uint64_t requested_seed = 0;
 	bool seed_was_requested = false;
 	bool fail_on_invariant = true;
-	bool force_age_of_transformation = false;
 	bool force_flat_map = false;
 	bool synthetic_lab = false;
 	sys::simulation::synthetic_lab_result synthetic_lab_state{};
@@ -462,12 +461,9 @@ int main(int argc, char* argv[]) {
 				headless = true;
 			} else if(native_string(argv[i]) == NATIVE("--no-fail-on-invariant")) {
 				fail_on_invariant = false;
-			} else if(native_string(argv[i]) == NATIVE("--age-of-transformation")) {
-				force_age_of_transformation = true;
 			}
 		}
-		// Runtime-only flags (for example --age-of-transformation) should not
-		// prevent the normal scenario selection flow. This is especially
+		// Runtime-only flags should not prevent the normal scenario selection flow. This is especially
 		// important for macOS .app launches, where the bundle supplies ruleset
 		// flags but the user's scenario still lives in Alice's data directory.
 		if(selected_scenario_file.empty() && !synthetic_lab) {
@@ -521,12 +517,7 @@ int main(int argc, char* argv[]) {
 			}
 			window::emit_error_message("Loaded checkpoint save " + load_save_name + "\n", false);
 		}
-		game_state.force_age_of_transformation_ruleset = force_age_of_transformation;
 		game_state.fill_unsaved_data();
-		if(force_age_of_transformation) {
-			window::emit_error_message(
-				"Age of Transformation runtime override enabled for this session.\n", false);
-		}
 	} else {
 		window::emit_error_message("Scenario file could not be read.", true);
 	}

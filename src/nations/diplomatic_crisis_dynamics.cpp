@@ -165,7 +165,7 @@ breakdown calculate(inputs raw_inputs) {
 
 breakdown evaluate_current_crisis(sys::state const& state) {
 	inputs derived;
-	derived.enabled = gamerule::age_of_transformation_enabled(state);
+	derived.enabled = true;
 	if(!derived.enabled)
 		return calculate(derived);
 	derived.active = state.current_crisis_state != sys::crisis_state::inactive;
@@ -196,14 +196,12 @@ breakdown evaluate_current_crisis(sys::state const& state) {
 
 	// Participants are populated only after both backers have been found. These
 	// fallbacks keep the diagnostic meaningful during the two formation states.
-	if(derived.committed_attackers == 0 && state.primary_crisis_attacker
-		&& state.world.nation_is_valid(state.primary_crisis_attacker)) {
+	if(derived.committed_attackers == 0 && state.primary_crisis_attacker && state.world.nation_is_valid(state.primary_crisis_attacker)) {
 		derived.committed_attackers = 1;
 		derived.attacker_power = power_score(state, state.primary_crisis_attacker);
 		attacker_exhaustion_sum = normalized_exhaustion(state, state.primary_crisis_attacker);
 	}
-	if(derived.committed_defenders == 0 && state.primary_crisis_defender
-		&& state.world.nation_is_valid(state.primary_crisis_defender)) {
+	if(derived.committed_defenders == 0 && state.primary_crisis_defender && state.world.nation_is_valid(state.primary_crisis_defender)) {
 		derived.committed_defenders = 1;
 		derived.defender_power = power_score(state, state.primary_crisis_defender);
 		defender_exhaustion_sum = normalized_exhaustion(state, state.primary_crisis_defender);

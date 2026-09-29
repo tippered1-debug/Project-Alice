@@ -137,15 +137,13 @@ void gui_element_common::position(gfx_xy_pair const& pr, error_handler& err, int
 
 void gui_element_common::orientation(association_type, std::string_view txt, error_handler& err, int32_t line,
 		building_gfx_context& context) {
-	if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "center") ||
-			is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "centre")) {
+	if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "center") || is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "centre")) {
 		target.flags |= uint8_t(ui::orientation::center);
 	} else if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "lower_left")) {
 		target.flags |= uint8_t(ui::orientation::lower_left);
 	} else if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "lower_right")) {
 		target.flags |= uint8_t(ui::orientation::lower_right);
-	} else if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "upper_left") ||
-						is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "upperl_left")) {
+	} else if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "upper_left") || is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "upperl_left")) {
 		target.flags |= uint8_t(ui::orientation::upper_left);
 	} else if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "upper_right")) {
 		target.flags |= uint8_t(ui::orientation::upper_right);
@@ -167,11 +165,9 @@ void gui_element_common::extends(association_type, std::string_view txt, error_h
 }
 void gui_element_common::rotation(association_type, std::string_view txt, error_handler& err, int32_t line,
 		building_gfx_context& context) {
-	if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "-1.5708")
-	|| is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "-1.570796")) {
+	if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "-1.5708") || is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "-1.570796")) {
 		target.flags |= uint8_t(ui::rotation::r90_right);
-	} else if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "1.5708")
-		|| is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "1.570796")) {
+	} else if(is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "1.5708") || is_fixed_token_ci(txt.data(), txt.data() + txt.length(), "1.570796")) {
 		target.flags |= uint8_t(ui::rotation::r90_left);
 	} else if(parse_float(txt, line, err) == 0.0f) {
 		target.flags |= uint8_t(ui::rotation::upright);
@@ -223,11 +219,11 @@ void button::shortcut(association_type, std::string_view t, error_handler& err, 
 	if(t.length() == size_t(0))
 		target.data.button.shortcut = sys::virtual_key::NONE;
 	else if(t.length() == size_t(1)) {
-		if((t[0] >= 'a') && (t[0] <= 'z')) {
+		if(t[0] >= 'a' && t[0] <= 'z') {
 			target.data.button.shortcut = sys::virtual_key((uint8_t)sys::virtual_key::A + (t[0] - 'a'));
-		} else if((t[0] >= 'A') && (t[0] <= 'Z')) {
+		} else if(t[0] >= 'A' && t[0] <= 'Z') {
 			target.data.button.shortcut = sys::virtual_key((uint8_t)sys::virtual_key::A + (t[0] - 'A'));
-		} else if((t[0] >= '0') && (t[0] <= '9')) {
+		} else if(t[0] >= '0' && t[0] <= '9') {
 			target.data.button.shortcut = sys::virtual_key((uint8_t)sys::virtual_key::NUM_0 + (t[0] - '0'));
 		} else if(t[0] == ':') {
 			target.data.button.shortcut = sys::virtual_key::SEMICOLON;
@@ -416,8 +412,7 @@ void button::buttonfont(association_type, std::string_view txt, error_handler& e
 }
 
 void button::format(association_type, std::string_view t, error_handler& err, int32_t line, building_gfx_context& context) {
-	if(is_fixed_token_ci(t.data(), t.data() + t.length(), "centre") ||
-			is_fixed_token_ci(t.data(), t.data() + t.length(), "center")) {
+	if(is_fixed_token_ci(t.data(), t.data() + t.length(), "centre") || is_fixed_token_ci(t.data(), t.data() + t.length(), "center")) {
 		target.data.button.flags |= uint8_t(ui::alignment::centered);
 	} else if(is_fixed_token_ci(t.data(), t.data() + t.length(), "left")) {
 		target.data.button.flags |= uint8_t(ui::alignment::left);
@@ -535,8 +530,7 @@ void textbox::font(association_type, std::string_view txt, error_handler& err, i
 	target.data.text.font_handle = text::name_into_font_id(context.full_state, txt);
 }
 void textbox::format(association_type, std::string_view t, error_handler& err, int32_t line, building_gfx_context& context) {
-	if(is_fixed_token_ci(t.data(), t.data() + t.length(), "centre") ||
-			is_fixed_token_ci(t.data(), t.data() + t.length(), "center")) {
+	if(is_fixed_token_ci(t.data(), t.data() + t.length(), "centre") || is_fixed_token_ci(t.data(), t.data() + t.length(), "center")) {
 		target.data.text.flags |= uint8_t(ui::alignment::centered);
 	} else if(is_fixed_token_ci(t.data(), t.data() + t.length(), "left")) {
 		target.data.text.flags |= uint8_t(ui::alignment::left);
@@ -599,8 +593,7 @@ overlapping::overlapping() {
 	target.flags = uint8_t(ui::element_type::overlapping);
 }
 void overlapping::format(association_type, std::string_view t, error_handler& err, int32_t line, building_gfx_context& context) {
-	if(is_fixed_token_ci(t.data(), t.data() + t.length(), "centre") ||
-			is_fixed_token_ci(t.data(), t.data() + t.length(), "center")) {
+	if(is_fixed_token_ci(t.data(), t.data() + t.length(), "centre") || is_fixed_token_ci(t.data(), t.data() + t.length(), "center")) {
 		target.data.overlapping.image_alignment = ui::alignment::centered;
 	} else if(is_fixed_token_ci(t.data(), t.data() + t.length(), "left")) {
 		target.data.overlapping.image_alignment = ui::alignment::left;

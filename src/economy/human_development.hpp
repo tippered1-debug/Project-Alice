@@ -5,11 +5,9 @@
 
 namespace economy::human_development {
 
-// The first Cities and Human Development slice deliberately derives its state
-// from existing POP, service, and city data. It therefore needs no save-format
-// migration and remains an exact no-op outside Age of Transformation.
+// City pressure, access to jobs, and education feed demographic decisions in
+// the canonical runtime.
 struct config {
-	bool enabled = false;
 	float maximum_overcrowding_growth_penalty = 0.0012f;
 	float maximum_transition_growth_reduction = 0.00035f;
 	float maximum_overcrowding_militancy = 0.10f;
@@ -50,7 +48,7 @@ struct demographic_account {
 	float net_natural_change = 0.f;
 };
 
-config ruleset_config_for(sys::state const& state);
+config canonical_config_for(sys::state const& state);
 breakdown calculate(config const& rules, inputs raw_inputs);
 breakdown evaluate_province(sys::state const& state, dcon::province_id province,
 	float literacy);

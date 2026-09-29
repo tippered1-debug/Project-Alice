@@ -3,6 +3,8 @@
 #include "system_state.hpp"
 
 #include <algorithm>
+#include <cassert>
+#include <cstdlib>
 #include <limits>
 #include <map>
 #include <memory>
@@ -20,9 +22,16 @@ struct causal_order_store {
 namespace economy::causal_order {
 namespace {
 std::shared_ptr<causal_order_store> ensure(sys::state& state) {
-	if(!state.causal_order) state.causal_order = std::make_shared<causal_order_store>();
+	assert(state.causal_order && "causal order store must be initialized before simulation");
+	if(!state.causal_order) std::abort();
 	return state.causal_order;
 }
+}
+
+void initialize_empty_store(sys::state& state) {
+	assert(!state.causal_order && "causal order store initialized more than once");
+	if(state.causal_order) std::abort();
+	state.causal_order = std::make_shared<causal_order_store>();
 }
 
 uint64_t allocate(sys::state& state, event_kind) {
@@ -77,7 +86,7 @@ bool import_snapshot(sys::state& state, snapshot const& value) {
 	std::set<uint64_t> sequences;
 	uint64_t greatest_sequence = 0;
 	for(auto const& record : value.dcon_sequences) {
-		if(uint8_t(record.kind) > uint8_t(event_kind::employment_contract)
+		if(uint8_t(record.kind) > uint8_t(event_kind::labor_contract)
 			|| record.stable_id == 0 || record.sequence == 0
 			|| !candidate->dcon_sequences.emplace(
 				std::make_pair(uint8_t(record.kind), record.stable_id), record.sequence).second

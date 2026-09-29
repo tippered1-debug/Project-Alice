@@ -135,8 +135,7 @@ void language_left::button_action(sys::state& state) noexcept {
 		new_locale = dcon::locale_id{ dcon::locale_id::value_base_t(i) };
 	}
 
-	if(state.user_settings.use_classic_fonts
-	&& state.world.locale_get_hb_script(new_locale) != HB_SCRIPT_LATIN) {
+	if(state.user_settings.use_classic_fonts && state.world.locale_get_hb_script(new_locale) != HB_SCRIPT_LATIN) {
 		state.user_settings.use_classic_fonts = false;
 	}
 	//
@@ -174,8 +173,7 @@ void language_right::button_action(sys::state& state) noexcept {
 		new_locale = dcon::locale_id{ dcon::locale_id::value_base_t(i) };
 	}
 
-	if(state.user_settings.use_classic_fonts
-	&& state.world.locale_get_hb_script(new_locale) != HB_SCRIPT_LATIN) {
+	if(state.user_settings.use_classic_fonts && state.world.locale_get_hb_script(new_locale) != HB_SCRIPT_LATIN) {
 		state.user_settings.use_classic_fonts = false;
 	}
 

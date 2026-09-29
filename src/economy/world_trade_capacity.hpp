@@ -10,10 +10,8 @@ namespace economy::world_trade {
 
 enum class transport_mode : uint8_t { land, sea, local };
 
-// Soft capacity is deliberately opt-in. Existing scenarios keep their current
-// trade dynamics until the Age of Transformation gamerule is enabled.
+// Canonical physical capacity used by every shipment in the running economy.
 struct capacity_config {
-	bool enabled = false;
 	float minimum_expansion_multiplier = 0.10f;
 	// Existing roads and harbours never disappear completely when their paid
 	// labour/service market clears at zero. This is the residual throughput of
@@ -29,7 +27,6 @@ struct capacity_inputs {
 };
 
 struct capacity_result {
-	bool enabled = false;
 	float cargo = 0.0f;
 	float nominal_capacity = 0.0f;
 	float transport_availability = 0.0f;
@@ -45,14 +42,7 @@ struct capacity_result {
 // Pure, deterministic and finite for arbitrary floating-point inputs.
 capacity_result evaluate_capacity(capacity_config const& config, capacity_inputs const& inputs);
 
-capacity_config ruleset_config_for(sys::state const& state);
-
-// Modal capacities deliberately exclude unrelated infrastructure: naval bases
-// and civilian ports cannot carry a land route, while railways cannot replace
-// a harbour. This is the compatibility/nominal API; canonical movement uses
-// canonical_capacity below and does not apply max_throughput as a ceiling.
-float nominal_capacity(sys::state const& state, dcon::market_id market,
-	transport_mode mode);
+capacity_config canonical_config_for(sys::state const& state);
 
 // Physical capacity primitive for concrete shipments. This path uses only
 // explicit modal infrastructure state: railroad building levels for land and
@@ -62,12 +52,6 @@ float nominal_capacity(sys::state const& state, dcon::market_id market,
 float canonical_capacity(sys::state const& state, dcon::market_id market,
 	transport_mode mode);
 
-// State-backed diagnostics/decision API. It derives nominal capacity from the
-// existing market max-throughput cache and transport availability from the
-// same labor/service signals used by trade-route updates.
-capacity_inputs inputs_for_route(sys::state const& state, dcon::trade_route_id route);
-capacity_result evaluate_route_capacity(sys::state const& state, dcon::trade_route_id route);
-
 // One deterministic clearing result for the whole network. route.volume remains
 // merchants' desired order; requested cargo is the part backed by the origin
 // market's commodity allocation, and actual cargo is additionally bounded by
@@ -75,7 +59,6 @@ capacity_result evaluate_route_capacity(sys::state const& state, dcon::trade_rou
 // outside serialized state makes this an exact legacy no-op and avoids treating
 // the same port or rail capacity as independently available to every route.
 struct shipment_allocation {
-	bool enabled = false;
 	std::vector<float> requested_route_cargo;
 	std::vector<float> actual_route_cargo;
 	std::vector<float> route_scale;

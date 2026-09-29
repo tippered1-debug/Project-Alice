@@ -429,7 +429,7 @@ public:
 				for(auto r : a.get_army().get_army_membership()) {
 					auto t = r.get_regiment().get_type();
 					if(t) {
-						if(state.military_definitions.unit_base_definitions[t].type == Type || (Type == military::unit_type::support && state.military_definitions.unit_base_definitions[t].type == military::unit_type::special)) {
+						if(state.military_definitions.unit_base_definitions[t].type == Type || Type == military::unit_type::support && state.military_definitions.unit_base_definitions[t].type == military::unit_type::special) {
 							total += r.get_regiment().get_strength();
 							full_total += 1.f;
 						}
@@ -2998,7 +2998,7 @@ public:
 	void render(sys::state& state, int32_t x, int32_t y) noexcept override {
 		auto ship = retrieve<military::ship_in_battle>(state, parent);
 		uint16_t mode = ship.flags & military::ship_in_battle::mode_mask;
-		if(bool(ship.ship) && (mode == military::ship_in_battle::mode_approaching || mode == military::ship_in_battle::mode_engaged)) {
+		if(bool(ship.ship) && mode == military::ship_in_battle::mode_approaching || mode == military::ship_in_battle::mode_engaged) {
 			auto controller = state.world.navy_get_controller_from_navy_control(state.world.ship_get_navy_from_navy_membership(ship.ship));
 			auto type = state.world.ship_get_type(ship.ship);
 			const auto& stats = state.world.nation_get_unit_stats(controller, type);

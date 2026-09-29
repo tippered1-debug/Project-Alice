@@ -854,15 +854,7 @@ void update_trade_flow_arrows(sys::state& state, display_data& map_data) {
 					glm::vec2 end = (current_pos + next_pos) / 2.f;
 
 					// sea -> [port->land->port] -> sea
-					if(
-						not_lake
-						&&
-						is_sea(target)
-						&&
-						!is_sea(origin)
-						&&
-						is_sea(source)
-					) {
+					if(not_lake && is_sea(target) && !is_sea(origin) && is_sea(source)) {
 						// if we are entering a port from sea and then go back to sea, use port location instead of actual center
 						current_pos = put_in_local(get_port_location(state, origin), current_pos, size_x);
 
@@ -873,42 +865,26 @@ void update_trade_flow_arrows(sys::state& state, display_data& map_data) {
 						end = (current_pos + next_pos) / 2.f;
 					} else if (not_lake) {
 						// ??? -> sea -> [port->land]
-						if(
-							is_sea(origin)
-							&&
-							!is_sea(target)
-						) {
+						if(is_sea(origin) && !is_sea(target)) {
 							// if we are currently at sea, but next position is a port, use port location as the end of the path
 							end = put_in_local(get_port_location(state, target), current_pos, size_x);
 							tangent_end = -get_port_direction(state, target);
 						}
 						// sea -> [port->land] -> ???
-						if(
-							!is_sea(origin)
-							&&
-							is_sea(source)
-						) {
+						if(!is_sea(origin) && is_sea(source)) {
 							// currently we are at center of the province and we want to connect start with a path which was terminated at port
 							start = put_in_local(get_port_location(state, origin), current_pos, size_x);
 							tangent_start = -get_port_direction(state, origin);
 						}
 
 						// ??? -> [land->port] -> sea
-						if(
-							!is_sea(origin)
-							&&
-							is_sea(target)
-						) {
+						if(!is_sea(origin) && is_sea(target)) {
 							// currently we are at center of the province and we want to connect end with a path which starts at port
 							end = put_in_local(get_port_location(state, origin), current_pos, size_x);
 							tangent_end = get_port_direction(state, origin);
 						}
 						// [land->port] -> sea -> ???
-						if(
-							!is_sea(source)
-							&&
-							is_sea(origin)
-						) {
+						if(!is_sea(source) && is_sea(origin)) {
 							// if we are currently at sea, but previous position is a port, use port location as the start of the path
 							start = put_in_local(get_port_location(state, source), current_pos, size_x);
 							tangent_start = get_port_direction(state, source);
@@ -968,26 +944,14 @@ void update_trade_flow_arrows(sys::state& state, display_data& map_data) {
 					*/
 
 					//[land->port] -> sea
-					if(
-						not_lake
-						&&
-						!is_sea(source)
-						&&
-						is_sea(origin)
-					) {
+					if(not_lake && !is_sea(source) && is_sea(origin)) {
 						// just start from the (port location, port direction) and stop at (origin midpoint, direction from port to origin)
 						start = put_in_local(get_port_location(state, source), current_pos, size_x);
 						tangent_start = get_port_direction(state, source);
 					}
 
 					//sea -> [port->land]
-					if(
-						not_lake
-						&&
-						is_sea(source)
-						&&
-						!is_sea(origin)
-					) {
+					if(not_lake && is_sea(source) && !is_sea(origin)) {
 						start = put_in_local(get_port_location(state, origin), current_pos, size_x);
 						tangent_start = -get_port_direction(state, origin);
 					}
@@ -1028,25 +992,13 @@ void update_trade_flow_arrows(sys::state& state, display_data& map_data) {
 					*/
 
 					//sea -> [port->land]
-					if(
-						not_lake
-						&&
-						!is_sea(target)
-						&&
-						is_sea(origin)
-					) {
+					if(not_lake && !is_sea(target) && is_sea(origin)) {
 						next_pos = put_in_local(get_port_location(state, target), current_pos, size_x);
 						tangent_end = -get_port_direction(state, target);
 					}
 
 					//[land->port] -> sea
-					if(
-						not_lake
-						&&
-						is_sea(target)
-						&&
-						!is_sea(origin)
-					) {
+					if(not_lake && is_sea(target) && !is_sea(origin)) {
 						next_pos = put_in_local(get_port_location(state, origin), current_pos, size_x);
 						tangent_end = get_port_direction(state, origin);
 					}
@@ -1188,8 +1140,7 @@ void update_unit_arrows(sys::state& state, display_data& map_data) {
 		}
 		// Exclude if out of FOW
 		gamerule::fog_of_war_settings cur_gamerule_setting = gamerule::get_gamerule_setting<gamerule::fog_of_war_settings>(state, state.hardcoded_gamerules.fog_of_war);
-		if(cur_gamerule_setting == gamerule::fog_of_war_settings::enable ||
-		(state.world.nation_get_identity_from_identity_holder(state.local_player_nation) != state.national_definitions.rebel_id && cur_gamerule_setting == gamerule::fog_of_war_settings::disable_for_observer)) {
+		if(cur_gamerule_setting == gamerule::fog_of_war_settings::enable || state.world.nation_get_identity_from_identity_holder(state.local_player_nation) != state.national_definitions.rebel_id && cur_gamerule_setting == gamerule::fog_of_war_settings::disable_for_observer) {
 			auto pc = map_army.get_army_location().get_location().id;
 			if(!state.map_state.visible_provinces[province::to_map_id(pc)]) {
 				continue;
@@ -1233,8 +1184,7 @@ void update_unit_arrows(sys::state& state, display_data& map_data) {
 		}
 		// Exclude if out of FOW
 		gamerule::fog_of_war_settings cur_gamerule_setting = gamerule::get_gamerule_setting<gamerule::fog_of_war_settings>(state, state.hardcoded_gamerules.fog_of_war);
-		if(cur_gamerule_setting == gamerule::fog_of_war_settings::enable ||
-		(state.world.nation_get_identity_from_identity_holder(state.local_player_nation) != state.national_definitions.rebel_id && cur_gamerule_setting == gamerule::fog_of_war_settings::disable_for_observer)) {
+		if(cur_gamerule_setting == gamerule::fog_of_war_settings::enable || state.world.nation_get_identity_from_identity_holder(state.local_player_nation) != state.national_definitions.rebel_id && cur_gamerule_setting == gamerule::fog_of_war_settings::disable_for_observer) {
 			auto pc = map_navy.get_navy_location().get_location().id;
 			if(!state.map_state.visible_provinces[province::to_map_id(pc)]) {
 				continue;
@@ -1560,8 +1510,7 @@ void update_text_lines(sys::state& state, display_data& map_data) {
 						// Adjective + " " + National identity
 						auto const nid = dcon::national_identity_id(dcon::national_identity_id::value_base_t(e.first));
 						if(auto k = state.world.national_identity_get_name(nid); state.key_is_localized(k)) {
-							if(nid == n.get_primary_culture().get_group_from_culture_group_membership().get_identity_from_cultural_union_of()
-							|| nid == n.get_identity_from_identity_holder()) {
+							if(nid == n.get_primary_culture().get_group_from_culture_group_membership().get_identity_from_cultural_union_of() || nid == n.get_identity_from_identity_holder()) {
 								if(n.get_capital().get_continent() == p.get_continent()) {
 									//cultural union tag -> use our name
 									name = text::produce_simple_string(state, text::get_name(state, n));
@@ -1666,7 +1615,7 @@ void update_text_lines(sys::state& state, display_data& map_data) {
 			if((uint32_t)y >= map_data.size_y) return dcon::province_id{};
 			glm::vec2 candidate = { x, y };
 			auto idx = int32_t(y) * int32_t(map_data.size_x) + int32_t(x);
-			if(!(0 <= idx && size_t(idx) < map_data.province_id_map.size())) return dcon::province_id{};
+			if(!0 <= idx && size_t(idx) < map_data.province_id_map.size()) return dcon::province_id{};
 			auto pid = province::from_map_id(map_data.province_id_map[idx]);
 			return pid;
 		};
@@ -2002,13 +1951,13 @@ void update_text_lines(sys::state& state, display_data& map_data) {
 			for(auto point : centroids) {
 				auto coord = glm::vec2{ point.x, point.y };
 				glm::vec2 current = coord - center;
-				if((current.x > right)) {
+				if(current.x > right) {
 					right = current.x;
 				}
 				if(current.y > top) {
 					top = current.y;
 				}
-				if((current.x < left)) {
+				if(current.x < left) {
 					left = current.x;
 				}
 				if(current.y < bottom) {
@@ -2028,13 +1977,13 @@ void update_text_lines(sys::state& state, display_data& map_data) {
 				if(point.z < average_weight * 0.1f) continue;
 				auto coord = glm::vec2{ point.x, point.y };
 				glm::vec2 current = coord - center;
-				if((current.x > right)) {
+				if(current.x > right) {
 					right = current.x;
 				}
 				if(current.y > top) {
 					top = current.y;
 				}
-				if((current.x < left)) {
+				if(current.x < left) {
 					left = current.x;
 				}
 				if(current.y < bottom) {
@@ -2044,13 +1993,13 @@ void update_text_lines(sys::state& state, display_data& map_data) {
 			for(auto point : centroids) {
 				auto coord = glm::vec2{ point.x, point.y };
 				glm::vec2 current = coord - center;
-				if((current.x > right)) {
+				if(current.x > right) {
 					right = current.x;
 				}
 				if(current.y > top) {
 					top = current.y;
 				}
-				if((current.x < left)) {
+				if(current.x < left) {
 					left = current.x;
 				}
 				if(current.y < bottom) {
@@ -2501,16 +2450,11 @@ void map_state::update_cache(sys::state& state) {
 				//if(b.skip) continue;
 
 				bool national = false;
-				if(
-					!b.adj 
-					|| (
-						state.world.province_adjacency_get_type(b.adj) 
+				if(!b.adj || state.world.province_adjacency_get_type(b.adj)
 						& (
 							province::border::coastal_bit
 							| province::border::national_bit
-						)
-					)
-				) {
+						)) {
 					smoothing_borders_index[updated_index][actual_index] = i;
 					actual_index++;
 				}
@@ -2825,8 +2769,7 @@ void map_state::on_mouse_move(int32_t x, int32_t y, int32_t screen_size_x, int32
 		shift_pos({last_camera_drag_pos.data - map_pos.data}, 1.f);
 	}
 	glm::vec2 mouse_diff = glm::abs(last_unit_box_drag_pos - mouse_pos.data);
-	if((mouse_diff.x > std::ceil(screen_size_x * 0.0025f) || mouse_diff.y > std::ceil(screen_size_y * 0.0025f))
-		&& left_mouse_down)
+	if(mouse_diff.x > std::ceil(screen_size_x * 0.0025f) || mouse_diff.y > std::ceil(screen_size_y * 0.0025f) && left_mouse_down)
 	{
 		auto pos1 = last_unit_box_drag_pos / screen_size;
 		auto pos2 = mouse_pos.data / screen_size;
@@ -3007,17 +2950,14 @@ void map_state::on_lbutton_up(sys::state& state, int32_t x, int32_t y, int32_t s
 			auto fat_id = dcon::fatten(state.world, province::from_map_id(map_data.province_id_map[idx]));
 			if(map_data.province_id_map[idx] < province::to_map_id(state.province_definitions.first_sea_province)) {
 				auto selected = province::from_map_id(map_data.province_id_map[idx]);
-				if(state.map_state.active_map_mode == map_mode::mode::army_supply
-					&& (int32_t(mod) & int32_t(sys::key_modifiers::modifiers_ctrl)) != 0) {
+				if(state.map_state.active_map_mode == map_mode::mode::army_supply && (int32_t(mod) & int32_t(sys::key_modifiers::modifiers_ctrl)) != 0) {
 					for(auto location : state.world.province_get_army_location(selected)) {
 						auto army = location.get_army();
 						if(army.get_controller_from_army_control() == state.local_player_nation)
 							command::set_army_supply_priority(state, state.local_player_nation, army.id,
 								uint8_t((army.get_supply_priority() + 1) % 3));
 					}
-				} else if(state.map_state.active_map_mode == map_mode::mode::army_supply
-					&& (int32_t(mod) & int32_t(sys::key_modifiers::modifiers_shift)) != 0
-					&& command::can_toggle_supply_depot(state, state.local_player_nation, selected)) {
+				} else if(state.map_state.active_map_mode == map_mode::mode::army_supply && (int32_t(mod) & int32_t(sys::key_modifiers::modifiers_shift)) != 0 && command::can_toggle_supply_depot(state, state.local_player_nation, selected)) {
 					command::toggle_supply_depot(state, state.local_player_nation, selected);
 				} else {
 					state.set_selected_province(selected);

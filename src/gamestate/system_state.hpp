@@ -32,7 +32,6 @@
 #include "container_types_ui.hpp"
 #include "military_supply.hpp"
 #include "price_level.hpp"
-#include "market_clearing.hpp"
 #include "transformation_politics.hpp"
 #include "nations/strategic_statecraft.hpp"
 
@@ -753,11 +752,11 @@ struct ui_cache {
 /// </summary>
 struct alignas(64) state {
 	dcon::data_container world; // Holds data regarding the game world. Also contains user locales.
-	// Exact mass-population identity is kept outside DCON. The store is lazily
-	// created by persons::exact_population and does not allocate economic actors.
+	// Exact mass-population identity is imported once from scenario POP rows and
+	// then persisted with canonical runtime state; it does not allocate DCON actors.
 	mutable std::shared_ptr<persons::exact_population_store> exact_population;
-	// Sparse economic state for exact persons. It is separate from the DCON
-	// economy and is created only when an exact person participates.
+	// Exact-person finance, goods, freight, causal order, and labor history are
+	// canonical runtime stores initialized with a new scenario and restored from saves.
 	mutable std::shared_ptr<economy::exact_person_economy_store> exact_person_economy;
 	mutable std::shared_ptr<economy::causal_order_store> causal_order;
 	mutable std::shared_ptr<economy::physical::exact_person_goods_store> exact_person_goods;
@@ -825,19 +824,12 @@ struct alignas(64) state {
 	std::vector<nations::strategic_statecraft::belief> strategic_beliefs;
 	std::vector<nations::strategic_statecraft::commitment> strategic_commitments;
 	nations::strategic_statecraft::crisis_memory strategic_crisis;
-	// Unsaved command-line override used by bounded/headless regression runs on
-	// scenarios created before the flagship gamerule existed. Normal games and
-	// saves continue to use the scenario's gamerule exclusively.
-	bool force_age_of_transformation_ruleset = false;
-
-
 	// Derived local consumer prices and real-wage denominators. The opening and
 	// closing CPI samples belong to one economy tick, so no history is serialized.
 	economy::price_level::account price_level_account;
 
 	// Aggregated daily bids and auction fills by economic purpose. Rebuilt from
 	// demand every tick and deliberately excluded from saves/checksums.
-	economy::market_clearing::account market_clearing_account;
 
 	// Credit settled today, per nation. Reset at the start of every economy day
 	// and read by observability; never serialized.

@@ -63,14 +63,7 @@ void set_shader_prefix_apple_geometry(std::string_view source) {
 
 static std::string_view active_shader_prefix(std::string_view source) {
 #ifdef __APPLE__
-	if(source.find("point_to_ogl_space") != std::string_view::npos
-		|| source.find("point_to_sphere") != std::string_view::npos
-		|| source.find("smootherstep") != std::string_view::npos
-		|| source.find("square_tangent") != std::string_view::npos
-		|| source.find("get_land_") != std::string_view::npos
-		|| source.find("get_terrain_mix") != std::string_view::npos
-		|| source.find("province_highlight") != std::string_view::npos
-		|| source.find("graphics_mode") != std::string_view::npos) {
+	if(source.find("point_to_ogl_space") != std::string_view::npos || source.find("point_to_sphere") != std::string_view::npos || source.find("smootherstep") != std::string_view::npos || source.find("square_tangent") != std::string_view::npos || source.find("get_land_") != std::string_view::npos || source.find("get_terrain_mix") != std::string_view::npos || source.find("province_highlight") != std::string_view::npos || source.find("graphics_mode") != std::string_view::npos) {
 		return shader_prefix_apple_geometry;
 	}
 	return shader_prefix_apple_ui;
@@ -850,8 +843,7 @@ void render_linegraph(sys::state const& state, color_modification enabled, float
 	glUniform2ui(state.open_gl.ui_shader_subroutines_index_uniform, subroutines[0], subroutines[1]);
 	//glUniformSubroutinesuiv(GL_FRAGMENT_SHADER, 2, subroutines); // must set all subroutines in one call
 
-	if(state.user_settings.color_blind_mode != sys::color_blind_mode::none
-	&& state.user_settings.color_blind_mode != sys::color_blind_mode::achroma) {
+	if(state.user_settings.color_blind_mode != sys::color_blind_mode::none && state.user_settings.color_blind_mode != sys::color_blind_mode::achroma) {
 		glLineWidth(4.0f);
 		glUniform3f(state.open_gl.ui_shader_inner_color_uniform, 0.f, 0.f, 0.f);
 		glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(l.count));
@@ -880,8 +872,7 @@ void render_linegraph(sys::state const& state, color_modification enabled, float
 	glUniform2ui(state.open_gl.ui_shader_subroutines_index_uniform, subroutines[0], subroutines[1]);
 	//glUniformSubroutinesuiv(GL_FRAGMENT_SHADER, 2, subroutines); // must set all subroutines in one call
 
-	if(state.user_settings.color_blind_mode != sys::color_blind_mode::none
-	&& state.user_settings.color_blind_mode != sys::color_blind_mode::achroma) {
+	if(state.user_settings.color_blind_mode != sys::color_blind_mode::none && state.user_settings.color_blind_mode != sys::color_blind_mode::achroma) {
 		glLineWidth(4.0f);
 		glUniform3f(state.open_gl.ui_shader_inner_color_uniform, 0.f, 0.f, 0.f);
 		glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(l.count));
@@ -903,8 +894,7 @@ void render_linegraph(sys::state const& state, color_modification enabled, float
 
 	glUniform1f(state.open_gl.ui_shader_border_size_uniform, a);
 
-	if(state.user_settings.color_blind_mode != sys::color_blind_mode::none
-	&& state.user_settings.color_blind_mode != sys::color_blind_mode::achroma) {
+	if(state.user_settings.color_blind_mode != sys::color_blind_mode::none && state.user_settings.color_blind_mode != sys::color_blind_mode::achroma) {
 		glLineWidth(2.0f + 2.0f * state.user_settings.ui_scale);
 		glUniform3f(state.open_gl.ui_shader_inner_color_uniform, 0.f, 0.f, 0.f);
 		glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(l.count));

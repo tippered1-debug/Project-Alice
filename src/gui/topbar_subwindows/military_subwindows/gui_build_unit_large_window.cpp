@@ -55,8 +55,7 @@ public:
 		state.ui_state.build_unit_window->set_visible(state, false);
 	}
 	void on_update(sys::state& state) noexcept override {
-		if(state.world.nation_get_disarmed_until(state.local_player_nation)
-		&& state.current_date < state.world.nation_get_disarmed_until(state.local_player_nation)) {
+		if(state.world.nation_get_disarmed_until(state.local_player_nation) && state.current_date < state.world.nation_get_disarmed_until(state.local_player_nation)) {
 			state.ui_state.unit_window_army->set_visible(state, true);
 			state.ui_state.unit_window_navy->set_visible(state, true);
 			state.ui_state.build_unit_window->set_visible(state, false);
@@ -281,7 +280,7 @@ public:
 
 	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
 		ui::display_unit_stats(state, contents, state.local_player_nation, unit_type);
-		if(!(state.world.nation_get_active_unit(state.local_player_nation, unit_type) && state.military_definitions.unit_base_definitions[unit_type].active)) {
+		if(!state.world.nation_get_active_unit(state.local_player_nation, unit_type) && state.military_definitions.unit_base_definitions[unit_type].active) {
 			for(const auto inv : state.world.in_invention) {
 				if(inv.get_activate_unit(unit_type)) {
 					text::add_line(state, contents, "activated_by_with_a_chance_of", text::variable_type::x, inv.get_name());
@@ -982,8 +981,7 @@ public:
 		state.ui_state.build_province_unit_window->set_visible(state, false);
 	}
 	void on_update(sys::state& state) noexcept override {
-		if(state.world.nation_get_disarmed_until(state.local_player_nation)
-		&& state.current_date < state.world.nation_get_disarmed_until(state.local_player_nation)) {
+		if(state.world.nation_get_disarmed_until(state.local_player_nation) && state.current_date < state.world.nation_get_disarmed_until(state.local_player_nation)) {
 			state.ui_state.build_province_unit_window->set_visible(state, false);
 		}
 	}
@@ -1011,10 +1009,7 @@ std::unique_ptr<element_base> build_unit_province_window::make_child(sys::state&
 		return ptr;
 	} else if(name == "province_recruit_bg") {
 		return make_element_by_type<opaque_element_base>(state, id);
-	} else if(name == "external_scroll_slider_list"
-		|| name == "external_scroll_slider_queue"
-		|| name == "cell_window_list"
-		|| name == "cell_window_queue") {
+	} else if(name == "external_scroll_slider_list" || name == "external_scroll_slider_queue" || name == "cell_window_list" || name == "cell_window_queue") {
 		return make_element_by_type<invisible_element>(state, id);
 	} else {
 		return nullptr;

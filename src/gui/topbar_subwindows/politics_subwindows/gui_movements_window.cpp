@@ -68,8 +68,7 @@ public:
 	}
 
 	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
-		return gamerule::age_of_transformation_enabled(state)
-			? tooltip_behavior::variable_tooltip : tooltip_behavior::no_tooltip;
+		return tooltip_behavior::variable_tooltip;
 	}
 
 	void update_tooltip(sys::state& state, int32_t, int32_t,

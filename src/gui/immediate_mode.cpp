@@ -149,10 +149,10 @@ bool iui_state::button(
 		panel(state, r);
 	}
 
-	if(!(state.mouse_x_position / state.user_settings.ui_scale > r.x && state.mouse_x_position / state.user_settings.ui_scale < r.x + r.w)) {		
+	if(!state.mouse_x_position / state.user_settings.ui_scale > r.x && state.mouse_x_position / state.user_settings.ui_scale < r.x + r.w) {
 		return false;
 	}
-	if(!(state.mouse_y_position / state.user_settings.ui_scale > r.y && state.mouse_y_position / state.user_settings.ui_scale < r.y + r.h)) {
+	if(!state.mouse_y_position / state.user_settings.ui_scale > r.y && state.mouse_y_position / state.user_settings.ui_scale < r.y + r.h) {
 		return false;
 	}
 
@@ -187,10 +187,10 @@ bool iui_state::button_textured(
 		panel_subsprite(state, r, 0, 3, texture_handle);
 	}
 
-	if(!(state.mouse_x_position / state.user_settings.ui_scale > r.x && state.mouse_x_position / state.user_settings.ui_scale < r.x + r.w)) {
+	if(!state.mouse_x_position / state.user_settings.ui_scale > r.x && state.mouse_x_position / state.user_settings.ui_scale < r.x + r.w) {
 		return false;
 	}
-	if(!(state.mouse_y_position / state.user_settings.ui_scale > r.y && state.mouse_y_position / state.user_settings.ui_scale < r.y + r.h)) {
+	if(!state.mouse_y_position / state.user_settings.ui_scale > r.y && state.mouse_y_position / state.user_settings.ui_scale < r.y + r.h) {
 		return false;
 	}
 

@@ -394,7 +394,7 @@ measure_result  rgo_report_body_rgos_t::place_item(sys::state& state, ui::non_ow
 	if(std::holds_alternative<list_item_option>(values[index])) {
 		if(list_header_pool.empty()) list_header_pool.emplace_back(make_rgo_report_list_header(state));
 		if(list_item_pool.empty()) list_item_pool.emplace_back(make_rgo_report_list_item(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<list_item_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<list_item_option>(values[index - 1])) {
 			if(destination) {
 				if(list_header_pool.size() <= size_t(list_header_pool_used)) list_header_pool.emplace_back(make_rgo_report_list_header(state));
 				if(list_item_pool.size() <= size_t(list_item_pool_used)) list_item_pool.emplace_back(make_rgo_report_list_item(state));
@@ -922,7 +922,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start + table_source->list_commodity_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start + table_source->list_commodity_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_commodity_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_commodity){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_commodity){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start + table_source->list_commodity_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_commodity){
@@ -941,7 +941,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start + table_source->list_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start + table_source->list_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start + table_source->list_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_employment){
@@ -960,7 +960,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start + table_source->list_max_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start + table_source->list_max_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_max_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_max_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_max_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start + table_source->list_max_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_max_employment){
@@ -979,7 +979,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start + table_source->list_output_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start + table_source->list_output_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_output_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_output){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_output){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start + table_source->list_output_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_output){
@@ -998,7 +998,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start + table_source->list_profit_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start + table_source->list_profit_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_profit_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_profit){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_profit){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start + table_source->list_profit_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_profit){
@@ -1017,7 +1017,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start + table_source->list_wage_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start + table_source->list_wage_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_wage_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_wage){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_wage){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start + table_source->list_wage_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_wage){
@@ -1036,7 +1036,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start + table_source->list_eff_spend_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start + table_source->list_eff_spend_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_eff_spend_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_eff_spend){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_eff_spend){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start + table_source->list_eff_spend_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_eff_spend){
@@ -1055,7 +1055,7 @@ void rgo_report_list_item_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start + table_source->list_eff_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start + table_source->list_eff_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_eff_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_eff){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_eff){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start + table_source->list_eff_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_eff){
@@ -1477,7 +1477,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start + table_source->list_commodity_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start + table_source->list_commodity_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_commodity_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_commodity){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_commodity){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_commodity_column_start + table_source->list_commodity_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_commodity){
@@ -1501,7 +1501,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start + table_source->list_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start + table_source->list_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_employment_column_start + table_source->list_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_employment){
@@ -1535,7 +1535,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start + table_source->list_max_employment_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start + table_source->list_max_employment_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_max_employment_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_max_employment){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_max_employment){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_max_employment_column_start + table_source->list_max_employment_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_max_employment){
@@ -1569,7 +1569,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start + table_source->list_output_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start + table_source->list_output_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_output_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_output){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_output){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_output_column_start + table_source->list_output_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_output){
@@ -1603,7 +1603,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start + table_source->list_profit_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start + table_source->list_profit_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_profit_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_profit){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_profit){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_profit_column_start + table_source->list_profit_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_profit){
@@ -1637,7 +1637,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start + table_source->list_wage_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start + table_source->list_wage_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_wage_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_wage){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_wage){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_wage_column_start + table_source->list_wage_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_wage){
@@ -1671,7 +1671,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start + table_source->list_eff_spend_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start + table_source->list_eff_spend_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_eff_spend_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_eff_spend){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_eff_spend){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_spend_column_start + table_source->list_eff_spend_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_eff_spend){
@@ -1705,7 +1705,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start + table_source->list_eff_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start + table_source->list_eff_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->list_eff_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_eff){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_eff){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->list_eff_column_start + table_source->list_eff_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_eff){
@@ -1727,7 +1727,7 @@ void rgo_report_list_header_content_t::render(sys::state & state, int32_t x, int
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->list_eff_column_start + 0 + 8, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_eff.r, col_color_eff.g, col_color_eff.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }

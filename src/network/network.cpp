@@ -58,6 +58,7 @@ using fmt::format;
 
 #include <webapi/json.hpp>
 #include <limits>
+#include <cstdlib>
 #include "dcon_oos_reporter_generated.hpp"
 using json = nlohmann::json;
 
@@ -176,7 +177,7 @@ void port_forwarder::start_forwarding(uint16_t port) {
 							is_special_use = true;
 						}
 
-						if(!(is_link_local || is_special_use)) {
+						if(!is_link_local || is_special_use) {
 							found_locals.push_back(local_addresses{ std::string(ipv6_str), true });
 						}
 					} else {
@@ -962,7 +963,7 @@ bool any_player_on_invalid_nation(sys::state& state) {
 		}
 		auto nation = state.world.mp_player_get_nation_from_player_nation(player);
 		// the nation must not be invalid, and the nation must exist, but if its the rebel tag, it is allowed to have 0 provinces.
-		if(!nation || (state.world.nation_get_owned_province_count(nation) == 0 && state.world.national_identity_get_nation_from_identity_holder(state.national_definitions.rebel_id) != nation)) {
+		if(!nation || state.world.nation_get_owned_province_count(nation) == 0 && state.world.national_identity_get_nation_from_identity_holder(state.national_definitions.rebel_id) != nation) {
 			return true;
 		}
 	}
@@ -1617,6 +1618,7 @@ void load_network_save(sys::state& state, const uint8_t* save_buffer) {
 	with_network_decompressed_section(save_buffer, [&state](uint8_t const* ptr_in, uint32_t length) {
 		read_save_section(ptr_in, ptr_in + length, state);
 	});
+	if(!sys::canonical_runtime_loaded(state)) std::abort();
 	network::set_no_ai_nations_after_reload(state, no_ai_nations);
 	state.local_player_nation = old_local_player_nation;
 	state.fill_unsaved_data();
@@ -2071,6 +2073,7 @@ void reload_save_locally(sys::state& state) {
 	/* Then reload as if we loaded the save data */
 	state.clear_unsaved_data();
 	sys::read_save_section(save_buffer.get(), save_buffer.get() + length, state);
+	if(!sys::canonical_runtime_loaded(state)) std::abort();
 	network::set_no_ai_nations_after_reload(state, no_ai_nations);
 	state.local_player_nation = old_local_player_nation;
 	state.fill_unsaved_data();

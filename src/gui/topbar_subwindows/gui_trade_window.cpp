@@ -400,10 +400,7 @@ public:
 			ptr->set_text(state, text::produce_simple_string(state, "alice_trade_flow_label"));
 			ptr->base_data.size.x *= 2; // Nudge
 			return ptr;
-		} else if(name == "current_price_value"
-			|| name == "price_linechart"
-			|| name == "price_chart_low"
-			|| name == "price_chart_time") {
+		} else if(name == "current_price_value" || name == "price_linechart" || name == "price_chart_low" || name == "price_chart_time") {
 			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "price_chart_high") {
 			auto ptr = make_element_by_type<invisible_element>(state, id);

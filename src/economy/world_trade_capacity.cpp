@@ -1,13 +1,11 @@
 #include "world_trade_capacity.hpp"
 
 #include "advanced_province_buildings.hpp"
-#include "demographics.hpp"
 #include "commodity_logistics.hpp"
 #include "foreign_exchange.hpp"
 #include "market_clearing.hpp"
 #include "money.hpp"
 #include "economy_stats.hpp"
-#include "gamerule.hpp"
 #include "price.hpp"
 #include "province.hpp"
 #include "province_templates.hpp"
@@ -111,7 +109,6 @@ float indexed_or(std::vector<float> const& values, ID id, float fallback) noexce
 
 capacity_result evaluate_capacity(capacity_config const& config, capacity_inputs const& inputs) {
 	capacity_result result{};
-	result.enabled = config.enabled;
 	result.cargo = finite_nonnegative(inputs.cargo);
 	result.nominal_capacity = std::min(
 		finite_nonnegative(inputs.endpoint_capacity[0]),
@@ -139,58 +136,17 @@ capacity_result evaluate_capacity(capacity_config const& config, capacity_inputs
 		}
 	}
 
-	if(config.enabled) {
-		auto const minimum_expansion = sanitized_minimum_expansion(config.minimum_expansion_multiplier);
-		auto const maximum_cost = sanitized_maximum_cost(config.maximum_transport_cost_multiplier);
-		result.expansion_multiplier = std::clamp(1.0f - result.congestion, minimum_expansion, 1.0f);
-		result.transport_cost_multiplier = std::clamp(
-			1.0f + result.congestion * (maximum_cost - 1.0f), 1.0f, maximum_cost);
-	}
+	auto const minimum_expansion = sanitized_minimum_expansion(config.minimum_expansion_multiplier);
+	auto const maximum_cost = sanitized_maximum_cost(config.maximum_transport_cost_multiplier);
+	result.expansion_multiplier = std::clamp(1.0f - result.congestion, minimum_expansion, 1.0f);
+	result.transport_cost_multiplier = std::clamp(
+		1.0f + result.congestion * (maximum_cost - 1.0f), 1.0f, maximum_cost);
 
 	return result;
 }
 
-capacity_config ruleset_config_for(sys::state const& state) {
-	capacity_config config{};
-	config.enabled = gamerule::age_of_transformation_enabled(state);
-	return config;
-}
-
-float nominal_capacity(sys::state const& state, dcon::market_id market,
-		transport_mode mode) {
-	if(!market || !state.world.market_is_valid(market))
-		return 0.0f;
-	auto const legacy_cap = finite_nonnegative(
-		state.world.market_get_max_throughput(market));
-	if(!gamerule::age_of_transformation_enabled(state))
-		return legacy_cap;
-	auto const state_instance =
-		state.world.market_get_zone_from_local_market(market);
-	if(!state_instance || !state.world.state_instance_is_valid(state_instance))
-		return legacy_cap;
-	// The nominal path is intentionally compatibility-only. Canonical movement
-	// uses physical infrastructure below and never reads these aggregates.
-	auto const population = state.world.state_instance_get_demographics_size()
-		> uint32_t(demographics::total.index())
-		? finite_nonnegative(state.world.state_instance_get_demographics(
-			state_instance, demographics::total))
-		: 0.0f;
-	auto derived = 100.0f;
-	switch(mode) {
-	case transport_mode::land:
-		derived += 1000.0f * float(military::state_railroad_level(state, state_instance))
-			+ population / 50.0f;
-		break;
-	case transport_mode::sea:
-		derived += 8000.0f * float(military::state_naval_base_level(state, state_instance))
-			+ population / 200.0f;
-		break;
-	case transport_mode::local:
-		derived += 500.0f * float(military::state_railroad_level(state, state_instance))
-			+ population / 100.0f;
-		break;
-	}
-	return legacy_cap > 0.0f ? std::min(legacy_cap, derived) : derived;
+capacity_config canonical_config_for(sys::state const&) {
+	return {};
 }
 
 float canonical_capacity(sys::state const& state, dcon::market_id market,
@@ -236,55 +192,6 @@ float canonical_capacity(sys::state const& state, dcon::market_id market,
 		break;
 	}
 	return std::isfinite(derived) && derived > 0.0 ? float(derived) : 0.0f;
-}
-
-capacity_inputs inputs_for_route(sys::state const& state, dcon::trade_route_id route) {
-	capacity_inputs inputs{};
-	if(!route || !state.world.trade_route_is_valid(route)) {
-		return inputs;
-	}
-
-	auto const market_a = state.world.trade_route_get_connected_markets(route, 0);
-	auto const market_b = state.world.trade_route_get_connected_markets(route, 1);
-	if(!market_a || !market_b || !state.world.market_is_valid(market_a) || !state.world.market_is_valid(market_b)) {
-		return inputs;
-	}
-
-	auto const mode = state.world.trade_route_get_is_sea_route(route)
-		? transport_mode::sea : transport_mode::land;
-	inputs.endpoint_capacity = {
-		nominal_capacity(state, market_a, mode),
-		nominal_capacity(state, market_b, mode)};
-
-	double cargo = 0.0;
-	state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-		auto const volume = state.world.trade_route_get_volume(route, commodity);
-		if(std::isfinite(volume)) {
-			cargo += double(logistics::cargo_units(
-				logistics::profile_for(state, commodity), std::abs(volume)));
-		}
-	});
-	inputs.cargo = float(std::min(cargo, double(std::numeric_limits<float>::max())));
-
-	auto const state_a = state.world.market_get_zone_from_local_market(market_a);
-	auto const state_b = state.world.market_get_zone_from_local_market(market_b);
-	if(state.world.trade_route_get_is_sea_route(route)) {
-		inputs.endpoint_transport_availability = {
-			state_port_availability(state, state_a),
-			state_port_availability(state, state_b)};
-	} else if(state.world.trade_route_get_is_land_route(route)) {
-		inputs.endpoint_transport_availability = {
-			state_land_availability(state, state_a),
-			state_land_availability(state, state_b)};
-	} else {
-		inputs.endpoint_transport_availability = {0.0f, 0.0f};
-	}
-
-	return inputs;
-}
-
-capacity_result evaluate_route_capacity(sys::state const& state, dcon::trade_route_id route) {
-	return evaluate_capacity(ruleset_config_for(state), inputs_for_route(state, route));
 }
 
 float shipment_allocation::requested(dcon::trade_route_id route) const noexcept {
@@ -373,15 +280,14 @@ capacity_result evaluate_route_shipment_capacity(
 		shipment_allocation const& allocation,
 		dcon::trade_route_id route) {
 	return evaluate_shipment_capacity(
-		ruleset_config_for(state),
+		canonical_config_for(state),
 		allocation.requested(route),
 		allocation.actual(route));
 }
 
 shipment_allocation clear_trade_shipments(sys::state const& state) {
 	shipment_allocation result{};
-	auto const config = ruleset_config_for(state);
-	result.enabled = config.enabled;
+	auto const config = canonical_config_for(state);
 	result.requested_route_cargo.resize(state.world.trade_route_size(), 0.0f);
 	result.actual_route_cargo.resize(state.world.trade_route_size(), 0.0f);
 	result.route_scale.resize(state.world.trade_route_size(), 1.0f);
@@ -451,8 +357,7 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 		auto const route_index = size_t(route.index());
 		if(route_index >= result.route_scale.size()
 				|| !state.world.trade_route_is_valid(route)
-				|| (result.enabled
-					&& state.world.trade_route_get_is_trade_forbidden(route))) {
+				|| state.world.trade_route_get_is_trade_forbidden(route)) {
 			if(route_index < result.route_scale.size()) {
 				result.route_scale[route_index] = 0.0f;
 			}
@@ -499,10 +404,6 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 		result.requested_route_cargo[route_index] = finite_requested;
 		result.actual_route_cargo[route_index] = finite_requested;
 	});
-
-	if(!result.enabled) {
-		return result;
-	}
 
 	// Pass two: build one capacity-constrained network. Cargo/availability is
 	// the amount of nominal infrastructure consumed at an endpoint.
@@ -577,9 +478,9 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 		auto const requested_sea = requested_resource_capacity[index + market_count];
 		auto const requested_capacity = requested_land + requested_sea;
 		auto const land_capacity = finite_nonnegative(
-			nominal_capacity(state, market, transport_mode::land));
+			canonical_capacity(state, market, transport_mode::land));
 		auto const sea_capacity = finite_nonnegative(
-			nominal_capacity(state, market, transport_mode::sea));
+			canonical_capacity(state, market, transport_mode::sea));
 		result.requested_market_capacity[index] = float(std::min(
 			requested_capacity, double(std::numeric_limits<float>::max())));
 		result.requested_land_capacity[index] = float(std::min(
@@ -627,7 +528,7 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 		auto const mode = resource >= market_count
 			? transport_mode::sea : transport_mode::land;
 		remaining_capacity[resource] = double(finite_nonnegative(
-			nominal_capacity(state, market, mode)));
+			canonical_capacity(state, market, mode)));
 		if(active_load[resource] > 0.0) {
 			events.push({
 				remaining_capacity[resource] / active_load[resource],
@@ -842,7 +743,7 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 		auto const mode = resource >= market_count
 			? transport_mode::sea : transport_mode::land;
 		auto const capacity = double(finite_nonnegative(
-			nominal_capacity(state, market, mode)));
+			canonical_capacity(state, market, mode)));
 		auto const tolerance = std::max(0.001, capacity * 0.00001);
 		assert(used_capacity[resource] <= capacity + tolerance);
 	}

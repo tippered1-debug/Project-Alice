@@ -42,10 +42,10 @@ void register_demand(
 	market_clearing::demand_class category
 	//economy_reason reason
 ) {
+	(void)category;
 	assert(amount >= 0.f);
 	auto current = state.world.market_get_demand(s, commodity_type);
 	state.world.market_set_demand(s, commodity_type, current + amount);
-	market_clearing::record(state, s, commodity_type, category, amount);
 	assert(std::isfinite(state.world.market_get_demand(s, commodity_type)));
 }
 
@@ -58,6 +58,7 @@ void t_register_demand(
 	market_clearing::demand_class category
 	//economy_reason reason
 ) {
+	(void)category;
 	ve::apply(
 		[](float amount) {
 			assert(std::isfinite(amount) && amount >= 0.f);
@@ -68,9 +69,6 @@ void t_register_demand(
 		commodity_type,
 		state.world.market_get_demand(s, commodity_type) + amount
 	);
-	ve::apply([&](dcon::market_id market, float value) {
-		market_clearing::record(state, market, commodity_type, category, value);
-	}, s, amount);
 	ve::apply(
 		[](float demand) {
 			assert(std::isfinite(demand) && demand >= 0.f);

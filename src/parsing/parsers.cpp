@@ -137,9 +137,7 @@ token_and_type token_generator::internal_next() {
 			auto const close = scan_for_match(non_ws + 1, file_end, current_line, single_quote_termination);
 			position = close + 1;
 			return token_and_type{std::string_view(non_ws + 1, close - (non_ws + 1)), current_line, token_type::quoted_string};
-		} else if(has_fixed_prefix(non_ws, file_end, "==") || has_fixed_prefix(non_ws, file_end, "<=") ||
-							has_fixed_prefix(non_ws, file_end, ">=") || has_fixed_prefix(non_ws, file_end, "<>") ||
-							has_fixed_prefix(non_ws, file_end, "!=")) {
+		} else if(has_fixed_prefix(non_ws, file_end, "==") || has_fixed_prefix(non_ws, file_end, "<=") || has_fixed_prefix(non_ws, file_end, ">=") || has_fixed_prefix(non_ws, file_end, "<>") || has_fixed_prefix(non_ws, file_end, "!=")) {
 
 			position = non_ws + 2;
 			return token_and_type{std::string_view(non_ws, 2), current_line, token_type::special_identifier};
@@ -222,14 +220,14 @@ std::optional<bool> try_parse_bool_strict(std::string_view content, int32_t, err
 		}
 	case 2:
 		
-		if((content[0] == 'n' || content[0] == 'N') && (content[1] == 'o' || content[1] == 'O')) {
+		if(content[0] == 'n' || content[0] == 'N' && content[1] == 'o' || content[1] == 'O') {
 			return std::optional<bool>{false};
 		}
 		else {
 			return std::optional<bool>{};
 		}
 	case 3:
-		if((content[0] == 'y' || content[0] == 'Y') && (content[1] == 'e' || content[1] == 'E') && (content[2] == 's' || content[2] == 'S')) {
+		if(content[0] == 'y' || content[0] == 'Y' && content[1] == 'e' || content[1] == 'E' && content[2] == 's' || content[2] == 'S') {
 			return std::optional<bool>{true};
 		}
 		else {

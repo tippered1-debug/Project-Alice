@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <utility>
 
 namespace nations::policy_execution {
@@ -99,11 +101,9 @@ breakdown calculate(policy_kind policy, inputs raw_inputs) {
 breakdown effective_policy(sys::state const& state, dcon::nation_id nation,
 	dcon::province_id province, policy_kind policy) {
 	inputs derived;
-	if(!gamerule::age_of_transformation_enabled(state))
-		return calculate(policy, derived);
+
 	derived.enabled = true;
-	if(!nation || !province || !state.world.nation_is_valid(nation)
-		|| !state.world.province_is_valid(province)) {
+	if(!nation || !province || !state.world.nation_is_valid(nation) || !state.world.province_is_valid(province)) {
 		derived.national_administration = 0.f;
 		derived.local_control = 0.f;
 		derived.funding = 0.f;
@@ -151,26 +151,19 @@ breakdown effective_policy(sys::state const& state, dcon::nation_id nation,
 		derived.bureaucratic_labor = high_education_labor;
 		break;
 	}
-	derived.political_compliance = 0.25f;
-	auto const index = nation.index();
-	if(state.transformation_politics_cache_valid
-		&& index < state.transformation_politics_cache.size()
-		&& state.transformation_politics_cache[index].enabled) {
-		auto const* political_result = &state.transformation_politics_cache[index];
-		derived.political_compliance = 0.25f + 0.75f * unit(political_result->legitimacy.total / 100.f);
-		// A legitimate government can still fail to execute policy when its own
-		// cabinet is falling apart. Keep the legacy-compatible fallback for
-		// freshly-created synthetic states with no established cabinet.
-		if(political_result->government.groups != 0)
-			derived.political_compliance *= 0.70f + 0.30f * unit(political_result->government.stability);
-	}
+	assert(state.transformation_politics_cache_valid
+		&& nation.index() < state.transformation_politics_cache.size()
+		&& state.transformation_politics_cache[nation.index()].enabled);
+	if(!state.transformation_politics_cache_valid || nation.index() >= state.transformation_politics_cache.size() || !state.transformation_politics_cache[nation.index()].enabled) std::abort();
+	auto const& political_result = state.transformation_politics_cache[nation.index()];
+	derived.political_compliance = 0.25f + 0.75f * unit(political_result.legitimacy.total / 100.f);
+	derived.political_compliance *= 0.70f + 0.30f * unit(political_result.government.stability);
 	return calculate(policy, derived);
 }
 
 float average_effective_policy(sys::state const& state, dcon::nation_id nation,
 	policy_kind policy) {
-	if(!gamerule::age_of_transformation_enabled(state))
-		return 1.f;
+
 	if(!nation || !state.world.nation_is_valid(nation))
 		return 0.f;
 

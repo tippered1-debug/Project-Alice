@@ -152,7 +152,7 @@ void smooth_points(std::vector<glm::vec2>& vertices) {
 			count += weight;
 			new_position += (vertices_copy[shifted_index]) * weight;
 		}
-		if((count > 0) && smooth) {
+		if(count > 0 && smooth) {
 			vertices[i] = new_position / count;
 		}		
 	}
@@ -203,14 +203,12 @@ void display_data::load_border_data(parsers::scenario_building_context& context)
 				diagonal_borders[x + y * uint32_t(map_size.x)] |= uint8_t(diagonal_border::DOWN_RIGHT);
 			}
 			if(prov_id_ul == prov_id_dr && prov_id_ur == prov_id_dl && prov_id_ul != prov_id_ur) {
-				if((prov_id_ul >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ul == 0)
-					&& (prov_id_ur < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ur != 0)) {
+				if(prov_id_ul >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ul == 0 && prov_id_ur < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ur != 0) {
 
 					diagonal_borders[x + (y + 1) * uint32_t(map_size.x)] |= uint8_t(diagonal_border::UP_RIGHT);
 					diagonal_borders[(x + 1) + y * uint32_t(map_size.x)] |= uint8_t(diagonal_border::DOWN_LEFT);
 
-				} else if((prov_id_ur >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ur == 0)
-					&& (prov_id_ul < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ul != 0)) {
+				} else if(prov_id_ur >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ur == 0 && prov_id_ul < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ul != 0) {
 
 					diagonal_borders[(x + 1) + (y + 1) * uint32_t(map_size.x)] |= uint8_t(diagonal_border::UP_LEFT);
 					diagonal_borders[x + y * uint32_t(map_size.x)] |= uint8_t(diagonal_border::DOWN_RIGHT);
@@ -266,14 +264,12 @@ void display_data::load_border_data(parsers::scenario_building_context& context)
 				diagonal_borders[(size_x - 1) + y * uint32_t(map_size.x)] |= uint8_t(diagonal_border::DOWN_RIGHT);
 			}
 			if(prov_id_ul == prov_id_dr && prov_id_ur == prov_id_dl && prov_id_ul != prov_id_ur) {
-				if((prov_id_ul >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ul == 0)
-					&& (prov_id_ur < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ur != 0)) {
+				if(prov_id_ul >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ul == 0 && prov_id_ur < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ur != 0) {
 
 					diagonal_borders[(size_x - 1) + (y + 1) * uint32_t(map_size.x)] |= uint8_t(diagonal_border::UP_RIGHT);
 					diagonal_borders[0 + y * uint32_t(map_size.x)] |= uint8_t(diagonal_border::DOWN_LEFT);
 
-				} else if((prov_id_ur >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ur == 0)
-					&& (prov_id_ul < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ul != 0)) {
+				} else if(prov_id_ur >= province::to_map_id(context.state.province_definitions.first_sea_province) || prov_id_ur == 0 && prov_id_ul < province::to_map_id(context.state.province_definitions.first_sea_province) && prov_id_ul != 0) {
 
 					diagonal_borders[0 + (y + 1) * uint32_t(map_size.x)] |= uint8_t(diagonal_border::UP_LEFT);
 					diagonal_borders[(size_x - 1) + y * uint32_t(map_size.x)] |= uint8_t(diagonal_border::DOWN_RIGHT);
@@ -810,8 +806,7 @@ std::vector<glm::vec2> make_coastal_loop(display_data& dat, sys::state& state, s
 				if(points.size() > 2 && !corner) {
 					auto l = points[points.size() - 1];
 					auto n = points[points.size() - 2];
-					if(dropped_points_counter < dropped_points_max &&
-						std::sqrt((l.x - n.x) * (l.x - n.x) + (l.y - n.y) * (l.y - n.y)) + std::sqrt((l.x - float(i)) * (l.x - float(i)) + (l.y - 0.5f - float(j) / 2.0f) * (l.y - 0.5f - float(j) / 2.0f))
+					if(dropped_points_counter < dropped_points_max && std::sqrt((l.x - n.x) * (l.x - n.x) + (l.y - n.y) * (l.y - n.y)) + std::sqrt((l.x - float(i)) * (l.x - float(i)) + (l.y - 0.5f - float(j) / 2.0f) * (l.y - 0.5f - float(j) / 2.0f))
 						== std::sqrt((n.x - float(i)) * (n.x - float(i)) + (n.y - 0.5f - float(j) / 2.0f) * (n.y - 0.5f - float(j) / 2.0f))) {
 						++dropped_points_counter;
 						points.pop_back();
@@ -845,8 +840,7 @@ std::vector<glm::vec2> make_coastal_loop(display_data& dat, sys::state& state, s
 				if(points.size() > 2 && !corner) {
 					auto l = points[points.size() - 1];
 					auto n = points[points.size() - 2];
-					if(dropped_points_counter < dropped_points_max &&
-						std::sqrt((l.x - n.x) * (l.x - n.x) + (l.y - n.y) * (l.y - n.y)) + std::sqrt((l.x - 0.5f - float(i)) * (l.x - 0.5f - float(i)) + (l.y - 0.5f - float(j) / 2.0f) * (l.y - 0.5f - float(j) / 2.0f))
+					if(dropped_points_counter < dropped_points_max && std::sqrt((l.x - n.x) * (l.x - n.x) + (l.y - n.y) * (l.y - n.y)) + std::sqrt((l.x - 0.5f - float(i)) * (l.x - 0.5f - float(i)) + (l.y - 0.5f - float(j) / 2.0f) * (l.y - 0.5f - float(j) / 2.0f))
 						== std::sqrt((n.x - 0.5f - float(i)) * (n.x - 0.5f - float(i)) + (n.y - 0.5f - float(j) / 2.0f) * (n.y - 0.5f - float(j) / 2.0f))) {
 						++dropped_points_counter;
 						points.pop_back();
@@ -1632,10 +1626,7 @@ void display_data::create_curved_river_vertices(parsers::scenario_building_conte
 			bool has_confluence_further = false;
 
 			for(auto potential_confluence : current_node->children) {
-				if(
-					potential_confluence->parents.size() > 1
-					&& potential_confluence->children.size() > 0
-				) {
+				if(potential_confluence->parents.size() > 1 && potential_confluence->children.size() > 0) {
 					has_confluence_further = true;
 				}
 			}

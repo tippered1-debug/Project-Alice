@@ -283,7 +283,7 @@ int32_t status_frame(sys::state& state, dcon::navy_id a) {
 		return 3;
 	} else if(trange.begin() != trange.end()) {
 		return 5;
-	} else if(!(state.world.navy_get_arrival_time(a)) && nb_level > 0 && is_understr()) {
+	} else if(!state.world.navy_get_arrival_time(a) && nb_level > 0 && is_understr()) {
 		return 4;
 	} else if(state.world.navy_get_arrival_time(a)) {
 		return 7;
@@ -695,7 +695,7 @@ public:
 		auto prov = retrieve<dcon::province_id>(state, parent);
 		bool as_port = retrieve<bool>(state, parent);
 
-		if(as_port || (prov.index() >= state.province_definitions.first_sea_province.index())) {
+		if(as_port || prov.index() >= state.province_definitions.first_sea_province.index()) {
 			for(auto n : state.world.province_get_navy_location(prov)) {
 				base_array.emplace_back(n.get_navy().id);
 			}
@@ -712,7 +712,7 @@ public:
 			}
 		} else {
 			for(auto a : state.world.province_get_army_location(prov)) {
-				if(!(a.get_army().get_navy_from_army_transport())) {
+				if(!a.get_army().get_navy_from_army_transport()) {
 					base_array.emplace_back(a.get_army().id);
 				}
 			}
@@ -1884,13 +1884,11 @@ public:
 		auto army_owner = state.world.army_get_controller_from_army_control(a);
 		int32_t max_cap = 0;
 		for(auto n : state.world.province_get_navy_location(p)) {
-			if(n.get_navy().get_controller_from_navy_control() == army_owner &&
-				!bool(n.get_navy().get_battle_from_navy_battle_participation())) {
+			if(n.get_navy().get_controller_from_navy_control() == army_owner && !bool(n.get_navy().get_battle_from_navy_battle_participation())) {
 				max_cap = std::max(military::free_transport_capacity(state, n.get_navy()), max_cap);
 			}
 		}
-		if(!command::can_embark_army(state, state.local_player_nation, a)
-			&& max_cap > 0) { //require splitting
+		if(!command::can_embark_army(state, state.local_player_nation, a) && max_cap > 0) { //require splitting
 			auto regs = state.world.army_get_army_membership(a);
 			int32_t army_cap = int32_t(regs.end() - regs.begin());
 			int32_t to_split = army_cap - max_cap;
@@ -1919,15 +1917,13 @@ public:
 		if(visible) {
 			int32_t max_cap = 0;
 			for(auto n : state.world.province_get_navy_location(p)) {
-				if(n.get_navy().get_controller_from_navy_control() == army_owner &&
-					!bool(n.get_navy().get_battle_from_navy_battle_participation())) {
+				if(n.get_navy().get_controller_from_navy_control() == army_owner && !bool(n.get_navy().get_battle_from_navy_battle_participation())) {
 					max_cap = std::max(military::free_transport_capacity(state, n.get_navy()), max_cap);
 				}
 			}
 			disabled = max_cap <= 0;
 			//require splitting
-			if(!command::can_embark_army(state, state.local_player_nation, a)
-				&& max_cap > 0) {
+			if(!command::can_embark_army(state, state.local_player_nation, a) && max_cap > 0) {
 				frame = 1;
 			}
 		}
@@ -2546,9 +2542,7 @@ public:
 			} else {
 				return make_element_by_type<invisible_element>(state, id);
 			}
-		} else if(name == "attach_unit_button"
-			|| name == "detach_unit_button"
-			|| name == "select_land") {
+		} else if(name == "attach_unit_button" || name == "detach_unit_button" || name == "select_land") {
 
 			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "header") {
@@ -2689,8 +2683,7 @@ class unit_type_listbox_entry_label : public button_element_base {
 			for(auto regiment : state.selected_regiments) {
 				auto a = state.world.regiment_get_army_from_army_membership(regiment);
 
-				if(state.world.army_get_controller_from_army_control(a) != state.local_player_nation || state.world.army_get_is_retreating(a) || state.world.army_get_navy_from_army_transport(a) ||
-				bool(state.world.army_get_battle_from_army_battle_participation(a))) {
+				if(state.world.army_get_controller_from_army_control(a) != state.local_player_nation || state.world.army_get_is_retreating(a) || state.world.army_get_navy_from_army_transport(a) || bool(state.world.army_get_battle_from_army_battle_participation(a))) {
 					any_breaking_army_check = true;
 				}
 			}
@@ -2705,8 +2698,7 @@ class unit_type_listbox_entry_label : public button_element_base {
 			for(auto ship : state.selected_ships) {
 				auto n = state.world.ship_get_navy_from_navy_membership(ship);
 				auto embarked = state.world.navy_get_army_transport(n);
-				if(state.world.navy_get_controller_from_navy_control(n) != state.local_player_nation || state.world.navy_get_is_retreating(n) ||
-					bool(state.world.navy_get_battle_from_navy_battle_participation(n)) || embarked.begin() != embarked.end()) {
+				if(state.world.navy_get_controller_from_navy_control(n) != state.local_player_nation || state.world.navy_get_is_retreating(n) || bool(state.world.navy_get_battle_from_navy_battle_participation(n)) || embarked.begin() != embarked.end()) {
 					any_breaking_navy_check = true;
 				}
 

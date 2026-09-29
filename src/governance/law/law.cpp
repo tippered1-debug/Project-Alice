@@ -38,9 +38,7 @@ bool is_draft(sys::state const& state, dcon::legal_instrument_id instrument) {
 
 bool has_rule(sys::state const& state, dcon::legal_instrument_id instrument, policy_rule_kind kind, dcon::commodity_id settlement) {
 	for(auto rule : state.world.in_policy_rule)
-		if(instrument_for_rule(state, rule) == instrument
-			&& state.world.policy_rule_get_kind(rule) == uint8_t(kind)
-			&& state.world.policy_rule_get_settlement(rule) == settlement) return true;
+		if(instrument_for_rule(state, rule) == instrument && state.world.policy_rule_get_kind(rule) == uint8_t(kind) && state.world.policy_rule_get_settlement(rule) == settlement) return true;
 	return false;
 }
 
@@ -53,8 +51,7 @@ bool same_rule_conflict(sys::state const& state, dcon::legal_instrument_id candi
 	policy_rule_kind kind, dcon::commodity_id settlement, sys::date effective_from) {
 	auto nation = nation_scope(state, candidate);
 	auto check = [&](dcon::legal_instrument_id instrument) {
-		if(instrument == candidate || !state.world.legal_instrument_is_valid(instrument)
-			|| state.world.legal_instrument_get_status(instrument) == uint8_t(legal_status::draft)) return false;
+		if(instrument == candidate || !state.world.legal_instrument_is_valid(instrument) || state.world.legal_instrument_get_status(instrument) == uint8_t(legal_status::draft)) return false;
 		auto existing_start = state.world.legal_instrument_get_effective_from(instrument);
 		std::optional<sys::date> existing_end;
 		if(state.world.legal_instrument_get_status(instrument) == uint8_t(legal_status::repealed))
@@ -63,8 +60,7 @@ bool same_rule_conflict(sys::state const& state, dcon::legal_instrument_id candi
 		bool conflict = false;
 	for(auto rule : state.world.in_policy_rule) {
 		if(instrument_for_rule(state, rule) != instrument) continue;
-			if(rule && state.world.policy_rule_get_kind(rule) == uint8_t(kind)
-				&& state.world.policy_rule_get_settlement(rule) == settlement) conflict = true;
+			if(rule && state.world.policy_rule_get_kind(rule) == uint8_t(kind) && state.world.policy_rule_get_settlement(rule) == settlement) conflict = true;
 	}
 		return conflict;
 	};
@@ -94,10 +90,7 @@ dcon::legal_action_id record_action(sys::state& state, legal_action_kind kind, d
 
 dcon::legal_instrument_id create_draft_instrument(sys::state& state, legal_instrument_kind kind,
 	dcon::nation_id nation, dcon::territorial_unit_id territorial_unit) {
-	if((nation && territorial_unit) || (!nation && !territorial_unit)
-		|| (nation && !state.world.nation_is_valid(nation))
-		|| (territorial_unit && !state.world.territorial_unit_is_valid(territorial_unit))
-		|| uint8_t(kind) > uint8_t(legal_instrument_kind::regulation)) return {};
+	if(nation && territorial_unit || !nation && !territorial_unit || nation && !state.world.nation_is_valid(nation) || territorial_unit && !state.world.territorial_unit_is_valid(territorial_unit) || uint8_t(kind) > uint8_t(legal_instrument_kind::regulation)) return {};
 	auto instrument = state.world.create_legal_instrument();
 	state.world.legal_instrument_set_kind(instrument, uint8_t(kind));
 	state.world.legal_instrument_set_status(instrument, uint8_t(legal_status::draft));
@@ -108,8 +101,7 @@ dcon::legal_instrument_id create_draft_instrument(sys::state& state, legal_instr
 
 bool add_public_debt_ceiling_rule(sys::state& state, dcon::legal_instrument_id instrument,
 	dcon::commodity_id settlement, float amount) {
-	if(!is_draft(state, instrument) || !settlement || !state.world.commodity_is_valid(settlement) || !finite_nonnegative(amount)
-		|| has_rule(state, instrument, policy_rule_kind::public_debt_ceiling, settlement)) return false;
+	if(!is_draft(state, instrument) || !settlement || !state.world.commodity_is_valid(settlement) || !finite_nonnegative(amount) || has_rule(state, instrument, policy_rule_kind::public_debt_ceiling, settlement)) return false;
 	auto rule = state.world.create_policy_rule();
 	state.world.policy_rule_set_kind(rule, uint8_t(policy_rule_kind::public_debt_ceiling));
 	state.world.policy_rule_set_settlement(rule, settlement);
@@ -119,8 +111,7 @@ bool add_public_debt_ceiling_rule(sys::state& state, dcon::legal_instrument_id i
 }
 
 bool add_public_debt_prohibition_rule(sys::state& state, dcon::legal_instrument_id instrument, dcon::commodity_id settlement) {
-	if(!is_draft(state, instrument) || !settlement || !state.world.commodity_is_valid(settlement)
-		|| has_rule(state, instrument, policy_rule_kind::public_debt_issuance_prohibited, settlement)) return false;
+	if(!is_draft(state, instrument) || !settlement || !state.world.commodity_is_valid(settlement) || has_rule(state, instrument, policy_rule_kind::public_debt_issuance_prohibited, settlement)) return false;
 	auto rule = state.world.create_policy_rule();
 	state.world.policy_rule_set_kind(rule, uint8_t(policy_rule_kind::public_debt_issuance_prohibited));
 	state.world.policy_rule_set_settlement(rule, settlement);
@@ -130,8 +121,7 @@ bool add_public_debt_prohibition_rule(sys::state& state, dcon::legal_instrument_
 }
 
 bool instrument_is_effective(sys::state const& state, dcon::legal_instrument_id instrument, sys::date date) {
-	if(!instrument || !state.world.legal_instrument_is_valid(instrument)
-		|| state.world.legal_instrument_get_status(instrument) == uint8_t(legal_status::draft)) return false;
+	if(!instrument || !state.world.legal_instrument_is_valid(instrument) || state.world.legal_instrument_get_status(instrument) == uint8_t(legal_status::draft)) return false;
 	auto enacted = state.world.legal_instrument_get_enacted_on(instrument);
 	auto effective = state.world.legal_instrument_get_effective_from(instrument);
 	if(date < enacted || date < effective) return false;
@@ -141,8 +131,7 @@ bool instrument_is_effective(sys::state const& state, dcon::legal_instrument_id 
 
 dcon::legal_action_id authorized_enact(sys::state& state, dcon::person_id initiator,
 	dcon::legal_instrument_id instrument, sys::date enacted_on, sys::date effective_from) {
-	if(!is_draft(state, instrument) || effective_from < enacted_on || !initiator
-		|| !state.world.person_is_valid(initiator) || !state.world.person_get_alive(initiator)) return {};
+	if(!is_draft(state, instrument) || effective_from < enacted_on || !initiator || !state.world.person_is_valid(initiator) || !state.world.person_get_alive(initiator)) return {};
 	auto nation = nation_scope(state, instrument);
 	auto territorial = territorial_scope(state, instrument);
 	dcon::office_tenure_id tenure{};
@@ -150,8 +139,7 @@ dcon::legal_action_id authorized_enact(sys::state& state, dcon::person_id initia
 	else {
 		for(auto office : persons::active_offices_of(state, initiator)) {
 			auto candidate = persons::active_tenure_for(state, office);
-			if(candidate && state.world.office_tenure_get_started_on(candidate) <= enacted_on
-				&& governance::has_authority(state, office, required_authority(state, instrument), territorial)) { tenure = candidate; break; }
+			if(candidate && state.world.office_tenure_get_started_on(candidate) <= enacted_on && governance::has_authority(state, office, required_authority(state, instrument), territorial)) { tenure = candidate; break; }
 		}
 	}
 	if(!tenure) return {};
@@ -163,9 +151,7 @@ dcon::legal_action_id authorized_enact(sys::state& state, dcon::person_id initia
 	for(auto first : state.world.in_policy_rule) {
 		if(instrument_for_rule(state, first) != instrument) continue;
 		for(auto second : state.world.in_policy_rule) {
-			if(first != second && instrument_for_rule(state, second) == instrument
-				&& state.world.policy_rule_get_kind(first) == state.world.policy_rule_get_kind(second)
-				&& state.world.policy_rule_get_settlement(first) == state.world.policy_rule_get_settlement(second)) valid_rules = false;
+			if(first != second && instrument_for_rule(state, second) == instrument && state.world.policy_rule_get_kind(first) == state.world.policy_rule_get_kind(second) && state.world.policy_rule_get_settlement(first) == state.world.policy_rule_get_settlement(second)) valid_rules = false;
 		}
 	}
 	for(auto relation : state.world.in_policy_rule) {
@@ -173,11 +159,8 @@ dcon::legal_action_id authorized_enact(sys::state& state, dcon::person_id initia
 		{
 			has_rule = true;
 			auto rule = relation;
-			if(!rule || !state.world.policy_rule_get_settlement(rule) || !state.world.commodity_is_valid(state.world.policy_rule_get_settlement(rule))
-				|| !finite_nonnegative(state.world.policy_rule_get_amount(rule))) valid_rules = false;
-			if(rule && (state.world.policy_rule_get_kind(rule) == uint8_t(policy_rule_kind::public_debt_ceiling)
-				|| state.world.policy_rule_get_kind(rule) == uint8_t(policy_rule_kind::public_debt_issuance_prohibited))
-				&& same_rule_conflict(state, instrument, policy_rule_kind(state.world.policy_rule_get_kind(rule)), state.world.policy_rule_get_settlement(rule), effective_from)) valid_rules = false;
+			if(!rule || !state.world.policy_rule_get_settlement(rule) || !state.world.commodity_is_valid(state.world.policy_rule_get_settlement(rule)) || !finite_nonnegative(state.world.policy_rule_get_amount(rule))) valid_rules = false;
+			if(rule && state.world.policy_rule_get_kind(rule) == uint8_t(policy_rule_kind::public_debt_ceiling) || state.world.policy_rule_get_kind(rule) == uint8_t(policy_rule_kind::public_debt_issuance_prohibited) && same_rule_conflict(state, instrument, policy_rule_kind(state.world.policy_rule_get_kind(rule)), state.world.policy_rule_get_settlement(rule), effective_from)) valid_rules = false;
 		}
 	}
 	if(!has_rule || !valid_rules) return {};
@@ -192,11 +175,7 @@ dcon::legal_action_id authorized_enact(sys::state& state, dcon::person_id initia
 
 dcon::legal_action_id authorized_repeal(sys::state& state, dcon::person_id initiator,
 	dcon::legal_instrument_id instrument, sys::date date) {
-	if(!instrument || !state.world.legal_instrument_is_valid(instrument)
-		|| state.world.legal_instrument_get_status(instrument) != uint8_t(legal_status::enacted)
-		|| date < state.world.legal_instrument_get_enacted_on(instrument)
-		|| date < state.world.legal_instrument_get_effective_from(instrument)
-		|| !initiator || !state.world.person_is_valid(initiator) || !state.world.person_get_alive(initiator)) return {};
+	if(!instrument || !state.world.legal_instrument_is_valid(instrument) || state.world.legal_instrument_get_status(instrument) != uint8_t(legal_status::enacted) || date < state.world.legal_instrument_get_enacted_on(instrument) || date < state.world.legal_instrument_get_effective_from(instrument) || !initiator || !state.world.person_is_valid(initiator) || !state.world.person_get_alive(initiator)) return {};
 	auto office = state.world.legal_instrument_get_office_from_legal_instrument_authorizing_office(instrument);
 	auto institution = state.world.legal_instrument_get_institution_from_legal_instrument_issuing_institution(instrument);
 	auto nation = nation_scope(state, instrument);
@@ -206,8 +185,7 @@ dcon::legal_action_id authorized_repeal(sys::state& state, dcon::person_id initi
 	else {
 		for(auto current : persons::active_offices_of(state, initiator)) {
 			auto candidate = persons::active_tenure_for(state, current);
-			if(candidate && state.world.office_tenure_get_started_on(candidate) <= date
-				&& governance::has_authority(state, current, required_authority(state, instrument), territorial)) { tenure = candidate; break; }
+			if(candidate && state.world.office_tenure_get_started_on(candidate) <= date && governance::has_authority(state, current, required_authority(state, instrument), territorial)) { tenure = candidate; break; }
 		}
 	}
 	if(!tenure) return {};

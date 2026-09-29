@@ -28,23 +28,17 @@ dcon::resource_extraction_right_id create_right(sys::state& state, dcon::person_
 	dcon::office_id office, dcon::resource_deposit_id deposit, dcon::economic_actor_id holder,
 	dcon::nation_id granting_nation, sys::date valid_from, sys::date valid_until,
 	float max_daily_quantity, sys::date date) {
-	if(!initiator || !office || !deposit || !holder || !granting_nation || valid_until < valid_from
-		|| !finite_nonnegative(max_daily_quantity) || date < valid_from || date >= valid_until
-		|| !state.world.person_get_alive(initiator)) return {};
+	if(!initiator || !office || !deposit || !holder || !granting_nation || valid_until < valid_from || !finite_nonnegative(max_daily_quantity) || date < valid_from || date >= valid_until || !state.world.person_get_alive(initiator)) return {};
 	auto province = state.world.site_get_province_from_site_location(
 		state.world.resource_deposit_get_site_from_resource_deposit_site(deposit));
 	auto institution = governance::institution_for_office(state, office);
-	if(!province || !institution || governance::nation_of(state, institution) != granting_nation
-		|| state.world.province_get_nation_from_province_ownership(province) != granting_nation
-		|| !persons::authority_tenure_on_or_before(state, initiator, governance::authority_kind::license, granting_nation, date)) return {};
+	if(!province || !institution || governance::nation_of(state, institution) != granting_nation || state.world.province_get_nation_from_province_ownership(province) != granting_nation || !persons::authority_tenure_on_or_before(state, initiator, governance::authority_kind::license, granting_nation, date)) return {};
 	// Overlapping active rights for one deposit are ambiguous. Reject them at
 	// creation so extraction can select a single right deterministically.
 	bool overlaps = false;
 	state.world.resource_deposit_for_each_resource_extraction_right_deposit_as_resource_deposit(deposit, [&](dcon::resource_extraction_right_deposit_id relation) {
 		auto existing = state.world.resource_extraction_right_deposit_get_resource_extraction_right(relation);
-		if(state.world.resource_extraction_right_get_status(existing) == uint8_t(right_status::active)
-			&& valid_from < state.world.resource_extraction_right_get_valid_until(existing)
-			&& state.world.resource_extraction_right_get_valid_from(existing) < valid_until)
+		if(state.world.resource_extraction_right_get_status(existing) == uint8_t(right_status::active) && valid_from < state.world.resource_extraction_right_get_valid_until(existing) && state.world.resource_extraction_right_get_valid_from(existing) < valid_until)
 			overlaps = true;
 	});
 	if(overlaps) return {};
@@ -64,9 +58,7 @@ dcon::resource_extraction_right_id active_right_for(sys::state const& state, dco
 	dcon::resource_extraction_right_id result{};
 	state.world.resource_deposit_for_each_resource_extraction_right_deposit_as_resource_deposit(deposit, [&](dcon::resource_extraction_right_deposit_id relation) {
 		auto right = state.world.resource_extraction_right_deposit_get_resource_extraction_right(relation);
-		if(!result && state.world.resource_extraction_right_get_status(right) == uint8_t(right_status::active)
-			&& state.world.resource_extraction_right_get_valid_from(right) <= date
-			&& date < state.world.resource_extraction_right_get_valid_until(right)) result = right;
+		if(!result && state.world.resource_extraction_right_get_status(right) == uint8_t(right_status::active) && state.world.resource_extraction_right_get_valid_from(right) <= date && date < state.world.resource_extraction_right_get_valid_until(right)) result = right;
 	});
 	return result;
 }
@@ -77,10 +69,7 @@ dcon::resource_extraction_right_id active_right_for(sys::state const& state, dco
 	bool ambiguous = false;
 	state.world.resource_deposit_for_each_resource_extraction_right_deposit_as_resource_deposit(deposit, [&](dcon::resource_extraction_right_deposit_id relation) {
 		auto right = state.world.resource_extraction_right_deposit_get_resource_extraction_right(relation);
-		if(state.world.resource_extraction_right_get_status(right) != uint8_t(right_status::active)
-			|| state.world.resource_extraction_right_get_valid_from(right) > date
-			|| date >= state.world.resource_extraction_right_get_valid_until(right)
-			|| state.world.resource_extraction_right_get_economic_actor_from_resource_extraction_right_holder(right) != holder)
+		if(state.world.resource_extraction_right_get_status(right) != uint8_t(right_status::active) || state.world.resource_extraction_right_get_valid_from(right) > date || date >= state.world.resource_extraction_right_get_valid_until(right) || state.world.resource_extraction_right_get_economic_actor_from_resource_extraction_right_holder(right) != holder)
 			return;
 		if(result) ambiguous = true;
 		else if(!ambiguous) result = right;
@@ -90,12 +79,9 @@ dcon::resource_extraction_right_id active_right_for(sys::state const& state, dco
 
 float extract_resource(sys::state& state, dcon::resource_deposit_id deposit, dcon::economic_actor_id operator_actor,
 	float requested_quantity, sys::date date) {
-	if(!deposit || !operator_actor || !std::isfinite(requested_quantity) || requested_quantity <= 0.0f
-		|| state.world.resource_deposit_get_status(deposit) != uint8_t(deposit_status::active)) return 0.0f;
+	if(!deposit || !operator_actor || !std::isfinite(requested_quantity) || requested_quantity <= 0.0f || state.world.resource_deposit_get_status(deposit) != uint8_t(deposit_status::active)) return 0.0f;
 	auto site = state.world.resource_deposit_get_site_from_resource_deposit_site(deposit);
-	if(!site || !actors::ownership::asset_for_deposit(state, deposit)
-		|| !has_owner(state, actors::ownership::asset_for_deposit(state, deposit))
-		|| actors::ownership::operator_for_deposit(state, deposit) != operator_actor) return 0.0f;
+	if(!site || !actors::ownership::asset_for_deposit(state, deposit) || !has_owner(state, actors::ownership::asset_for_deposit(state, deposit)) || actors::ownership::operator_for_deposit(state, deposit) != operator_actor) return 0.0f;
 	auto right = active_right_for(state, deposit, operator_actor, date);
 	if(!right) return 0.0f;
 	auto holder = state.world.resource_extraction_right_get_economic_actor_from_resource_extraction_right_holder(right);
@@ -111,8 +97,7 @@ float extract_resource(sys::state& state, dcon::resource_deposit_id deposit, dco
 	auto actual = std::min({requested_quantity, std::max(0.0f, capacity - extracted_today), std::max(0.0f, right_limit - extracted_today), remaining});
 	if(!std::isfinite(actual) || actual <= 0.0f) return 0.0f;
 	auto commodity = state.world.resource_deposit_get_commodity(deposit);
-	if(!commodity || !std::isfinite(remaining - actual)
-		|| !std::isfinite(inventory::quantity(state, site, commodity, operator_actor) + actual)) return 0.0f;
+	if(!commodity || !std::isfinite(remaining - actual) || !std::isfinite(inventory::quantity(state, site, commodity, operator_actor) + actual)) return 0.0f;
 	auto stock = inventory::find(state, site, commodity, operator_actor);
 	auto old_stock_quantity = stock ? state.world.physical_stock_get_quantity(stock) : 0.0f;
 	if(inventory::add(state, site, commodity, actual, operator_actor) != actual) {

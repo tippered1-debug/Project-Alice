@@ -37,10 +37,7 @@ static Color parseColorOrNone(std::string_view input, const SVGLayoutState* stat
 
 static bool parseUrlValue(std::string_view& input, std::string& value)
 {
-    if(!skipString(input, "url")
-        || !skipOptionalSpaces(input)
-        || !skipDelimiter(input, '(')
-        || !skipOptionalSpaces(input)) {
+    if(!skipString(input, "url") || !skipOptionalSpaces(input) || !skipDelimiter(input, '(') || !skipOptionalSpaces(input)) {
         return false;
     }
 
@@ -585,7 +582,7 @@ Font SVGLayoutState::font() const
         if(!input.empty() && input.front() == ',')
             input.remove_prefix(1);
         stripLeadingAndTrailingSpaces(family);
-        if(!family.empty() && (family.front() == '\'' || family.front() == '"')) {
+        if(!family.empty() && family.front() == '\'' || family.front() == '"') {
             auto quote = family.front();
             family.remove_prefix(1);
             if(!family.empty() && family.back() == quote)

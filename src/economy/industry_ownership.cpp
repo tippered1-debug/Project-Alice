@@ -172,8 +172,7 @@ distribution historical_initial_distribution(historical_profile profile) {
 }
 
 void initialize_historical_profiles(sys::state& state) {
-	if(!gamerule::age_of_transformation_enabled(state))
-		return;
+
 	state.world.for_each_province([&](dcon::province_id province) {
 		if(state.world.province_get_industry_profile(province)
 			!= uint8_t(historical_profile::unassigned))
@@ -213,7 +212,6 @@ void store_distribution(sys::state& state, dcon::province_id province, distribut
 
 market_config configuration_for(sys::state const& state, dcon::province_id province) {
 	market_config config;
-	config.enabled = gamerule::age_of_transformation_enabled(state);
 	auto const nation = state.world.province_get_nation_from_province_ownership(province);
 	auto const laws = politics::transformation::laws::for_nation(state, nation);
 	config.foreign_investment_allowed = laws.foreign_capital
@@ -271,9 +269,6 @@ market_result clear_market(distribution current,
 	market_result result;
 	result.before = normalize(current);
 	result.after = result.before;
-	if(!config.enabled)
-		return result;
-
 	result.enabled = true;
 	result.industry_value = finite_nonnegative(industry_value);
 
@@ -444,64 +439,9 @@ market_result clear_market(distribution current,
 
 namespace {
 
-owner_group pop_owner_group(sys::state const& state, dcon::pop_id pop, bool& participates) {
-	auto const type = state.world.pop_get_poptype(pop);
-	participates = true;
-	if(type == state.culture_definitions.capitalists)
-		return owner_group::capitalists;
-	if(type == state.culture_definitions.aristocrat)
-		return owner_group::landed_elites;
-	if(type == state.culture_definitions.primary_factory_worker
-		|| type == state.culture_definitions.secondary_factory_worker)
-		return owner_group::workers;
-	participates = false;
-	return owner_group::capitalists;
-}
-
 // Seller proceeds follow each POP's existing savings, the best already-persisted
 // proxy for its share of the class holding, so a numerous class cannot collect
 // another owner's sale.
-void apply_pop_cash(sys::state& state, dcon::province_id province, owner_group group,
-		float cash_delta, float group_savings) {
-	if(!std::isfinite(cash_delta) || std::abs(cash_delta) <= epsilon)
-		return;
-	std::vector<dcon::pop_id> recipients;
-	for(auto location : state.world.province_get_pop_location(province)) {
-		auto const pop = location.get_pop().id;
-		bool participates = false;
-		auto const pop_group = pop_owner_group(state, pop, participates);
-		if(participates && pop_group == group)
-			recipients.push_back(pop);
-	}
-	if(recipients.empty()) {
-		// A class with no POPs here cannot be paid; the proceeds stay in the
-		// banking system rather than evaporating.
-		if(cash_delta > 0.f) {
-			auto const nation = state.world.province_get_nation_from_province_ownership(province);
-			if(nation)
-				(void)nation; (void)cash_delta;
-		}
-		return;
-	}
-	auto remaining = std::abs(cash_delta);
-	for(std::size_t i = 0; i < recipients.size(); ++i) {
-		auto const pop = recipients[i];
-		auto const current = finite_nonnegative(state.world.pop_get_savings(pop));
-		auto weight = group_savings > 0.f
-			? current / group_savings : 1.f / float(recipients.size());
-		auto amount = i + 1 == recipients.size()
-			? remaining : std::min(remaining, std::abs(cash_delta) * weight);
-		if(cash_delta < 0.f)
-			amount = std::min(amount, current);
-		state.world.pop_set_savings(pop, cash_delta < 0.f ? current - amount : current + amount);
-		remaining = std::max(0.f, remaining - amount);
-	}
-}
-
-void apply_treasury(sys::state& state, dcon::nation_id nation, float delta) {
-	(void)state; (void)nation; (void)delta;
-}
-
 } // namespace
 
 // Share of a nation's industry that recorded foreign investment would justify
@@ -523,86 +463,6 @@ std::vector<float> foreign_investment_targets(sys::state const& state) {
 			targets[std::size_t(nation.id.index())] = unit(float(invested / total));
 	}
 	return targets;
-}
-
-void update_markets(sys::state& state) {
-	if(!gamerule::age_of_transformation_enabled(state))
-		return;
-	// Ownership is a stock and the rates here are monthly, matching the land
-	// market. Clearing it daily would apply every legal flow thirty times over.
-	auto const date = state.current_date.to_ymd(state.start_date);
-	if(date.day != 1)
-		return;
-
-	auto const investment_targets = foreign_investment_targets(state);
-
-	state.world.for_each_province([&](dcon::province_id province) {
-		auto const nation = state.world.province_get_nation_from_province_ownership(province);
-		if(!nation)
-			return;
-
-		auto config = configuration_for(state, province);
-		if(auto const slot = std::size_t(nation.index()); slot < investment_targets.size())
-			config.foreign_investment_target = investment_targets[slot];
-		auto const value = capitalized_value(
-			state.world.province_get_smoothed_factory_profit(province));
-		state.world.province_set_industry_market_value(province, value);
-
-		std::array<group_finance, owner_group_count> finances{};
-		std::array<float, owner_group_count> group_savings{};
-		for(auto location : state.world.province_get_pop_location(province)) {
-			auto const pop = location.get_pop().id;
-			bool participates = false;
-			auto const group = pop_owner_group(state, pop, participates);
-			if(!participates)
-				continue;
-			auto const slot = std::size_t(group);
-			auto const savings = finite_nonnegative(state.world.pop_get_savings(pop));
-			finances[slot].liquid_savings += savings;
-			group_savings[slot] += savings;
-			auto const size = finite_nonnegative(state.world.pop_get_size(pop));
-			auto const market = state.world.state_instance_get_market_from_local_market(
-				state.world.province_get_state_membership(province));
-			if(market) {
-				auto const type = state.world.pop_get_poptype(pop);
-				finances[slot].monthly_essential_needs +=
-					finite_nonnegative(state.world.market_get_life_needs_costs(market, type))
-					* size / state.defines.alice_needs_scaling_factor;
-			}
-			auto const employment = pop_demographics::get_employment(state, pop);
-			auto const unemployed = size > 0.f ? std::max(0.f, 1.f - employment / size) : 0.f;
-			auto const unmet = 1.f - unit(pop_demographics::get_life_needs(state, pop));
-			finances[slot].hardship = std::max(finances[slot].hardship,
-				unit(0.5f * unemployed + 0.5f * unmet) * 0.01f);
-		}
-
-		auto const before = current_distribution(state, province);
-		auto const result = clear_market(before, finances, value, config);
-		if(!result.enabled)
-			return;
-
-		store_distribution(state, province, result.after);
-		state.world.province_set_industry_market_turnover(province, result.turnover);
-
-		for(std::size_t group = 0; group < owner_group_count; ++group) {
-			auto const delta = result.cash_delta[group];
-			if(std::abs(delta) <= epsilon)
-				continue;
-			if(group == std::size_t(owner_group::state)) {
-				apply_treasury(state, nation, delta);
-			} else if(group == std::size_t(owner_group::foreign)) {
-				// Foreign proceeds leave the domestic circuit through the bank
-				// rather than being handed to a POP that does not live here.
-				(void)nation; (void)delta;
-			} else {
-				apply_pop_cash(state, province, owner_group(group), delta, group_savings[group]);
-			}
-		}
-		if(result.public_cost > 0.f)
-			apply_treasury(state, nation, -result.public_cost);
-		if(result.profit_tax > 0.f)
-			apply_treasury(state, nation, result.profit_tax);
-	});
 }
 
 } // namespace economy::industry_ownership

@@ -1,5 +1,7 @@
 # Individual Money Consumption v1
 
+> Historical milestone snapshot. Some save and compatibility statements below describe the original v1 implementation and are superseded by the current canonical runtime contract. The current end-to-end save and runtime contract is documented in [Simulation Continuity](features/simulation-continuity.md) and [Canonical Runtime Contract](features/canonical-runtime-migration.md).
+
 Individual Money Consumption v1 makes a persistent `person` and its existing
 `economic_actor` the canonical consumer. It does not create households,
 representative consumers, weighted persons, or a second wallet.

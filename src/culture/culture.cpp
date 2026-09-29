@@ -7,6 +7,10 @@
 #include "system_state.hpp"
 #include "triggers.hpp"
 
+#include <cassert>
+#include <cstdlib>
+#include <vector>
+
 namespace culture {
 
 std::string get_tech_category_name(tech_category t) {
@@ -432,7 +436,7 @@ void apply_technology(sys::state& state, dcon::nation_id target_nation, dcon::te
 	if(tech_mod) {
 		auto& tech_nat_values = tech_mod.get_national_values();
 		for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-			if(!(tech_nat_values.offsets[i]))
+			if(!tech_nat_values.offsets[i])
 				break; // no more modifier values attached to this tech
 
 			auto fixed_offset = tech_nat_values.offsets[i];
@@ -513,7 +517,7 @@ void remove_technology(sys::state& state, dcon::nation_id target_nation, dcon::t
 	if(tech_mod) {
 		auto& tech_nat_values = tech_mod.get_national_values();
 		for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-			if(!(tech_nat_values.offsets[i]))
+			if(!tech_nat_values.offsets[i])
 				break; // no more modifier values attached to this tech
 
 			auto fixed_offset = tech_nat_values.offsets[i];
@@ -594,7 +598,7 @@ void apply_invention(sys::state& state, dcon::nation_id target_nation, dcon::inv
 	if(inv_mod) {
 		auto& inv_nat_values = inv_mod.get_national_values();
 		for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-			if(!(inv_nat_values.offsets[i]))
+			if(!inv_nat_values.offsets[i])
 				break; // no more modifier values attached to this tech
 
 			auto fixed_offset = inv_nat_values.offsets[i];
@@ -715,7 +719,7 @@ void remove_invention(sys::state& state, dcon::nation_id target_nation,
 	if(inv_mod) {
 		auto& inv_nat_values = inv_mod.get_national_values();
 		for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-			if(!(inv_nat_values.offsets[i]))
+			if(!inv_nat_values.offsets[i])
 				break; // no more modifier values attached to this tech
 
 			auto fixed_offset = inv_nat_values.offsets[i];
@@ -854,9 +858,18 @@ void fix_slaves_in_province(sys::state& state, dcon::nation_id owner, dcon::prov
 	if(!owner || (rules & issue_rule::slavery_allowed) == 0) {
 		state.world.province_set_is_slave(p, false);
 		bool mine = state.world.commodity_get_is_mine(state.world.province_get_rgo(p));
-		for(auto pop : state.world.province_get_pop_location(p)) {
-			if(pop.get_pop().get_poptype() == state.culture_definitions.slaves) {
-				pop.get_pop().set_poptype(mine ? state.culture_definitions.laborers : state.culture_definitions.farmers);
+		std::vector<dcon::pop_id> source_cells;
+		state.world.province_for_each_pop_location(p, [&](auto relation) {
+			source_cells.push_back(state.world.pop_location_get_pop(relation));
+		});
+		for(auto pop : source_cells) {
+			if(state.world.pop_get_poptype(pop) == state.culture_definitions.slaves) {
+				auto const moved = demographics::reclassify_population_cell(state, pop, p,
+					state.world.pop_get_culture(pop), state.world.pop_get_religion(pop),
+					mine ? state.culture_definitions.laborers : state.culture_definitions.farmers,
+					persons::exact_population::population_transition_cause::scripted_reclassification);
+				assert(moved && "abolishing slavery must reclassify canonical exact population");
+				if(!moved) std::abort();
 			}
 		}
 	} else if(state.world.province_get_is_slave(p) == false) { // conversely, could become a slave state if slaves are found
@@ -893,13 +906,7 @@ void update_nation_issue_rules(sys::state& state, dcon::nation_id n_id) {
 	if((old_rules & issue_rule::slavery_allowed) != 0 && (combined & issue_rule::slavery_allowed) == 0) {
 
 		for(auto p : state.world.nation_get_province_ownership(n_id)) {
-			state.world.province_set_is_slave(p.get_province(), false);
-			bool mine = state.world.commodity_get_is_mine(state.world.province_get_rgo(p.get_province()));
-			for(auto pop : state.world.province_get_pop_location(p.get_province())) {
-				if(pop.get_pop().get_poptype() == state.culture_definitions.slaves) {
-					pop.get_pop().set_poptype(mine ? state.culture_definitions.laborers : state.culture_definitions.farmers);
-				}
-			}
+			fix_slaves_in_province(state, n_id, p.get_province());
 		}
 	}
 	if((old_rules & issue_rule::can_subsidise) != 0 && (combined & issue_rule::can_subsidise) == 0) {
@@ -963,8 +970,7 @@ void create_initial_ideology_and_issues_distribution(sys::state& state) {
 			float total = 0.0f;
 			state.world.for_each_ideology([&](dcon::ideology_id iid) {
 				buf.set(iid, 0.0f);
-				if(state.world.ideology_get_enabled(iid) &&
-						(!state.world.ideology_get_is_civilized_only(iid) || state.world.nation_get_is_civilized(owner))) {
+				if(state.world.ideology_get_enabled(iid) && !state.world.ideology_get_is_civilized_only(iid) || state.world.nation_get_is_civilized(owner)) {
 					auto ptrigger = state.world.pop_type_get_ideology(ptype, iid);
 					if(ptrigger) {
 						auto amount = trigger::evaluate_multiplicative_modifier(state, ptrigger, trigger::to_generic(pid),
@@ -991,8 +997,7 @@ void create_initial_ideology_and_issues_distribution(sys::state& state) {
 				auto parent_issue = opt.get_parent_issue();
 				auto co = state.world.nation_get_issues(owner, parent_issue);
 				buf.set(iid, 0.0f);
-				if((state.world.nation_get_is_civilized(owner) || state.world.issue_get_issue_type(parent_issue) == uint8_t(issue_type::party))
-					&& (state.world.issue_get_is_next_step_only(parent_issue) == false || co.id.index() == iid.index() || co.id.index() + 1 == iid.index() || co.id.index() - 1 == iid.index())) {
+				if(state.world.nation_get_is_civilized(owner) || state.world.issue_get_issue_type(parent_issue) == uint8_t(issue_type::party) && state.world.issue_get_is_next_step_only(parent_issue) == false || co.id.index() == iid.index() || co.id.index() + 1 == iid.index() || co.id.index() - 1 == iid.index()) {
 
 					if(auto mtrigger = state.world.pop_type_get_issues(ptype, iid); mtrigger) {
 						auto amount = trigger::evaluate_multiplicative_modifier(state, mtrigger, trigger::to_generic(pid),

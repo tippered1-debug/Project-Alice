@@ -46,7 +46,17 @@ enum class decision_code : uint8_t {
 	crisis_reject = 9,
 	crisis_mobilize = 10,
 	crisis_withdraw = 11,
-	crisis_war = 12
+	crisis_war = 12,
+	war_support = 13,
+	war_stand_aside = 14,
+	peace_accept = 15,
+	peace_reject = 16,
+	access_grant = 17,
+	access_reject = 18,
+	state_transfer_accept = 19,
+	state_transfer_reject = 20,
+	free_trade_accept = 21,
+	free_trade_reject = 22
 };
 
 enum class objective_kind : uint8_t {
@@ -62,8 +72,8 @@ enum class objective_kind : uint8_t {
 	alliance = 9
 };
 
-// Persistent national preferences. The enabled flag is per country so older
-// saves can use the legacy diplomacy AI until a country is migrated.
+// Persistent national preferences. Initialization creates a profile for every
+// country; a missing profile is a broken canonical state.
 struct interests {
 	static constexpr uint32_t no_nation = std::numeric_limits<uint32_t>::max();
 	float security = 0.5f;
@@ -153,12 +163,32 @@ std::string_view phase_name(crisis_phase phase);
 std::string_view decision_name(decision_code decision);
 std::string_view objective_name(objective_kind objective);
 void initialize(sys::state& state);
+void initialize_nation(sys::state& state, dcon::nation_id nation);
 void update_monthly(sys::state& state);
 void update_crisis(sys::state& state);
 
 float alliance_value(sys::state& state, dcon::nation_id observer, dcon::nation_id partner);
 dcon::nation_id best_alliance_partner(sys::state& state, dcon::nation_id nation);
 bool accepts_alliance(sys::state& state, dcon::nation_id target, dcon::nation_id proposer);
+bool accepts_call_to_arms(sys::state& state, dcon::nation_id nation,
+	dcon::nation_id caller, dcon::war_id war);
+bool accepts_peace_offer(sys::state& state, dcon::nation_id from,
+	dcon::nation_id to, dcon::peace_offer_id offer);
+bool evaluate_peace_offer_value(sys::state const& state,
+	dcon::nation_id nation, dcon::nation_id from,
+	dcon::nation_id primary_attacker, dcon::nation_id primary_defender,
+	float primary_warscore, float score_against_nation,
+	bool offer_from_attacker, bool concession,
+	int32_t overall_offer_value, int32_t nation_goal_value,
+	int32_t personal_offer_value, int32_t incoming_goal_value,
+	int32_t side_goal_value, int32_t opposite_side_peace_cost,
+	int32_t war_duration, bool contains_status_quo);
+bool accepts_military_access(sys::state& state, dcon::nation_id target,
+	dcon::nation_id requester);
+bool accepts_free_trade_agreement(sys::state& state, dcon::nation_id target,
+	dcon::nation_id proposer);
+bool accepts_state_transfer(sys::state& state, dcon::nation_id target,
+	dcon::nation_id from, dcon::state_definition_id state_definition);
 void alliance_formed(sys::state& state, dcon::nation_id a, dcon::nation_id b);
 void alliance_broken(sys::state& state, dcon::nation_id a, dcon::nation_id b);
 void guarantee_formed(sys::state& state, dcon::nation_id guarantor, dcon::nation_id beneficiary);
@@ -170,6 +200,10 @@ bool accepts_crisis_side_offer(sys::state& state, dcon::nation_id nation,
 	dcon::nation_id proposer, sys::full_wg const& offer);
 bool accepts_crisis_peace_offer(sys::state& state, dcon::nation_id from,
 	dcon::nation_id to, dcon::peace_offer_id offer);
+bool accepts_crisis_peace_offer(sys::state& state, dcon::nation_id to,
+	bool is_concession, bool missing_wargoal);
+bool evaluate_crisis_peace_offer(sys::state const& state, dcon::nation_id to,
+	bool is_concession, bool missing_wargoal);
 bargaining_action decide_bargaining_action(sys::state& state);
 bool may_escalate_to_war(sys::state& state);
 void record_crisis_commitment(sys::state& state, dcon::nation_id nation, bool supports_attacker);

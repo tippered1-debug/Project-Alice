@@ -6,17 +6,19 @@
 #include "economy/banking/banking.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/firm_agency.hpp"
-#include "economy/physical/concrete_labor.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/relations/relations.hpp"
 #include "system_state.hpp"
+#include "world/spatial_runtime.hpp"
 #include "world/site.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
@@ -95,7 +97,7 @@ float expected_factory_daily_profit(sys::state const& state, dcon::factory_id fa
 					state.current_date, 0.0f);
 	}
 	auto revenue = output_units * std::max(0.0f, price) * std::clamp(sell_through, 0.05f, 1.0f);
-	auto wages = physical::concrete_labor::wage_due_for_factory(state, factory);
+	auto wages = exact_person_economy::wage_due_for_factory(state, factory);
 	if(wages <= epsilon) wages = revenue * 0.25f;
 	auto observed = state.world.factory_get_agency_recent_profit(factory);
 	if(std::isfinite(observed) && std::abs(observed) > epsilon)
@@ -218,8 +220,9 @@ void close_factory(sys::state& state, dcon::factory_id factory) {
 	state.world.factory_set_agency_liquidation_value(factory, factory_value(state, factory));
 	auto site = world::site::site_for_factory(state, factory);
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
-	for(auto contract : physical::concrete_labor::active_contracts_for_factory(state, factory))
-		(void)physical::concrete_labor::terminate_employment_contract(state, contract, state.current_date);
+	for(auto contract : exact_person_economy::active_contracts_for_factory(state, factory))
+		(void)exact_person_economy::end_contract(state, contract,
+			exact_person_economy::contract_status::terminated, state.current_date);
 	if(site && owner) {
 		std::vector<std::pair<dcon::commodity_id, float>> stocks;
 		state.world.site_for_each_physical_stock_site_as_site(site, [&](dcon::physical_stock_site_id relation) {
@@ -249,7 +252,6 @@ void close_factory(sys::state& state, dcon::factory_id factory) {
 		state.world.factory_remove_factory_asset(factory);
 		state.world.delete_asset(asset);
 	}
-	state.world.factory_set_canonical_production(factory, 0);
 	state.world.factory_set_productive_capacity(factory, 0.0f);
 	state.world.factory_set_size(factory, 0.0f);
 	state.world.factory_set_actual_utilization(factory, 0.0f);
@@ -261,7 +263,6 @@ void close_factory(sys::state& state, dcon::factory_id factory) {
 bool acquire_factory(sys::state& state, dcon::economic_actor_id buyer,
 	dcon::organization_id buyer_org, dcon::factory_id factory, float price) {
 	if(!buyer || !buyer_org || !factory || !state.world.factory_is_valid(factory)
-		|| !state.world.factory_get_canonical_production(factory)
 		|| actors::organizations::operator_actor_for_factory(state, factory) == buyer) return false;
 	auto seller = actors::organizations::operator_actor_for_factory(state, factory);
 	auto settlement = state.world.factory_get_payroll_settlement(factory);
@@ -363,8 +364,7 @@ bool restructure_defaulted_factory(sys::state& state, dcon::factory_id factory) 
 }
 
 void process_insolvency(sys::state& state, dcon::factory_id factory) {
-	if(!factory || !state.world.factory_is_valid(factory)
-		|| !state.world.factory_get_canonical_production(factory)) return;
+	if(!factory || !state.world.factory_is_valid(factory)) return;
 	auto defaulted = has_defaulted_factory_loan(state, factory);
 	auto status = state.world.factory_get_agency_lifecycle_status(factory);
 	if(defaulted && status < lifecycle_bankrupt) {
@@ -427,7 +427,7 @@ dcon::factory_id profitable_collateral_factory(sys::state const& state,
 	dcon::factory_id selected{};
 	float selected_value = 0.0f;
 	for(auto factory : actors::organizations::factories_operated_by(state, organization)) {
-		if(!factory || !state.world.factory_get_canonical_production(factory)
+		if(!factory || !state.world.factory_is_valid(factory)
 			|| state.world.factory_get_agency_lifecycle_status(factory) >= lifecycle_bankrupt
 			|| expected_factory_daily_profit(state, factory) <= epsilon) continue;
 		auto value = factory_value(state, factory);
@@ -456,17 +456,17 @@ std::vector<project_opportunity> greenfield_opportunities(sys::state const& stat
 	std::vector<project_opportunity> opportunities;
 	std::unordered_map<uint32_t, dcon::site_id> province_sites;
 	std::unordered_map<uint32_t, std::unordered_set<uint32_t>> existing_types;
+	state.world.for_each_province([&](dcon::province_id province) {
+		auto const site = world::spatial_runtime::site_for_province(state, province);
+		if(site) province_sites.emplace(province.index(), site);
+	});
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		auto province = state.world.factory_get_province_from_factory_location(factory);
-		if(!province) return;
-		if(!province_sites.contains(province.index())) {
-			auto site = world::site::site_for_factory(state, factory);
-			if(site) province_sites.emplace(province.index(), site);
-		}
-		if(state.world.factory_get_canonical_production(factory)) {
-			dcon::factory_type_id type = state.world.factory_get_building_type(factory);
-			if(type) existing_types[province.index()].insert(type.index());
-		}
+		auto const site = world::site::site_for_factory(state, factory);
+		auto const province = world::site::province_for_site(state, site);
+		if(!site || !province || !state.world.province_is_valid(province)) std::abort();
+		province_sites.insert_or_assign(province.index(), site);
+		dcon::factory_type_id type = state.world.factory_get_building_type(factory);
+		if(type) existing_types[province.index()].insert(type.index());
 	});
 	state.world.for_each_province([&](dcon::province_id province) {
 		auto market_relation = state.world.province_get_state_membership(province);
@@ -477,7 +477,7 @@ std::vector<project_opportunity> greenfield_opportunities(sys::state const& stat
 		auto project_site = site_entry->second;
 		state.world.for_each_factory_type([&](dcon::factory_type_id type) {
 			auto output = state.world.factory_type_get_output(type);
-			if(!output || state.world.commodity_get_is_local(output) || state.world.commodity_get_money_rgo(output)) return;
+			if(!output) return;
 			auto type_entry = existing_types.find(province.index());
 			if(type_entry != existing_types.end() && type_entry->second.contains(type.index())) return;
 			auto unit_output = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * 0.5f;
@@ -538,8 +538,7 @@ acquisition_opportunity best_acquisition(sys::state const& state, dcon::economic
 	dcon::commodity_id settlement, float available_cash) {
 	acquisition_opportunity best{};
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(!state.world.factory_get_canonical_production(factory)
-			|| actors::organizations::operator_actor_for_factory(state, factory) == buyer) return;
+		if(actors::organizations::operator_actor_for_factory(state, factory) == buyer) return;
 		if(state.world.factory_get_payroll_settlement(factory)
 			&& state.world.factory_get_payroll_settlement(factory) != settlement) return;
 		auto lifecycle = state.world.factory_get_agency_lifecycle_status(factory);

@@ -1,54 +1,16 @@
-# Simulation Continuity v1
+# Simulation Continuity
 
-The normal save section carries a framed `AOEX` extension for state kept outside
-the DCON world. The extension is versioned and length-delimited. Save versions
-48 through 51 are readable; version 48 has no exact-person extension, version
-49 uses `AOEX` v1, version 50 writes `AOEX` v4, and version 51 writes `AOEX`
-v5. The latest extension persists row-lifetime bindings, retired identity
-ranges, birth cohorts, population-size checkpoints, current membership ranges,
-transition records and fractional transfer remainders without changing the
-DCON schema. Older executables reject version 51 instead of misreading
-extension bytes as DCON data.
+The current normal save is version 55. Its framed `AOEX` v8 extension stores runtime state that lives outside the DCON world:
 
-The snapshot preserves the exact population catalog and its overrides, sparse
-person accounts and transactions, job applications and contracts, household
-stocks and needs, goods fills, freight requests and shipment ownership,
-employment separations, and causal ordering for DCON and exact events. Loading
-restores the catalog before records that refer to exact people, then restores
-their economy, goods, freight, labor history, and causal ordering.
+- exact-person identity catalog, active memberships, birth/death ranges, and transfers;
+- exact household accounts, transactions, job applications, contracts, and separations;
+- household goods, needs, purchases, freight requests, and shipment ownership;
+- labor history and deterministic causal ordering.
 
-Each subsystem validates its records against the loaded DCON world before
-accepting the snapshot. If a snapshot is malformed or references missing
-entities, the exact runtime stores are cleared together instead of leaving a
-partially restored economy. The DCON world remains the source of truth for
-treasuries, institutions, sites, jobs, and shipments.
+Strategic Statecraft is serialized in its required versioned section. Loading succeeds only after the exact-person and Statecraft data validate against the loaded DCON world. Unsupported save headers, missing runtime records, and malformed snapshots are rejected; older aggregate POP saves are not reconstructed.
 
-The extension is included in ordinary saves, scenario-plus-save files, and the
-handwritten multiplayer state transfer. It does not serialize derived market
-caches; those are rebuilt by the existing load path.
+The extension is written for ordinary saves and multiplayer state transfer. Derived market and labor read views are rebuilt from canonical state after loading. DCON POP size and savings are projected from the exact population and person-account stores.
 
-With Age of Transformation enabled, loading a new scenario bootstraps virtual
-exact-person identity ranges from its POP rows. A v48 save, a v49 save with an
-empty first-generation catalog, and a v49 save with an existing catalog receive
-the compatible bootstrap or binding migration after the DCON world is loaded.
-AOEX v2 preserves row-lifetime bindings; v3 records retired row tokens; v4
-persists virtual-person birth and death ranges and the aggregate population
-checkpoint; v5 adds current membership ranges and compact movement history.
-Daily reconciliation appends new identities for net population growth and
-projects living membership counts back to DCON POP sizes. Net shrinkage retires
-a deterministic low-ordinal range, ends active exact labor contracts, and
-cancels open purchase bids. Migration, class changes, assimilation, population
-merges and exact household relocation update membership without changing
-identity keys. Accounts, stock and historical transactions remain attached to
-retired keys, so no value is silently deleted. This creates no DCON people or
-economic actors.
+New scenarios are initialized from their authored POP rows, factory definitions, sites, and resource signals. Factories and resource deposits must include canonical operator firms, assets, and complete ownership stakes; missing ownership data rejects scenario initialization instead of creating placeholder owners. The importer does not infer employment, cash, or consumption history from a previous campaign.
 
-Aggregate saves do not contain individual employment, balance, or consumption
-histories, so migration does not invent those records. Older AOEX v1-v4 saves
-initialize current membership in each person's original row, then use the
-hooked transfer paths going forward. Direct POP size edits that bypass those
-paths still require explicit migration rules. Death does not yet create
-inheritance for retired accounts. Opening balances, stocks and employment also
-remain to be migrated without double counting.
-The wider ownership and retirement gates are tracked in
-[Canonical Runtime Migration](canonical-runtime-migration.md).
+For ownership by domain and implementation rules, see [Canonical Runtime Contract](canonical-runtime-migration.md).

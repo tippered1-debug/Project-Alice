@@ -132,24 +132,24 @@ bool is_fixed_token_ci(std::string_view v, char const (&t)[N]) {
 	return true;
 }
 
-#define CT_STRING_ENUM(X) else if(is_fixed_token_ci(v, #X)) return variable_type::X;
+#define CT_STRING_ENUM(X) if(is_fixed_token_ci(v, #X)) return variable_type::X;
 
 variable_type variable_type_from_name(std::string_view v) {
 	if(v.length() == 1) {
-		if(false) { }
+
 		CT_STRING_ENUM(d)
 		CT_STRING_ENUM(m)
 		CT_STRING_ENUM(n)
 		CT_STRING_ENUM(x)
 		CT_STRING_ENUM(y)
 	} else if(v.length() == 2) {
-		if(false) { }
+
 		CT_STRING_ENUM(gp)
 		CT_STRING_ENUM(nf)
 		CT_STRING_ENUM(to)
 		CT_STRING_ENUM(we)
 	} else if(v.length() == 3) {
-		if(false) { }
+
 		CT_STRING_ENUM(adj)
 		CT_STRING_ENUM(avg)
 		CT_STRING_ENUM(bac)
@@ -204,7 +204,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(war)
 		CT_STRING_ENUM(who)
 	} else if(v.length() == 4) {
-		if(false) { }
+
 		CT_STRING_ENUM(army)
 		CT_STRING_ENUM(base)
 		CT_STRING_ENUM(brig)
@@ -254,7 +254,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(what)
 		CT_STRING_ENUM(year)
 	} else if(v.length() == 5) {
-		if(false) { }
+
 		CT_STRING_ENUM(actor)
 		CT_STRING_ENUM(bonus)
 		CT_STRING_ENUM(casus)
@@ -302,7 +302,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(which)
 		CT_STRING_ENUM(years)
 	} else if(v.length() == 6) {
-		if(false) { }
+
 		CT_STRING_ENUM(action)
 		CT_STRING_ENUM(active)
 		CT_STRING_ENUM(amount)
@@ -341,7 +341,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(versus)
 		CT_STRING_ENUM(winner)
 	} else if(v.length() == 7) {
-		if(false) { }
+
 		CT_STRING_ENUM(against)
 		CT_STRING_ENUM(allowed)
 		CT_STRING_ENUM(attunit)
@@ -386,7 +386,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(cavalry)
 		CT_STRING_ENUM(special)
 	} else if(v.length() == 8) {
-		if(false) { }
+
 		CT_STRING_ENUM(agressor)
 		CT_STRING_ENUM(attacker)
 		CT_STRING_ENUM(building)
@@ -426,7 +426,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(totalimm)
 		CT_STRING_ENUM(infantry)
 	} else if(v.length() == 9) {
-		if(false) { }
+
 		CT_STRING_ENUM(army_name)
 		CT_STRING_ENUM(commander)
 		CT_STRING_ENUM(countries)
@@ -450,7 +450,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(union_adj)
 		CT_STRING_ENUM(yesterday)
 	} else if(v.length() == 10) {
-		if(false) { }
+
 		CT_STRING_ENUM(countryadj)
 		CT_STRING_ENUM(crisisarea)
 		CT_STRING_ENUM(government)
@@ -474,7 +474,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(unemployed)
 		CT_STRING_ENUM(value_int1)
 	} else if(v.length() == 11) {
-		if(false) { }
+
 		CT_STRING_ENUM(anyprovince)
 		CT_STRING_ENUM(country_adj)
 		CT_STRING_ENUM(countryname)
@@ -491,7 +491,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(fromcapital)
 		CT_STRING_ENUM(thiscountry)
 	} else if(v.length() == 12) {
-		if(false) { }
+
 		CT_STRING_ENUM(construction)
 		CT_STRING_ENUM(crisistarget)
 		CT_STRING_ENUM(date_short_0)
@@ -503,7 +503,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(provincename)
 		CT_STRING_ENUM(spheremaster)
 	} else if(v.length() == 13) {
-		if(false) { }
+
 		CT_STRING_ENUM(chief_of_navy)
 		CT_STRING_ENUM(continentname)
 		CT_STRING_ENUM(engineerunits)
@@ -523,7 +523,7 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(fromcontinent)
 		CT_STRING_ENUM(fromstatename)
 	} else if(v.length() == 14) {
-		if(false) { }
+
 		CT_STRING_ENUM(cb_target_name)
 		CT_STRING_ENUM(chief_of_staff)
 		CT_STRING_ENUM(countryculture)
@@ -534,46 +534,46 @@ variable_type variable_type_from_name(std::string_view v) {
 		CT_STRING_ENUM(strings_list_4)
 		CT_STRING_ENUM(target_country)
 	} else if(v.length() == 15) {
-		if(false) { }
+
 		CT_STRING_ENUM(base_percentage)
 		CT_STRING_ENUM(crisistaker_adj)
 		CT_STRING_ENUM(fromcountry_adj)
 		CT_STRING_ENUM(provinceculture)
 	} else if(v.length() == 16) {
-		if(false) { }
+
 		CT_STRING_ENUM(crisistarget_adj)
 		CT_STRING_ENUM(engineermaxunits)
 		CT_STRING_ENUM(provincereligion)
 		CT_STRING_ENUM(spheremaster_adj)
 	} else if(v.length() == 17) {
-		if(false) { }
+
 		CT_STRING_ENUM(culture_last_name)
 	} else if(v.length() == 18) {
-		if(false) { }
+
 		CT_STRING_ENUM(cb_target_name_adj)
 		CT_STRING_ENUM(head_of_government)
 		CT_STRING_ENUM(crisisattacker_adj)
 		CT_STRING_ENUM(crisisdefender_adj)
 		CT_STRING_ENUM(culture_first_name)
 	} else if(v.length() == 19) {
-		if(false) { }
+
 		CT_STRING_ENUM(culture_group_union)
 		CT_STRING_ENUM(numspecialfactories)
 		CT_STRING_ENUM(crisistaker_capital)
 	} else if(v.length() == 20) {
-		if(false) { }
+
 	} else if(v.length() == 21) {
-		if(false) { }
+
 		CT_STRING_ENUM(crisistaker_continent)
 	} else if(v.length() == 22) {
-		if(false) { }
+
 		CT_STRING_ENUM(crisisattacker_capital)
 		CT_STRING_ENUM(crisisdefender_capital)
 		CT_STRING_ENUM(spheremaster_union_adj)
 	} else if(v.length() == 23) {
-		if(false) { }
+
 	} else if(v.length() == 24) {
-		if(false) { }
+
 		CT_STRING_ENUM(crisisattacker_continent)
 		CT_STRING_ENUM(crisisdefender_continent)
 	} else if(is_fixed_token_ci(v, "invested_in_us_message")) {
@@ -1193,7 +1193,7 @@ void add_to_substitution_map(substitution_map& mp, variable_type key, substituti
 dcon::text_key localize_month(sys::state const& state, uint16_t month) {
 	static const std::string_view month_names[12] = {"january", "february", "march", "april", "may_month_name", "june", "july", "august",
 		"september", "october", "november", "december"};
-	
+
 	if(month == 0 || month > 12) {
 		return state.lookup_key("january");
 	}
@@ -1360,7 +1360,7 @@ text::alignment to_text_alignment(ui::alignment in) {
 	default:
 		return text::alignment::left;
 	}
-	
+
 }
 
 
@@ -1974,7 +1974,7 @@ void add_space_to_layout_box(sys::state& state, layout_base& dest, layout_box& b
 
 	FT_Load_Glyph(font_inst.font_face, glyphid, FT_LOAD_TARGET_NORMAL);
 	float amount = float(font_inst.font_face->glyph->metrics.horiAdvance) / (text::fixed_to_fp * state.user_settings.ui_scale) ;
-	
+
 	if(dest.native_rtl == layout_base::rtl_status::rtl)
 		box.x_position -= amount;
 	else

@@ -1,13 +1,13 @@
 #include "factory_inputs.hpp"
 
 #include "inventory.hpp"
-#include "market_clearing.hpp"
 #include "deposits.hpp"
 #include "shipments.hpp"
 #include "exchange.hpp"
 #include "concrete_market.hpp"
 #include "governance/public_administration.hpp"
 #include "system_state.hpp"
+#include "economy/accounts/accounts.hpp"
 
 #include <algorithm>
 #include <array>
@@ -33,9 +33,7 @@ struct planned_order {
 std::vector<planned_order> planned_orders;
 
 bool physical_commodity(sys::state const& state, dcon::commodity_id commodity) {
-	return commodity
-		&& !state.world.commodity_get_is_local(commodity)
-		&& !state.world.commodity_get_money_rgo(commodity);
+	return commodity && state.world.commodity_is_valid(commodity);
 }
 
 float in_transit_to(sys::state const& state, dcon::site_id destination,
@@ -43,9 +41,7 @@ float in_transit_to(sys::state const& state, dcon::site_id destination,
 	float result = 0.0f;
 	state.world.for_each_shipment([&](dcon::shipment_id shipment) {
 		auto owner_relation = state.world.shipment_get_shipment_owner(shipment);
-		if(state.world.shipment_get_commodity(shipment) != commodity
-			|| !owner_relation
-			|| state.world.shipment_owner_get_economic_actor(owner_relation) != owner)
+		if(state.world.shipment_get_commodity(shipment) != commodity || !owner_relation || state.world.shipment_owner_get_economic_actor(owner_relation) != owner)
 			return;
 		auto destination_relation = state.world.shipment_get_shipment_destination(shipment);
 		if(destination_relation && state.world.shipment_destination_get_site(destination_relation) == destination)
@@ -142,13 +138,13 @@ bool plan(sys::state& state, dcon::factory_id factory, dcon::site_id destination
 }
 
 float planned_quantity(sys::state const& state, dcon::factory_id factory,
-	dcon::commodity_id commodity, float fallback) noexcept {
-	if(!factory || factory.index() >= planned_orders.size()) return fallback;
+	dcon::commodity_id commodity) noexcept {
+	if(!factory || factory.index() >= planned_orders.size()) return 0.0f;
 	auto const& order = planned_orders[factory.index()];
 	for(uint32_t i = 0; i < order.commodities.size(); ++i)
 		if(order.commodities[i] == commodity)
 			return order.quantities[i];
-	return fallback;
+	return 0.0f;
 }
 
 void fulfill(sys::state& state) {
@@ -185,8 +181,7 @@ void fulfill(sys::state& state) {
 				auto available = seller ? inventory::quantity(state, site, commodity, seller) : 0.0f;
 				auto price = market ? concrete_market::canonical_reference_price(state, market,
 					commodity, state.current_date) : 0.0f;
-				if(seller && seller != order.owner && market && available > 0.0f
-					&& std::isfinite(price) && price > 0.0f)
+				if(seller && seller != order.owner && market && available > 0.0f && std::isfinite(price) && price > 0.0f)
 					(void)concrete_market::post_ask(state, seller, site, market, commodity,
 						available, price, concrete_market::order_purpose::factory_input);
 			});
@@ -198,62 +193,30 @@ void fulfill(sys::state& state) {
 	});
 }
 
-availability evaluate_impl(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,
-	economy::commodity_set const& inputs, dcon::market_id market, float input_scale,
-	bool allow_legacy_clearing) {
+availability evaluate(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,
+	economy::commodity_set const& inputs, dcon::market_id market, float input_scale) {
 	availability result{};
-	if(!std::isfinite(input_scale) || input_scale < 0.0f)
+	if(!site || !owner || !market || !std::isfinite(input_scale) || input_scale < 0.0f)
 		return result;
 
-	result.legacy_ratio = 1.0f;
 	result.physical_ratio = 1.0f;
-	result.fully_canonical = true;
-	bool has_physical = false;
-	bool has_input = false;
 	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
 		auto commodity = inputs.commodity_type[i];
 		if(!commodity) break;
 		if(seen_before(inputs, i)) continue;
-		has_input = true;
-		if(physical_commodity(state, commodity)) {
-			has_physical = true;
-			if(input_scale > 0.0f) {
-				auto required = required_for(inputs, commodity, input_scale);
-				if(required > 0.0f)
-					result.physical_ratio = std::min(result.physical_ratio,
-						std::clamp(inventory::quantity(state, site, commodity, owner) / required, 0.0f, 1.0f));
-			}
-		} else if(market) {
-			result.fully_canonical = false;
-			if(allow_legacy_clearing)
-				result.legacy_ratio = std::min(result.legacy_ratio,
-					std::clamp(market_clearing::fill(state, market, commodity,
-						market_clearing::demand_class::intermediate), 0.0f, 1.0f));
-		}
-		else result.fully_canonical = false;
+		if(input_scale <= 0.0f) continue;
+		auto required = required_for(inputs, commodity, input_scale);
+		if(required > 0.0f)
+			result.physical_ratio = std::min(result.physical_ratio,
+				std::clamp(inventory::quantity(state, site, commodity, owner) / required, 0.0f, 1.0f));
 	}
-	// An empty recipe is fully canonical and needs no stock.  A recipe with
-	// only legacy/local inputs remains available solely to the compatibility
-	// evaluator; canonical production must never call market_clearing::fill.
-	result.active = site && owner && (!has_input || has_physical);
+	result.active = true;
 	return result;
-}
-
-availability evaluate(sys::state const& state, dcon::site_id site, dcon::economic_actor_id owner,
-	economy::commodity_set const& inputs, dcon::market_id market, float input_scale) {
-	return evaluate_impl(state, site, owner, inputs, market, input_scale, false);
-}
-
-availability evaluate_legacy_compatibility(sys::state const& state, dcon::site_id site,
-	dcon::economic_actor_id owner, economy::commodity_set const& inputs, dcon::market_id market,
-	float input_scale) {
-	return evaluate_impl(state, site, owner, inputs, market, input_scale, true);
 }
 
 bool consume(sys::state& state, dcon::site_id site, dcon::economic_actor_id owner,
 	economy::commodity_set const& inputs, float input_scale, float ratio) {
-	if(!site || !owner || !std::isfinite(input_scale) || input_scale < 0.0f
-		|| !std::isfinite(ratio) || ratio < 0.0f || ratio > 1.0f + epsilon)
+	if(!site || !owner || !std::isfinite(input_scale) || input_scale < 0.0f || !std::isfinite(ratio) || ratio < 0.0f || ratio > 1.0f + epsilon)
 		return false;
 	ratio = std::clamp(ratio, 0.0f, 1.0f);
 

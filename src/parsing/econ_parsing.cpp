@@ -47,9 +47,7 @@ void building_definition::type(association_type, std::string_view value, error_h
 	} else if(is_fixed_token_ci(value.data(), value.data() + value.length(), "province_selector")) {
 		// Not a building, all data for it is discarded!
 		stored_type = economy::province_building_type::province_selector;
-	} else if(is_fixed_token_ci(value.data(), value.data() + value.length(), "immigrator")
-		|| is_fixed_token_ci(value.data(), value.data() + value.length(), "immigrator_selector")
-		|| is_fixed_token_ci(value.data(), value.data() + value.length(), "province_immigrator")) {
+	} else if(is_fixed_token_ci(value.data(), value.data() + value.length(), "immigrator") || is_fixed_token_ci(value.data(), value.data() + value.length(), "immigrator_selector") || is_fixed_token_ci(value.data(), value.data() + value.length(), "province_immigrator")) {
 		// Not a building, all data for it is discarded!
 		stored_type = economy::province_building_type::province_immigrator;
 	} else if(is_fixed_token_ci(value.data(), value.data() + value.length(), "infrastructure")) {

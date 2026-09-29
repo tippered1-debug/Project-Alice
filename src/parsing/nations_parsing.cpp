@@ -14,23 +14,17 @@ void national_identity_file::any_value(std::string_view tag, association_type, s
 
 	// Avoid issues that the original had, where defining a tag 'NOT' or 'AND' caused
 	// crashes, here we tell the modder that she shouldn't do THAT
-	if(is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "not")
-		|| is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "and")) {
+	if(is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "not") || is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "and")) {
 		err.accumulated_errors += err.file_name + " line " + std::to_string(line) + ": A tag which conflicts with a conditional 'NOT' or 'AND'\n";
 		return;
 	}
 
-	if(is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "war")
-		|| is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "tag")
-		|| is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "any")
-		|| is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "log")) {
+	if(is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "war") || is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "tag") || is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "any") || is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "log")) {
 		err.accumulated_errors += err.file_name + " line " + std::to_string(line) + ": A tag which conflicts with a built-in 'war', 'any', 'log' or 'tag'\n";
 		return;
 	}
 
-	if(is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "who")
-		|| is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "oob")
-		|| is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "yes")) {
+	if(is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "who") || is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "oob") || is_fixed_token_ci(tag.data(), tag.data() + tag.length(), "yes")) {
 		err.accumulated_warnings += err.file_name + " line " + std::to_string(line) + ": A tag which may conflict with a built-in 'who' or 'oob'\n";
 	}
 
@@ -719,7 +713,7 @@ void make_event_modifier(std::string_view name, token_generator& gen, error_hand
 
 void make_party(token_generator& gen, error_handler& err, country_file_context& context) {
 	auto party_id = context.outer_context.state.world.create_political_party();
-	if(!(context.outer_context.state.world.national_identity_get_political_party_first(context.id))) {
+	if(!context.outer_context.state.world.national_identity_get_political_party_first(context.id)) {
 		context.outer_context.state.world.national_identity_set_political_party_first(context.id, party_id);
 		context.outer_context.state.world.national_identity_set_political_party_count(context.id, uint8_t(1));
 	} else {
@@ -1235,7 +1229,7 @@ void commit_pending_events(error_handler& err, scenario_building_context& contex
 		count = 0;
 		auto fixed_size = context.map_of_national_events.size();
 		for(auto& e : context.map_of_national_events) {
-			if(!e.second.processed && e.second.text_assigned && !e.second.just_in_case_placeholder&& e.second.main_slot != trigger::slot_contents::empty) {
+			if(!e.second.processed && e.second.text_assigned && !e.second.just_in_case_placeholder && e.second.main_slot != trigger::slot_contents::empty) {
 				e.second.processed = true;
 				++count;
 

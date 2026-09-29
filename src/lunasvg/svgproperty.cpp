@@ -423,10 +423,7 @@ bool SVGPoint::parse(std::string_view input)
 {
     Point value;
     stripLeadingAndTrailingSpaces(input);
-    if(!parseNumber(input, value.x)
-        || !skipOptionalSpaces(input)
-        || !parseNumber(input, value.y)
-        || !input.empty()) {
+    if(!parseNumber(input, value.x) || !skipOptionalSpaces(input) || !parseNumber(input, value.y) || !input.empty()) {
         return false;
     }
 
@@ -440,9 +437,7 @@ bool SVGPointList::parse(std::string_view input)
     stripLeadingSpaces(input);
     while(!input.empty()) {
         Point value;
-        if(!parseNumber(input, value.x)
-            || !skipOptionalSpacesOrComma(input)
-            || !parseNumber(input, value.y)) {
+        if(!parseNumber(input, value.x) || !skipOptionalSpacesOrComma(input) || !parseNumber(input, value.y)) {
             return false;
         }
 
@@ -457,14 +452,7 @@ bool SVGRect::parse(std::string_view input)
 {
     Rect value;
     stripLeadingAndTrailingSpaces(input);
-    if(!parseNumber(input, value.x)
-        || !skipOptionalSpacesOrComma(input)
-        || !parseNumber(input, value.y)
-        || !skipOptionalSpacesOrComma(input)
-        || !parseNumber(input, value.w)
-        || !skipOptionalSpacesOrComma(input)
-        || !parseNumber(input, value.h)
-        || !input.empty()) {
+    if(!parseNumber(input, value.x) || !skipOptionalSpacesOrComma(input) || !parseNumber(input, value.y) || !skipOptionalSpacesOrComma(input) || !parseNumber(input, value.w) || !skipOptionalSpacesOrComma(input) || !parseNumber(input, value.h) || !input.empty()) {
         return false;
     }
 

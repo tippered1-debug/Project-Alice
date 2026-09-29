@@ -424,8 +424,7 @@ bool province_mid_point_is_in_selection(sys::state& state, int32_t x, int32_t y,
 	auto screen_size = glm::vec2{ float(state.x_size), float(state.y_size) };
 	screen_space::point_ui screen_pos;
 	if(state.map_state.map_to_screen(map_pos, screen_size, state.user_settings.map_is_globe, screen_pos, { 5.f, 5.f })) {
-		if(state.x_drag_start <= int32_t(screen_pos.data.x) && int32_t(screen_pos.data.x) <= x
-			&& state.y_drag_start <= int32_t(screen_pos.data.y) && int32_t(screen_pos.data.y) <= y) {
+		if(state.x_drag_start <= int32_t(screen_pos.data.x) && int32_t(screen_pos.data.x) <= x && state.y_drag_start <= int32_t(screen_pos.data.y) && int32_t(screen_pos.data.y) <= y) {
 			return true;
 		}
 	}
@@ -446,11 +445,7 @@ bool province_port_is_in_selection(sys::state& state, int32_t x, int32_t y, dcon
 		auto screen_size = glm::vec2{ float(state.x_size), float(state.y_size) };
 		screen_space::point_ui screen_pos;
 		if(state.map_state.map_to_screen(map_space::inverted_from_normalized(map_pos), screen_size, state.user_settings.map_is_globe, screen_pos, { 5.f, 5.f })) {
-			if(state.x_drag_start <= int32_t(screen_pos.data.x)
-				&& int32_t(screen_pos.data.x) <= x
-				&& state.y_drag_start <= int32_t(screen_pos.data.y)
-				&& int32_t(screen_pos.data.y) <= y
-			) {
+			if(state.x_drag_start <= int32_t(screen_pos.data.x) && int32_t(screen_pos.data.x) <= x && state.y_drag_start <= int32_t(screen_pos.data.y) && int32_t(screen_pos.data.y) <= y) {
 				return true;
 			}
 		}
@@ -591,10 +586,7 @@ void on_lbutton_up(sys::state& state, int32_t x, int32_t y, sys::key_modifiers m
 	}
 
 	// if we were holding some "button" and this scene doesn't allow drag selection, then we can safely return
-	if(state.user_settings.left_mouse_click_hold_and_release
-		&& state.ui_state.left_mouse_hold_target
-		&& !state.current_scene.allow_drag_selection
-	) {
+	if(state.user_settings.left_mouse_click_hold_and_release && state.ui_state.left_mouse_hold_target && !state.current_scene.allow_drag_selection) {
 		return;
 	}
 
@@ -976,10 +968,7 @@ void render_ui_ingame(sys::state& state) {
 		}
 
 		if(!state.ui_state.ctrl_held_down) {
-			if(state.ui_state.rgos_root
-			&& (state.map_state.active_map_mode == map_mode::mode::rgo_output
-			|| state.map_state.active_map_mode == map_mode::mode::infrastructure
-			|| state.map_state.active_map_mode == map_mode::mode::naval)) {
+			if(state.ui_state.rgos_root && state.map_state.active_map_mode == map_mode::mode::rgo_output || state.map_state.active_map_mode == map_mode::mode::infrastructure || state.map_state.active_map_mode == map_mode::mode::naval) {
 				state.ui_state.rgos_root->impl_render(state, 0, 0);
 			} else {
 				render_units(state);
@@ -1011,7 +1000,7 @@ void render_unitless_ui_ingame(sys::state& state) {
 
 		auto screen_size = glm::vec2(state.x_size, state.y_size) / state.user_settings.ui_scale;
 
-		if(state.ui_state.ctrl_held_down && (state.map_state.get_zoom() >= ui::big_counter_cutoff && state.ui_state.province_details_root)) {
+		if(state.ui_state.ctrl_held_down && state.map_state.get_zoom() >= ui::big_counter_cutoff && state.ui_state.province_details_root) {
 			state.ui_state.province_details_root->impl_render(state, 0, 0);
 		}
 	}
@@ -1066,9 +1055,7 @@ ui::mouse_probe recalculate_mouse_probe_basic(sys::state& state, ui::mouse_probe
 	if(!state.ui_state.units_root || state.ui_state.ctrl_held_down) {
 		return mouse_probe;
 	}
-	if(state.map_state.active_map_mode == map_mode::mode::rgo_output
-	|| state.map_state.active_map_mode == map_mode::mode::infrastructure
-	|| state.map_state.active_map_mode == map_mode::mode::naval) {
+	if(state.map_state.active_map_mode == map_mode::mode::rgo_output || state.map_state.active_map_mode == map_mode::mode::infrastructure || state.map_state.active_map_mode == map_mode::mode::naval) {
 		// RGO doesn't need clicks... yet
 		return mouse_probe;
 	}
@@ -1124,9 +1111,7 @@ ui::mouse_probe recalculate_tooltip_probe_basic(sys::state& state, ui::mouse_pro
 	if(!state.ui_state.units_root || state.ui_state.ctrl_held_down) {
 		return tooltip_probe;
 	}
-	if(state.map_state.active_map_mode == map_mode::mode::rgo_output
-	|| state.map_state.active_map_mode == map_mode::mode::infrastructure
-	|| state.map_state.active_map_mode == map_mode::mode::naval) {
+	if(state.map_state.active_map_mode == map_mode::mode::rgo_output || state.map_state.active_map_mode == map_mode::mode::infrastructure || state.map_state.active_map_mode == map_mode::mode::naval) {
 		// RGO doesn't need clicks... yet
 		return tooltip_probe;
 	}
@@ -1165,10 +1150,7 @@ void clean_up_selected_armies_and_navies(sys::state& state) {
 void clean_up_basic_game_scene(sys::state& state) {
 	if(state.ui_state.change_leader_window && state.ui_state.change_leader_window->is_visible()) {
 		ui::leader_selection_window* win = static_cast<ui::leader_selection_window*>(state.ui_state.change_leader_window);
-		if(state.ui_state.military_subwindow->is_visible() == false
-			&& std::find(state.selected_armies.begin(), state.selected_armies.end(), win->a) == state.selected_armies.end()
-			&& std::find(state.selected_navies.begin(), state.selected_navies.end(), win->v) == state.selected_navies.end()
-		) {
+		if(state.ui_state.military_subwindow->is_visible() == false && std::find(state.selected_armies.begin(), state.selected_armies.end(), win->a) == state.selected_armies.end() && std::find(state.selected_navies.begin(), state.selected_navies.end(), win->v) == state.selected_navies.end()) {
 			state.ui_state.change_leader_window->set_visible(state, false);
 		}
 	}

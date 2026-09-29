@@ -66,8 +66,7 @@ result evaluate_site(sys::state const& state, dcon::site_id origin, dcon::site_i
 }
 
 result evaluate_province(sys::state const& state, dcon::province_id province_id) {
-	if(!province_id || !state.world.province_is_valid(province_id)
-			|| !gamerule::age_of_transformation_enabled(state))
+	if(!province_id || !state.world.province_is_valid(province_id))
 		return {};
 	if(auto origin = world::spatial_runtime::site_for_province(state, province_id)) {
 		auto zone = state.world.province_get_state_membership(province_id);

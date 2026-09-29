@@ -118,7 +118,7 @@ void process_dialog_boxes(sys::state& state) {
 		auto* lr = state.land_battle_reports.front();
 		while(lr) {
 			if(state.local_player_nation) {
-				if(lr->player_on_winning_side == true && (!lr->attacking_nation || !lr->defending_nation)) {
+				if(lr->player_on_winning_side == true && !lr->attacking_nation || !lr->defending_nation) {
 					if(state.user_settings.notify_rebels_defeat) {
 						ui::land_combat_end_popup::make_new_report(state, *lr);
 					} else {
@@ -192,11 +192,11 @@ void process_dialog_boxes(sys::state& state) {
 			}
 		}
 
-		if((settings_bits & message_response::log) && state.ui_state.msg_log_window) {
+		if(settings_bits & message_response::log && state.ui_state.msg_log_window) {
 			static_cast<ui::message_log_window*>(state.ui_state.msg_log_window)->messages.push_back(*c6);
 		}
 		if(settings_bits & message_response::popup) {
-			if(c6->source == state.local_player_nation && (base_type == message_base_type::major_event || base_type == message_base_type::national_event || base_type == message_base_type::province_event)) {
+			if(c6->source == state.local_player_nation && base_type == message_base_type::major_event || base_type == message_base_type::national_event || base_type == message_base_type::province_event) {
 				// do nothing -- covered by event window logic
 			} else {
 				if(state.ui_state.msg_window) {
@@ -210,7 +210,7 @@ void process_dialog_boxes(sys::state& state) {
 
 
 		// Sound effects(tm)
-		if(settings_bits != 0 && state.local_player_nation && (c6->source == state.local_player_nation || c6->target == state.local_player_nation)) {
+		if(settings_bits != 0 && state.local_player_nation && c6->source == state.local_player_nation || c6->target == state.local_player_nation) {
 			switch(base_type) {
 			case message_base_type::war:
 				sound::play_effect(state, sound::get_declaration_of_war_sound(state), state.user_settings.effects_volume * state.user_settings.master_volume);

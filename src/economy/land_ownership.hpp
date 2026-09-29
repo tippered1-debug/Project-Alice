@@ -73,7 +73,6 @@ constexpr inline std::size_t owner_group_count =
 	std::size_t(owner_group::count);
 
 struct market_config {
-	bool enabled = false;
 	// A monthly market may turn over at most this fraction of the province.
 	float maximum_monthly_turnover = 0.005f;
 	// Buyers may spend only cash above this many months of essential needs.
@@ -224,6 +223,5 @@ market_result clear_market(distribution current,
 
 // Monthly Project Alice adapter. It transfers POP savings between buyers and
 // sellers and changes the already-serialized provincial ownership shares.
-void update_markets(sys::state& state);
 
 } // namespace economy::land_ownership

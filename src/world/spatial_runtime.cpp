@@ -32,7 +32,7 @@ dcon::settlement_id first_settlement(sys::state const& state, dcon::province_id 
 	dcon::settlement_id result{};
 	state.world.province_for_each_settlement_location_as_province(province, [&](auto relation) {
 		auto settlement = state.world.settlement_location_get_settlement(relation);
-		if(settlement && (!result || id_less(settlement, result))) result = settlement;
+		if(settlement && !result || id_less(settlement, result)) result = settlement;
 	});
 	return result;
 }
@@ -41,7 +41,7 @@ dcon::site_id first_site(sys::state const& state, dcon::province_id province) {
 	dcon::site_id result{};
 	state.world.province_for_each_site_location_as_province(province, [&](auto relation) {
 		auto site = state.world.site_location_get_site(relation);
-		if(site && (!result || id_less(site, result))) result = site;
+		if(site && !result || id_less(site, result)) result = site;
 	});
 	return result;
 }
@@ -50,7 +50,7 @@ dcon::infrastructure_node_id first_node(sys::state const& state, dcon::province_
 	dcon::infrastructure_node_id result{};
 	state.world.province_for_each_infrastructure_node_location_as_province(province, [&](auto relation) {
 		auto node = state.world.infrastructure_node_location_get_infrastructure_node(relation);
-		if(node && (!result || id_less(node, result))) result = node;
+		if(node && !result || id_less(node, result)) result = node;
 	});
 	return result;
 }
@@ -140,8 +140,7 @@ struct path_state_before {
 route solve(sys::state const& state, dcon::infrastructure_node_id origin,
 	dcon::infrastructure_node_id destination, bool generalized, float cargo_units) noexcept {
 	route result{};
-	if(!origin || !destination || !state.world.infrastructure_node_is_valid(origin)
-		|| !state.world.infrastructure_node_is_valid(destination)) return result;
+	if(!origin || !destination || !state.world.infrastructure_node_is_valid(origin) || !state.world.infrastructure_node_is_valid(destination)) return result;
 	if(origin == destination) {
 		result.connected = true;
 		result.bottleneck_capacity = std::numeric_limits<float>::infinity();

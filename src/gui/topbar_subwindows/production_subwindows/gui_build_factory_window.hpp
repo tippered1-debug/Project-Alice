@@ -443,8 +443,6 @@ public:
 
 		text::add_line(state, contents, "alice_pop_show_details");
 		
-		text::add_line_with_condition(state, contents, "province_has_workers", ai::province_has_workers(state, p));
-
 		if(state.cheat_data.ui_debug_mode) {
 			text::add_line(state, contents, "alice_building_id", text::variable_type::val, content.id.value);
 			text::add_line(state, contents, "alice_province_id", text::variable_type::val, p.id.value);

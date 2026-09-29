@@ -32,6 +32,8 @@
 #include "validation.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 
+#include <cstdlib>
+
 namespace command {
 
 bool is_console_command(command_type t) {
@@ -216,8 +218,7 @@ bool can_set_national_focus(sys::state& state, dcon::nation_id source, dcon::sta
 			if(focus == state.national_definitions.flashpoint_focus)
 				return false;
 			if(auto ideo = state.world.national_focus_get_ideology(focus); ideo) {
-				if(state.world.ideology_get_enabled(ideo) == false ||
-						(state.world.ideology_get_is_civilized_only(ideo) && !state.world.nation_get_is_civilized(source))) {
+				if(state.world.ideology_get_enabled(ideo) == false || state.world.ideology_get_is_civilized_only(ideo) && !state.world.nation_get_is_civilized(source)) {
 					return false;
 				}
 			}
@@ -580,35 +581,12 @@ void cancel_factory_building_construction(sys::state& state, dcon::nation_id sou
 	add_to_command_queue(state, p);
 
 }
-bool can_cancel_factory_building_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::factory_type_id type) {
-	if(!state.current_scene.game_in_progress) {
-		return false;
-	}
-	auto owner = state.world.province_get_nation_from_province_ownership(location);
-	for(auto c : state.world.province_get_factory_construction(location)) {
-		if(c.get_type() == type) {
-			if(c.get_is_pop_project())
-				return false;
-			if(c.get_nation() != source)
-				return false;
-			return true;
-		}
-	}
+bool can_cancel_factory_building_construction(sys::state&, dcon::nation_id, dcon::province_id, dcon::factory_type_id) {
 	return false;
 }
-void execute_cancel_factory_building_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::factory_type_id type) {
-	auto owner = state.world.province_get_nation_from_province_ownership(location);
-	for(auto c : state.world.province_get_factory_construction(location)) {
-		if(c.get_type() == type) {
-			if(c.get_is_pop_project())
-				return;
-			if(c.get_nation() != source)
-				return;
-
-			state.world.delete_factory_construction(c);
-			return;
-		}
-	}
+void execute_cancel_factory_building_construction(sys::state&, dcon::nation_id, dcon::province_id, dcon::factory_type_id) {
+	assert(false && "legacy DCON factory construction cannot be canceled or executed");
+	std::abort();
 }
 void begin_factory_building_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::factory_type_id type, bool is_upgrade, dcon::factory_type_id refit_target) {
 
@@ -619,210 +597,14 @@ void begin_factory_building_construction(sys::state& state, dcon::nation_id sour
 
 }
 
-bool can_begin_factory_building_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::factory_type_id type, bool is_upgrade, dcon::factory_type_id refit_target) {
-	if(!state.current_scene.game_in_progress) {
-		return false;
-	}
-
-	auto owner = state.world.province_get_nation_from_province_ownership(location);
-	auto sid = state.world.province_get_state_membership(location);
-
-	/*
-	The factory building must be unlocked by the nation.
-	Factories cannot be built in a colonial state.
-	*/
-
-	if(!state.world.nation_get_active_building(source, type) && !state.world.factory_type_get_is_available_from_start(type))
-		return false;
-	if(!economy::can_build_factory_in_colony(state, state.world.state_instance_get_capital(sid)))
-		return false;
-
-	// New factory construction
-	if(!is_upgrade && !refit_target) {
-		// Disallow building in colonies unless define flag is set
-		if(economy::is_colony(state, sid) && !economy::can_build_factory_type_in_colony(state, sid, type))
-			return false;
-		/* There can't be duplicate factories */
-		// Check factories being built
-		bool has_dup = false;
-		economy::for_each_new_factory(state, location, [&](economy::new_factory const& nf) { has_dup = has_dup || nf.type == type; });
-		if(has_dup)
-			return false;
-
-		// Check actual factories
-		for(auto f : state.world.province_get_factory_location(location))
-			if(f.get_factory().get_building_type() == type)
-				return false;
-	}
-
-	// Factory refit from one type into another
-	if(refit_target) {
-		if(type == refit_target) {
-			return false;
-		}
-
-		if(owner != source) {
-			return false;
-		}
-
-		// Refit target must be unlocked and available
-		if(!state.world.nation_get_active_building(source, refit_target) && !state.world.factory_type_get_is_available_from_start(refit_target))
-			return false;
-
-		// Disallow building in colonies unless define flag is set
-		if(economy::is_colony(state, sid) && !economy::can_build_factory_type_in_colony(state, sid, refit_target))
-			return false;
-
-		// Check if this factory is already being refit
-		bool has_dup = false;
-		economy::for_each_upgraded_factory(state, location, [&](economy::upgraded_factory const& nf) { has_dup = has_dup || nf.type == type; });
-		if(has_dup)
-			return false;
-
-		// We deliberately allow for duplicates to existing factories as this scenario is handled when construction is finished
-	}
-
-	if(state.world.nation_get_is_civilized(source) == false)
-		return false;
-
-	// If Foreign target
-	if(owner != source) {
-		/*
-		For foreign investment: the target nation must allow foreign investment, the nation doing the investing must be a great
-		power while the target is not a great power, and the nation doing the investing must not be at war with the target nation.
-		The nation being invested in must be civilized.
-		Overlord can invest in its subjects ignoring GP and owner's rules.
-		*/
-		auto rel = state.world.nation_get_overlord_as_subject(owner);
-		auto overlord = state.world.overlord_get_ruler(rel);
-		if(overlord != source) {
-			if(state.world.nation_get_is_great_power(source) == false || state.world.nation_get_is_great_power(owner) == true)
-				return false;
-			auto rules = state.world.nation_get_combined_issue_rules(owner);
-			if((rules & issue_rule::allow_foreign_investment) == 0)
-				return false;
-		}
-		if(state.world.nation_get_is_civilized(owner) == false)
-			return false;
-
-		if(military::are_at_war(state, source, owner))
-			return false;
-
-		// Refit in foreign countries is not allowed
-		if(refit_target) {
-			return false;
-		}
-	}
-	// Else Internal target
-	else {
-		/*
-		The nation must have the rule set to allow building / upgrading if this is a domestic target.
-		*/
-		auto rules = state.world.nation_get_combined_issue_rules(owner);
-		if(is_upgrade) {
-			if((rules & issue_rule::expand_factory) == 0)
-				return false;
-		} else if (refit_target) {
-			if((rules & issue_rule::build_factory) != 0) {
-				// In state capitalism economies, any factory can be refitted into any type.
-			}
-			else {
-				// For capitalist economies, during refit FROM and TO types must match in output good or inputs.
-				auto output_1 = state.world.factory_type_get_output(type);
-				auto output_2 = state.world.factory_type_get_output(refit_target);
-				auto inputs_1 = state.world.factory_type_get_inputs(type);
-				auto inputs_2 = state.world.factory_type_get_inputs(refit_target);
-				auto inputs_match = true;
-
-				for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-					auto input_1 = inputs_1.commodity_type[i];
-					auto input_2 = inputs_2.commodity_type[i];
-
-					if(input_1 != input_2) {
-						inputs_match = false;
-						break;
-					}
-				}
-				if(output_1 != output_2 && !inputs_match) {
-					return false;
-				}
-			}
-		} else {
-			if((rules & issue_rule::build_factory) == 0)
-				return false;
-		}
-	}
-
-	/* If mod uses Factory Province limits */
-	// Upgrade
-	if(is_upgrade) {
-		if(!economy::do_resource_potentials_allow_upgrade(state, source, location, type)) {
-			return false;
-		}
-	}
-	// Refit into another factory type
-	else if(refit_target) {
-		if(!economy::do_resource_potentials_allow_refit(state, source, location, type, refit_target)) {
-			return false;
-		}
-	}
-	// Construction
-	else {
-		if(!economy::do_resource_potentials_allow_construction(state, source, location, type)) {
-			return false;
-		}
-	}
-
-	// Factory Upgrade
-	if(is_upgrade) {
-		// no double upgrade
-		for(auto p : state.world.province_get_factory_construction(location)) {
-			if(p.get_type() == type)
-				return false;
-		}
-
-		// Disallow building in colonies unless define flag is set
-		if(economy::is_colony(state, sid) && !economy::can_build_factory_type_in_colony(state, sid, type))
-			return false;
-
-		// must already exist as a factory
-		// For upgrades: no upgrading past max level.
-		for(auto f : state.world.province_get_factory_location(location))
-			if(f.get_factory().get_building_type() == type)
-				return true;
-		return false;
-	} else {
-		// coastal factories must be built on coast
-		if(state.world.factory_type_get_is_coastal(type)) {
-			if(!state.world.province_get_port_to(location))
-				return false;
-		}
-
-		int32_t num_factories = economy::province_factory_count(state, location);
-		auto urbanisation = state.world.province_get_advanced_province_building_max_private_size(location, advanced_province_buildings::list::local_cities_and_towns);
-		return num_factories < int32_t(state.defines.factories_per_state * urbanisation / economy::factories_per_state_required_city_size);
-	}
+bool can_begin_factory_building_construction(sys::state&, dcon::nation_id, dcon::province_id,
+	dcon::factory_type_id, bool, dcon::factory_type_id) {
+	return false;
 }
-
-void execute_begin_factory_building_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::factory_type_id type, bool is_upgrade, dcon::factory_type_id refit_target) {
-	auto new_up = fatten(state.world, state.world.force_create_factory_construction(location, source));
-	new_up.set_is_pop_project(false);
-	new_up.set_is_upgrade(is_upgrade);
-	new_up.set_type(type);
-	new_up.set_refit_target(refit_target);
-
-	if(source != state.world.province_get_nation_from_province_ownership(location)) {
-		float amount = 0.0f;
-		auto& base_cost = state.world.factory_type_get_construction_costs(type);
-		for(uint32_t j = 0; j < economy::commodity_set::set_size; ++j) {
-			if(base_cost.commodity_type[j]) {
-				amount += base_cost.commodity_amounts[j] * state.world.commodity_get_cost(base_cost.commodity_type[j]); //base cost
-			} else {
-				break;
-			}
-		}
-		nations::adjust_foreign_investment(state, source, state.world.province_get_nation_from_province_ownership(location), amount);
-	}
+void execute_begin_factory_building_construction(sys::state&, dcon::nation_id, dcon::province_id,
+	dcon::factory_type_id, bool, dcon::factory_type_id) {
+	assert(false && "factory creation requires a canonical funded capital project");
+	std::abort();
 }
 
 void start_naval_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::unit_type_id type, dcon::province_id template_province) {
@@ -848,8 +630,7 @@ bool can_start_naval_unit_construction(sys::state& state, dcon::nation_id source
 		return false;
 	if(state.world.province_get_nation_from_province_control(location) != source)
 		return false;
-	if(state.world.nation_get_active_unit(source, type) == false &&
-			state.military_definitions.unit_base_definitions[type].active == false)
+	if(state.world.nation_get_active_unit(source, type) == false && state.military_definitions.unit_base_definitions[type].active == false)
 		return false;
 	auto disarm = state.world.nation_get_disarmed_until(source);
 	if(disarm && state.current_date < disarm)
@@ -911,8 +692,7 @@ bool can_start_land_unit_construction(sys::state& state, dcon::nation_id source,
 		return assertive_identity<VALIDATE>(false);
 	if(state.world.province_get_nation_from_province_control(location) != source)
 		return assertive_identity<VALIDATE>(false);
-	if(state.world.nation_get_active_unit(source, type) == false &&
-			state.military_definitions.unit_base_definitions[type].active == false)
+	if(state.world.nation_get_active_unit(source, type) == false && state.military_definitions.unit_base_definitions[type].active == false)
 		return assertive_identity<VALIDATE>(false);
 	if(state.military_definitions.unit_base_definitions[type].primary_culture && soldier_culture != state.world.nation_get_primary_culture(source) && state.world.nation_get_accepted_cultures(source, soldier_culture) == false) {
 		return assertive_identity<VALIDATE>(false);
@@ -1280,8 +1060,7 @@ bool can_discredit_advisors(sys::state& state, dcon::nation_id source, dcon::nat
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
-	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) ||
-			state.world.nation_get_is_great_power(influence_target))
+	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) || state.world.nation_get_is_great_power(influence_target))
 		return false;
 
 	if(source == affected_gp)
@@ -1357,8 +1136,7 @@ bool can_expel_advisors(sys::state& state, dcon::nation_id source, dcon::nation_
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
-	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) ||
-			state.world.nation_get_is_great_power(influence_target))
+	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) || state.world.nation_get_is_great_power(influence_target))
 		return false;
 
 	if(source == affected_gp)
@@ -1432,8 +1210,7 @@ bool can_ban_embassy(sys::state& state, dcon::nation_id source, dcon::nation_id 
 		return false;
 	}
 
-	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) ||
-			state.world.nation_get_is_great_power(influence_target))
+	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) || state.world.nation_get_is_great_power(influence_target))
 		return false;
 
 	if(source == affected_gp)
@@ -1570,8 +1347,7 @@ bool can_decrease_opinion(sys::state& state, dcon::nation_id source, dcon::natio
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
-	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) ||
-			state.world.nation_get_is_great_power(influence_target))
+	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) || state.world.nation_get_is_great_power(influence_target))
 		return false;
 
 	if(source == affected_gp)
@@ -1713,8 +1489,7 @@ bool can_remove_from_sphere(sys::state& state, dcon::nation_id source, dcon::nat
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
-	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) ||
-			state.world.nation_get_is_great_power(influence_target))
+	if(!state.world.nation_get_is_great_power(source) || !state.world.nation_get_is_great_power(affected_gp) || state.world.nation_get_is_great_power(influence_target))
 		return false;
 
 	if(state.world.nation_get_in_sphere_of(influence_target) != affected_gp)
@@ -2004,8 +1779,7 @@ void execute_intervene_in_war(sys::state& state, dcon::nation_id source, dcon::w
 	if(!state.world.war_get_is_great(w)) {
 		bool status_quo_added = false;
 		for(auto wg : state.world.war_get_wargoals_attached(w)) {
-			if(military::is_defender_wargoal(state, w, wg.get_wargoal()) &&
-					(wg.get_wargoal().get_type().get_type_bits() & military::cb_flag::po_status_quo) != 0) {
+			if(military::is_defender_wargoal(state, w, wg.get_wargoal()) && (wg.get_wargoal().get_type().get_type_bits() & military::cb_flag::po_status_quo) != 0) {
 				status_quo_added = true;
 				break;
 			}
@@ -2122,21 +1896,10 @@ bool can_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_op
 	}
 	if(source == state.local_player_nation && state.cheat_data.always_allow_reforms)
 		return true;
-	if(gamerule::age_of_transformation_enabled(state))
-		return politics::transformation::can_propose_bill(state, source, r);
-
-	bool is_military = state.world.reform_get_reform_type(state.world.reform_option_get_parent_reform(r)) ==
-		uint8_t(culture::issue_category::military);
-	if(is_military)
-		return politics::can_enact_military_reform(state, source, r);
-	else
-		return politics::can_enact_economic_reform(state, source, r);
+	return politics::transformation::can_propose_bill(state, source, r);
 }
 void execute_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_option_id r) {
-	if(gamerule::age_of_transformation_enabled(state))
-		politics::transformation::propose_bill(state, source, r);
-	else
-		nations::enact_reform(state, source, r);
+	politics::transformation::propose_bill(state, source, r);
 	event::update_future_events(state);
 }
 
@@ -2153,22 +1916,10 @@ bool can_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_opti
 	}
 	if(source == state.local_player_nation && state.cheat_data.always_allow_reforms)
 		return true;
-	if(gamerule::age_of_transformation_enabled(state))
-		return politics::transformation::can_propose_bill(state, source, i);
-
-	auto type = state.world.issue_get_issue_type(state.world.issue_option_get_parent_issue(i));
-	if(type == uint8_t(culture::issue_type::political))
-		return politics::can_enact_political_reform(state, source, i);
-	else if(type == uint8_t(culture::issue_type::social))
-		return politics::can_enact_social_reform(state, source, i);
-	else
-		return false;
+	return politics::transformation::can_propose_bill(state, source, i);
 }
 void execute_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i) {
-	if(gamerule::age_of_transformation_enabled(state))
-		politics::transformation::propose_bill(state, source, i);
-	else
-		nations::enact_issue(state, source, i);
+	politics::transformation::propose_bill(state, source, i);
 	event::update_future_events(state);
 }
 
@@ -2315,12 +2066,12 @@ bool can_take_decision(sys::state& state, dcon::nation_id source, dcon::decision
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
-	if(!(state.world.nation_get_is_player_controlled(source) && state.cheat_data.always_potential_decisions)) {
+	if(!state.world.nation_get_is_player_controlled(source) && state.cheat_data.always_potential_decisions) {
 		auto condition = state.world.decision_get_potential(d);
 		if(condition && !trigger::evaluate(state, condition, trigger::to_generic(source), trigger::to_generic(source), 0))
 			return false;
 	}
-	if(!(state.world.nation_get_is_player_controlled(source) && state.cheat_data.always_allow_decisions)) {
+	if(!state.world.nation_get_is_player_controlled(source) && state.cheat_data.always_allow_decisions) {
 		auto condition = state.world.decision_get_allow(d);
 		if(condition && !trigger::evaluate(state, condition, trigger::to_generic(source), trigger::to_generic(source), 0))
 			return false;
@@ -2707,8 +2458,7 @@ bool can_ask_for_alliance(sys::state& state, dcon::nation_id asker, dcon::nation
 	if(state.world.diplomatic_relation_get_are_allied(rel))
 		return false;
 
-	if(state.world.nation_get_is_great_power(asker) && state.world.nation_get_is_great_power(target) &&
-			state.current_crisis_state != sys::crisis_state::inactive) {
+	if(state.world.nation_get_is_great_power(asker) && state.world.nation_get_is_great_power(target) && state.current_crisis_state != sys::crisis_state::inactive) {
 		return false;
 	}
 
@@ -3153,7 +2903,10 @@ bool can_call_to_arms(sys::state& state, dcon::nation_id asker, dcon::nation_id 
 	if(!ignore_cost && state.world.nation_get_is_player_controlled(asker) && state.world.nation_get_diplomatic_points(asker) < state.defines.callally_diplomatic_cost)
 		return false;
 
-	if((!nations::are_allied(state, asker, target) && !nations::is_nation_subject_of(state, target, asker)) && !(state.world.war_get_primary_defender(w) == asker && state.world.nation_get_in_sphere_of(asker) == target))
+	if(!nations::are_allied(state, asker, target)
+		&& !nations::is_nation_subject_of(state, target, asker)
+		&& state.world.war_get_primary_defender(w) != asker
+		&& state.world.nation_get_in_sphere_of(asker) == target)
 		return false;
 
 	if(military::is_civil_war(state, w))
@@ -3176,7 +2929,7 @@ bool can_call_to_arms(sys::state& state, dcon::nation_id asker, dcon::nation_id 
 
 	// an automatic defensive call bypasses any truces there may be with the other side. Truce is checked against the original attacker or defender
 
-	if(!automatic_call || (automatic_call && asker_is_attacker)) {
+	if(!automatic_call || automatic_call && asker_is_attacker) {
 		auto truce_target = military::is_attacker(state, w, asker) ? state.world.war_get_original_target(w) : state.world.war_get_original_attacker(w);
 		if(nations::nation_is_in_war(state, truce_target, w)) {
 			if(military::has_truce_with(state, target, truce_target)) {
@@ -3607,12 +3360,16 @@ bool can_start_peace_offer(sys::state& state, dcon::nation_id source, dcon::nati
 	assert(target);
 	{
 		auto ol = state.world.nation_get_overlord_as_subject(source);
-		if(state.world.overlord_get_ruler(ol) && !(state.world.war_get_primary_attacker(war) == source || state.world.war_get_primary_defender(war) == source))
+		if(state.world.overlord_get_ruler(ol)
+			&& state.world.war_get_primary_attacker(war) != source
+			&& state.world.war_get_primary_defender(war) != source)
 			return false;
 	}
 	{
 		auto ol = state.world.nation_get_overlord_as_subject(target);
-		if(state.world.overlord_get_ruler(ol) && !(state.world.war_get_primary_attacker(war) == target || state.world.war_get_primary_defender(war) == target))
+		if(state.world.overlord_get_ruler(ol)
+			&& state.world.war_get_primary_attacker(war) != target
+			&& state.world.war_get_primary_defender(war) != target)
 			return false;
 	}
 
@@ -3633,8 +3390,7 @@ bool can_start_peace_offer(sys::state& state, dcon::nation_id source, dcon::nati
 	}
 
 	if(state.world.war_get_is_crisis_war(war)) {
-		if((state.world.war_get_primary_attacker(war) != source || state.world.war_get_primary_defender(war) != target) &&
-				(state.world.war_get_primary_attacker(war) != target || state.world.war_get_primary_defender(war) != source)) {
+		if(state.world.war_get_primary_attacker(war) != source || state.world.war_get_primary_defender(war) != target && state.world.war_get_primary_attacker(war) != target || state.world.war_get_primary_defender(war) != source) {
 
 			return false; // no separate peace
 		}
@@ -3793,15 +3549,11 @@ bool can_add_to_crisis_peace_offer(sys::state& state, dcon::nation_id source, dc
 
 	bool found = [&]() {
 		for(auto wg : state.crisis_attacker_wargoals) {
-			if(wg.added_by == wargoal_from && cb_state == wg.state && cb_tag == wg.wg_tag &&
-						cb_secondary_nation == wg.secondary_nation && target == wg.target_nation &&
-						primary_cb == wg.cb)
+			if(wg.added_by == wargoal_from && cb_state == wg.state && cb_tag == wg.wg_tag && cb_secondary_nation == wg.secondary_nation && target == wg.target_nation && primary_cb == wg.cb)
 				return true;
 		}
 		for(auto wg : state.crisis_defender_wargoals) {
-			if(wg.added_by == wargoal_from && cb_state == wg.state && cb_tag == wg.wg_tag &&
-						cb_secondary_nation == wg.secondary_nation && target == wg.target_nation &&
-						primary_cb == wg.cb)
+			if(wg.added_by == wargoal_from && cb_state == wg.state && cb_tag == wg.wg_tag && cb_secondary_nation == wg.secondary_nation && target == wg.target_nation && primary_cb == wg.cb)
 				return true;
 		}
 		return false;
@@ -3813,14 +3565,7 @@ bool can_add_to_crisis_peace_offer(sys::state& state, dcon::nation_id source, dc
 	// no duplicates
 	for(auto item : state.world.peace_offer_get_peace_offer_item(pending)) {
 		auto wg = item.get_wargoal();
-		if(
-			wg.get_added_by() == wargoal_from
-			&& cb_state == wg.get_associated_state()
-			&& cb_tag == wg.get_associated_tag()
-			&& cb_secondary_nation == wg.get_secondary_nation()
-			&& target == wg.get_target_nation()
-			&& primary_cb == wg.get_type()
-		) {
+		if(wg.get_added_by() == wargoal_from && cb_state == wg.get_associated_state() && cb_tag == wg.get_associated_tag() && cb_secondary_nation == wg.get_secondary_nation() && target == wg.get_target_nation() && primary_cb == wg.get_type()) {
 			return assertive_identity<VALIDATE>(false);
 		}
 	}
@@ -4312,8 +4057,7 @@ bool can_merge_armies(sys::state& state, dcon::nation_id source, dcon::army_id a
 	if(state.world.army_get_location_from_army_location(a) != state.world.army_get_location_from_army_location(b))
 		return false;
 
-	if(state.world.army_get_battle_from_army_battle_participation(a) ||
-			state.world.army_get_battle_from_army_battle_participation(b))
+	if(state.world.army_get_battle_from_army_battle_participation(a) || state.world.army_get_battle_from_army_battle_participation(b))
 		return false;
 
 	return true;
@@ -4399,8 +4143,7 @@ bool can_merge_navies(sys::state& state, dcon::nation_id source, dcon::navy_id a
 	if(state.world.navy_get_location_from_navy_location(a) != state.world.navy_get_location_from_navy_location(b))
 		return false;
 
-	if(state.world.navy_get_battle_from_navy_battle_participation(a) ||
-			state.world.navy_get_battle_from_navy_battle_participation(b))
+	if(state.world.navy_get_battle_from_navy_battle_participation(a) || state.world.navy_get_battle_from_navy_battle_participation(b))
 		return false;
 
 	return true;
@@ -4474,8 +4217,7 @@ void execute_toggle_rebel_hunting(sys::state& state, dcon::nation_id source, dco
 			state.world.army_set_ai_province(a, path.at(0));
 		} else {
 			state.world.army_set_ai_province(a, state.world.army_get_location_from_army_location(a));
-			if(!state.world.army_get_battle_from_army_battle_participation(a)
-				&& !state.world.army_get_navy_from_army_transport(a)) {
+			if(!state.world.army_get_battle_from_army_battle_participation(a) && !state.world.army_get_navy_from_army_transport(a)) {
 
 				military::send_rebel_hunter_to_next_province(state, a, state.world.army_get_location_from_army_location(a));
 			}
@@ -4509,8 +4251,7 @@ void execute_toggle_unit_ai_control(sys::state& state, dcon::nation_id source, d
 			state.world.army_set_ai_province(a, path.at(0));
 		} else {
 			state.world.army_set_ai_province(a, state.world.army_get_location_from_army_location(a));
-			if(!state.world.army_get_battle_from_army_battle_participation(a)
-				&& !state.world.army_get_navy_from_army_transport(a)) {
+			if(!state.world.army_get_battle_from_army_battle_participation(a) && !state.world.army_get_navy_from_army_transport(a)) {
 
 				military::send_rebel_hunter_to_next_province(state, a, state.world.army_get_location_from_army_location(a));
 			}
@@ -5084,8 +4825,7 @@ bool can_invite_to_crisis(sys::state& state, dcon::nation_id source, dcon::natio
 	auto wargoalslist = (source == state.primary_crisis_attacker) ? state.crisis_attacker_wargoals : state.crisis_defender_wargoals;
 	for(auto ewg : wargoalslist) {
 		// Different added_by, similar everything else
-		if (ewg.state == cb_state && ewg.wg_tag == cb_tag &&
-						ewg.secondary_nation == cb_secondary_nation && ewg.target_nation == target)
+		if (ewg.state == cb_state && ewg.wg_tag == cb_tag && ewg.secondary_nation == cb_secondary_nation && ewg.target_nation == target)
 			return false;
 
 		if(!ewg.cb) {
@@ -5199,9 +4939,7 @@ bool crisis_can_add_wargoal(sys::state& state, dcon::nation_id source, sys::full
 	// no duplicates
 	auto wargoalslist = (source == state.primary_crisis_attacker) ? state.crisis_attacker_wargoals : state.crisis_defender_wargoals;
 	for(auto ewg : wargoalslist) {
-		if(ewg.added_by == wg.added_by && ewg.state == wg.state && ewg.wg_tag == wg.wg_tag &&
-						ewg.secondary_nation == wg.secondary_nation && ewg.target_nation == wg.target_nation &&
-						ewg.cb == wg.cb)
+		if(ewg.added_by == wg.added_by && ewg.state == wg.state && ewg.wg_tag == wg.wg_tag && ewg.secondary_nation == wg.secondary_nation && ewg.target_nation == wg.target_nation && ewg.cb == wg.cb)
 			return false;
 		if(!ewg.cb) {
 			break;

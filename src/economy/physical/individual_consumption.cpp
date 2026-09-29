@@ -64,9 +64,7 @@ bool has_active_bid(sys::state const& state, dcon::economic_actor_id actor,
 		if(result) return;
 		auto bid = state.world.concrete_bid_buyer_get_concrete_market_bid(relation);
 		if(bid && state.world.concrete_market_bid_get_status(bid)
-			== uint8_t(concrete_market::order_status::active)
-			&& state.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid) == destination
-			&& state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) == commodity)
+			== uint8_t(concrete_market::order_status::active) && state.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid) == destination && state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) == commodity)
 			result = true;
 	});
 	return result;
@@ -84,8 +82,7 @@ std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
 	std::vector<dcon::commodity_id> result;
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask)
-			!= uint8_t(concrete_market::order_status::active)
-			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
+			!= uint8_t(concrete_market::order_status::active) || state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 		state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(seller,
 			[&](auto relation) {
@@ -114,9 +111,7 @@ dcon::site_id home_site(sys::state const& state, dcon::person_id person) {
 
 dcon::person_commodity_need_id set_need(sys::state& state, dcon::person_id person,
 	dcon::commodity_id commodity, float desired_quantity_per_period) {
-	if(!person || !state.world.person_is_valid(person) || !commodity
-		|| !state.world.commodity_is_valid(commodity) || !std::isfinite(desired_quantity_per_period)
-		|| desired_quantity_per_period < 0.0f) return {};
+	if(!person || !state.world.person_is_valid(person) || !commodity || !state.world.commodity_is_valid(commodity) || !std::isfinite(desired_quantity_per_period) || desired_quantity_per_period < 0.0f) return {};
 	auto need = need_for(state, person, commodity);
 	if(!need) {
 		need = state.world.create_person_commodity_need();
@@ -185,7 +180,7 @@ dcon::monetary_account_id spending_account(sys::state const& state, dcon::person
 	for(auto account : accounts_for_person) {
 		if(settlement && accounts::settlement_of(state, account) != settlement) continue;
 		auto cash = free_cash(state, account);
-		if(cash > best_cash || (cash == best_cash && (!result || account.index() < result.index()))) {
+		if(cash > best_cash || cash == best_cash && !result || account.index() < result.index()) {
 			result = account;
 			best_cash = cash;
 		}
@@ -198,8 +193,7 @@ float spendable_cash(sys::state const& state, dcon::person_id person, dcon::comm
 }
 
 float consume_owned_goods(sys::state& state, dcon::person_id person, dcon::commodity_id commodity, float quantity) {
-	if(!person || !state.world.person_is_valid(person) || !state.world.person_get_alive(person)
-		|| !commodity || !std::isfinite(quantity) || quantity <= 0.0f)
+	if(!person || !state.world.person_is_valid(person) || !state.world.person_get_alive(person) || !commodity || !std::isfinite(quantity) || quantity <= 0.0f)
 		return 0.0f;
 	auto actor = persons::actor_for_person(state, person);
 	auto site = home_site(state, person);
@@ -254,7 +248,7 @@ void process_purchase_decisions(sys::state& state) {
 				auto candidate = spending_account(state, person, settlement);
 				if(!candidate) continue;
 				auto cash = free_cash(state, candidate);
-				if(cash > best_cash || (cash == best_cash && (!account || candidate.index() < account.index()))) {
+				if(cash > best_cash || cash == best_cash && !account || candidate.index() < account.index()) {
 					account = candidate;
 					best_cash = cash;
 				}

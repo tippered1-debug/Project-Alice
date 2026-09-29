@@ -15,7 +15,13 @@
 #include "money.hpp"
 #include "diplomatic_messages.hpp"
 #include "economy.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "events.hpp"
+#include "persons/exact_population.hpp"
+
+#include <cassert>
+#include <cstdlib>
+#include <vector>
 
 namespace effect {
 
@@ -34,6 +40,27 @@ inline uint32_t apply_subeffects(EFFECT_PARAMTERS) {
 		sub_units_start += 1 + get_generic_effect_payload_size(sub_units_start);
 	}
 	return i;
+}
+
+void reclassify_effect_population_cell(sys::state& state, dcon::pop_id source,
+	dcon::province_id destination, dcon::culture_id culture, dcon::religion_id religion,
+	dcon::pop_type_id pop_type) {
+	bool const complete = demographics::reclassify_population_cell(state, source, destination,
+		culture, religion, pop_type,
+		persons::exact_population::population_transition_cause::scripted_reclassification);
+	assert(complete && "scripted POP changes must reclassify canonical exact membership");
+	if(!complete) std::abort();
+}
+
+template<typename Operation>
+void for_each_scripted_population_in_province(sys::state& state, dcon::province_id province,
+	Operation&& operation) {
+	std::vector<dcon::pop_id> source_cells;
+	state.world.province_for_each_pop_location(province, [&](auto relation) {
+		source_cells.push_back(state.world.pop_location_get_pop(relation));
+	});
+	for(auto source : source_cells)
+		operation(source);
 }
 
 uint32_t es_generic_scope(EFFECT_PARAMTERS) {
@@ -462,8 +489,7 @@ uint32_t es_x_empty_neighbor_province_scope(EFFECT_PARAMTERS) {
 			auto limit = trigger::payload(tval[2]).tr_id;
 			for(auto p : neighbor_range) {
 				auto other = p.get_connected_provinces(p.get_connected_provinces(0) == trigger::to_prov(primary_slot) ? 1 : 0);
-				if(!other.get_nation_from_province_ownership() &&
-						trigger::evaluate(ws, limit, trigger::to_generic(other.id), this_slot, from_slot)) {
+				if(!other.get_nation_from_province_ownership() && trigger::evaluate(ws, limit, trigger::to_generic(other.id), this_slot, from_slot)) {
 					i += apply_subeffects(tval, ws, trigger::to_generic(other.id), this_slot, from_slot, r_hi, r_lo + i, els);
 				}
 			}
@@ -601,8 +627,7 @@ uint32_t es_middle_strata_scope_nation(EFFECT_PARAMTERS) {
 		auto limit = trigger::payload(tval[2]).tr_id;
 		for(auto p : ws.world.nation_get_province_ownership(trigger::to_nation(primary_slot))) {
 			for(auto pop : p.get_province().get_pop_location()) {
-				if(pop.get_pop().get_poptype().get_strata() == uint8_t(culture::pop_strata::middle) &&
-						trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
+				if(pop.get_pop().get_poptype().get_strata() == uint8_t(culture::pop_strata::middle) && trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
 					plist.push_back(pop.get_pop().id);
 				}
 			}
@@ -654,8 +679,7 @@ uint32_t es_middle_strata_scope_province(EFFECT_PARAMTERS) {
 	if((tval[0] & effect::scope_has_limit) != 0) {
 		auto limit = trigger::payload(tval[2]).tr_id;
 		for(auto pop : ws.world.province_get_pop_location(trigger::to_prov(primary_slot))) {
-			if(pop.get_pop().get_poptype().get_strata() == uint8_t(culture::pop_strata::middle) &&
-					trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
+			if(pop.get_pop().get_poptype().get_strata() == uint8_t(culture::pop_strata::middle) && trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
 				plist.push_back(pop.get_pop().id);
 			}
 		}
@@ -676,8 +700,7 @@ uint32_t es_rich_strata_scope_nation(EFFECT_PARAMTERS) {
 		auto limit = trigger::payload(tval[2]).tr_id;
 		for(auto p : ws.world.nation_get_province_ownership(trigger::to_nation(primary_slot))) {
 			for(auto pop : p.get_province().get_pop_location()) {
-				if(pop.get_pop().get_poptype().get_strata() == uint8_t(culture::pop_strata::rich) &&
-						trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
+				if(pop.get_pop().get_poptype().get_strata() == uint8_t(culture::pop_strata::rich) && trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
 					plist.push_back(pop.get_pop().id);
 				}
 			}
@@ -1406,8 +1429,7 @@ uint32_t es_pop_type_scope_province(EFFECT_PARAMTERS) {
 
 		uint32_t i = 0;
 		for(auto pop : ws.world.province_get_pop_location(trigger::to_prov(primary_slot))) {
-			if(pop.get_pop().get_poptype() == type &&
-					trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
+			if(pop.get_pop().get_poptype() == type && trigger::evaluate(ws, limit, trigger::to_generic(pop.get_pop().id), this_slot, from_slot)) {
 				i += apply_subeffects(tval, ws, trigger::to_generic(pop.get_pop().id), this_slot, from_slot, r_hi, r_lo + i, els);
 			}
 		}
@@ -1885,17 +1907,19 @@ uint32_t ef_religion(EFFECT_PARAMTERS) {
 	return 0;
 }
 uint32_t ef_religion_province(EFFECT_PARAMTERS) {
-	if(auto owner = ws.world.province_get_nation_from_province_ownership(trigger::to_prov(primary_slot)); owner) {
-		auto owner_c = ws.world.nation_get_primary_culture(owner);
-		for(auto pop : ws.world.province_get_pop_location(trigger::to_prov(primary_slot))) {
-			pop.get_pop().set_religion(trigger::payload(tval[1]).rel_id);
-		}
-	}
+	auto const province = trigger::to_prov(primary_slot);
+	auto const religion = trigger::payload(tval[1]).rel_id;
+	for_each_scripted_population_in_province(ws, province, [&](dcon::pop_id pop) {
+		reclassify_effect_population_cell(ws, pop, province, ws.world.pop_get_culture(pop),
+			religion, ws.world.pop_get_poptype(pop));
+	});
 	return 0;
 }
 uint32_t ef_religion_pop(EFFECT_PARAMTERS) {
 	auto pop = trigger::to_pop(primary_slot);
-	dcon::fatten(ws.world, pop).set_religion(trigger::payload(tval[1]).rel_id);
+	reclassify_effect_population_cell(ws, pop,
+		ws.world.pop_get_province_from_pop_location(pop), ws.world.pop_get_culture(pop),
+		trigger::payload(tval[1]).rel_id, ws.world.pop_get_poptype(pop));
 	return 0;
 }
 uint32_t ef_is_slave_state_yes(EFFECT_PARAMTERS) {
@@ -1908,7 +1932,9 @@ uint32_t ef_is_slave_province_yes(EFFECT_PARAMTERS) {
 	return 0;
 }
 uint32_t ef_is_slave_pop_yes(EFFECT_PARAMTERS) {
-	ws.world.pop_set_poptype(trigger::to_pop(primary_slot), ws.culture_definitions.slaves);
+	auto const pop = trigger::to_pop(primary_slot);
+	reclassify_effect_population_cell(ws, pop, ws.world.pop_get_province_from_pop_location(pop),
+		ws.world.pop_get_culture(pop), ws.world.pop_get_religion(pop), ws.culture_definitions.slaves);
 	return 0;
 }
 uint32_t ef_research_points(EFFECT_PARAMTERS) {
@@ -2589,10 +2615,14 @@ uint32_t ef_infrastructure_state(EFFECT_PARAMTERS) {
 }
 
 uint32_t ef_money(EFFECT_PARAMTERS) {
-	auto& m = ws.world.pop_get_savings(trigger::to_pop(primary_slot));
+	auto population = trigger::to_pop(primary_slot);
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
-	ws.world.pop_set_savings(trigger::to_pop(primary_slot), std::max(0.0f, m + amount));
+	if(!economy::exact_person_economy::apply_population_cash_effect(ws, population,
+		economy::money, amount)) {
+		assert(false && "scripted POP money effect requires an exact household cash account");
+		std::abort();
+	}
 	return 0;
 }
 uint32_t ef_leadership(EFFECT_PARAMTERS) {
@@ -3000,20 +3030,23 @@ uint32_t ef_is_slave_state_no(EFFECT_PARAMTERS) {
 	province::for_each_province_in_state_instance(ws, trigger::to_state(primary_slot), [&](dcon::province_id p) {
 		ws.world.province_set_is_slave(p, false);
 		bool mine = ws.world.commodity_get_is_mine(ws.world.province_get_rgo(p));
-		for(auto pop : ws.world.province_get_pop_location(p)) {
-			if(pop.get_pop().get_poptype() == ws.culture_definitions.slaves) {
-				pop.get_pop().set_poptype(mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers);
+		for_each_scripted_population_in_province(ws, p, [&](dcon::pop_id pop) {
+			if(ws.world.pop_get_poptype(pop) == ws.culture_definitions.slaves) {
+				reclassify_effect_population_cell(ws, pop, p, ws.world.pop_get_culture(pop),
+					ws.world.pop_get_religion(pop), mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers);
 			}
-		}
+		});
 	});
 	return 0;
 }
 uint32_t ef_is_slave_pop_no(EFFECT_PARAMTERS) {
-	if(ws.world.pop_get_poptype(trigger::to_pop(primary_slot)) == ws.culture_definitions.slaves) {
+	auto const pop = trigger::to_pop(primary_slot);
+	if(ws.world.pop_get_poptype(pop) == ws.culture_definitions.slaves) {
 		bool mine = ws.world.commodity_get_is_mine(
-				ws.world.province_get_rgo(ws.world.pop_get_province_from_pop_location(trigger::to_pop(primary_slot))));
-		ws.world.pop_set_poptype(trigger::to_pop(primary_slot),
-				mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers);
+				ws.world.province_get_rgo(ws.world.pop_get_province_from_pop_location(pop)));
+		reclassify_effect_population_cell(ws, pop, ws.world.pop_get_province_from_pop_location(pop),
+			ws.world.pop_get_culture(pop), ws.world.pop_get_religion(pop),
+			mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers);
 	}
 	return 0;
 }
@@ -3021,11 +3054,12 @@ uint32_t ef_is_slave_province_no(EFFECT_PARAMTERS) {
 	auto p = trigger::to_prov(primary_slot);
 	ws.world.province_set_is_slave(p, false);
 	bool mine = ws.world.commodity_get_is_mine(ws.world.province_get_rgo(p));
-	for(auto pop : ws.world.province_get_pop_location(p)) {
-		if(pop.get_pop().get_poptype() == ws.culture_definitions.slaves) {
-			pop.get_pop().set_poptype(mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers);
+	for_each_scripted_population_in_province(ws, p, [&](dcon::pop_id pop) {
+		if(ws.world.pop_get_poptype(pop) == ws.culture_definitions.slaves) {
+			reclassify_effect_population_cell(ws, pop, p, ws.world.pop_get_culture(pop),
+				ws.world.pop_get_religion(pop), mine ? ws.culture_definitions.laborers : ws.culture_definitions.farmers);
 		}
-	}
+	});
 	return 0;
 }
 uint32_t ef_election(EFFECT_PARAMTERS) {
@@ -3077,6 +3111,17 @@ uint32_t ef_add_tax_relative_income(EFFECT_PARAMTERS) {
 	(void)combined_amount; // no legacy sovereign treasury mutation
 	return 0;
 }
+void apply_exact_population_factor(sys::state& state, dcon::pop_id pop, float factor) {
+	assert(state.exact_population && "exact population must exist before scripted population changes");
+	assert(std::isfinite(factor));
+	if(!state.exact_population) std::abort();
+	if(!pop || !state.world.pop_is_valid(pop)) return;
+	auto source = persons::exact_population::source_cell_for_population(state, pop);
+	assert(source != 0 && "scripted population changes require a canonical cell");
+	if(source == 0) std::abort();
+	auto current = double(persons::exact_population::living_people_in_population_cell(state, source)) / 4.0;
+	(void)persons::exact_population::adjust_population_size(state, pop, current * (double(factor) - 1.0));
+}
 uint32_t ef_neutrality(EFFECT_PARAMTERS) {
 	nations::destroy_diplomatic_relationships(ws, trigger::to_nation(primary_slot));
 	return 0;
@@ -3084,8 +3129,9 @@ uint32_t ef_neutrality(EFFECT_PARAMTERS) {
 uint32_t ef_reduce_pop(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
-	auto& current = ws.world.pop_get_size(trigger::to_pop(primary_slot));
-	ws.world.pop_set_size(trigger::to_pop(primary_slot), current * amount);
+	apply_exact_population_factor(ws, trigger::to_pop(primary_slot), amount);
+	auto projection_ok = persons::exact_population::project_population_membership(ws);
+	assert(projection_ok);
 	return 0;
 }
 uint32_t ef_reduce_pop_abs(EFFECT_PARAMTERS) {
@@ -3098,9 +3144,10 @@ uint32_t ef_reduce_pop_province(EFFECT_PARAMTERS) {
 	auto amount = trigger::read_float_from_payload(tval + 1);
 	assert(std::isfinite(amount));
 	for(auto p : ws.world.province_get_pop_location(trigger::to_prov(primary_slot))) {
-		auto& current = p.get_pop().get_size();
-		p.get_pop().set_size(current * amount);
+		apply_exact_population_factor(ws, p.get_pop().id, amount);
 	}
+	bool const projection_ok = persons::exact_population::project_population_membership(ws);
+	assert(projection_ok);
 	return 0;
 }
 uint32_t ef_reduce_pop_nation(EFFECT_PARAMTERS) {
@@ -3108,10 +3155,11 @@ uint32_t ef_reduce_pop_nation(EFFECT_PARAMTERS) {
 	assert(std::isfinite(amount));
 	for(auto pr : ws.world.nation_get_province_ownership(trigger::to_nation(primary_slot))) {
 		for(auto p : pr.get_province().get_pop_location()) {
-			auto& current = p.get_pop().get_size();
-			p.get_pop().set_size(current * amount);
+			apply_exact_population_factor(ws, p.get_pop().id, amount);
 		}
 	}
+	bool const projection_ok = persons::exact_population::project_population_membership(ws);
+	assert(projection_ok);
 	return 0;
 }
 uint32_t ef_reduce_pop_state(EFFECT_PARAMTERS) {
@@ -3119,18 +3167,23 @@ uint32_t ef_reduce_pop_state(EFFECT_PARAMTERS) {
 	assert(std::isfinite(amount));
 	province::for_each_province_in_state_instance(ws, trigger::to_state(primary_slot), [&ws, amount](dcon::province_id pr) {
 		for(auto p : ws.world.province_get_pop_location(pr)) {
-			auto& current = p.get_pop().get_size();
-			p.get_pop().set_size(current * amount);
+			apply_exact_population_factor(ws, p.get_pop().id, amount);
 		}
 	});
+	bool const projection_ok = persons::exact_population::project_population_membership(ws);
+	assert(projection_ok);
 	return 0;
 }
 uint32_t ef_move_pop(EFFECT_PARAMTERS) {
-	ws.world.pop_set_province_from_pop_location(trigger::to_pop(primary_slot), trigger::payload(tval[1]).prov_id);
+	auto const pop = trigger::to_pop(primary_slot);
+	reclassify_effect_population_cell(ws, pop, trigger::payload(tval[1]).prov_id,
+		ws.world.pop_get_culture(pop), ws.world.pop_get_religion(pop), ws.world.pop_get_poptype(pop));
 	return 0;
 }
 uint32_t ef_pop_type(EFFECT_PARAMTERS) {
-	ws.world.pop_set_poptype(trigger::to_pop(primary_slot), trigger::payload(tval[1]).popt_id);
+	auto const pop = trigger::to_pop(primary_slot);
+	reclassify_effect_population_cell(ws, pop, ws.world.pop_get_province_from_pop_location(pop),
+		ws.world.pop_get_culture(pop), ws.world.pop_get_religion(pop), trigger::payload(tval[1]).popt_id);
 	return 0;
 }
 uint32_t ef_years_of_research(EFFECT_PARAMTERS) {
@@ -3178,8 +3231,7 @@ uint32_t ef_remove_random_military_reforms(EFFECT_PARAMTERS) {
 	std::vector<dcon::reform_option_id> active_reforms;
 	auto nation_id = trigger::to_nation(primary_slot);
 	for(auto issue : ws.world.in_reform) {
-		if(issue.get_reform_type() == uint8_t(culture::issue_type::military) &&
-				ws.world.nation_get_reforms(nation_id, issue) != ws.world.reform_get_options(issue)[0])
+		if(issue.get_reform_type() == uint8_t(culture::issue_type::military) && ws.world.nation_get_reforms(nation_id, issue) != ws.world.reform_get_options(issue)[0])
 			active_reforms.push_back(ws.world.reform_get_options(issue)[0]);
 	}
 	for(int32_t i = tval[1] - 1; active_reforms.size() != 0 && i >= 0; --i) {
@@ -3196,8 +3248,7 @@ uint32_t ef_remove_random_economic_reforms(EFFECT_PARAMTERS) {
 	std::vector<dcon::reform_option_id> active_reforms;
 	auto nation_id = trigger::to_nation(primary_slot);
 	for(auto issue : ws.world.in_reform) {
-		if(issue.get_reform_type() == uint8_t(culture::issue_type::economic) &&
-				ws.world.nation_get_reforms(nation_id, issue) != ws.world.reform_get_options(issue)[0])
+		if(issue.get_reform_type() == uint8_t(culture::issue_type::economic) && ws.world.nation_get_reforms(nation_id, issue) != ws.world.reform_get_options(issue)[0])
 			active_reforms.push_back(ws.world.reform_get_options(issue)[0]);
 	}
 	for(int32_t i = tval[1] - 1; active_reforms.size() != 0 && i >= 0; --i) {
@@ -3259,10 +3310,11 @@ uint32_t ef_world_wars_enabled_no(EFFECT_PARAMTERS) {
 uint32_t ef_assimilate_province(EFFECT_PARAMTERS) {
 	if(auto owner = ws.world.province_get_nation_from_province_ownership(trigger::to_prov(primary_slot)); owner) {
 		auto owner_c = ws.world.nation_get_primary_culture(owner);
-		for(auto pop : ws.world.province_get_pop_location(trigger::to_prov(primary_slot))) {
-			pop.get_pop().set_culture(owner_c);
-			pop.get_pop().set_is_primary_or_accepted_culture(true);
-		}
+		auto const province = trigger::to_prov(primary_slot);
+		for_each_scripted_population_in_province(ws, province, [&](dcon::pop_id pop) {
+			reclassify_effect_population_cell(ws, pop, province, owner_c,
+				ws.world.pop_get_religion(pop), ws.world.pop_get_poptype(pop));
+		});
 	}
 	return 0;
 }
@@ -3270,10 +3322,10 @@ uint32_t ef_assimilate_state(EFFECT_PARAMTERS) {
 	if(auto owner = ws.world.state_instance_get_nation_from_state_ownership(trigger::to_state(primary_slot)); owner) {
 		auto owner_c = ws.world.nation_get_primary_culture(owner);
 		province::for_each_province_in_state_instance(ws, trigger::to_state(primary_slot), [&](dcon::province_id p) {
-			for(auto pop : ws.world.province_get_pop_location(p)) {
-				pop.get_pop().set_culture(owner_c);
-				pop.get_pop().set_is_primary_or_accepted_culture(true);
-			}
+			for_each_scripted_population_in_province(ws, p, [&](dcon::pop_id pop) {
+				reclassify_effect_population_cell(ws, pop, p, owner_c,
+					ws.world.pop_get_religion(pop), ws.world.pop_get_poptype(pop));
+			});
 		});
 	}
 	return 0;
@@ -3281,16 +3333,18 @@ uint32_t ef_assimilate_state(EFFECT_PARAMTERS) {
 uint32_t ef_assimilate_pop(EFFECT_PARAMTERS) {
 	if(auto owner = nations::owner_of_pop(ws, trigger::to_pop(primary_slot)); owner) {
 		auto owner_c = ws.world.nation_get_primary_culture(owner);
-		ws.world.pop_set_culture(trigger::to_pop(primary_slot), owner_c);
-		ws.world.pop_set_is_primary_or_accepted_culture(trigger::to_pop(primary_slot), true);
+		auto const pop = trigger::to_pop(primary_slot);
+		reclassify_effect_population_cell(ws, pop, ws.world.pop_get_province_from_pop_location(pop),
+			owner_c, ws.world.pop_get_religion(pop), ws.world.pop_get_poptype(pop));
 	}
 	return 0;
 }
 uint32_t ef_set_culture_pop(EFFECT_PARAMTERS) {
 	if(auto owner = nations::owner_of_pop(ws, trigger::to_pop(primary_slot)); owner) {
 		auto c = trigger::payload(tval[1]).cul_id;
-		ws.world.pop_set_culture(trigger::to_pop(primary_slot), c);
-		ws.world.pop_set_is_primary_or_accepted_culture(trigger::to_pop(primary_slot), nations::nation_accepts_culture(ws, owner, c));
+		auto const pop = trigger::to_pop(primary_slot);
+		reclassify_effect_population_cell(ws, pop, ws.world.pop_get_province_from_pop_location(pop),
+			c, ws.world.pop_get_religion(pop), ws.world.pop_get_poptype(pop));
 	}
 	return 0;
 }

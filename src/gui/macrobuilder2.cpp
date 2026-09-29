@@ -380,13 +380,10 @@ bool macrobuilder2_main_apply_button_t::button_action(sys::state& state) noexcep
 		});
 		for(dcon::unit_type_id::value_base_t i = 0; i < sys::macro_builder_template::max_types; i++) {
 			dcon::unit_type_id utid = dcon::unit_type_id(i);
-			if(rem_to_build[i] > 0
-			&& is_land == state.military_definitions.unit_base_definitions[utid].is_land
-			&& (state.military_definitions.unit_base_definitions[utid].active || state.world.nation_get_active_unit(state.local_player_nation, utid))) {
+			if(rem_to_build[i] > 0 && is_land == state.military_definitions.unit_base_definitions[utid].is_land && state.military_definitions.unit_base_definitions[utid].active || state.world.nation_get_active_unit(state.local_player_nation, utid)) {
 				for(const auto prov : provinces) {
 					auto const port_level = state.world.province_get_building_level(prov, uint8_t(economy::province_building_type::naval_base));
-					if(port_level >= state.military_definitions.unit_base_definitions[utid].min_port_level
-					&& command::can_start_naval_unit_construction(state, state.local_player_nation, prov, utid, template_province)) {
+					if(port_level >= state.military_definitions.unit_base_definitions[utid].min_port_level && command::can_start_naval_unit_construction(state, state.local_player_nation, prov, utid, template_province)) {
 						command::start_naval_unit_construction(state, state.local_player_nation, prov, utid, template_province);
 						rem_to_build[i]--;
 						if(rem_to_build[i] == 0)

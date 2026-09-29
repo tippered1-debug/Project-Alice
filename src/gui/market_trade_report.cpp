@@ -751,7 +751,7 @@ measure_result  market_trade_report_body_list_t::place_item(sys::state& state, u
 	if(std::holds_alternative<trade_item_option>(values[index])) {
 		if(trade_header_pool.empty()) trade_header_pool.emplace_back(make_market_trade_report_trade_header(state));
 		if(trade_item_pool.empty()) trade_item_pool.emplace_back(make_market_trade_report_trade_item(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<trade_item_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<trade_item_option>(values[index - 1])) {
 			if(destination) {
 				if(trade_header_pool.size() <= size_t(trade_header_pool_used)) trade_header_pool.emplace_back(make_market_trade_report_trade_header(state));
 				if(trade_item_pool.size() <= size_t(trade_item_pool_used)) trade_item_pool.emplace_back(make_market_trade_report_trade_item(state));
@@ -1743,7 +1743,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start + table_source->trade_flag_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start + table_source->trade_flag_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_flag_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_flag){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_flag){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start + table_source->trade_flag_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_flag){
@@ -1762,7 +1762,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start + table_source->trade_destination_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start + table_source->trade_destination_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_destination_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_destination){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_destination){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start + table_source->trade_destination_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_destination){
@@ -1781,7 +1781,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start + table_source->trade_selector_c_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start + table_source->trade_selector_c_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_selector_c_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_selector_c){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_selector_c){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start + table_source->trade_selector_c_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_selector_c){
@@ -1795,7 +1795,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start + table_source->trade_distance_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start + table_source->trade_distance_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_distance_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_distance){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_distance){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start + table_source->trade_distance_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_distance){
@@ -1814,7 +1814,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start + table_source->trade_price_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start + table_source->trade_price_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_price_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_price){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_price){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start + table_source->trade_price_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_price){
@@ -1833,7 +1833,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start + table_source->trade_volume_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start + table_source->trade_volume_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_volume_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_volume){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_volume){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start + table_source->trade_volume_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_volume){
@@ -1852,7 +1852,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start + table_source->trade_value_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start + table_source->trade_value_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_value_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_value){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_value){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start + table_source->trade_value_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_value){
@@ -1871,7 +1871,7 @@ void market_trade_report_trade_item_trade_item_c_t::render(sys::state & state, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start + table_source->trade_empty_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start + table_source->trade_empty_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_empty_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_empty){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_empty){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start + table_source->trade_empty_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_empty){
@@ -2686,7 +2686,7 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start + table_source->trade_flag_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start + table_source->trade_flag_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_flag_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_flag){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_flag){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_flag_column_start + table_source->trade_flag_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_flag){
@@ -2700,7 +2700,7 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start + table_source->trade_destination_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start + table_source->trade_destination_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_destination_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_destination){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_destination){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_destination_column_start + table_source->trade_destination_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_destination){
@@ -2719,7 +2719,7 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start + table_source->trade_selector_c_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start + table_source->trade_selector_c_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_selector_c_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_selector_c){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_selector_c){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_selector_c_column_start + table_source->trade_selector_c_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_selector_c){
@@ -2738,7 +2738,7 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start + table_source->trade_distance_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start + table_source->trade_distance_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_distance_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_distance){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_distance){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_distance_column_start + table_source->trade_distance_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_distance){
@@ -2772,7 +2772,7 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start + table_source->trade_price_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start + table_source->trade_price_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_price_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_price){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_price){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_price_column_start + table_source->trade_price_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_price){
@@ -2806,7 +2806,7 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start + table_source->trade_volume_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start + table_source->trade_volume_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_volume_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_volume){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_volume){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_volume_column_start + table_source->trade_volume_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_volume){
@@ -2840,7 +2840,7 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start + table_source->trade_value_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start + table_source->trade_value_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_value_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_value){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_value){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_value_column_start + table_source->trade_value_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_value){
@@ -2869,14 +2869,14 @@ void market_trade_report_trade_header_trade_header_c_t::render(sys::state & stat
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start + table_source->trade_empty_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start + table_source->trade_empty_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->trade_empty_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_empty){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_empty){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start + table_source->trade_empty_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_empty){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start), float(y), float(table_source->trade_empty_column_width), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->trade_empty_column_start), float(y + base_data.size.y - 2), float(table_source->trade_empty_column_width), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
-	auto col_color_empty = state.ui_templates.colors[table_source->trade_empty_header_text_color]; 	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	auto col_color_empty = state.ui_templates.colors[table_source->trade_empty_header_text_color]; 	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }

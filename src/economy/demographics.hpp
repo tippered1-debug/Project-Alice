@@ -275,6 +275,10 @@ float transfer_pop_amount(sys::state& state, dcon::pop_id source, dcon::pop_id t
 	float requested_amount,
 	persons::exact_population::population_transition_cause cause =
 		persons::exact_population::population_transition_cause::population_merge);
+bool reclassify_population_cell(sys::state& state, dcon::pop_id source,
+	dcon::province_id destination, dcon::culture_id culture, dcon::religion_id religion,
+	dcon::pop_type_id pop_type,
+	persons::exact_population::population_transition_cause cause);
 
 void remove_size_zero_pops(sys::state& state);
 void remove_small_pops(sys::state& state);

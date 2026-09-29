@@ -101,8 +101,6 @@ struct inputs_data {
 	float total_cost_availability_adjusted = 0.f;
 };
 
-void set_initial_factory_values(sys::state& state, dcon::factory_id f);
-uint32_t repair_corrupted_factory_sizes(sys::state& state);
 
 template<typename SET>
 inputs_data get_inputs_data(sys::state const& state, dcon::market_id markets, SET const& inputs);
@@ -133,10 +131,8 @@ float nation_factory_output_multiplier(sys::state const& state, dcon::factory_ty
 void update_employment(sys::state& state, bool ignore_reality, float presim_employment_mult = 1.0f);
 // Artisan plans are stored per good, but all plans draw from the same POP.
 // Keep their sum within the province's actual artisan workforce.
-void cap_artisan_employment(sys::state& state);
 void update_rgo_profit(sys::state& state);
 
-void update_artisan_production(sys::state& state);
 float effective_artisan_output_amount(sys::state const& state, dcon::commodity_id commodity);
 void update_production_consumption(sys::state& state);
 float factory_min_input_actually_available(sys::state const& state,

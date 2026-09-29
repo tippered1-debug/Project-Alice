@@ -4,9 +4,12 @@
 #include "military/military.hpp"
 #include "provinces/province.hpp"
 #include "nations.hpp"
+#include "demographics.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 
 namespace nations::strategic_statecraft {
@@ -33,12 +36,13 @@ uint64_t pair_key(dcon::nation_id observer, dcon::nation_id subject) {
 }
 
 uint32_t day(sys::state const& state) {
-	return uint32_t(std::max(state.current_date.value, 0));
+	return uint32_t(state.current_date.value);
 }
 
 belief* find_belief(sys::state& state, dcon::nation_id observer, dcon::nation_id subject) {
-	if(!state.strategic_statecraft_initialized || !observer || !subject)
-		return nullptr;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
+	if(!observer || !subject || !state.world.nation_is_valid(observer) || !state.world.nation_is_valid(subject) || observer == subject) return nullptr;
 	auto const key = pair_key(observer, subject);
 	auto it = std::lower_bound(state.strategic_beliefs.begin(), state.strategic_beliefs.end(), key,
 		[](belief const& item, uint64_t lookup) { return item.key < lookup; });
@@ -46,8 +50,9 @@ belief* find_belief(sys::state& state, dcon::nation_id observer, dcon::nation_id
 }
 
 belief const* find_belief(sys::state const& state, dcon::nation_id observer, dcon::nation_id subject) {
-	if(!state.strategic_statecraft_initialized || !observer || !subject)
-		return nullptr;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
+	if(!observer || !subject || !state.world.nation_is_valid(observer) || !state.world.nation_is_valid(subject) || observer == subject) return nullptr;
 	auto const key = pair_key(observer, subject);
 	auto it = std::lower_bound(state.strategic_beliefs.begin(), state.strategic_beliefs.end(), key,
 		[](belief const& item, uint64_t lookup) { return item.key < lookup; });
@@ -73,12 +78,9 @@ float estimate_economy(sys::state const& state, dcon::nation_id nation) {
 }
 
 bool knows_well(sys::state& state, dcon::nation_id observer, dcon::nation_id subject) {
-	if(observer == subject || nations::are_allied(state, observer, subject)
-		|| military::are_at_war(state, observer, subject)
-		|| state.world.get_nation_adjacency_by_nation_adjacency_pair(observer, subject))
+	if(observer == subject || nations::are_allied(state, observer, subject) || military::are_at_war(state, observer, subject) || state.world.get_nation_adjacency_by_nation_adjacency_pair(observer, subject))
 		return true;
-	if(state.world.nation_get_ai_rival(observer) == subject
-		|| state.world.nation_get_ai_rival(subject) == observer)
+	if(state.world.nation_get_ai_rival(observer) == subject || state.world.nation_get_ai_rival(subject) == observer)
 		return true;
 	return state.world.nation_get_in_sphere_of(subject) == observer
 		|| state.world.nation_get_is_great_power(observer)
@@ -208,10 +210,15 @@ float common_threat(sys::state& state, dcon::nation_id a, dcon::nation_id b) {
 }
 
 float own_claim_interest(sys::state const& state, dcon::nation_id nation, dcon::nation_id holder) {
-	auto const* weights = state.strategic_statecraft_initialized
+	if(!nation || !state.world.nation_is_valid(nation) || !holder || !state.world.nation_is_valid(holder))
+		return 0.0f;
+	assert(state.strategic_statecraft_initialized
 		&& nation.index() < state.strategic_interests.size()
-		? &state.strategic_interests[nation.index()] : nullptr;
-	if(!weights || !weights->enabled || !holds_core_of(state, holder, nation))
+		&& state.strategic_interests[nation.index()].enabled != 0);
+	if(!state.strategic_statecraft_initialized || nation.index() >= state.strategic_interests.size() || state.strategic_interests[nation.index()].enabled == 0)
+		std::abort();
+	auto const* weights = &state.strategic_interests[nation.index()];
+	if(!holds_core_of(state, holder, nation))
 		return 0.0f;
 	return 0.65f + 0.35f * unit(weights->territorial_claims);
 }
@@ -256,11 +263,7 @@ float coalition_power(sys::state const& state, dcon::nation_id observer, bool at
 	for(auto const& participant : state.crisis_participants) {
 		if(!participant.id)
 			break;
-		if(!participant.merely_interested && participant.supports_attacker == attacker
-			&& participant.id != state.primary_crisis_attacker
-			&& participant.id != state.primary_crisis_defender
-			&& participant.id != state.crisis_attacker
-			&& participant.id != state.crisis_defender)
+		if(!participant.merely_interested && participant.supports_attacker == attacker && participant.id != state.primary_crisis_attacker && participant.id != state.primary_crisis_defender && participant.id != state.crisis_attacker && participant.id != state.crisis_defender)
 			total += belief_power(state, observer, participant.id);
 	}
 	return total;
@@ -323,8 +326,7 @@ void observe_public_crisis(sys::state& state) {
 }
 
 void update_profile_for_new_country(sys::state& state, dcon::nation_id nation) {
-	if(!nation || !state.world.nation_is_valid(nation)
-		|| nation.index() >= state.strategic_interests.size())
+	if(!nation || !state.world.nation_is_valid(nation) || nation.index() >= state.strategic_interests.size())
 		return;
 	auto& weights = state.strategic_interests[nation.index()];
 	if(weights.enabled)
@@ -401,14 +403,11 @@ void ensure_belief_rows(sys::state& state) {
 }
 
 float crisis_stake(sys::state const& state, dcon::nation_id nation) {
-	if(nation.index() < state.strategic_interests.size()) {
-		auto const& weights = state.strategic_interests[nation.index()];
-		if(weights.enabled)
-			return unit(0.45f * weights.security
-				+ 0.35f * weights.territorial_claims
-				+ 0.2f * weights.prestige_influence);
-	}
-	return 0.0f;
+	assert(uses_model(state, nation));
+	auto const& weights = state.strategic_interests[nation.index()];
+	return unit(0.45f * weights.security
+		+ 0.35f * weights.territorial_claims
+		+ 0.2f * weights.prestige_influence);
 }
 
 void raise_resolve(sys::state& state, dcon::nation_id observer, dcon::nation_id subject, float delta) {
@@ -430,8 +429,7 @@ void raise_resolve(sys::state& state, dcon::nation_id observer, dcon::nation_id 
 void resolve_commitment(sys::state& state, dcon::nation_id promisor, dcon::nation_id beneficiary,
 	commitment_kind kind, bool fulfilled) {
 	for(auto it = state.strategic_commitments.rbegin(); it != state.strategic_commitments.rend(); ++it) {
-		if(it->active && it->promisor == promisor.index() && it->beneficiary == beneficiary.index()
-			&& it->kind == uint8_t(kind)) {
+		if(it->active && it->promisor == promisor.index() && it->beneficiary == beneficiary.index() && it->kind == uint8_t(kind)) {
 			it->active = 0;
 			it->resolved_day = int32_t(day(state));
 			if(auto* view = find_belief(state, beneficiary, promisor)) {
@@ -452,8 +450,7 @@ void resolve_commitment(sys::state& state, dcon::nation_id promisor, dcon::natio
 void assess_active_commitment(sys::state& state, dcon::nation_id promisor, dcon::nation_id beneficiary,
 	commitment_kind kind, bool fulfilled) {
 	for(auto it = state.strategic_commitments.rbegin(); it != state.strategic_commitments.rend(); ++it) {
-		if(it->active && it->promisor == promisor.index() && it->beneficiary == beneficiary.index()
-			&& it->kind == uint8_t(kind)) {
+		if(it->active && it->promisor == promisor.index() && it->beneficiary == beneficiary.index() && it->kind == uint8_t(kind)) {
 			if(auto* view = find_belief(state, beneficiary, promisor)) {
 				if(fulfilled) {
 					increment(view->fulfilled_commitments);
@@ -474,12 +471,11 @@ void add_commitment(sys::state& state, dcon::nation_id promisor,
 	if(!promisor || !beneficiary || promisor == beneficiary)
 		return;
 	for(auto const& item : state.strategic_commitments) {
-		if(item.active && item.promisor == promisor.index()
-			&& item.beneficiary == beneficiary.index() && item.kind == uint8_t(kind))
+		if(item.active && item.promisor == promisor.index() && item.beneficiary == beneficiary.index() && item.kind == uint8_t(kind))
 			return;
 	}
 	state.strategic_commitments.push_back(commitment{
-		promisor.index(), beneficiary.index(), uint8_t(kind), 1, 0,
+		uint32_t(promisor.index()), uint32_t(beneficiary.index()), uint8_t(kind), 1, 0,
 		int32_t(day(state)), 0
 	});
 }
@@ -533,15 +529,23 @@ bool knows_war_event(sys::state& state, dcon::nation_id observer, dcon::nation_i
 } // namespace
 
 bool uses_model(sys::state const& state, dcon::nation_id nation) {
-	return state.strategic_statecraft_initialized && nation
-		&& state.world.nation_is_valid(nation)
-		&& nation.index() < state.strategic_interests.size()
-		&& state.strategic_interests[nation.index()].enabled != 0;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
+	if(!nation || !state.world.nation_is_valid(nation)) return false;
+	assert(nation.index() < state.strategic_interests.size());
+	if(nation.index() >= state.strategic_interests.size()) std::abort();
+	assert(state.strategic_interests[nation.index()].enabled != 0);
+	if(state.strategic_interests[nation.index()].enabled == 0) std::abort();
+	return true;
 }
 
 bool uses_model_for_current_crisis(sys::state const& state) {
-	return state.strategic_statecraft_initialized
-		&& uses_model(state, state.primary_crisis_attacker)
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
+	if(state.current_crisis_state == sys::crisis_state::inactive) return false;
+	assert(state.primary_crisis_attacker && state.primary_crisis_defender);
+	if(!state.primary_crisis_attacker || !state.primary_crisis_defender) std::abort();
+	return uses_model(state, state.primary_crisis_attacker)
 		&& uses_model(state, state.primary_crisis_defender);
 }
 
@@ -580,6 +584,16 @@ std::string_view decision_name(decision_code decision) {
 	case decision_code::crisis_mobilize: return "mobilize";
 	case decision_code::crisis_withdraw: return "withdraw";
 	case decision_code::crisis_war: return "escalate_to_war";
+	case decision_code::war_support: return "support_war";
+	case decision_code::war_stand_aside: return "stand_aside_from_war";
+	case decision_code::peace_accept: return "accept_peace";
+	case decision_code::peace_reject: return "reject_peace";
+	case decision_code::access_grant: return "grant_access";
+	case decision_code::access_reject: return "reject_access";
+	case decision_code::state_transfer_accept: return "accept_state_transfer";
+	case decision_code::state_transfer_reject: return "reject_state_transfer";
+	case decision_code::free_trade_accept: return "accept_free_trade";
+	case decision_code::free_trade_reject: return "reject_free_trade";
 	}
 	return "none";
 }
@@ -614,7 +628,7 @@ void initialize(sys::state& state) {
 			if(relation.get_are_allied()) {
 				auto const a = relation.get_related_nations(0);
 				auto const b = relation.get_related_nations(1);
-				if(a && b && a.index() < b.index())
+			if(a && b && a.id.index() < b.id.index())
 					alliance_formed(state, a, b);
 			}
 		}
@@ -626,13 +640,31 @@ void initialize(sys::state& state) {
 	update_monthly(state);
 }
 
-void update_monthly(sys::state& state) {
+void initialize_nation(sys::state& state, dcon::nation_id nation) {
 	if(!state.strategic_statecraft_initialized)
-		return;
+		return; // Scenario construction is followed by initialize() for the complete world.
+	assert(nation && state.world.nation_is_valid(nation));
+	if(!nation || !state.world.nation_is_valid(nation)) std::abort();
 	if(state.strategic_interests.size() < state.world.nation_size())
 		state.strategic_interests.resize(state.world.nation_size());
-	for(auto nation : state.world.in_nation)
-		update_profile_for_new_country(state, nation.id);
+	update_profile_for_new_country(state, nation);
+	assert(nation.index() < state.strategic_interests.size()
+		&& state.strategic_interests[nation.index()].enabled != 0);
+	if(nation.index() >= state.strategic_interests.size()
+		|| state.strategic_interests[nation.index()].enabled == 0) std::abort();
+	ensure_belief_rows(state);
+}
+
+void update_monthly(sys::state& state) {
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
+	assert(state.strategic_interests.size() == state.world.nation_size());
+	if(state.strategic_interests.size() != state.world.nation_size()) std::abort();
+	for(auto nation : state.world.in_nation) {
+		assert(state.strategic_interests[nation.id.index()].enabled != 0
+			&& "every live country must have a Statecraft profile before the monthly tick");
+		if(state.strategic_interests[nation.id.index()].enabled == 0) std::abort();
+	}
 	ensure_belief_rows(state);
 	for(auto& view : state.strategic_beliefs) {
 		auto const observer = dcon::nation_id{ dcon::nation_id::value_base_t(uint32_t(view.key >> 32)) };
@@ -650,8 +682,7 @@ void update_monthly(sys::state& state) {
 }
 
 float alliance_value(sys::state& state, dcon::nation_id observer, dcon::nation_id partner) {
-	if(!uses_model(state, observer) || !partner || !state.world.nation_is_valid(partner)
-		|| observer == partner)
+	if(!uses_model(state, observer) || !partner || !state.world.nation_is_valid(partner) || observer == partner)
 		return -1.0f;
 	auto const* view = find_belief(state, observer, partner);
 	float const reliability = view ? view->reliability : 0.5f;
@@ -683,16 +714,12 @@ dcon::nation_id best_alliance_partner(sys::state& state, dcon::nation_id nation)
 	dcon::nation_id best{};
 	float best_value = 0.35f;
 	for(auto candidate : state.world.in_nation) {
-		if(candidate.id == nation || candidate.get_is_player_controlled()
-			|| nations::are_allied(state, nation, candidate.id)
-			|| military::are_at_war(state, nation, candidate.id)
-			|| candidate.get_overlord_as_subject().get_ruler())
+		if(candidate.id == nation || candidate.get_is_player_controlled() || nations::are_allied(state, nation, candidate.id) || military::are_at_war(state, nation, candidate.id) || candidate.get_overlord_as_subject().get_ruler())
 			continue;
 		auto const proposer_value = alliance_value(state, nation, candidate.id);
 		if(proposer_value <= best_value)
 			continue;
-		if(uses_model(state, candidate.id)
-			&& alliance_value(state, candidate.id, nation) < 0.28f)
+		if(uses_model(state, candidate.id) && alliance_value(state, candidate.id, nation) < 0.28f)
 			continue;
 		best_value = proposer_value;
 		best = candidate.id;
@@ -716,9 +743,267 @@ bool accepts_alliance(sys::state& state, dcon::nation_id target, dcon::nation_id
 	return accepted;
 }
 
+bool accepts_call_to_arms(sys::state& state, dcon::nation_id nation,
+	dcon::nation_id caller, dcon::war_id war) {
+	if(!nation || !caller || !war || !state.world.nation_is_valid(nation) || !state.world.nation_is_valid(caller) || !state.world.war_is_valid(war))
+		return false;
+	(void)uses_model(state, nation);
+	auto const role = military::get_role(state, war, nation);
+	if(role != military::war_role::none) return true;
+	auto const caller_role = military::get_role(state, war, caller);
+	if(caller_role == military::war_role::none) return false;
+	auto const supporting_attacker = caller_role == military::war_role::attacker;
+	auto const& weights = state.strategic_interests[nation.index()];
+	bool committed = nations::are_allied(state, nation, caller);
+	for(auto const& commitment : state.strategic_commitments) {
+		if(!commitment.active || commitment.promisor != nation.index()) continue;
+		if(commitment.beneficiary != caller.index()) continue;
+		if(commitment.kind == uint8_t(commitment_kind::alliance) || commitment.kind == uint8_t(commitment_kind::guarantee)) {
+			committed = true;
+			break;
+		}
+	}
+	float strategic_stake = 0.0f;
+	for(auto participant : state.world.war_get_war_participant(war)) {
+		if((participant.get_is_attacker() != 0) == supporting_attacker) continue;
+		auto const opponent = participant.get_nation();
+		strategic_stake = std::max(strategic_stake,
+			std::max(common_threat(state, nation, opponent),
+				own_claim_interest(state, nation, opponent)));
+	}
+	auto const* view = find_belief(state, nation, caller);
+	float const reliability = view ? view->reliability : 0.5f;
+	float const recent_war_cost = unit(float(state.world.nation_get_war_exhaustion(nation)) / 100.0f);
+	float score = 0.33f * weights.security
+		+ 0.25f * weights.ally_subject_protection * float(committed)
+		+ 0.22f * strategic_stake
+		+ 0.12f * belief_power(state, nation, caller)
+		+ 0.08f * reliability
+		- 0.22f * recent_war_cost;
+	if(supporting_attacker)
+		score -= 0.12f * (1.0f - weights.territorial_claims);
+	bool const accepted = committed ? score >= 0.34f : score >= 0.7f;
+	set_decision(state, nation, accepted ? decision_code::war_support : decision_code::war_stand_aside,
+		score);
+	set_objective(state, nation,
+		strategic_stake > 0.45f ? objective_kind::territorial_claim : objective_kind::protect_partner,
+		caller, score);
+	return accepted;
+}
+
+bool accepts_peace_offer(sys::state& state, dcon::nation_id from,
+	dcon::nation_id to, dcon::peace_offer_id offer) {
+	if(!from || !to || !offer || !state.world.nation_is_valid(from) || !state.world.nation_is_valid(to) || !state.world.peace_offer_is_valid(offer))
+		return false;
+	(void)uses_model(state, to);
+	auto const war = state.world.peace_offer_get_war_from_war_settlement(offer);
+	if(!war || !state.world.war_is_valid(war) || military::get_role(state, war, to) == military::war_role::none || military::get_role(state, war, from) == military::war_role::none)
+		return false;
+	auto const prime_attacker = state.world.war_get_primary_attacker(war);
+	auto const prime_defender = state.world.war_get_primary_defender(war);
+	bool contains_status_quo = false;
+	int32_t total_offer_value = 0;
+	int32_t my_goal_value = 0;
+	int32_t personal_offer_value = 0;
+	int32_t incoming_goal_value = 0;
+	int32_t side_goal_value = 0;
+	for(auto item : state.world.peace_offer_get_peace_offer_item(offer)) {
+		auto const goal = item.get_wargoal();
+		auto const value = military::peace_cost(state, war, goal.get_type(),
+			goal.get_added_by(), goal.get_target_nation(), goal.get_secondary_nation(),
+			goal.get_associated_state(), goal.get_associated_tag());
+		total_offer_value += value;
+		if(goal.get_target_nation() == to) personal_offer_value += value;
+		if(goal.get_target_nation() == from) side_goal_value += value;
+		if(goal.get_target_nation() == to || goal.get_added_by() == to) {
+			if(goal.get_target_nation() == to && goal.get_added_by() == from || from == prime_attacker || from == prime_defender)
+				incoming_goal_value += value;
+			if(goal.get_added_by() == to && goal.get_target_nation() == from || from == prime_attacker || from == prime_defender)
+				my_goal_value += value;
+		}
+		if((state.world.cb_type_get_type_bits(goal.get_type())
+			& military::cb_flag::po_status_quo) != 0)
+			contains_status_quo = true;
+	}
+	auto const from_role = military::get_role(state, war, from);
+	auto const opposing_side_peace_cost = from_role == military::war_role::attacker
+		? military::defender_peace_cost(state, war)
+		: military::attacker_peace_cost(state, war);
+	auto const accepted = evaluate_peace_offer_value(state, to, from, prime_attacker, prime_defender,
+		military::primary_warscore(state, war),
+		military::directed_warscore(state, war, from, to),
+		from_role == military::war_role::attacker,
+		state.world.peace_offer_get_is_concession(offer), total_offer_value, my_goal_value,
+		personal_offer_value, incoming_goal_value, side_goal_value,
+		opposing_side_peace_cost,
+		state.current_date.value - state.world.war_get_start_date(war).value,
+		contains_status_quo);
+	set_objective(state, to, objective_kind::security, from,
+		military::directed_warscore(state, war, from, to) / 100.0f);
+	set_decision(state, to, accepted ? decision_code::peace_accept : decision_code::peace_reject,
+		accepted ? 1.0f : -1.0f);
+	return accepted;
+}
+
+bool evaluate_peace_offer_value(sys::state const& state,
+	dcon::nation_id nation, dcon::nation_id from,
+	dcon::nation_id primary_attacker, dcon::nation_id primary_defender,
+	float primary_warscore, float score_against_nation,
+	bool offer_from_attacker, bool concession,
+	int32_t overall_offer_value, int32_t nation_goal_value,
+	int32_t personal_offer_value, int32_t incoming_goal_value,
+	int32_t side_goal_value, int32_t opposite_side_peace_cost,
+	int32_t war_duration, bool contains_status_quo) {
+	if(!nation || !state.world.nation_is_valid(nation)) return false;
+	(void)uses_model(state, nation);
+	auto const& weights = state.strategic_interests[nation.index()];
+	auto overall_value = primary_warscore;
+	if(concession && overall_value <= -50.0f) return true;
+	if(!concession) overall_offer_value = -overall_offer_value;
+	if(overall_offer_value < -100) return false;
+	auto const personal_score_saved = personal_offer_value - incoming_goal_value;
+	auto const exhaustion = float(state.world.nation_get_war_exhaustion(nation));
+	auto const duration_pressure = float(war_duration - 365) * 10.0f / 365.0f;
+	auto const willingness = duration_pressure + exhaustion;
+	bool accepted = false;
+	if(primary_attacker == nation || primary_defender == nation && primary_attacker == from || primary_defender == from) {
+		if(overall_value <= -50.0f || exhaustion > state.defines.alice_ai_war_exhaustion_readiness_limit && overall_value <= float(overall_offer_value * 2)) {
+			accepted = true;
+		} else if(overall_value <= -100.0f && overall_offer_value <= 100) {
+			accepted = true;
+		} else if(concession && opposite_side_peace_cost <= overall_offer_value) {
+			accepted = true;
+		} else if(war_duration >= 365) {
+			if(overall_value >= 0.0f)
+				accepted = concession && overall_value * 2.0f - float(overall_offer_value)
+					- willingness - 18.0f * weights.security < 0.0f;
+			else
+				accepted = overall_value - willingness <= overall_offer_value
+					&& overall_value / 2.0f - overall_offer_value - willingness
+						- 12.0f * weights.security < 0.0f;
+		}
+	} else if(primary_attacker == nation || primary_defender == nation && concession) {
+		if(score_against_nation > 50.0f || exhaustion > state.defines.alice_ai_war_exhaustion_readiness_limit)
+			accepted = true;
+		else if(overall_value < 0.0f)
+			accepted = side_goal_value - score_against_nation
+				<= overall_offer_value + personal_score_saved;
+		else
+			accepted = side_goal_value <= overall_offer_value;
+	} else {
+		if(!contains_status_quo) {
+			if(score_against_nation > 50.0f || exhaustion > state.defines.alice_ai_war_exhaustion_readiness_limit && score_against_nation > -float(overall_offer_value * 2))
+				accepted = true;
+			else if(score_against_nation >= 100.0f && overall_offer_value <= 100)
+				accepted = true;
+			else if(overall_value < 0.0f)
+				accepted = personal_score_saved > 0
+					&& score_against_nation + personal_score_saved - nation_goal_value
+						>= -overall_offer_value;
+			else
+				accepted = nation_goal_value > 0 && nation_goal_value >= overall_offer_value;
+		}
+	}
+	// National survival becomes a direct strategic stake when every owned core is
+	// occupied; the surrender rule changes willingness, not the peace terms.
+	if(!accepted && bool(state.defines.alice_surrender_on_cores_lost)) {
+		auto const identity = state.world.nation_get_identity_from_identity_holder(nation);
+		bool owns_core = false;
+		bool controls_core = false;
+		for(auto core : state.world.national_identity_get_core(identity)) {
+			auto const province = core.get_province();
+			owns_core = owns_core
+				|| state.world.province_get_nation_from_province_ownership(province) == nation;
+			controls_core = controls_core
+				|| state.world.province_get_nation_from_province_control(province) == nation;
+		}
+		accepted = owns_core && !controls_core;
+	}
+	return accepted;
+}
+
+bool accepts_military_access(sys::state& state, dcon::nation_id target,
+	dcon::nation_id requester) {
+	if(!target || !requester || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(requester) || target == requester)
+		return false;
+	(void)uses_model(state, target);
+	auto const& weights = state.strategic_interests[target.index()];
+	bool shared_enemy = false;
+	for(auto participant : state.world.nation_get_war_participant(target)) {
+		auto const war = participant.get_war();
+		if(military::get_role(state, war, requester) == military::war_role::none) continue;
+		if(participant.get_is_attacker()
+			!= (military::get_role(state, war, requester) == military::war_role::attacker))
+			shared_enemy = true;
+	}
+	bool const allied = nations::are_allied(state, target, requester);
+	float const score = 0.55f * float(shared_enemy) + 0.35f * float(allied)
+		+ 0.1f * weights.ally_subject_protection - 0.25f * claim_conflict(state, target, requester);
+	bool const accepted = score >= 0.32f;
+	set_decision(state, target, accepted ? decision_code::access_grant : decision_code::access_reject,
+		score);
+	set_objective(state, target, objective_kind::protect_partner, requester, score);
+	return accepted;
+}
+
+bool accepts_free_trade_agreement(sys::state& state, dcon::nation_id target,
+	dcon::nation_id proposer) {
+	if(!target || !proposer || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(proposer) || target == proposer)
+		return false;
+	(void)uses_model(state, target);
+	auto const& weights = state.strategic_interests[target.index()];
+	auto const* view = find_belief(state, target, proposer);
+	float const expected_market_gain = weights.market_access
+		* (view ? view->economic_power : 0.5f);
+	float const security_cost = 0.18f * claim_conflict(state, target, proposer)
+		+ 0.12f * float(military::are_at_war(state, target, proposer));
+	float const value = expected_market_gain - security_cost;
+	bool const accepted = value >= 0.08f;
+	set_decision(state, target, accepted ? decision_code::free_trade_accept
+		: decision_code::free_trade_reject, value);
+	set_objective(state, target, objective_kind::market_access, proposer, value);
+	return accepted;
+}
+
+bool accepts_state_transfer(sys::state& state, dcon::nation_id target,
+	dcon::nation_id from, dcon::state_definition_id state_definition) {
+	if(!target || !from || !state_definition || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(from) || !state.world.state_definition_is_valid(state_definition))
+		return false;
+	(void)uses_model(state, target);
+	auto const overlord_relation = state.world.nation_get_overlord_as_subject(target);
+	if(state.world.overlord_get_ruler(overlord_relation) == from) {
+		set_decision(state, target, decision_code::state_transfer_accept, 1.0f);
+		set_objective(state, target, objective_kind::security, from, 1.0f);
+		return true;
+	}
+	auto const identity = state.world.nation_get_identity_from_identity_holder(target);
+	bool holds_claim = false;
+	float population = 0.0f;
+	for(auto member : state.world.state_definition_get_abstract_state_membership(state_definition)) {
+		auto const province = member.get_province();
+		population += std::max(0.0f, state.world.province_get_demographics(province,
+			demographics::total));
+		for(auto core : state.world.province_get_core_as_province(province)) {
+			if(core.get_identity() == identity)
+				holds_claim = true;
+		}
+	}
+	auto const& weights = state.strategic_interests[target.index()];
+	float const value = (holds_claim ? 0.62f + 0.3f * weights.territorial_claims : 0.0f)
+		+ 0.08f * weights.market_access * unit(std::log1p(population) / 15.0f)
+		+ 0.12f * float(nations::are_allied(state, target, from));
+	bool const accepted = holds_claim && value >= 0.62f;
+	set_decision(state, target,
+		accepted ? decision_code::state_transfer_accept : decision_code::state_transfer_reject,
+		value);
+	set_objective(state, target, holds_claim ? objective_kind::territorial_claim
+		: objective_kind::none, from, value);
+	return accepted;
+}
+
 void alliance_formed(sys::state& state, dcon::nation_id a, dcon::nation_id b) {
-	if(!state.strategic_statecraft_initialized)
-		return;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
 	add_commitment(state, a, b, commitment_kind::alliance);
 	add_commitment(state, b, a, commitment_kind::alliance);
 }
@@ -729,8 +1014,8 @@ void alliance_broken(sys::state& state, dcon::nation_id a, dcon::nation_id b) {
 }
 
 void guarantee_formed(sys::state& state, dcon::nation_id guarantor, dcon::nation_id beneficiary) {
-	if(!state.strategic_statecraft_initialized)
-		return;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
 	add_commitment(state, guarantor, beneficiary, commitment_kind::guarantee);
 }
 
@@ -756,9 +1041,9 @@ bool wants_crisis_support(sys::state& state, dcon::nation_id nation, bool suppor
 		: own_claim_interest(state, nation, state.crisis_attacker);
 	float common_threat_score = common_threat(state, nation, opponent);
 	auto const rival = state.world.nation_get_ai_rival(nation);
-	if(rival == opponent || (secondary_opponent && rival == secondary_opponent))
+	if(rival == opponent || secondary_opponent && rival == secondary_opponent)
 		common_threat_score = std::max(common_threat_score, 0.92f);
-	if(rival == side || (secondary_side && rival == secondary_side))
+	if(rival == side || secondary_side && rival == secondary_side)
 		common_threat_score = unit(common_threat_score - 0.5f);
 	float const ally_link = (nations::are_allied(state, nation, side)
 		|| state.world.nation_get_in_sphere_of(side) == nation
@@ -799,8 +1084,7 @@ bool wants_crisis_support(sys::state& state, dcon::nation_id nation, bool suppor
 			objective = objective_kind::protect_partner;
 		else if(common_threat_score > 0.45f)
 			objective = objective_kind::balance_threat;
-		else if(weights && weights->route_access >= weights->market_access
-			&& weights->route_access >= weights->resource_access)
+		else if(weights && weights->route_access >= weights->market_access && weights->route_access >= weights->resource_access)
 			objective = objective_kind::route_access;
 		else if(weights && weights->resource_access >= weights->market_access)
 			objective = objective_kind::resource_access;
@@ -857,14 +1141,11 @@ bool choose_crisis_side(sys::state& state, dcon::nation_id nation, bool& support
 	objective_kind objective = objective_kind::security;
 	if(claim_stake > 0.2f)
 		objective = objective_kind::territorial_claim;
-	else if(nations::are_allied(state, nation, selected_side)
-		|| nations::is_nation_subject_of(state, selected_side, nation)
-		|| nations::is_nation_subject_of(state, nation, selected_side))
+	else if(nations::are_allied(state, nation, selected_side) || nations::is_nation_subject_of(state, selected_side, nation) || nations::is_nation_subject_of(state, nation, selected_side))
 		objective = objective_kind::protect_partner;
 	else if(state.world.nation_get_ai_rival(nation) == selected_opponent)
 		objective = objective_kind::balance_threat;
-	else if(weights && weights->route_access >= weights->market_access
-		&& weights->route_access >= weights->resource_access)
+	else if(weights && weights->route_access >= weights->market_access && weights->route_access >= weights->resource_access)
 		objective = objective_kind::route_access;
 	else if(weights && weights->resource_access >= weights->market_access)
 		objective = objective_kind::resource_access;
@@ -931,20 +1212,14 @@ void record_crisis_commitment(sys::state& state, dcon::nation_id nation, bool su
 }
 
 void update_crisis(sys::state& state) {
-	if(!state.strategic_statecraft_initialized)
-		return;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
 	if(state.current_crisis_state == sys::crisis_state::inactive) {
-		if(state.strategic_crisis.phase != uint8_t(crisis_phase::inactive)
-			&& state.strategic_crisis.phase != uint8_t(crisis_phase::settled)
-			&& state.strategic_crisis.phase != uint8_t(crisis_phase::war)
-			&& state.strategic_crisis.phase != uint8_t(crisis_phase::withdrawn))
+		if(state.strategic_crisis.phase != uint8_t(crisis_phase::inactive) && state.strategic_crisis.phase != uint8_t(crisis_phase::settled) && state.strategic_crisis.phase != uint8_t(crisis_phase::war) && state.strategic_crisis.phase != uint8_t(crisis_phase::withdrawn))
 			state.strategic_crisis.phase = uint8_t(crisis_phase::inactive);
 		return;
 	}
-	if(state.strategic_crisis.claimant == crisis_memory::no_nation
-		|| state.strategic_crisis.phase == uint8_t(crisis_phase::settled)
-		|| state.strategic_crisis.phase == uint8_t(crisis_phase::war)
-		|| state.strategic_crisis.phase == uint8_t(crisis_phase::withdrawn)) {
+	if(state.strategic_crisis.claimant == crisis_memory::no_nation || state.strategic_crisis.phase == uint8_t(crisis_phase::settled) || state.strategic_crisis.phase == uint8_t(crisis_phase::war) || state.strategic_crisis.phase == uint8_t(crisis_phase::withdrawn)) {
 		auto const first = state.crisis_attacker_wargoals.empty()
 			? sys::full_wg{} : state.crisis_attacker_wargoals.front();
 		state.strategic_crisis = crisis_memory{};
@@ -1001,9 +1276,7 @@ void update_crisis(sys::state& state) {
 		for(auto& participant : state.crisis_participants) {
 			if(!participant.id)
 				break;
-			if(!participant.merely_interested
-				|| state.world.nation_get_is_player_controlled(participant.id)
-				|| !uses_model(state, participant.id))
+			if(!participant.merely_interested || state.world.nation_get_is_player_controlled(participant.id) || !uses_model(state, participant.id))
 				continue;
 			bool supports_attacker = false;
 			if(!choose_crisis_side(state, participant.id, supports_attacker))
@@ -1024,15 +1297,13 @@ void update_crisis(sys::state& state) {
 			});
 		}
 	}
-	if(elapsed >= 24 && !crisis.mobilized_by_attacker && uses_model(state, state.primary_crisis_attacker)
-		&& state.world.nation_get_is_player_controlled(state.primary_crisis_attacker) == false) {
+	if(elapsed >= 24 && !crisis.mobilized_by_attacker && uses_model(state, state.primary_crisis_attacker) && state.world.nation_get_is_player_controlled(state.primary_crisis_attacker) == false) {
 		auto const attacker_power = coalition_power(state, state.primary_crisis_attacker, true);
 		auto const defender_power = coalition_power(state, state.primary_crisis_attacker, false);
 		auto const interest = crisis_stake(state, state.primary_crisis_attacker);
 		float const cost = 0.08f + 0.18f * state.world.nation_get_war_exhaustion(state.primary_crisis_attacker) / 100.0f;
 		crisis.readiness_cost = unit(crisis.readiness_cost + cost);
-		if(interest > cost && attacker_power + 0.55f >= defender_power
-			&& !state.world.nation_get_is_mobilized(state.primary_crisis_attacker)) {
+		if(interest > cost && attacker_power + 0.55f >= defender_power && !state.world.nation_get_is_mobilized(state.primary_crisis_attacker)) {
 			military::start_mobilization(state, state.primary_crisis_attacker);
 			crisis.mobilized_by_attacker = 1;
 			crisis.phase = uint8_t(crisis_phase::brinkmanship);
@@ -1045,14 +1316,12 @@ void update_crisis(sys::state& state) {
 			crisis.readiness_cost = unit(crisis.readiness_cost - cost);
 		}
 	}
-	if(elapsed >= 38 && !crisis.mobilized_by_defender && uses_model(state, state.primary_crisis_defender)
-		&& state.world.nation_get_is_player_controlled(state.primary_crisis_defender) == false) {
+	if(elapsed >= 38 && !crisis.mobilized_by_defender && uses_model(state, state.primary_crisis_defender) && state.world.nation_get_is_player_controlled(state.primary_crisis_defender) == false) {
 		auto const defender_power = coalition_power(state, state.primary_crisis_defender, false);
 		auto const attacker_power = coalition_power(state, state.primary_crisis_defender, true);
 		auto const interest = crisis_stake(state, state.primary_crisis_defender);
 		float const cost = 0.07f + 0.2f * state.world.nation_get_war_exhaustion(state.primary_crisis_defender) / 100.0f;
-		if(interest > cost && defender_power < attacker_power + 0.4f
-			&& !state.world.nation_get_is_mobilized(state.primary_crisis_defender)) {
+		if(interest > cost && defender_power < attacker_power + 0.4f && !state.world.nation_get_is_mobilized(state.primary_crisis_defender)) {
 			military::start_mobilization(state, state.primary_crisis_defender);
 			crisis.mobilized_by_defender = 1;
 			set_decision(state, state.primary_crisis_defender, decision_code::crisis_mobilize, interest - cost);
@@ -1063,17 +1332,14 @@ void update_crisis(sys::state& state) {
 }
 
 bargaining_action decide_bargaining_action(sys::state& state) {
-	if(!uses_model_for_current_crisis(state) || !valid_crisis_leaders(state)
-		|| state.current_crisis_state != sys::crisis_state::heating_up)
+	if(!uses_model_for_current_crisis(state) || !valid_crisis_leaders(state) || state.current_crisis_state != sys::crisis_state::heating_up)
 		return bargaining_action::none;
 	auto& crisis = state.strategic_crisis;
 	if(crisis.offers_made >= 2 || int32_t(day(state)) - crisis.opened_day < 35)
 		return bargaining_action::none;
-	if(state.world.nation_get_is_player_controlled(state.primary_crisis_attacker)
-		|| state.world.nation_get_is_player_controlled(state.primary_crisis_defender))
+	if(state.world.nation_get_is_player_controlled(state.primary_crisis_attacker) || state.world.nation_get_is_player_controlled(state.primary_crisis_defender))
 		return bargaining_action::none;
-	if(state.world.nation_get_peace_offer_from_pending_peace_offer(state.primary_crisis_attacker)
-		|| state.world.nation_get_peace_offer_from_pending_peace_offer(state.primary_crisis_defender))
+	if(state.world.nation_get_peace_offer_from_pending_peace_offer(state.primary_crisis_attacker) || state.world.nation_get_peace_offer_from_pending_peace_offer(state.primary_crisis_defender))
 		return bargaining_action::none;
 
 	auto const attacker = state.primary_crisis_attacker;
@@ -1121,8 +1387,7 @@ bargaining_action decide_bargaining_action(sys::state& state) {
 		set_decision(state, attacker, decision_code::crisis_demand, demand - expected_attacker_loss);
 		return bargaining_action::attacker_demand;
 	}
-	if(attacker_ratio > 0.48f && demand > expected_attacker_loss + 0.22f
-		&& perceived_resolve < 0.62f && crisis.offers_made == 0) {
+	if(attacker_ratio > 0.48f && demand > expected_attacker_loss + 0.22f && perceived_resolve < 0.62f && crisis.offers_made == 0) {
 		// Deliberate bluff: the demand is valuable enough to try, even though the
 		// current estimate does not make war a safe choice.
 		set_decision(state, attacker, decision_code::crisis_demand,
@@ -1147,8 +1412,7 @@ bool accepts_crisis_peace_offer(sys::state& state, dcon::nation_id from,
 	dcon::nation_id to, dcon::peace_offer_id offer) {
 	if(!uses_model(state, to) || !valid_crisis_leaders(state))
 		return false;
-	if((to == state.crisis_defender || to == state.primary_crisis_defender)
-		&& !state.crisis_attacker_wargoals.empty() && state.crisis_attacker_wargoals.front().cb) {
+	if(to == state.crisis_defender || to == state.primary_crisis_defender && !state.crisis_attacker_wargoals.empty() && state.crisis_attacker_wargoals.front().cb) {
 		auto const bits = state.world.cb_type_get_type_bits(state.crisis_attacker_wargoals.front().cb);
 		if((bits & military::cb_flag::po_annex) != 0 && to == state.crisis_defender)
 			return false;
@@ -1199,6 +1463,37 @@ bool accepts_crisis_peace_offer(sys::state& state, dcon::nation_id from,
 	return accepted;
 }
 
+bool evaluate_crisis_peace_offer(sys::state const& state, dcon::nation_id to,
+	bool is_concession, bool missing_wargoal) {
+	if(!to || !state.world.nation_is_valid(to) || !uses_model_for_current_crisis(state) || !valid_crisis_leaders(state))
+		return false;
+	(void)uses_model(state, to);
+	if(to == state.crisis_defender || to == state.primary_crisis_defender && !state.crisis_attacker_wargoals.empty() && state.crisis_attacker_wargoals.front().cb) {
+		auto const bits = state.world.cb_type_get_type_bits(
+			state.crisis_attacker_wargoals.front().cb);
+		if((bits & military::cb_flag::po_annex) != 0 && to == state.crisis_defender)
+			return false;
+	}
+	auto const own_attacker = to == state.primary_crisis_attacker;
+	auto const enemy = own_attacker ? state.primary_crisis_defender : state.primary_crisis_attacker;
+	float const war_cost = expected_loss(state, to, own_attacker);
+	float const opponent_power = coalition_power(state, to, !own_attacker);
+	float const own_power = coalition_power(state, to, own_attacker);
+	auto const* opponent_view = find_belief(state, to, enemy);
+	float const resolve = opponent_view ? opponent_view->resolve : 0.5f;
+	float const escalation_belief = unit(opponent_power / (opponent_power + own_power + 0.1f)
+		* (0.55f + 0.45f * resolve));
+	float offered_value = missing_wargoal ? 0.40f : 0.15f;
+	if(is_concession) offered_value -= 0.22f;
+	if(missing_wargoal && is_concession) offered_value -= 0.18f;
+	auto const acceptable_cost = 0.38f + 0.42f * escalation_belief
+		+ 0.18f * war_cost - 0.12f * crisis_stake(state, to);
+	bool const accepted = (is_concession || escalation_belief > 0.46f)
+		&& offered_value <= acceptable_cost
+		&& state.world.nation_get_war_exhaustion(to) < 99.0f;
+	return accepted;
+}
+
 bool may_escalate_to_war(sys::state& state) {
 	if(!uses_model_for_current_crisis(state) || !valid_crisis_leaders(state))
 		return false;
@@ -1224,9 +1519,7 @@ bool may_escalate_to_war(sys::state& state) {
 		set_decision(state, state.primary_crisis_attacker, decision_code::crisis_war,
 			attacker_ratio + claimant_stake - defender_ratio);
 		state.strategic_crisis.phase = uint8_t(crisis_phase::war);
-	} else if(elapsed >= 240
-		&& !state.world.nation_get_is_player_controlled(state.primary_crisis_attacker)
-		&& !state.world.nation_get_is_player_controlled(state.primary_crisis_defender)) {
+	} else if(elapsed >= 240 && !state.world.nation_get_is_player_controlled(state.primary_crisis_attacker) && !state.world.nation_get_is_player_controlled(state.primary_crisis_defender)) {
 		// A threat that no longer pays for its expected war loss is withdrawn;
 		// cleanup records the retreat in other states' resolve beliefs.
 		nations::cleanup_crisis(state);
@@ -1235,8 +1528,9 @@ bool may_escalate_to_war(sys::state& state) {
 }
 
 void record_crisis_outcome(sys::state& state, crisis_phase outcome, dcon::nation_id conceding_party) {
-	if(!state.strategic_statecraft_initialized || state.strategic_crisis.phase == uint8_t(crisis_phase::inactive))
-		return;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
+	if(state.strategic_crisis.phase == uint8_t(crisis_phase::inactive)) return;
 	state.strategic_crisis.outcome = uint8_t(outcome);
 	state.strategic_crisis.phase = uint8_t(outcome);
 	auto const attacker = state.primary_crisis_attacker;
@@ -1283,7 +1577,8 @@ void record_crisis_outcome(sys::state& state, crisis_phase outcome, dcon::nation
 	resolve_commitment(state, defender, defender_target, commitment_kind::crisis_support,
 		outcome == crisis_phase::war || (outcome == crisis_phase::settled
 			&& conceding_party == defender_target)
-			|| (outcome == crisis_phase::withdrawn && conceding_party == state.strategic_crisis.claimant));
+		|| (outcome == crisis_phase::withdrawn
+			&& conceding_party && uint32_t(conceding_party.index()) == state.strategic_crisis.claimant));
 	auto const guarantee_count = state.strategic_commitments.size();
 	for(std::size_t index = 0; index < guarantee_count; ++index) {
 		auto const promise = state.strategic_commitments[index];
@@ -1291,8 +1586,7 @@ void record_crisis_outcome(sys::state& state, crisis_phase outcome, dcon::nation
 			continue;
 		auto const guarantor = dcon::nation_id{ dcon::nation_id::value_base_t(promise.promisor) };
 		auto const beneficiary = dcon::nation_id{ dcon::nation_id::value_base_t(promise.beneficiary) };
-		if(!state.world.nation_is_valid(guarantor) || !state.world.nation_is_valid(beneficiary)
-			|| !nations::is_nation_subject_of(state, beneficiary, guarantor))
+		if(!state.world.nation_is_valid(guarantor) || !state.world.nation_is_valid(beneficiary) || !nations::is_nation_subject_of(state, beneficiary, guarantor))
 			continue;
 		bool beneficiary_side = false;
 		if(!crisis_side_of(state, beneficiary, beneficiary_side))
@@ -1339,12 +1633,13 @@ void crisis_offer_rejected(sys::state& state, dcon::nation_id proposer) {
 }
 
 void record_crisis_war_outcome(sys::state& state, dcon::war_id war, bool attacker_won, bool draw) {
-	if(!state.strategic_statecraft_initialized || !war)
-		return;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
+	if(!war) return;
 	auto const attacker = state.world.war_get_original_attacker(war);
 	auto const defender = state.world.war_get_original_target(war);
 	if(!draw)
-		state.strategic_crisis.outcome_actor = uint32_t((attacker_won ? attacker : defender).index());
+		state.strategic_crisis.outcome_actor = uint32_t((attacker_won ? attacker : defender).id.index());
 	for(auto observer : state.world.in_nation) {
 		if(!knows_war_event(state, observer.id, attacker, war))
 			continue;

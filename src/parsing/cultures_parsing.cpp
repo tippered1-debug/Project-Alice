@@ -178,7 +178,7 @@ void register_option(std::string_view name, token_generator& gen, error_handler&
 	bool assigned = false;
 	auto& existing_options = context.outer_context.state.world.issue_get_options(context.id);
 	for(uint32_t i = 0; i < existing_options.size(); ++i) {
-		if(!(existing_options[i])) {
+		if(!existing_options[i]) {
 			existing_options[i] = new_id;
 			assigned = true;
 			break;
@@ -201,7 +201,7 @@ void register_option(std::string_view name, token_generator& gen, error_handler&
 	bool assigned = false;
 	auto& existing_options = context.outer_context.state.world.reform_get_options(context.id);
 	for(uint32_t i = 0; i < existing_options.size(); ++i) {
-		if(!(existing_options[i])) {
+		if(!existing_options[i]) {
 			existing_options[i] = new_id;
 			assigned = true;
 			break;

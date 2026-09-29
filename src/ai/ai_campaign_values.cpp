@@ -1,6 +1,7 @@
 #include "ai_types.hpp"
 #include "ai_campaign_values.hpp"
 #include "system_state.hpp"
+#include "nations/strategic_statecraft.hpp"
 
 namespace ai {
 
@@ -50,7 +51,7 @@ int16_t calculate_desired_army_size(sys::state& state, dcon::nation_id nation) {
 	auto own_str = estimate_strength(state, nation);
 	for(auto b : state.world.nation_get_nation_adjacency_as_connected_nations(nation)) {
 		auto other = b.get_connected_nations(0) != nation ? b.get_connected_nations(0) : b.get_connected_nations(1);
-		if(!nations::are_allied(state, nation, other) && (!in_sphere_of || in_sphere_of != other.get_in_sphere_of())) {
+		if(!nations::are_allied(state, nation, other) && !in_sphere_of || in_sphere_of != other.get_in_sphere_of()) {
 
 			auto other_str = estimate_strength(state, other);
 			if(other_str > greatest_neighbor_strength && other_str < own_str * 10.0f) {
@@ -168,7 +169,7 @@ bool does_have_naval_supremacy(sys::state& state, dcon::nation_id n, dcon::natio
 }
 
 bool ai_will_accept_free_trade(sys::state& state, dcon::nation_id target, dcon::nation_id from) {
-	return false;
+	return nations::strategic_statecraft::accepts_free_trade_agreement(state, target, from);
 }
 
 void explain_ai_trade_agreement_reasons(sys::state& state, dcon::nation_id target, text::layout_base& contents, int32_t indent) {
@@ -176,23 +177,7 @@ void explain_ai_trade_agreement_reasons(sys::state& state, dcon::nation_id targe
 }
 
 bool ai_will_grant_access(sys::state& state, dcon::nation_id target, dcon::nation_id from) {
-	if(!state.world.nation_get_is_at_war(from))
-		return false;
-	if(state.world.nation_get_ai_rival(target) == from)
-		return false;
-	if(military::are_at_war(state, from, state.world.nation_get_ai_rival(target)))
-		return true;
-
-	for(auto wa : state.world.nation_get_war_participant(target)) {
-		auto is_attacker = wa.get_is_attacker();
-		for(auto o : wa.get_war().get_war_participant()) {
-			if(o.get_is_attacker() != is_attacker) {
-				if(military::are_at_war(state, o.get_nation(), from))
-					return true;
-			}
-		}
-	}
-	return false;
+	return nations::strategic_statecraft::accepts_military_access(state, target, from);
 
 }
 void explain_ai_access_reasons(sys::state& state, dcon::nation_id target, text::layout_base& contents, int32_t indent) {

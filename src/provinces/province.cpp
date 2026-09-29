@@ -6,6 +6,8 @@
 #include "nations.hpp"
 #include "system_state.hpp"
 #include <vector>
+#include <cassert>
+#include <cstdlib>
 #include "rebels.hpp"
 #include "math_fns.hpp"
 #include "prng.hpp"
@@ -218,18 +220,10 @@ void update_connected_regions(sys::state& state) {
 			if(n_A) {
 				continue;
 			}
-			if(
-				A.index() >= state.province_definitions.first_sea_province.index()
-				&&
-				B.index() >= state.province_definitions.first_sea_province.index()
-			) {
+			if(A.index() >= state.province_definitions.first_sea_province.index() && B.index() >= state.province_definitions.first_sea_province.index()) {
 				continue;
 			}
-			if(
-				A.index() < state.province_definitions.first_sea_province.index()
-				&&
-				B.index() < state.province_definitions.first_sea_province.index()
-			) {
+			if(A.index() < state.province_definitions.first_sea_province.index() && B.index() < state.province_definitions.first_sea_province.index()) {
 				continue;
 			}
 		}
@@ -714,8 +708,7 @@ void restore_unsaved_values(sys::state& state) {
 		dcon::province_id pid{dcon::province_id::value_base_t(i)};
 
 		for(auto adj : state.world.province_get_province_adjacency(pid)) {
-			if((state.world.province_adjacency_get_type(adj) & province::border::coastal_bit) != 0 &&
-					(state.world.province_adjacency_get_type(adj) & province::border::impassible_bit) == 0) {
+			if((state.world.province_adjacency_get_type(adj) & province::border::coastal_bit) != 0 && (state.world.province_adjacency_get_type(adj) & province::border::impassible_bit) == 0) {
 				state.world.province_set_is_coast(pid, true);
 				break;
 			}
@@ -895,8 +888,7 @@ float state_accepted_bureaucrat_size(sys::state& state, dcon::state_instance_id 
 	float bsum = 0.f;
 	for_each_province_in_state_instance(state, id, [&](dcon::province_id p) {
 		for(auto po : state.world.province_get_pop_location(p)) {
-			if(po.get_pop().get_is_primary_or_accepted_culture() &&
-					po.get_pop().get_poptype() == state.culture_definitions.bureaucrat) {
+			if(po.get_pop().get_is_primary_or_accepted_culture() && po.get_pop().get_poptype() == state.culture_definitions.bureaucrat) {
 				bsum += po.get_pop().get_size();
 			}
 		}
@@ -922,8 +914,7 @@ float state_admin_efficiency(sys::state& state, dcon::state_instance_id id) {
 			non_core_effect += state.defines.noncore_tax_penalty;
 		}
 		for(auto po : state.world.province_get_pop_location(p)) {
-			if(po.get_pop().get_is_primary_or_accepted_culture() &&
-					po.get_pop().get_poptype() == state.culture_definitions.bureaucrat) {
+			if(po.get_pop().get_is_primary_or_accepted_culture() && po.get_pop().get_poptype() == state.culture_definitions.bureaucrat) {
 				bsum += po.get_pop().get_size();
 			}
 		}
@@ -1371,10 +1362,7 @@ void change_province_owner(sys::state& state, dcon::province_id id, dcon::nation
 			rebel::remove_pop_from_movement(state, p.get_pop());
 			rebel::remove_pop_from_rebel_faction(state, p.get_pop());
 			for(const auto src : p.get_pop().get_regiment_source()) {
-				if(!src.get_regiment().get_army_from_army_membership().get_is_retreating()
-				&& !src.get_regiment().get_army_from_army_membership().get_navy_from_army_transport()
-				&& !src.get_regiment().get_army_from_army_membership().get_battle_from_army_battle_participation()
-				&& !src.get_regiment().get_army_from_army_membership().get_controller_from_army_rebel_control()) {
+				if(!src.get_regiment().get_army_from_army_membership().get_is_retreating() && !src.get_regiment().get_army_from_army_membership().get_navy_from_army_transport() && !src.get_regiment().get_army_from_army_membership().get_battle_from_army_battle_participation() && !src.get_regiment().get_army_from_army_membership().get_controller_from_army_rebel_control()) {
 					auto loc = src.get_regiment().get_army_from_army_membership().get_location_from_army_location();
 					auto old_army = src.get_regiment().get_army_from_army_membership();
 					auto new_u = fatten(state.world, state.world.create_army());
@@ -1875,7 +1863,7 @@ bool can_start_colony(sys::state& state, dcon::nation_id n, dcon::state_definiti
 		return dcon::province_id{};
 	}();
 
-	if(!adjacent && coastal_target  && state.world.nation_get_central_ports(n) != 0) {
+	if(!adjacent && coastal_target && state.world.nation_get_central_ports(n) != 0) {
 		for(auto p : state.world.nation_get_province_ownership(n)) {
 			if(auto nb_level = p.get_province().get_building_level(uint8_t(economy::province_building_type::naval_base)); nb_level > 0 && p.get_province().get_nation_from_province_control() == n) {
 				auto dist = province::direct_distance(state, p.get_province(), coastal_target);
@@ -2076,7 +2064,7 @@ void update_colonization(sys::state& state) {
 		if(num_colonizers > 0) { // check for states that have become un-colonizable
 			int32_t unowned_provs = 0;
 			for(auto p : d.get_abstract_state_membership()) {
-				if(!(p.get_province().get_nation_from_province_ownership())) {
+				if(!p.get_province().get_nation_from_province_ownership()) {
 					++unowned_provs;
 					break;
 				}
@@ -2104,9 +2092,7 @@ void update_colonization(sys::state& state) {
 			float at_war_adjust = 0.0f;
 			for(auto c : colonizers) {
 				max_points = std::max(max_points, int32_t(c.get_level()));
-				if(state.world.nation_get_is_at_war(c.get_colonizer()) ||
-						(state.world.nation_get_disarmed_until(c.get_colonizer()) &&
-								state.current_date <= state.world.nation_get_disarmed_until(c.get_colonizer()))) {
+				if(state.world.nation_get_is_at_war(c.get_colonizer()) || state.world.nation_get_disarmed_until(c.get_colonizer()) && state.current_date <= state.world.nation_get_disarmed_until(c.get_colonizer())) {
 					at_war_adjust = state.defines.at_war_tension_decay;
 				}
 			}
@@ -2130,8 +2116,7 @@ void update_colonization(sys::state& state) {
 				adjust *= 0.f;
 
 			d.set_colonization_temperature(std::clamp(d.get_colonization_temperature() + adjust, 0.0f, 100.0f));
-		} else if(num_colonizers == 1 &&
-							(*colonizers.begin()).get_last_investment() + int32_t(state.defines.colonization_days_for_initial_investment) <=
+		} else if(num_colonizers == 1 && (*colonizers.begin()).get_last_investment() + int32_t(state.defines.colonization_days_for_initial_investment) <=
 									state.current_date) {
 			/*
 			If you have put in a colonist in a region and it goes at least define:COLONIZATION_DAYS_FOR_INITIAL_INVESTMENT without
@@ -2277,16 +2262,30 @@ void set_rgo(sys::state& state, dcon::province_id prov, dcon::commodity_id c) {
 	}
 
 	if(state.world.commodity_get_is_mine(old_rgo) != state.world.commodity_get_is_mine(c)) {
+		std::vector<dcon::pop_id> source_cells;
+		state.world.province_for_each_pop_location(prov, [&](auto relation) {
+			source_cells.push_back(state.world.pop_location_get_pop(relation));
+		});
 		if(state.world.commodity_get_is_mine(c)) {
-			for(auto pop : state.world.province_get_pop_location(prov)) {
-				if(pop.get_pop().get_poptype() == state.culture_definitions.farmers) {
-					pop.get_pop().set_poptype(state.culture_definitions.laborers);
+			for(auto pop : source_cells) {
+				if(state.world.pop_get_poptype(pop) == state.culture_definitions.farmers) {
+					auto const moved = demographics::reclassify_population_cell(state, pop, prov,
+						state.world.pop_get_culture(pop), state.world.pop_get_religion(pop),
+						state.culture_definitions.laborers,
+						persons::exact_population::population_transition_cause::scripted_reclassification);
+					assert(moved && "RGO type change must reclassify canonical exact population");
+					if(!moved) std::abort();
 				}
 			}
 		} else {
-			for(auto pop : state.world.province_get_pop_location(prov)) {
-				if(pop.get_pop().get_poptype() == state.culture_definitions.laborers) {
-					pop.get_pop().set_poptype(state.culture_definitions.farmers);
+			for(auto pop : source_cells) {
+				if(state.world.pop_get_poptype(pop) == state.culture_definitions.laborers) {
+					auto const moved = demographics::reclassify_population_cell(state, pop, prov,
+						state.world.pop_get_culture(pop), state.world.pop_get_religion(pop),
+						state.culture_definitions.farmers,
+						persons::exact_population::population_transition_cause::scripted_reclassification);
+					assert(moved && "RGO type change must reclassify canonical exact population");
+					if(!moved) std::abort();
 				}
 			}
 		}

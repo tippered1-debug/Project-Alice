@@ -128,7 +128,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	}
 
 	sys::state* state = (sys::state*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-	if(!state || !(state->win_ptr))
+	if(!state || !state->win_ptr)
 		return DefWindowProcW(hwnd, message, wParam, lParam);
 
 	switch(message) {
@@ -418,7 +418,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 		state->on_key_up(sys::virtual_key(wParam), get_current_modifiers());
 		return 0;
 	case WM_CHAR: {
-		if(state->ui_state.edit_target_internal && wParam >= 0x20 && !(wParam >= 0x7F && wParam <= 0x9F)) {
+		if(state->ui_state.edit_target_internal && wParam >= 0x20 && !wParam >= 0x7F && wParam <= 0x9F) {
 			state->on_text(char32_t(wParam));
 		}
 		return 0;
@@ -923,7 +923,7 @@ struct text_services_object : public ITextStoreACP2, public ITfInputScope, publi
 		if(document_lock_state == lock_state::unlocked)
 			return TS_E_NOLOCK;
 
-		if(ei && ulCount > 0 && (ulIndex == 0 || ulIndex == TF_DEFAULT_SELECTION)) {
+		if(ei && ulCount > 0 && ulIndex == 0 || ulIndex == TF_DEFAULT_SELECTION) {
 			if(!pSelection)
 				return E_INVALIDARG;
 			auto range = ei->text_selection();
@@ -972,7 +972,7 @@ struct text_services_object : public ITextStoreACP2, public ITfInputScope, publi
 		if(!ei)
 			return TF_E_DISCONNECTED;
 
-		if((cchPlainReq == 0) && (cRunInfoReq == 0)) {
+		if(cchPlainReq == 0 && cRunInfoReq == 0) {
 			return S_OK;
 		}
 		auto len = LONG(ei->text_content().length());
@@ -1303,10 +1303,9 @@ struct text_services_object : public ITextStoreACP2, public ITfInputScope, publi
 				}
 			} else if(IsEqualGUID(paFilterAttrs[i], GUID_PROP_COMPOSING)) {
 				auto range = ei->temporary_text_range();
-				if(acpPos > 0 && ei &&
-					(((acpPos - 1 >= range.first) && (acpPos - 1 < range.second))
+				if(acpPos > 0 && ei && ((acpPos - 1 >= range.first) && (acpPos - 1 < range.second))
 						!=
-						((acpPos >= range.first) && (acpPos < range.second)))) {
+						((acpPos >= range.first) && (acpPos < range.second))) {
 
 					gathered_attributes.emplace_back();
 					gathered_attributes.back().idAttr = paFilterAttrs[i];
@@ -1422,8 +1421,7 @@ struct text_services_object : public ITextStoreACP2, public ITfInputScope, publi
 		auto client_size = ei->base_data.size;
 
 		if((GXFPF_NEAREST & dwFlags) == 0) {
-			if(client_space.x <  int32_t(client_pos.x * win.user_settings.ui_scale) || client_space.y < int32_t(client_pos.y * win.user_settings.ui_scale)
-				|| client_space.x > int32_t((client_pos.x + client_size.x) * win.user_settings.ui_scale) || client_space.y > int32_t((client_pos.y + client_size.y) * win.user_settings.ui_scale)) {
+			if(client_space.x <  int32_t(client_pos.x * win.user_settings.ui_scale) || client_space.y < int32_t(client_pos.y * win.user_settings.ui_scale) || client_space.x > int32_t((client_pos.x + client_size.x) * win.user_settings.ui_scale) || client_space.y > int32_t((client_pos.y + client_size.y) * win.user_settings.ui_scale)) {
 				return TS_E_INVALIDPOINT;
 			}
 		}

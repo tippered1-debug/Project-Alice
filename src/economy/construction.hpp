@@ -21,7 +21,6 @@ economy::commodity_set calculate_factory_upgrade_goods_cost(
 );
 
 float estimate_private_construction_spendings(sys::state& state, dcon::nation_id nid);
-void populate_construction_consumption(sys::state& state);
 
 
 struct unit_construction_data {
@@ -85,7 +84,6 @@ float build_cost_multiplier(sys::state& state, dcon::province_id location, bool 
 float global_factory_construction_time_modifier(sys::state& state);
 float factory_building_construction_time(sys::state& state, dcon::factory_type_id ftid, bool is_upgrade);
 float factory_build_cost_multiplier(sys::state& state, dcon::nation_id n, dcon::province_id location, bool is_pop_project);
-void populate_private_construction_consumption(sys::state& state);
 void advance_construction(sys::state& state, dcon::nation_id n, float total_spent_on_construction);
 void emulate_construction_demand(sys::state& state, dcon::nation_id n);
 construction_spending_explanation explain_construction_spending_now(sys::state& state, dcon::nation_id n);

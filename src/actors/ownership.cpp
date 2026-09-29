@@ -5,6 +5,8 @@
 #include "system_state.hpp"
 
 #include <cmath>
+#include <cassert>
+#include <cstdlib>
 #include <unordered_set>
 #include <vector>
 
@@ -12,6 +14,41 @@ namespace actors::ownership {
 
 bool valid_fraction(float value) noexcept { return std::isfinite(value) && value >= 0.0f && value <= 1.0f; }
 constexpr float fraction_epsilon = 1.0e-5f;
+
+namespace {
+bool asset_has_complete_ownership(sys::state const& state, dcon::asset_id asset) {
+	if(!asset || !state.world.asset_is_valid(asset)) return false;
+	float ownership = 0.0f;
+	float voting = 0.0f;
+	float economic = 0.0f;
+	uint32_t stakes = 0;
+	bool valid = true;
+	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
+		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
+		auto owner = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
+		if(!stake || !state.world.ownership_stake_is_valid(stake) || !owner
+			|| !state.world.economic_actor_is_valid(owner)) {
+			valid = false;
+			return;
+		}
+		auto const ownership_share = state.world.ownership_stake_get_ownership_fraction(stake);
+		auto const voting_share = state.world.ownership_stake_get_voting_fraction(stake);
+		auto const economic_share = state.world.ownership_stake_get_economic_fraction(stake);
+		if(!valid_fraction(ownership_share) || !valid_fraction(voting_share)
+			|| !valid_fraction(economic_share)) {
+			valid = false;
+			return;
+		}
+		ownership += ownership_share;
+		voting += voting_share;
+		economic += economic_share;
+		++stakes;
+	});
+	return valid && stakes != 0 && std::abs(ownership - 1.0f) <= fraction_epsilon
+		&& std::abs(voting - 1.0f) <= fraction_epsilon
+		&& std::abs(economic - 1.0f) <= fraction_epsilon;
+}
+}
 
 dcon::economic_actor_id actor_for_organization(sys::state const& state, dcon::organization_id organization) {
 	return organization ? state.world.organization_get_economic_actor_from_organization_actor(organization) : dcon::economic_actor_id{};
@@ -32,22 +69,6 @@ dcon::asset_id asset_for_deposit(sys::state const& state, dcon::resource_deposit
 dcon::economic_actor_id operator_for_deposit(sys::state const& state, dcon::resource_deposit_id deposit) {
 	if(!deposit) return {};
 	return actor_for_organization(state, state.world.resource_deposit_get_organization_from_resource_deposit_operator(deposit));
-}
-
-dcon::economic_actor_id ensure_placeholder_organization(sys::state& state, dcon::organization_id organization) {
-	if(!organization) return {};
-	auto actor = actor_for_organization(state, organization);
-	if(!actor) {
-		actor = state.world.create_economic_actor();
-		state.world.economic_actor_set_kind(actor, uint8_t(actor_kind::placeholder));
-		state.world.economic_actor_set_is_legacy_placeholder(actor, 1);
-		state.world.force_create_organization_actor(organization, actor);
-	}
-	if(!equity_asset_for_organization(state, organization)) {
-		auto equity = state.world.create_asset();
-		state.world.force_create_organization_equity_asset(organization, equity);
-	}
-	return actor;
 }
 
 bool set_stake_fractions(sys::state& state, dcon::ownership_stake_id stake, float ownership, float voting, float economic) {
@@ -72,9 +93,7 @@ bool set_stake_fractions(sys::state& state, dcon::ownership_stake_id stake, floa
 
 float contribute_equity_to_factory(sys::state& state, dcon::factory_id factory,
 	dcon::economic_actor_id firm, dcon::monetary_account_id firm_account, float requested_amount) {
-	if(!factory || !state.world.factory_is_valid(factory) || !firm || !firm_account
-		|| economy::accounts::owner_of(state, firm_account) != firm
-		|| !std::isfinite(requested_amount) || requested_amount <= 0.0f) return 0.0f;
+	if(!factory || !state.world.factory_is_valid(factory) || !firm || !firm_account || economy::accounts::owner_of(state, firm_account) != firm || !std::isfinite(requested_amount) || requested_amount <= 0.0f) return 0.0f;
 	auto settlement = economy::accounts::settlement_of(state, firm_account);
 	auto asset = asset_for_factory(state, factory);
 	if(!settlement || !asset) return 0.0f;
@@ -117,8 +136,7 @@ float contribute_equity_to_factory(sys::state& state, dcon::factory_id factory,
 
 bool issue_equity(sys::state& state, dcon::asset_id asset, dcon::economic_actor_id investor,
 	float investment, float pre_money_value) {
-	if(!asset || !investor || !std::isfinite(investment) || investment <= 0.0f
-		|| !std::isfinite(pre_money_value) || pre_money_value < 0.0f) return false;
+	if(!asset || !investor || !std::isfinite(investment) || investment <= 0.0f || !std::isfinite(pre_money_value) || pre_money_value < 0.0f) return false;
 	std::vector<dcon::ownership_stake_id> existing;
 	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
 		existing.push_back(state.world.ownership_stake_asset_get_ownership_stake(relation));
@@ -151,37 +169,43 @@ dcon::ownership_stake_id create_stake(sys::state& state, dcon::economic_actor_id
 	return stake;
 }
 
-void bootstrap(sys::state& state) {
+bool canonical_ownership_is_valid(sys::state const& state) {
+	bool valid = true;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		auto organization = organizations::operator_organization_for_factory(state, factory);
-		bool created_legacy_placeholder = false;
-		if(!organization) {
-			organization = organizations::create_company(state);
-			if(organization) {
-				created_legacy_placeholder = true;
-				state.world.economic_actor_set_is_legacy_placeholder(organizations::actor_for_organization(state, organization), 1);
-				organizations::bind_factory_operator(state, organization, factory);
-			}
+		if(!organization || !state.world.organization_is_valid(organization)) {
+			valid = false;
+			return;
 		}
-		if(!asset_for_factory(state, factory) && organization) {
-			auto asset = state.world.create_asset();
-			state.world.force_create_factory_asset(factory, asset);
-			if(created_legacy_placeholder)
-				create_stake(state, organizations::actor_for_organization(state, organization), asset, 1.0f, 1.0f, 1.0f);
-		}
+		auto actor = organizations::actor_for_organization(state, organization);
+		auto asset = asset_for_factory(state, factory);
+		if(!organizations::is_economic_kind(actor_kind(state.world.organization_get_kind(organization)))
+			|| !actor || !state.world.economic_actor_is_valid(actor)
+			|| actor_kind(state.world.economic_actor_get_kind(actor))
+				!= actor_kind(state.world.organization_get_kind(organization))
+			|| !asset_has_complete_ownership(state, asset)) valid = false;
 	});
 	state.world.for_each_resource_deposit([&](dcon::resource_deposit_id deposit) {
 		auto organization = organizations::operator_organization_for_deposit(state, deposit);
-		if(!organization) {
-			organization = organizations::create_company(state);
-			if(organization) {
-				state.world.economic_actor_set_is_legacy_placeholder(organizations::actor_for_organization(state, organization), 1);
-				organizations::bind_deposit_operator(state, organization, deposit);
-			}
-		} else {
-			ensure_placeholder_organization(state, organization);
+		if(!organization || !state.world.organization_is_valid(organization)) {
+			valid = false;
+			return;
 		}
+		auto actor = organizations::actor_for_organization(state, organization);
+		auto asset = asset_for_deposit(state, deposit);
+		if(!organizations::is_economic_kind(actor_kind(state.world.organization_get_kind(organization)))
+			|| !actor || !state.world.economic_actor_is_valid(actor)
+			|| actor_kind(state.world.economic_actor_get_kind(actor))
+				!= actor_kind(state.world.organization_get_kind(organization))
+			|| !asset_has_complete_ownership(state, asset)) valid = false;
 	});
+	return valid;
+}
+
+void validate_canonical_ownership(sys::state const& state) {
+	auto const valid = canonical_ownership_is_valid(state);
+	assert(valid && "every factory and resource deposit requires authored canonical firm, asset, and ownership data");
+	if(!valid) std::abort();
 }
 
 } // namespace actors::ownership

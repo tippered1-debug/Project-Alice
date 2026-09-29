@@ -1,27 +1,22 @@
 #include "labor_dynamics.hpp"
 
-#include "actors/organizations/organizations.hpp"
-#include "compat/alice/legacy_bridge.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/firm_agency.hpp"
-#include "concrete_labor.hpp"
 #include "job_market.hpp"
-#include "persons/persons.hpp"
+#include "persons/exact_population.hpp"
 #include "system_state.hpp"
-#include "economy/relations/relations.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
-#include <limits>
+#include <cstdlib>
 #include <memory>
-#include <set>
 
 namespace economy::physical {
 
 struct labor_dynamics_store {
 	std::vector<labor_dynamics::separation_event> events;
-	std::vector<std::pair<dcon::person_id, sys::date>> legacy_separations;
 	uint64_t next_event_id = 1;
 };
 
@@ -33,13 +28,15 @@ namespace {
 constexpr float epsilon = 1.0e-5f;
 
 std::shared_ptr<labor_dynamics_store> ensure_store(sys::state& state) {
-	if(!state.labor_dynamics)
-		state.labor_dynamics = std::make_shared<labor_dynamics_store>();
+	assert(state.labor_dynamics && "labor dynamics store must be initialized before simulation");
+	if(!state.labor_dynamics) std::abort();
 	return state.labor_dynamics;
 }
 
 std::shared_ptr<labor_dynamics_store> ensure_store(sys::state const& state) {
-	return ensure_store(const_cast<sys::state&>(state));
+	assert(state.labor_dynamics && "labor dynamics store must be initialized before lookup");
+	if(!state.labor_dynamics) std::abort();
+	return state.labor_dynamics;
 }
 
 uint64_t next_event_id(labor_dynamics_store& store) {
@@ -47,42 +44,13 @@ uint64_t next_event_id(labor_dynamics_store& store) {
 	return store.next_event_id++;
 }
 
-void remember_legacy_separation(sys::state& state, dcon::person_id worker) {
-	if(!worker || !state.current_date) return;
-	for(auto& record : ensure_store(state)->legacy_separations)
-		if(record.first == worker) { record.second = state.current_date; return; }
-	ensure_store(state)->legacy_separations.emplace_back(worker, state.current_date);
-}
-
-void record_legacy_separation(sys::state& state, dcon::employment_contract_id contract,
-	separation_reason reason) {
-	auto worker = state.world.employment_contract_get_person_from_employment_contract_person(contract);
-	auto employer = state.world.employment_contract_get_economic_actor_from_employment_contract_employer(contract);
-	auto factory = state.world.employment_contract_get_factory_from_employment_contract_factory(contract);
-	auto event = separation_event{};
-	event.id = next_event_id(*ensure_store(state));
-	event.date = state.current_date;
-	event.factory = factory;
-	event.employer = employer;
-	event.worker_contract_kind = contract_kind::legacy;
-	event.contract_id = contract.index();
-	event.legacy_worker = worker;
-	event.reason = reason;
-	event.labor_capacity = state.world.employment_contract_get_labor_capacity(contract);
-	event.wage_rate = state.world.employment_contract_get_wage_rate(contract);
-	event.unpaid_wages = concrete_labor::unpaid_wages(state, contract);
-	if(event.id) ensure_store(state)->events.push_back(event);
-	remember_legacy_separation(state, worker);
-}
-
-void record_exact_separation(sys::state& state, exact_person_economy::contract_record const& contract,
-	separation_reason reason) {
+void record_separation(sys::state& state,
+	exact_person_economy::contract_record const& contract, separation_reason reason) {
 	auto event = separation_event{};
 	event.id = next_event_id(*ensure_store(state));
 	event.date = state.current_date;
 	event.factory = contract.factory;
 	event.employer = contract.employer;
-	event.worker_contract_kind = contract_kind::exact;
 	event.contract_id = contract.id;
 	event.exact_worker = contract.worker;
 	event.reason = reason;
@@ -92,17 +60,6 @@ void record_exact_separation(sys::state& state, exact_person_economy::contract_r
 	if(event.id) ensure_store(state)->events.push_back(event);
 }
 
-bool separate_legacy(sys::state& state, dcon::employment_contract_id contract, separation_reason reason) {
-	if(!contract || !state.world.employment_contract_is_valid(contract)
-		|| state.world.employment_contract_get_status(contract) != uint8_t(concrete_labor::contract_status::active)) return false;
-	auto worker = state.world.employment_contract_get_person_from_employment_contract_person(contract);
-	for(auto application : job_market::applications_for_person(state, worker))
-		(void)job_market::withdraw_job_application(state, application);
-	if(!concrete_labor::terminate_employment_contract(state, contract, state.current_date)) return false;
-	record_legacy_separation(state, contract, reason);
-	return true;
-}
-
 bool separate_exact(sys::state& state, uint64_t contract_id, separation_reason reason) {
 	auto record = exact_person_economy::contract(state, contract_id);
 	if(!record || record->status != exact_person_economy::contract_status::active) return false;
@@ -110,30 +67,25 @@ bool separate_exact(sys::state& state, uint64_t contract_id, separation_reason r
 	if(!exact_person_economy::end_contract(state, contract_id,
 		exact_person_economy::contract_status::terminated, state.current_date)) return false;
 	exact_person_economy::note_separation(state, record->worker, state.current_date);
-	if(reason != separation_reason::worker_death
-		&& persons::exact_population::alive(state, record->worker)
-		&& exact_person_economy::is_labor_force_participant(state, record->worker))
+	if(reason != separation_reason::worker_death && persons::exact_population::alive(state, record->worker) && exact_person_economy::is_labor_force_participant(state, record->worker))
 		exact_person_economy::enqueue_displaced_worker(state, record->worker);
-	record_exact_separation(state, *record, reason);
+	record_separation(state, *record, reason);
 	return true;
 }
 
 struct candidate {
-	contract_kind kind = contract_kind::legacy;
-	dcon::employment_contract_id legacy{};
-	uint64_t exact = 0;
+	uint64_t contract_id = 0;
 	float capacity = 0.0f;
 	float daily_cost = 0.0f;
 	sys::date start{};
 	uint64_t causal_sequence = 0;
-	uint64_t stable_id = 0;
 };
 
 bool candidate_before(candidate const& left, candidate const& right) {
 	if(left.daily_cost != right.daily_cost) return left.daily_cost > right.daily_cost;
 	if(left.start != right.start) return left.start > right.start;
 	if(left.causal_sequence != right.causal_sequence) return left.causal_sequence < right.causal_sequence;
-	return left.stable_id < right.stable_id;
+	return left.contract_id < right.contract_id;
 }
 
 void close_contradictory_offers(sys::state& state, dcon::factory_id factory) {
@@ -142,36 +94,19 @@ void close_contradictory_offers(sys::state& state, dcon::factory_id factory) {
 }
 
 void process_arrears_quits(sys::state& state, dcon::factory_id factory) {
-	for(auto contract : concrete_labor::active_contracts_for_factory(state, factory)) {
-		auto capacity = state.world.employment_contract_get_labor_capacity(contract);
-		auto wage = state.world.employment_contract_get_wage_rate(contract);
-		auto threshold = wage * capacity;
-		if(std::isfinite(threshold) && threshold > epsilon
-			&& concrete_labor::unpaid_wages(state, contract) + epsilon >= threshold)
-			(void)separate_legacy(state, contract, separation_reason::worker_quit_arrears);
-	}
 	for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
 		auto record = exact_person_economy::contract(state, contract_id);
 		if(!record) continue;
 		auto threshold = record->wage_rate * record->labor_capacity;
-		if(std::isfinite(threshold) && threshold > epsilon
-			&& record->unpaid_wages + epsilon >= threshold)
+		if(std::isfinite(threshold) && threshold > epsilon && record->unpaid_wages + epsilon >= threshold)
 			(void)separate_exact(state, contract_id, separation_reason::worker_quit_arrears);
 	}
 }
 
 } // namespace
 
-bool is_unemployed(sys::state const& state, dcon::person_id person) {
-	return concrete_labor::is_unemployed(state, person);
-}
-
 bool is_unemployed(sys::state const& state, persons::exact_population::person_key worker) {
 	return exact_person_economy::is_unemployed(state, worker);
-}
-
-bool quit_employment(sys::state& state, dcon::employment_contract_id contract, separation_reason reason) {
-	return separate_legacy(state, contract, reason);
 }
 
 bool quit_exact_employment(sys::state& state, uint64_t contract, separation_reason reason) {
@@ -183,44 +118,26 @@ void process_factory_labor_dynamics(sys::state& state) {
 	state.world.for_each_factory([&](auto factory) { factories.push_back(factory); });
 	std::sort(factories.begin(), factories.end(), [](auto left, auto right) { return left.index() < right.index(); });
 	for(auto factory : factories) {
-		if(!state.world.factory_get_canonical_production(factory)) continue;
-		auto decision = firm_agency::decide_factory(state, factory);
-		auto desired = decision.desired_units;
-		auto supplied = concrete_labor::labor_supplied_to_factory(state, factory);
+		auto desired = firm_agency::decide_factory(state, factory).desired_units;
+		auto supplied = exact_person_economy::labor_supplied_to_factory(state, factory);
 		if(!std::isfinite(desired) || !std::isfinite(supplied)) continue;
-		// Payroll has already run in the economy tick. Arrears therefore trigger
-		// a worker-initiated separation before employer surplus selection.
 		process_arrears_quits(state, factory);
-		supplied = concrete_labor::labor_supplied_to_factory(state, factory);
+		supplied = exact_person_economy::labor_supplied_to_factory(state, factory);
 		if(supplied >= desired - epsilon) close_contradictory_offers(state, factory);
-		if(supplied > desired + epsilon) {
-			std::vector<candidate> candidates;
-			for(auto contract : concrete_labor::active_contracts_for_factory(state, factory)) {
-				auto capacity = state.world.employment_contract_get_labor_capacity(contract);
-				auto period = state.world.employment_contract_get_pay_period_days(contract);
-				auto wage = state.world.employment_contract_get_wage_rate(contract);
-				if(!std::isfinite(capacity) || capacity <= epsilon || !std::isfinite(wage) || period == 0) continue;
-				candidates.push_back({contract_kind::legacy, contract, 0, capacity,
-					wage * capacity / float(period), state.world.employment_contract_get_start_date(contract),
-					economy::causal_order::sequence_for_dcon(state, economy::causal_order::event_kind::employment_contract,
-						uint64_t(contract.index())), uint64_t(contract.index())});
-			}
-			for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
-				auto record = exact_person_economy::contract(state, contract_id);
-				if(!record || !std::isfinite(record->labor_capacity) || record->labor_capacity <= epsilon
-					|| !std::isfinite(record->wage_rate) || record->pay_period_days == 0) continue;
-				candidates.push_back({contract_kind::exact, {}, contract_id, record->labor_capacity,
-					record->wage_rate * record->labor_capacity / float(record->pay_period_days), record->start_date,
-					record->causal_sequence, contract_id});
-			}
-			std::sort(candidates.begin(), candidates.end(), candidate_before);
-			for(auto const& candidate : candidates) {
-				if(desired <= epsilon || supplied - candidate.capacity >= desired - epsilon) {
-					bool separated = candidate.kind == contract_kind::legacy
-						? separate_legacy(state, candidate.legacy, separation_reason::employer_layoff)
-						: separate_exact(state, candidate.exact, separation_reason::employer_layoff);
-					if(separated) supplied -= candidate.capacity;
-				}
+		if(supplied <= desired + epsilon) continue;
+		std::vector<candidate> candidates;
+		for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
+			auto record = exact_person_economy::contract(state, contract_id);
+			if(!record || !std::isfinite(record->labor_capacity) || record->labor_capacity <= epsilon || !std::isfinite(record->wage_rate) || record->pay_period_days == 0) continue;
+			candidates.push_back({contract_id, record->labor_capacity,
+				record->wage_rate * record->labor_capacity / float(record->pay_period_days),
+				record->start_date, record->causal_sequence});
+		}
+		std::sort(candidates.begin(), candidates.end(), candidate_before);
+		for(auto const& candidate : candidates) {
+			if(desired <= epsilon || supplied - candidate.capacity >= desired - epsilon) {
+				if(separate_exact(state, candidate.contract_id, separation_reason::employer_layoff))
+					supplied -= candidate.capacity;
 			}
 		}
 	}
@@ -228,10 +145,7 @@ void process_factory_labor_dynamics(sys::state& state) {
 
 void process_displaced_job_search(sys::state& state) {
 	for(auto worker : exact_person_economy::displaced_workers(state)) {
-		if(!persons::exact_population::exists(state, worker)
-			|| !persons::exact_population::alive(state, worker)
-			|| !exact_person_economy::is_labor_force_participant(state, worker)
-			|| !exact_person_economy::is_unemployed(state, worker)) {
+		if(!persons::exact_population::exists(state, worker) || !persons::exact_population::alive(state, worker) || !exact_person_economy::is_labor_force_participant(state, worker) || !exact_person_economy::is_unemployed(state, worker)) {
 			exact_person_economy::remove_displaced_worker(state, worker);
 			continue;
 		}
@@ -245,12 +159,10 @@ void process_displaced_job_search(sys::state& state) {
 void retire_dead_exact_workers(sys::state& state) {
 	auto snapshot = exact_person_economy::export_snapshot(state);
 	for(auto const& application : snapshot.applications)
-		if(application.status == exact_person_economy::application_status::pending
-			&& !persons::exact_population::alive(state, application.worker))
+		if(application.status == exact_person_economy::application_status::pending && !persons::exact_population::alive(state, application.worker))
 			(void)exact_person_economy::withdraw_application(state, application.id);
 	for(auto const& contract : snapshot.contracts)
-		if(contract.status == exact_person_economy::contract_status::active
-			&& !persons::exact_population::alive(state, contract.worker))
+		if(contract.status == exact_person_economy::contract_status::active && !persons::exact_population::alive(state, contract.worker))
 			(void)separate_exact(state, contract.id, separation_reason::worker_death);
 }
 
@@ -259,20 +171,13 @@ uint64_t separation_event_count(sys::state const& state) {
 }
 
 std::optional<separation_event> separation_event_at(sys::state const& state, uint64_t id) {
-	for(auto const& event : ensure_store(state)->events)
-		if(event.id == id) return event;
-	return std::nullopt;
+	if(id == 0 || id > ensure_store(state)->events.size()) return std::nullopt;
+	auto const& event = ensure_store(state)->events[size_t(id - 1)];
+	return event.id == id ? std::optional<separation_event>(event) : std::nullopt;
 }
 
 std::vector<persons::exact_population::person_key> displaced_exact_workers(sys::state const& state) {
 	return exact_person_economy::displaced_workers(state);
-}
-
-bool legacy_separated_on_date(sys::state const& state, dcon::person_id person, sys::date date) {
-	if(!person || !date) return false;
-	for(auto const& [worker, separated] : ensure_store(state)->legacy_separations)
-		if(worker == person) return separated == date;
-	return false;
 }
 
 snapshot export_snapshot(sys::state const& state) {
@@ -280,49 +185,18 @@ snapshot export_snapshot(sys::state const& state) {
 	auto store = ensure_store(state);
 	result.next_event_id = store->next_event_id;
 	result.events = store->events;
-	result.legacy_separations.reserve(store->legacy_separations.size());
-	for(auto const& [worker, date] : store->legacy_separations)
-		result.legacy_separations.push_back({worker, date});
-	std::sort(result.events.begin(), result.events.end(), [](auto const& left, auto const& right) {
-		return left.id < right.id;
-	});
-	std::sort(result.legacy_separations.begin(), result.legacy_separations.end(), [](auto const& left, auto const& right) {
-		return left.worker.index() < right.worker.index();
-	});
 	return result;
 }
 
 bool import_snapshot(sys::state& state, snapshot const& value) {
-	if(value.version != 1) return false;
+	if(value.version != 2 || value.next_event_id == 0) return false;
 	auto candidate = std::make_shared<labor_dynamics_store>();
 	candidate->next_event_id = value.next_event_id;
-	std::set<uint64_t> event_ids;
-	uint64_t greatest_event_id = 0;
+	uint64_t previous_id = 0;
 	for(auto const& event : value.events) {
-		if(event.id == 0 || !event_ids.insert(event.id).second
-			|| uint8_t(event.worker_contract_kind) > uint8_t(contract_kind::exact)
-			|| uint8_t(event.reason) > uint8_t(separation_reason::worker_death)
-			|| !event.employer || !state.world.economic_actor_is_valid(event.employer)
-			|| (event.factory && !state.world.factory_is_valid(event.factory))
-			|| !std::isfinite(event.labor_capacity) || event.labor_capacity < 0.0f
-			|| !std::isfinite(event.wage_rate) || event.wage_rate < 0.0f
-			|| !std::isfinite(event.unpaid_wages) || event.unpaid_wages < 0.0f) return false;
-		if(event.worker_contract_kind == contract_kind::legacy) {
-			if(!event.legacy_worker || !state.world.person_is_valid(event.legacy_worker)) return false;
-		} else if(!persons::exact_population::exists(state, event.exact_worker)) {
-			return false;
-		}
-		greatest_event_id = std::max(greatest_event_id, event.id);
+		if(event.id == 0 || event.id <= previous_id || event.id >= value.next_event_id || event.contract_id == 0 || !persons::exact_population::exists(state, event.exact_worker) || uint8_t(event.reason) > uint8_t(separation_reason::worker_death) || !std::isfinite(event.labor_capacity) || event.labor_capacity < 0.0f || !std::isfinite(event.wage_rate) || event.wage_rate < 0.0f || !std::isfinite(event.unpaid_wages) || event.unpaid_wages < 0.0f || event.factory && !state.world.factory_is_valid(event.factory) || event.employer && !state.world.economic_actor_is_valid(event.employer) || state.current_date && event.date > state.current_date) return false;
 		candidate->events.push_back(event);
-	}
-	if(value.next_event_id != 0 && value.next_event_id <= greatest_event_id) return false;
-	if(value.next_event_id == 0 && greatest_event_id != std::numeric_limits<uint64_t>::max()) return false;
-	std::set<uint32_t> separated_workers;
-	for(auto const& record : value.legacy_separations) {
-		if(!record.worker || !state.world.person_is_valid(record.worker) || !record.date
-			|| !separated_workers.insert(uint32_t(record.worker.index())).second
-			|| (state.current_date && record.date > state.current_date)) return false;
-		candidate->legacy_separations.emplace_back(record.worker, record.date);
+		previous_id = event.id;
 	}
 	state.labor_dynamics = std::move(candidate);
 	return true;
@@ -330,6 +204,12 @@ bool import_snapshot(sys::state& state, snapshot const& value) {
 
 void clear_store(sys::state& state) {
 	state.labor_dynamics.reset();
+}
+
+void initialize_empty_store(sys::state& state) {
+	assert(!state.labor_dynamics && "labor dynamics store initialized more than once");
+	if(state.labor_dynamics) std::abort();
+	state.labor_dynamics = std::make_shared<labor_dynamics_store>();
 }
 
 } // namespace economy::physical::labor_dynamics

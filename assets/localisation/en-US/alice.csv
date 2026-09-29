@@ -766,7 +766,7 @@ pop_growth_9;A pop growth penalty of ?Y$x$?W is applied due to starvation. Starv
 pop_growth_10;The starvation penalty is computed by first taking the max starvation penalty (?Y$x$?W) and adding it to all growth modifiers (?Y$val$?W), giving the ?Ypenalty scale?W (?Y$y$?W), with a min possible result of of ?Y$x$?W
 pop_growth_11;Then, subtract the starvation limit (?Y$x$?W) from the pops life need fufillment, and divide it by the starvation limit (?Y$x$?W), with a max possible result of 0. This gives the ?Ystarvation factor?W (?Y$y$?W)
 pop_growth_12;Lastly, multiply the ?Ystarvation factor?W (?Y$x$?W) and ?Ypenalty scale?W (?Y$y$?W) to get the net pop growth penalty (?Y$val$?W), which is then added to the rest of the modifiers
-pop_growth_13;?CAge of Transformation:?W housing access is ?Y$x$?W, urbanization is ?Y$y$?W, producing ?Y$val$?W overcrowding pressure.
+pop_growth_13;?CDemographic pressure:?W housing access is ?Y$x$?W, urbanization is ?Y$y$?W, producing ?Y$val$?W overcrowding pressure.
 pop_growth_14;Overcrowding changes monthly growth by ?R$x$?W and monthly militancy by ?R+$y$?W.
 pop_growth_15;Demographic transition is ?Y$x$?W (literacy ?Y$y$?W, education access ?Y$val$?W) and changes monthly growth by ?R$value$?W.
 pop_growth_16;Local human development index: ?Y$x$?W.
@@ -1633,13 +1633,7 @@ transportaion_loss;Goods lost in transportation: ?Y$val$
 payment_per_unit;Buyer paid per unit: ?Y$val$
 payment_received_per_unit;Seller got per unit: ?Y$val$
 merchants_received_per_unit;Seller merchants profit per unit: ?Y$val$
-trade_route_volume_profit_score;Profit score: ?Y$val$?W (decides base rate of change). It is calculated as a sum of the following values:
-trade_route_volume_profit_score_export;Export score: ?Y$val$?W. Export profit ?Y$x$?W divided by our export price ?Y$y$?W
-trade_route_volume_profit_score_import;Import score: ?Y$val$?W. Minus import profit ?Y$x$?W divided by their export price ?Y$y$?W
-trade_route_volume_base_change;Base expected change: ?Y$val$?W (Profit score times expansion multiplier)
-trade_route_volume_expansion_multiplier;Expansion multiplier: ?Y$val$?W (Depends on actual access to commodity in exporting market)
-trade_route_volume_decay;Decay: ?Y$val$?W (Prevents trade volume from running too far away and slowly decreases volume of low profit routes)
-trade_route_volume_final_change;Expected change: ?Y$val$
+alice_trade_actual_quantity;Requested: ?Y$x$?W; shipped: ?G$y$?W
 trade_centre_trade_volume;Trade volume: ?Y$val$
 trade_centre_trade_value;Trade value: ?Y$val$
 trade_centre_imports_volume;Imports volume: ?Y$val$
@@ -2089,10 +2083,6 @@ factory_investments_header;Investments
 total_investments_label;Total
 investment_efficiency_tooltip;Tools, efficiency inputs and machines
 investment_expansion_tooltip;Expansion
-alice_gamerule_age_of_transformation;Alice: Age of Transformation
-alice_gamerule_age_of_transformation_desc;Enables the opt-in political economy ruleset: interest groups, wealth-based political power, coalitions, legitimacy and policy execution
-alice_gamerule_age_of_transformation_opt_disabled;Legacy-compatible rules
-alice_gamerule_age_of_transformation_opt_enabled;Age of Transformation
 alice_aot_legitimacy;Transformation legitimacy: $x$ / 100
 alice_aot_electoral_reach;Electoral reach of the population: $x$
 alice_aot_coalition;Governing coalition: $x$
@@ -2118,7 +2108,7 @@ alice_aot_group_intelligentsia;Intelligentsia
 alice_aot_group_organized_labor;Organized labor
 alice_aot_group_rural_communities;Rural communities
 alice_aot_group_state_services;State services
-alice_aot_reform_header;Age of Transformation political balance (50% required)
+alice_aot_reform_header;Political balance (50% required)
 alice_aot_reform_popular;Popular support: $x$
 alice_aot_reform_electoral;Electoral support: $x$
 alice_aot_reform_power;Political-power support: $x$
@@ -2151,8 +2141,7 @@ alice_aot_bill_status_ready;All conditions are met; the bill will advance on the
 alice_aot_bill_status_blocked;One or more conditions are not met. The bill will fail at this stage's deadline unless they improve.
 alice_aot_bill_group_positions;Political-group positions (support · political power)
 alice_aot_bill_group_position;$X$: $Y$ · $VAL$
-alice_aot_disabled_hint;Advanced legislation is off. Enable Alice: Age of Transformation in the new-game rules to use negotiation, votes and implementation.
-alice_aot_movement_header;Age of Transformation radicalism pressure
+alice_aot_movement_header;Radicalism pressure
 alice_aot_movement_power;Political-power backing: $x$
 alice_aot_movement_coalition;Opposition to the coalition: $x$
 alice_aot_movement_legitimacy;Net legitimacy pressure: $x$

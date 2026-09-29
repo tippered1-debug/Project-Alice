@@ -67,7 +67,7 @@ void update_ai_general_status(sys::state& state) {
 		float greatest_neighbor = 0.0f;
 		for(auto b : state.world.nation_get_nation_adjacency_as_connected_nations(n)) {
 			auto other = b.get_connected_nations(0) != n ? b.get_connected_nations(0) : b.get_connected_nations(1);
-			if(!nations::are_allied(state, n, other) && (!in_sphere_of || in_sphere_of != other.get_in_sphere_of())) {
+			if(!nations::are_allied(state, n, other) && !in_sphere_of || in_sphere_of != other.get_in_sphere_of()) {
 				greatest_neighbor = std::max(greatest_neighbor, estimate_strength(state, other));
 			}
 		}
@@ -86,7 +86,7 @@ void update_ai_general_status(sys::state& state) {
 			for(auto adj : n.get_nation_adjacency()) {
 				auto other = adj.get_connected_nations(0) != n ? adj.get_connected_nations(0) : adj.get_connected_nations(1);
 				auto ol = other.get_overlord_as_subject().get_ruler();
-				if(!ol && other.get_in_sphere_of() != n && (!threatened || !nations::are_allied(state, n, other))) {
+				if(!ol && other.get_in_sphere_of() != n && !threatened || !nations::are_allied(state, n, other)) {
 					auto other_str = estimate_strength(state, other);
 					if(self_str * 0.5f < other_str && other_str <= self_str * 1.5f && min_str > self_str) {
 						min_str = other_str;
@@ -120,10 +120,7 @@ void update_ai_research(sys::state& state) {
 	concurrency::parallel_for(uint32_t(0), state.world.nation_size(), [&](uint32_t id) {
 		dcon::nation_id n{ dcon::nation_id::value_base_t(id) };
 
-		if(state.world.nation_get_is_player_controlled(n)
-			|| state.world.nation_get_current_research(n)
-			|| !state.world.nation_get_is_civilized(n)
-			|| state.world.nation_get_owned_province_count(n) == 0) {
+		if(state.world.nation_get_is_player_controlled(n) || state.world.nation_get_current_research(n) || !state.world.nation_get_is_civilized(n) || state.world.nation_get_owned_province_count(n) == 0) {
 
 			//skip -- does not need new research
 			return;

@@ -1742,18 +1742,11 @@ alice_original_war_participant_notinvolved;?Y$NATION$?W ?R不再参战?W
 pop_project;人群计划
 state_project;地区建筑
 delete_factory;摧毁工厂
-trade_route_volume_profit_score;利润评分：?Y$val$?W（取决于基础率变化）总计：
-trade_route_volume_profit_score_export;出口评分：?Y$val$?W。出口利润 ?Y$x$?W ÷ 我方出口价格 ?Y$y$?W
-trade_route_volume_profit_score_import;进口评分：?Y$val$?W。减去（进口利润 ?Y$x$?W ÷ 对方出口价格 ?Y$y$?W）
-trade_route_volume_base_change;基础变化预计：?Y$val$?W（利润评分 乘以 扩张乘数）
-trade_route_volume_decay;衰减：?Y$val$?W（防止贸易量偏离合理范围，逐渐减少低利润路线的贸易量。）
 export;出口额
 import;进口额
 total_volume;贸易总额
 embargo;禁运
 alice_toggle_administration;建立行政首府
-trade_route_volume_expansion_multiplier;扩张乘数：?Y$val$?W（取决于在出口市场获得商品的实际情况）
-trade_route_volume_final_change;变化预计：?Y$val$
 alice_production_name_sort_tip_province;?Y左击?W 以省份名称排序
 alice_production_name_sort_tip_state;?YShift+左击?W 以地区名称排序
 status_quo;维持现状

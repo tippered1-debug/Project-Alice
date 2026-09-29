@@ -1,6 +1,7 @@
 #include "dcon_generated_ids.hpp"
 #include "system_state.hpp"
 #include "serialization.hpp"
+#include "actors/ownership.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/exact_person_freight.hpp"
@@ -9,7 +10,9 @@
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <random>
@@ -27,34 +30,25 @@ namespace sys {
 namespace {
 
 bool readable_scenario_version(uint32_t version) {
-	return version >= sys::oldest_legacy_scenario_file_version
-		&& version <= sys::scenario_file_version;
+	return version == sys::scenario_file_version;
 }
 
 bool readable_save_version(uint32_t version) {
-	return version >= sys::oldest_legacy_save_file_version
-		&& version <= sys::save_file_version;
+	return version == sys::save_file_version;
 }
 
-// Handwritten save extensions are framed so older saves can still be read:
-// the next bytes after the legacy handwritten section are normally a DCON
-// record header, not this magic. A payload length also lets newer readers skip
-// extensions they do not understand.
+// Canonical handwritten runtime sections carry an explicit schema and length.
+// Save loading accepts only the exact schema written by this runtime.
 constexpr uint32_t transformation_politics_save_magic = 0x414F5450u; // AOTP
 constexpr uint16_t transformation_politics_save_version = 2;
 constexpr std::size_t transformation_politics_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint32_t);
-constexpr std::size_t transformation_politics_save_v1_record_size =
-	sizeof(uint32_t) + sizeof(int32_t)
-	+ politics::transformation::interest_group_count * sizeof(float);
 constexpr std::size_t transformation_politics_save_record_size =
-	transformation_politics_save_v1_record_size + sizeof(float);
+	sizeof(uint32_t) + sizeof(int32_t)
+	+ politics::transformation::interest_group_count * sizeof(float) + sizeof(float);
 
 constexpr uint32_t transformation_legislation_save_magic = 0x414F424Cu; // AOBL
 constexpr uint16_t transformation_legislation_save_version = 2;
-constexpr std::size_t transformation_legislation_save_v1_record_size =
-	sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(int32_t)
-	+ 2 * sizeof(uint32_t) + 5 * sizeof(float);
 constexpr std::size_t transformation_legislation_save_record_size =
 	sizeof(uint8_t) + 2 * sizeof(uint8_t) + sizeof(uint16_t) + sizeof(int32_t)
 	+ 3 * sizeof(uint32_t) + 5 * sizeof(float);
@@ -65,7 +59,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 5;
+constexpr uint16_t exact_runtime_save_version = 8;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -80,6 +74,8 @@ struct exact_runtime_snapshot {
 	uint16_t extension_version = 0;
 	bool extension_found = false;
 	bool present = false;
+	bool transformation_politics_loaded = false;
+	bool transformation_legislation_loaded = false;
 };
 
 void disable_strategic_statecraft(sys::state& state) {
@@ -91,8 +87,8 @@ void disable_strategic_statecraft(sys::state& state) {
 }
 
 std::size_t strategic_statecraft_save_size(sys::state const& state) {
-	if(!state.strategic_statecraft_initialized)
-		return 0;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
 	auto const payload_size = sizeof(uint8_t) + sizeof(state.strategic_crisis)
 		+ serialize_size(state.strategic_interests)
 		+ serialize_size(state.strategic_beliefs)
@@ -101,8 +97,8 @@ std::size_t strategic_statecraft_save_size(sys::state const& state) {
 }
 
 uint8_t* write_strategic_statecraft_save(uint8_t* ptr, sys::state const& state) {
-	if(!state.strategic_statecraft_initialized)
-		return ptr;
+	assert(state.strategic_statecraft_initialized);
+	if(!state.strategic_statecraft_initialized) std::abort();
 	auto const payload_size = uint32_t(sizeof(uint8_t) + sizeof(state.strategic_crisis)
 		+ serialize_size(state.strategic_interests)
 		+ serialize_size(state.strategic_beliefs)
@@ -184,8 +180,7 @@ bool read_person_key_vector(uint8_t const*& ptr, uint8_t const* end,
 	if(std::size_t(end - ptr) < sizeof(uint32_t)) return false;
 	uint32_t count = 0;
 	ptr = memcpy_deserialize(ptr, count);
-	if(count > exact_runtime_max_records
-		|| std::size_t(end - ptr) < std::size_t(count) * (sizeof(uint32_t) + sizeof(uint64_t))) return false;
+	if(count > exact_runtime_max_records || std::size_t(end - ptr) < std::size_t(count) * (sizeof(uint32_t) + sizeof(uint64_t))) return false;
 	values.resize(count);
 	for(auto& key : values) if(!read_person_key(ptr, end, key)) return false;
 	return true;
@@ -204,11 +199,9 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 		+ pod_vector_size(population.retired_source_cells)
 		+ pod_vector_size(population.retired_people)
 		+ pod_vector_size(population.birth_cohorts)
-		+ pod_vector_size(population.population_observations)
 		+ pod_vector_size(population.membership_ranges)
 		+ pod_vector_size(population.transitions)
-		+ pod_vector_size(population.transfer_remainders)
-		+ sizeof(population.observed_world_literal_count) + sizeof(uint8_t);
+		+ pod_vector_size(population.transfer_remainders);
 	size += sizeof(uint32_t) + population.overrides.size() *
 		(sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint8_t) + sizeof(dcon::site_id));
 	size += pod_vector_size(economy.accounts) + pod_vector_size(economy.applications)
@@ -221,8 +214,6 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	size += pod_vector_size(freight.requests) + pod_vector_size(freight.contracts)
 		+ pod_vector_size(freight.shipment_owners);
 	size += sizeof(uint64_t) + pod_vector_size(labor.events);
-	size += sizeof(uint32_t) + labor.legacy_separations.size() *
-		(sizeof(dcon::person_id) + sizeof(sys::date));
 	size += sizeof(uint64_t) + pod_vector_size(causal.dcon_sequences);
 	return size;
 }
@@ -277,9 +268,6 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = write_pod_vector(ptr, population.retired_source_cells);
 	ptr = write_pod_vector(ptr, population.retired_people);
 	ptr = write_pod_vector(ptr, population.birth_cohorts);
-	ptr = write_pod_vector(ptr, population.population_observations);
-	ptr = memcpy_serialize(ptr, population.observed_world_literal_count);
-	ptr = memcpy_serialize(ptr, uint8_t(population.has_lifecycle_checkpoint));
 	ptr = write_pod_vector(ptr, population.membership_ranges);
 	ptr = write_pod_vector(ptr, population.transitions);
 	ptr = write_pod_vector(ptr, population.transfer_remainders);
@@ -315,11 +303,6 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = memcpy_serialize(ptr, labor.version);
 	ptr = memcpy_serialize(ptr, labor.next_event_id);
 	ptr = write_pod_vector(ptr, labor.events);
-	ptr = memcpy_serialize(ptr, uint32_t(labor.legacy_separations.size()));
-	for(auto const& record : labor.legacy_separations) {
-		ptr = memcpy_serialize(ptr, record.worker);
-		ptr = memcpy_serialize(ptr, record.date);
-	}
 
 	ptr = memcpy_serialize(ptr, causal.version);
 	ptr = memcpy_serialize(ptr, causal.next_sequence);
@@ -334,8 +317,7 @@ bool read_custom_vector(uint8_t const*& ptr, uint8_t const* end,
 	if(std::size_t(end - ptr) < sizeof(uint32_t)) return false;
 	uint32_t count = 0;
 	ptr = memcpy_deserialize(ptr, count);
-	if(count > exact_runtime_max_records
-		|| std::size_t(end - ptr) < std::size_t(count) * record_size) return false;
+	if(count > exact_runtime_max_records || std::size_t(end - ptr) < std::size_t(count) * record_size) return false;
 	values.resize(count);
 	for(auto& value : values) if(!read_one(ptr, end, value)) return false;
 	return true;
@@ -360,7 +342,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	result.extension_version = version;
 	if(std::size_t(section_end - ptr) < payload_size) return section_end;
 	auto const* payload_end = ptr + payload_size;
-	if(version == 0 || version > exact_runtime_save_version) return payload_end;
+	if(version != exact_runtime_save_version) return payload_end;
 
 	auto& population = result.population;
 	auto& economy = result.economy;
@@ -375,8 +357,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 		sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint8_t) + sizeof(dcon::site_id),
 		[](uint8_t const*& input, uint8_t const* end, persons::exact_population::exact_person_override& record) {
 			uint8_t has_alive = 0, alive = 0, has_home_site = 0;
-			if(!read_person_key(input, end, record.key)
-				|| std::size_t(end - input) < 3 * sizeof(uint8_t) + sizeof(record.home_site)) return false;
+			if(!read_person_key(input, end, record.key) || std::size_t(end - input) < 3 * sizeof(uint8_t) + sizeof(record.home_site)) return false;
 			input = memcpy_deserialize(input, has_alive);
 			input = memcpy_deserialize(input, alive);
 			input = memcpy_deserialize(input, has_home_site);
@@ -388,32 +369,15 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 			return true;
 		});
 	if(valid) valid = read_pod_vector(ptr, payload_end, population.bridges);
-	if(valid && version >= 2) {
-		valid = read_pod_vector(ptr, payload_end, population.source_bindings);
-		population.has_source_bindings = valid;
-	}
-	if(valid && version >= 3)
-		valid = read_pod_vector(ptr, payload_end, population.retired_source_cells);
-	if(valid && version >= 4) {
-		uint8_t has_lifecycle_checkpoint = 0;
-		valid = read_pod_vector(ptr, payload_end, population.retired_people);
-		if(valid) valid = read_pod_vector(ptr, payload_end, population.birth_cohorts);
-		if(valid) valid = read_pod_vector(ptr, payload_end, population.population_observations);
-		if(valid && std::size_t(payload_end - ptr) >= sizeof(population.observed_world_literal_count) + sizeof(has_lifecycle_checkpoint)) {
-			ptr = memcpy_deserialize(ptr, population.observed_world_literal_count);
-			ptr = memcpy_deserialize(ptr, has_lifecycle_checkpoint);
-			valid = has_lifecycle_checkpoint <= 1;
-			population.has_lifecycle_checkpoint = has_lifecycle_checkpoint != 0;
-		} else if(valid) {
-			valid = false;
-		}
-	}
-	if(valid && version >= 5) {
-		valid = read_pod_vector(ptr, payload_end, population.membership_ranges);
-		if(valid) valid = read_pod_vector(ptr, payload_end, population.transitions);
-		if(valid) valid = read_pod_vector(ptr, payload_end, population.transfer_remainders);
-		population.has_current_membership = valid;
-	}
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.source_bindings);
+	population.has_source_bindings = valid;
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.retired_source_cells);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.retired_people);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.birth_cohorts);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.membership_ranges);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.transitions);
+	if(valid) valid = read_pod_vector(ptr, payload_end, population.transfer_remainders);
+	population.has_current_membership = valid;
 
 	if(valid) ptr = memcpy_deserialize(ptr, economy.version);
 	if(valid) valid = read_custom_vector(ptr, payload_end, economy.participation_overrides,
@@ -455,14 +419,6 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 		ptr = memcpy_deserialize(ptr, labor.next_event_id);
 	else if(valid) valid = false;
 	if(valid) valid = read_pod_vector(ptr, payload_end, labor.events);
-	if(valid) valid = read_custom_vector(ptr, payload_end, labor.legacy_separations,
-		sizeof(dcon::person_id) + sizeof(sys::date),
-		[](uint8_t const*& input, uint8_t const* end, economy::physical::labor_dynamics::legacy_separation_record& record) {
-			if(std::size_t(end - input) < sizeof(record.worker) + sizeof(record.date)) return false;
-			input = memcpy_deserialize(input, record.worker);
-			input = memcpy_deserialize(input, record.date);
-			return true;
-		});
 
 	if(valid) ptr = memcpy_deserialize(ptr, causal.version);
 	if(valid && std::size_t(payload_end - ptr) >= sizeof(causal.next_sequence))
@@ -490,24 +446,18 @@ void clear_exact_runtime_state(sys::state& state) {
 	economy::causal_order::clear_store(state);
 }
 
-void restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
+bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
 	clear_exact_runtime_state(state);
-	if(!snapshot.present) return;
+	if(!snapshot.present) return false;
 	auto clear_on_failure = [&] { clear_exact_runtime_state(state); };
-	if(!persons::exact_population::import_snapshot(state, snapshot.population)
-		|| !economy::causal_order::import_snapshot(state, snapshot.causal_order)
-		|| !economy::exact_person_economy::import_snapshot(state, snapshot.economy)
-		|| !economy::physical::exact_person_goods::import_snapshot(state, snapshot.goods)
-		|| !economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
-		|| !economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor))
-		clear_on_failure();
-}
-
-bool needs_exact_population_bootstrap(exact_runtime_snapshot const& snapshot) {
-	// AOEX v1 has no POP lifetime bindings. Empty catalogs also need their first
-	// population bootstrap. Malformed and unknown extensions remain fail-closed.
-	return !snapshot.extension_found
-		|| (snapshot.present && (snapshot.extension_version == 1 || snapshot.population.cells.empty()));
+	bool const restored = persons::exact_population::import_snapshot(state, snapshot.population)
+		&& economy::causal_order::import_snapshot(state, snapshot.causal_order)
+		&& economy::exact_person_economy::import_snapshot(state, snapshot.economy)
+		&& economy::physical::exact_person_goods::import_snapshot(state, snapshot.goods)
+		&& economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
+		&& economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor);
+	if(!restored) clear_on_failure();
+	return restored;
 }
 
 uint8_t const* read_strategic_statecraft_save(
@@ -562,18 +512,7 @@ uint8_t const* read_strategic_statecraft_save(
 	};
 	if(records_ok) {
 		for(auto const& profile : state.strategic_interests) {
-			if(profile.enabled > 1 || profile.last_decision > uint8_t(nations::strategic_statecraft::decision_code::crisis_war)
-				|| profile.objective > uint8_t(nations::strategic_statecraft::objective_kind::alliance)
-				|| !bounded_unit(profile.security) || !bounded_unit(profile.territorial_claims)
-				|| !bounded_unit(profile.market_access) || !bounded_unit(profile.resource_access)
-				|| !bounded_unit(profile.route_access) || !bounded_unit(profile.ally_subject_protection)
-				|| !bounded_unit(profile.prestige_influence)
-				|| !std::isfinite(profile.last_decision_value) || profile.last_decision_value < -1.0f
-				|| profile.last_decision_value > 1.0f
-				|| !std::isfinite(profile.objective_value) || profile.objective_value < -1.0f
-				|| profile.objective_value > 1.0f
-				|| (profile.objective_target != nations::strategic_statecraft::interests::no_nation
-					&& profile.objective_target >= maximum_nations)) {
+			if(profile.enabled > 1 || profile.last_decision > uint8_t(nations::strategic_statecraft::decision_code::crisis_war) || profile.objective > uint8_t(nations::strategic_statecraft::objective_kind::alliance) || !bounded_unit(profile.security) || !bounded_unit(profile.territorial_claims) || !bounded_unit(profile.market_access) || !bounded_unit(profile.resource_access) || !bounded_unit(profile.route_access) || !bounded_unit(profile.ally_subject_protection) || !bounded_unit(profile.prestige_influence) || !std::isfinite(profile.last_decision_value) || profile.last_decision_value < -1.0f || profile.last_decision_value > 1.0f || !std::isfinite(profile.objective_value) || profile.objective_value < -1.0f || profile.objective_value > 1.0f || profile.objective_target != nations::strategic_statecraft::interests::no_nation && profile.objective_target >= maximum_nations) {
 				records_ok = false;
 				break;
 			}
@@ -585,11 +524,7 @@ uint8_t const* read_strategic_statecraft_save(
 		for(auto const& view : state.strategic_beliefs) {
 			auto const observer = uint32_t(view.key >> 32);
 			auto const subject = uint32_t(view.key);
-			if(observer >= maximum_nations || subject >= maximum_nations || observer == subject
-				|| (!first_belief && view.key <= previous_key)
-				|| !bounded_unit(view.military_power) || !bounded_unit(view.economic_power)
-				|| !bounded_unit(view.resolve) || !bounded_unit(view.reliability)
-				|| view.currently_at_war > 1) {
+			if(observer >= maximum_nations || subject >= maximum_nations || observer == subject || !first_belief && view.key <= previous_key || !bounded_unit(view.military_power) || !bounded_unit(view.economic_power) || !bounded_unit(view.resolve) || !bounded_unit(view.reliability) || view.currently_at_war > 1) {
 				records_ok = false;
 				break;
 			}
@@ -599,10 +534,7 @@ uint8_t const* read_strategic_statecraft_save(
 	}
 	if(records_ok) {
 		for(auto const& promise : state.strategic_commitments) {
-			if(promise.promisor >= maximum_nations || promise.beneficiary >= maximum_nations
-				|| promise.promisor == promise.beneficiary
-				|| promise.kind > uint8_t(nations::strategic_statecraft::commitment_kind::guarantee)
-				|| promise.active > 1) {
+			if(promise.promisor >= maximum_nations || promise.beneficiary >= maximum_nations || promise.promisor == promise.beneficiary || promise.kind > uint8_t(nations::strategic_statecraft::commitment_kind::guarantee) || promise.active > 1) {
 				records_ok = false;
 				break;
 			}
@@ -613,23 +545,15 @@ uint8_t const* read_strategic_statecraft_save(
 			return value == nations::strategic_statecraft::crisis_memory::no_nation || value < maximum_nations;
 		};
 		auto const& crisis = state.strategic_crisis;
-		if(crisis.phase > uint8_t(nations::strategic_statecraft::crisis_phase::withdrawn)
-			|| crisis.outcome > uint8_t(nations::strategic_statecraft::crisis_phase::withdrawn)
-			|| crisis.resolution_decision > uint8_t(nations::strategic_statecraft::decision_code::crisis_war)
-			|| crisis.partial_concession > 1
-			|| !valid_index(crisis.claimant) || !valid_index(crisis.target) || !valid_index(crisis.outcome_actor)
-			|| !bounded_unit(crisis.demand_value) || !bounded_unit(crisis.offered_value)
-			|| !bounded_unit(crisis.readiness_cost))
+		if(crisis.phase > uint8_t(nations::strategic_statecraft::crisis_phase::withdrawn) || crisis.outcome > uint8_t(nations::strategic_statecraft::crisis_phase::withdrawn) || crisis.resolution_decision > uint8_t(nations::strategic_statecraft::decision_code::crisis_war) || crisis.partial_concession > 1 || !valid_index(crisis.claimant) || !valid_index(crisis.target) || !valid_index(crisis.outcome_actor) || !bounded_unit(crisis.demand_value) || !bounded_unit(crisis.offered_value) || !bounded_unit(crisis.readiness_cost))
 			records_ok = false;
 		else if(crisis.temporary_offer_goal_slot >= 0) {
 			auto const slot = std::size_t(crisis.temporary_offer_goal_slot);
-			if(slot >= state.crisis_attacker_wargoals.size()
-				|| !state.crisis_attacker_wargoals[slot].cb)
+			if(slot >= state.crisis_attacker_wargoals.size() || !state.crisis_attacker_wargoals[slot].cb)
 				records_ok = false;
 		} else if(crisis.temporary_offer_goal_slot <= -2) {
 			auto const slot = std::size_t(-int64_t(crisis.temporary_offer_goal_slot) - 2);
-			if(slot >= state.crisis_defender_wargoals.size()
-				|| !state.crisis_defender_wargoals[slot].cb)
+			if(slot >= state.crisis_defender_wargoals.size() || !state.crisis_defender_wargoals[slot].cb)
 				records_ok = false;
 		}
 	}
@@ -645,19 +569,17 @@ uint8_t const* read_strategic_statecraft_save(
 }
 
 std::size_t transformation_politics_save_size(sys::state const& state) {
-	if(state.transformation_government_state.empty())
-		return 0;
-	auto const count = std::min<std::size_t>(
-		state.transformation_government_state.size(), state.world.nation_size());
+	assert(state.transformation_government_state.size() == state.world.nation_size());
+	if(state.transformation_government_state.size() != state.world.nation_size()) std::abort();
+	auto const count = state.transformation_government_state.size();
 	return transformation_politics_save_header_size
 		+ count * transformation_politics_save_record_size;
 }
 
 uint8_t* write_transformation_politics_save(uint8_t* ptr, sys::state const& state) {
-	auto const count = std::min<std::size_t>(
-		state.transformation_government_state.size(), state.world.nation_size());
-	if(count == 0)
-		return ptr;
+	assert(state.transformation_government_state.size() == state.world.nation_size());
+	if(state.transformation_government_state.size() != state.world.nation_size()) std::abort();
+	auto const count = state.transformation_government_state.size();
 
 	auto const payload_size = uint32_t(count * transformation_politics_save_record_size);
 	auto const count_u32 = uint32_t(count);
@@ -679,7 +601,8 @@ uint8_t* write_transformation_politics_save(uint8_t* ptr, sys::state const& stat
 }
 
 uint8_t const* read_transformation_politics_save(
-	uint8_t const* ptr, uint8_t const* section_end, sys::state& state) {
+	uint8_t const* ptr, uint8_t const* section_end, sys::state& state, bool& loaded) {
+	loaded = false;
 	if(std::size_t(section_end - ptr) < transformation_politics_save_header_size)
 		return ptr;
 
@@ -698,21 +621,16 @@ uint8_t const* read_transformation_politics_save(
 	if(magic != transformation_politics_save_magic)
 		return ptr - transformation_politics_save_header_size;
 	if(std::size_t(section_end - ptr) < payload_size)
-		return ptr - transformation_politics_save_header_size;
-
-	// Unknown extensions are deliberately skipped, preserving forward
-	// compatibility for the rest of the save section.
-	auto const record_size = version == 1
-		? transformation_politics_save_v1_record_size
-		: transformation_politics_save_record_size;
-	if(version != 1 && version != transformation_politics_save_version)
+		return section_end;
+	if(version != transformation_politics_save_version)
 		return ptr + payload_size;
-	if(count > payload_size / record_size)
-		return ptr - transformation_politics_save_header_size;
+	if(count != state.world.nation_size()
+		|| payload_size != count * transformation_politics_save_record_size)
+		return ptr + payload_size;
 
 	auto const* payload_start = ptr;
 	state.transformation_government_state.assign(state.world.nation_size(), {});
-	auto const stored_count = std::min<std::size_t>(count, state.world.nation_size());
+	bool records_valid = true;
 	for(uint32_t index = 0; index < count; ++index) {
 		uint32_t groups = 0;
 		int32_t established_on = 0;
@@ -722,37 +640,36 @@ uint8_t const* read_transformation_politics_save(
 		for(auto& value : confidence)
 			ptr = memcpy_deserialize(ptr, value);
 		float party_mandate = -1.0f;
-		if(version >= 2)
-			ptr = memcpy_deserialize(ptr, party_mandate);
-		if(index < stored_count) {
-			auto& government = state.transformation_government_state[index];
-			government.groups = groups;
-			government.established_on = established_on;
-			government.confidence = confidence;
-			government.party_mandate = std::isfinite(party_mandate)
-				? std::clamp(party_mandate, -1.0f, 1.0f) : -1.0f;
-		}
+		ptr = memcpy_deserialize(ptr, party_mandate);
+		bool confidence_valid = true;
+		for(auto const value : confidence)
+			confidence_valid = confidence_valid && std::isfinite(value) && value >= 0.0f && value <= 1.0f;
+		bool const mandate_valid = std::isfinite(party_mandate)
+			&& (party_mandate == -1.0f || party_mandate >= 0.0f && party_mandate <= 1.0f);
+		if(!confidence_valid || !mandate_valid)
+			records_valid = false;
+		auto& government = state.transformation_government_state[index];
+		government.groups = groups;
+		government.established_on = established_on;
+		government.confidence = confidence;
+		government.party_mandate = party_mandate;
 	}
-
-	// A future version may append fields inside its payload. Consume the
-	// declared payload rather than relying on the current record size.
+	loaded = records_valid && ptr == payload_start + payload_size;
 	return payload_start + payload_size;
 }
 
 std::size_t transformation_legislation_save_size(sys::state const& state) {
-	if(state.transformation_legislation_state.empty())
-		return 0;
-	auto const count = std::min<std::size_t>(
-		state.transformation_legislation_state.size(), state.world.nation_size());
+	assert(state.transformation_legislation_state.size() == state.world.nation_size());
+	if(state.transformation_legislation_state.size() != state.world.nation_size()) std::abort();
+	auto const count = state.transformation_legislation_state.size();
 	return transformation_politics_save_header_size
 		+ count * transformation_legislation_save_record_size;
 }
 
 uint8_t* write_transformation_legislation_save(uint8_t* ptr, sys::state const& state) {
-	auto const count = std::min<std::size_t>(
-		state.transformation_legislation_state.size(), state.world.nation_size());
-	if(count == 0)
-		return ptr;
+	assert(state.transformation_legislation_state.size() == state.world.nation_size());
+	if(state.transformation_legislation_state.size() != state.world.nation_size()) std::abort();
+	auto const count = state.transformation_legislation_state.size();
 
 	auto const payload_size = uint32_t(count * transformation_legislation_save_record_size);
 	ptr = memcpy_serialize(ptr, transformation_legislation_save_magic);
@@ -781,7 +698,8 @@ uint8_t* write_transformation_legislation_save(uint8_t* ptr, sys::state const& s
 }
 
 uint8_t const* read_transformation_legislation_save(
-	uint8_t const* ptr, uint8_t const* section_end, sys::state& state) {
+	uint8_t const* ptr, uint8_t const* section_end, sys::state& state, bool& loaded) {
+	loaded = false;
 	if(std::size_t(section_end - ptr) < transformation_politics_save_header_size)
 		return ptr;
 
@@ -799,17 +717,16 @@ uint8_t const* read_transformation_legislation_save(
 	if(magic != transformation_legislation_save_magic)
 		return ptr - transformation_politics_save_header_size;
 	if(std::size_t(section_end - ptr) < payload_size)
-		return ptr - transformation_politics_save_header_size;
-	auto const record_size = version == 1
-		? transformation_legislation_save_v1_record_size
-		: transformation_legislation_save_record_size;
-	if((version != 1 && version != transformation_legislation_save_version)
-		|| count > payload_size / record_size)
+		return section_end;
+	if(version != transformation_legislation_save_version)
+		return ptr + payload_size;
+	if(count != state.world.nation_size()
+		|| payload_size != count * transformation_legislation_save_record_size)
 		return ptr + payload_size;
 
 	auto const* payload_start = ptr;
 	state.transformation_legislation_state.assign(state.world.nation_size(), {});
-	auto const stored_count = std::min<std::size_t>(count, state.world.nation_size());
+	bool records_valid = true;
 	for(uint32_t index = 0; index < count; ++index) {
 		uint8_t active = 0;
 		uint8_t target = uint8_t(politics::transformation::legislation_target::issue);
@@ -825,14 +742,12 @@ uint8_t const* read_transformation_legislation_save(
 		float execution = 0.0f;
 		float coalition_support = 0.0f;
 		ptr = memcpy_deserialize(ptr, active);
-		if(version >= 2)
-			ptr = memcpy_deserialize(ptr, target);
+		ptr = memcpy_deserialize(ptr, target);
 		ptr = memcpy_deserialize(ptr, stage);
 		ptr = memcpy_deserialize(ptr, stage_days);
 		ptr = memcpy_deserialize(ptr, proposed_on);
 		ptr = memcpy_deserialize(ptr, option_index);
-		if(version >= 2)
-			ptr = memcpy_deserialize(ptr, reform_index);
+		ptr = memcpy_deserialize(ptr, reform_index);
 		ptr = memcpy_deserialize(ptr, sponsor_index);
 		ptr = memcpy_deserialize(ptr, party_support);
 		ptr = memcpy_deserialize(ptr, compromise);
@@ -841,9 +756,17 @@ uint8_t const* read_transformation_legislation_save(
 		ptr = memcpy_deserialize(ptr, coalition_support);
 		bool const issue_target = target == uint8_t(politics::transformation::legislation_target::issue);
 		bool const reform_target = target == uint8_t(politics::transformation::legislation_target::reform);
-		if(index < stored_count && active != 0
-			&& ((issue_target && option_index < state.world.issue_option_size())
-				|| (reform_target && reform_index < state.world.reform_option_size()))) {
+		bool const support_valid = std::isfinite(party_support) && party_support >= 0.0f && party_support <= 1.0f
+			&& std::isfinite(compromise) && std::isfinite(mandate)
+			&& std::isfinite(execution) && std::isfinite(coalition_support);
+		bool const active_bill_valid = active == 0
+			|| (issue_target && option_index < state.world.issue_option_size())
+			|| (reform_target && reform_index < state.world.reform_option_size());
+		if(active > 1 || (!issue_target && !reform_target)
+			|| stage > uint8_t(politics::transformation::legislation_stage::implementation)
+			|| !support_valid || !active_bill_valid)
+			records_valid = false;
+		if(active != 0 && active_bill_valid) {
 			auto& bill = state.transformation_legislation_state[index];
 			bill.active = true;
 			bill.target = reform_target
@@ -863,16 +786,14 @@ uint8_t const* read_transformation_legislation_save(
 				std::min<uint8_t>(stage, uint8_t(politics::transformation::legislation_stage::implementation)));
 			bill.stage_days = stage_days;
 			bill.proposed_on = proposed_on;
-			// Version 1 used these four bytes as reserved padding. A zero value
-			// therefore migrates to neutral party support.
-			bill.party_support = party_support > 0.0f
-				? std::clamp(party_support, 0.0f, 1.0f) : 0.5f;
+			bill.party_support = party_support;
 			bill.compromise = compromise;
 			bill.mandate = mandate;
 			bill.execution = execution;
 			bill.coalition_support = coalition_support;
 		}
 	}
+	loaded = records_valid && ptr == payload_start + payload_size;
 	return payload_start + payload_size;
 }
 
@@ -1667,21 +1588,26 @@ uint8_t const* read_handwritten_save_section(uint8_t const* ptr_in, uint8_t cons
 		ptr_in = memcpy_deserialize(ptr_in, state.military_definitions.great_wars_enabled);
 		ptr_in = memcpy_deserialize(ptr_in, state.military_definitions.world_wars_enabled);
 	}
-	ptr_in = read_transformation_politics_save(ptr_in, section_end, state);
-	ptr_in = read_transformation_legislation_save(ptr_in, section_end, state);
+	ptr_in = read_transformation_politics_save(ptr_in, section_end, state,
+		exact_runtime.transformation_politics_loaded);
+	ptr_in = read_transformation_legislation_save(ptr_in, section_end, state,
+		exact_runtime.transformation_legislation_loaded);
 	ptr_in = read_strategic_statecraft_save(ptr_in, section_end, state);
 	ptr_in = read_exact_runtime_save(ptr_in, section_end, exact_runtime);
 	return ptr_in;
 }
 
-void validate_strategic_statecraft_world_state(sys::state& state) {
-	if(!state.strategic_statecraft_initialized)
-		return;
+bool validate_strategic_statecraft_world_state(sys::state& state) {
+	if(!state.strategic_statecraft_initialized) return false;
 	auto const nation_count = state.world.nation_size();
 	bool valid = state.strategic_interests.size() == nation_count;
-	for(auto const& profile : state.strategic_interests) {
-		if(profile.objective_target != nations::strategic_statecraft::interests::no_nation
-			&& profile.objective_target >= nation_count) {
+	for(std::size_t i = 0; valid && i < state.strategic_interests.size(); ++i) {
+		auto const& profile = state.strategic_interests[i];
+		if(state.world.nation_is_valid(dcon::nation_id{dcon::nation_id::value_base_t(uint32_t(i))}) && profile.enabled == 0) {
+			valid = false;
+			break;
+		}
+		if(profile.objective_target != nations::strategic_statecraft::interests::no_nation && profile.objective_target >= nation_count) {
 			valid = false;
 			break;
 		}
@@ -1713,6 +1639,18 @@ void validate_strategic_statecraft_world_state(sys::state& state) {
 	}
 	if(!valid)
 		disable_strategic_statecraft(state);
+	return valid;
+}
+
+bool canonical_runtime_loaded(sys::state const& state) {
+	return bool(state.exact_population) && bool(state.exact_person_economy)
+		&& bool(state.exact_person_goods) && bool(state.exact_person_freight)
+		&& bool(state.labor_dynamics) && bool(state.causal_order)
+		&& state.strategic_statecraft_initialized
+		&& state.strategic_interests.size() == state.world.nation_size()
+		&& state.transformation_government_state.size() == state.world.nation_size()
+		&& state.transformation_legislation_state.size() == state.world.nation_size()
+		&& actors::ownership::canonical_ownership_is_valid(state);
 }
 
 uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields) {
@@ -1732,26 +1670,18 @@ uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_e
 		std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 		state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded, loadmask);
 	}
-	restore_exact_runtime_state(state, exact_runtime);
-	if(needs_exact_population_bootstrap(exact_runtime)
-		&& gamerule::age_of_transformation_enabled(state)) {
-		auto bootstrap = persons::exact_population::bootstrap_from_current_pops(state);
-		if(!bootstrap.complete)
-			state.console_command_error += std::string("?R Exact population migration failed for POP ")
-				+ std::to_string(bootstrap.failed_population.index()) + "?W\\n";
+	bool const politics_state_matches_world = state.transformation_government_state.size() == state.world.nation_size()
+		&& state.transformation_legislation_state.size() == state.world.nation_size();
+	bool runtime_restored = politics_state_matches_world
+		&& exact_runtime.transformation_politics_loaded
+		&& exact_runtime.transformation_legislation_loaded;
+	if(runtime_restored) runtime_restored = restore_exact_runtime_state(state, exact_runtime);
+	if(!runtime_restored) {
+		clear_exact_runtime_state(state);
 	}
 	validate_strategic_statecraft_world_state(state);
-	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();
 	return section_end;
-}
-
-void migrate_legacy_army_supply_fields(sys::state& state, dcon::load_record const& loaded) {
-	if(loaded.army_supply_reserve && loaded.army_supply_priority) return;
-	for(auto army : state.world.in_army) {
-		if(!loaded.army_supply_reserve) army.set_supply_reserve(1.0f);
-		if(!loaded.army_supply_priority) army.set_supply_priority(1);
-	}
 }
 
 uint8_t* write_handwritten_save_section(uint8_t* ptr_in, sys::state& state, bool exclude_local_handwritten_fields = false) {
@@ -1887,15 +1817,16 @@ uint8_t const* read_entire_mp_state(uint8_t const* ptr_in, uint8_t const* sectio
 	dcon::load_record loaded;
 	std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 	state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded);
-	restore_exact_runtime_state(state, exact_runtime);
-	if(needs_exact_population_bootstrap(exact_runtime)
-		&& gamerule::age_of_transformation_enabled(state)) {
-		auto bootstrap = persons::exact_population::bootstrap_from_current_pops(state);
-		if(!bootstrap.complete)
-			state.console_command_error += std::string("?R Exact population migration failed for POP ")
-				+ std::to_string(bootstrap.failed_population.index()) + "?W\\n";
+	bool const politics_state_matches_world = state.transformation_government_state.size() == state.world.nation_size()
+		&& state.transformation_legislation_state.size() == state.world.nation_size();
+	bool runtime_restored = politics_state_matches_world
+		&& exact_runtime.transformation_politics_loaded
+		&& exact_runtime.transformation_legislation_loaded;
+	if(runtime_restored) runtime_restored = restore_exact_runtime_state(state, exact_runtime);
+	if(!runtime_restored || !validate_strategic_statecraft_world_state(state)) {
+		clear_exact_runtime_state(state);
+		std::abort();
 	}
-	migrate_legacy_army_supply_fields(state, loaded);
 	state.clear_army_supply_derived_data();
 	return section_end;
 }
@@ -2089,12 +2020,12 @@ bool try_read_scenario_and_save_file(sys::state& state, native_string_view name)
 
 		buffer_pos = with_decompressed_section(buffer_pos,
 				[&](uint8_t const* ptr_in, uint32_t length) { read_scenario_section(ptr_in, ptr_in + length, state); });
+		state.on_scenario_load();
 		buffer_pos = with_decompressed_section(buffer_pos,
 				[&](uint8_t const* ptr_in, uint32_t length) { read_save_section(ptr_in, ptr_in + length, state); });
+		if(!canonical_runtime_loaded(state)) return false;
 
 		state.game_seed = uint32_t(std::random_device()());
-
-		state.on_scenario_load();
 
 		// only load gamerule settings if host or singleplayer. A client would have to load the host' settings anyway
 		if(state.network_mode == sys::network_mode_type::host || state.network_mode == sys::network_mode_type::single_player) {
@@ -2141,6 +2072,7 @@ bool try_read_scenario_as_save_file(sys::state& state, native_string_view name) 
 			[&](uint8_t const* ptr_in, uint32_t length) {
 				read_save_section(ptr_in, ptr_in + length, state);
 			});
+		if(!canonical_runtime_loaded(state)) return false;
 
 		state.game_seed = uint32_t(std::random_device()());
 
@@ -2151,7 +2083,7 @@ bool try_read_scenario_as_save_file(sys::state& state, native_string_view name) 
 		}
 
 
-		return true;
+		return canonical_runtime_loaded(state);
 	} else {
 		return false;
 	}
@@ -2337,10 +2269,10 @@ bool try_read_save_file(sys::state& state, native_string_view name, bool ignore_
 
 		state.loaded_save_file = name;
 
-		buffer_pos = with_decompressed_section(buffer_pos,
+			buffer_pos = with_decompressed_section(buffer_pos,
 				[&](uint8_t const* ptr_in, uint32_t length) { read_save_section(ptr_in, ptr_in + length, state); });
 
-		return true;
+		return canonical_runtime_loaded(state);
 	} else {
 		return false;
 	}

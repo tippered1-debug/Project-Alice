@@ -9,7 +9,9 @@
 #include "system_state.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <unordered_map>
@@ -34,13 +36,15 @@ constexpr uint32_t snapshot_version = 1;
 constexpr float epsilon = 1.0e-5f;
 
 std::shared_ptr<exact_person_goods_store> ensure_store(sys::state& state) {
-	if(!state.exact_person_goods)
-		state.exact_person_goods = std::make_shared<exact_person_goods_store>();
+	assert(state.exact_person_goods && "exact person goods store must be initialized before simulation");
+	if(!state.exact_person_goods) std::abort();
 	return state.exact_person_goods;
 }
 
 std::shared_ptr<exact_person_goods_store> ensure_store(sys::state const& state) {
-	return ensure_store(const_cast<sys::state&>(state));
+	assert(state.exact_person_goods && "exact person goods store must be initialized before lookup");
+	if(!state.exact_person_goods) std::abort();
+	return state.exact_person_goods;
 }
 
 bool positive_finite(float value) { return std::isfinite(value) && value > 0.0f; }
@@ -108,8 +112,7 @@ float refresh_unmet(sys::state const& state, need_record& need) {
 bool active_equivalent_bid(sys::state const& state, person_key owner, dcon::site_id destination,
 	dcon::commodity_id commodity) {
 	for(auto const& bid : ensure_store(state)->bids)
-		if(bid.status == order_status::active && bid.buyer == owner
-			&& bid.destination == destination && bid.commodity == commodity) return true;
+		if(bid.status == order_status::active && bid.buyer == owner && bid.destination == destination && bid.commodity == commodity) return true;
 	return false;
 }
 
@@ -117,14 +120,12 @@ std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
 	dcon::market_id /*market*/, dcon::commodity_id commodity) {
 	std::vector<dcon::commodity_id> result;
 	state.world.for_each_concrete_market_ask([&](auto ask) {
-		if(state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)
-			|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
+		if(state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active) || state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 		state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(seller, [&](auto relation) {
 			auto account = state.world.monetary_account_owner_get_monetary_account(relation);
 			auto settlement = accounts::settlement_of(state, account);
-			if(account && state.world.monetary_account_is_valid(account) && settlement
-				&& state.world.commodity_is_valid(settlement)) result.push_back(settlement);
+			if(account && state.world.monetary_account_is_valid(account) && settlement && state.world.commodity_is_valid(settlement)) result.push_back(settlement);
 		});
 	});
 	std::sort(result.begin(), result.end(), [](auto a, auto b) { return a.index() < b.index(); });
@@ -143,8 +144,7 @@ float stock_quantity(sys::state const& state, person_key owner, dcon::site_id si
 
 float add_stock(sys::state& state, person_key owner, dcon::site_id site,
 	dcon::commodity_id commodity, float amount) {
-	if(!persons::exact_population::exists(state, owner) || !site || !state.world.site_is_valid(site)
-		|| !commodity || !state.world.commodity_is_valid(commodity) || !positive_finite(amount)) return 0.0f;
+	if(!persons::exact_population::exists(state, owner) || !site || !state.world.site_is_valid(site) || !commodity || !state.world.commodity_is_valid(commodity) || !positive_finite(amount)) return 0.0f;
 	auto record = stock_for(state, owner, site, commodity);
 	auto current = record ? record->quantity : 0.0f;
 	if(!nonnegative_finite(current) || amount > std::numeric_limits<float>::max() - current) return 0.0f;
@@ -167,8 +167,7 @@ float remove_stock(sys::state& state, person_key owner, dcon::site_id site,
 }
 
 bool set_need(sys::state& state, person_key owner, dcon::commodity_id commodity, float desired) {
-	if(!persons::exact_population::exists(state, owner) || !commodity
-		|| !state.world.commodity_is_valid(commodity) || !nonnegative_finite(desired)) return false;
+	if(!persons::exact_population::exists(state, owner) || !commodity || !state.world.commodity_is_valid(commodity) || !nonnegative_finite(desired)) return false;
 	auto record = need_for(state, owner, commodity);
 	if(!record) {
 		record = &ensure_store(state)->needs.emplace_back();
@@ -225,11 +224,7 @@ uint64_t post_bid(sys::state& state, person_key buyer, economy::exact_person_eco
 	dcon::site_id destination, dcon::market_id market, dcon::commodity_id commodity,
 	float quantity, float limit_price, order_purpose purpose) {
 	using namespace economy::exact_person_economy;
-	if(!persons::exact_population::exists(state, buyer) || !persons::exact_population::alive(state, buyer)
-		|| account.kind != account_kind::exact || owner_of(state, account) != buyer
-		|| !destination || !market || !commodity || !state.world.site_is_valid(destination)
-		|| !state.world.market_is_valid(market) || !state.world.commodity_is_valid(commodity)
-		|| !positive_finite(quantity) || !positive_finite(limit_price)) return 0;
+	if(!persons::exact_population::exists(state, buyer) || !persons::exact_population::alive(state, buyer) || account.kind != account_kind::exact || owner_of(state, account) != buyer || !destination || !market || !commodity || !state.world.site_is_valid(destination) || !state.world.market_is_valid(market) || !state.world.commodity_is_valid(commodity) || !positive_finite(quantity) || !positive_finite(limit_price)) return 0;
 	auto free = balance(state, account) - reserved_exact(state, account.exact_account_id);
 	if(!std::isfinite(free) || free + epsilon < quantity * limit_price) return 0;
 	auto id = next_id(ensure_store(state)->next_bid_id);
@@ -266,21 +261,17 @@ std::vector<bid_reference> active_bids(sys::state const& state, dcon::market_id 
 uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_market_ask_id ask,
 	sys::date date) {
 	auto bid = bid_for(state, exact_bid_id);
-	if(!bid || bid->status != order_status::active || !ask
-		|| state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)) return 0;
+	if(!bid || bid->status != order_status::active || !ask || state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)) return 0;
 	auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
 	auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 	auto commodity = state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask);
 	auto price = state.world.concrete_market_ask_get_minimum_price(ask);
-	if(!source || commodity != bid->commodity
-		|| !seller || !positive_finite(price) || price > bid->limit_price
-		|| !positive_finite(bid->remaining_quantity)) return 0;
+	if(!source || commodity != bid->commodity || !seller || !positive_finite(price) || price > bid->limit_price || !positive_finite(bid->remaining_quantity)) return 0;
 	using namespace economy::exact_person_economy;
 	auto buyer_account = account_ref::from_exact(bid->exact_account_id);
 	auto settlement = settlement_of(state, buyer_account);
 	auto seller_account = accounts::find_account(state, seller, settlement);
-	if(!seller_account || accounts::owner_of(state, seller_account) != seller
-		|| inventory::quantity(state, source, commodity, seller) <= 0.0f) return 0;
+	if(!seller_account || accounts::owner_of(state, seller_account) != seller || inventory::quantity(state, source, commodity, seller) <= 0.0f) return 0;
 	auto quantity = std::min(bid->remaining_quantity,
 		state.world.concrete_market_ask_get_remaining_quantity(ask));
 	quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
@@ -338,8 +329,7 @@ void expire(sys::state& state, sys::date date) {
 
 void cancel_dead_person_orders(sys::state& state) {
 	for(auto& bid : ensure_store(state)->bids)
-		if(bid.status == order_status::active
-			&& !persons::exact_population::alive(state, bid.buyer)) {
+		if(bid.status == order_status::active && !persons::exact_population::alive(state, bid.buyer)) {
 			bid.status = order_status::canceled;
 			bid.reserved_amount = 0.0f;
 		}
@@ -350,8 +340,7 @@ bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commod
 	auto site = persons::exact_population::home_site(state, buyer);
 	auto market = market_for_site(state, site);
 	auto record = need_for(state, buyer, commodity);
-	if(!site || !market || !record
-		|| active_equivalent_bid(state, buyer, site, commodity)) return false;
+	if(!site || !market || !record || active_equivalent_bid(state, buyer, site, commodity)) return false;
 	auto home_stock = stock_quantity(state, buyer, site, commodity);
 	auto incoming = exact_person_freight::incoming_quantity(state, buyer, site, commodity);
 	auto remaining_to_acquire = std::max(0.0f, record->desired_quantity_per_period
@@ -367,7 +356,7 @@ bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commod
 			if(economy::exact_person_economy::settlement_of(state, candidate) == settlement) {
 				auto cash = economy::exact_person_economy::balance(state, candidate)
 					- reserved_exact(state, candidate.exact_account_id);
-				if(cash > best_cash || (cash == best_cash && candidate.exact_account_id < selected.exact_account_id)) {
+				if(cash > best_cash || cash == best_cash && candidate.exact_account_id < selected.exact_account_id) {
 					selected = candidate; best_cash = cash;
 				}
 			}
@@ -395,6 +384,57 @@ price_observation observation_for_date(sys::state const& state, dcon::market_id 
 	return result;
 }
 
+std::vector<market_activity_record> market_activity_for_date(sys::state const& state, sys::date date) {
+	std::unordered_map<uint64_t, market_activity_record> activity;
+	auto get_record = [&](dcon::market_id market, dcon::commodity_id commodity) -> market_activity_record* {
+		if(!market || !state.world.market_is_valid(market) || !commodity || !state.world.commodity_is_valid(commodity)) return nullptr;
+		auto key = (uint64_t(market.index()) << 32) | uint64_t(commodity.index());
+		auto [it, inserted] = activity.try_emplace(key);
+		if(inserted) {
+			it->second.market = market;
+			it->second.commodity = commodity;
+		}
+		return &it->second;
+	};
+
+	for(auto const& bid : ensure_store(state)->bids) {
+		if(bid.created_on != date) continue;
+		if(auto record = get_record(bid.market, bid.commodity))
+			record->submitted_demand += std::max(0.0f, bid.original_quantity);
+	}
+	for(auto const& fill : ensure_store(state)->fills) {
+		if(fill.occurred_on != date) continue;
+		if(auto record = get_record(fill.market, fill.commodity)) {
+			record->traded_quantity += std::max(0.0f, fill.quantity);
+			record->trade_value += std::max(0.0f, fill.quantity) * std::max(0.0f, fill.execution_price);
+			auto origin = concrete_market::market_for_site(state, fill.source);
+			if(origin && origin != fill.market) {
+				record->imports += std::max(0.0f, fill.quantity);
+				if(auto origin_record = get_record(origin, fill.commodity))
+					origin_record->exports += std::max(0.0f, fill.quantity);
+			}
+		}
+	}
+	for(auto const& need : ensure_store(state)->needs) {
+		if(need.last_consumed_on != date || need.last_consumed_quantity <= 0.0f) continue;
+		auto home = persons::exact_population::home_site(state, need.owner);
+		if(auto record = get_record(market_for_site(state, home), need.commodity))
+			record->consumed_quantity += need.last_consumed_quantity;
+	}
+
+	std::vector<market_activity_record> result;
+	result.reserve(activity.size());
+	for(auto& [key, record] : activity) {
+		(void)key;
+		result.push_back(record);
+	}
+	std::sort(result.begin(), result.end(), [](auto const& left, auto const& right) {
+		if(left.market != right.market) return left.market.index() < right.market.index();
+		return left.commodity.index() < right.commodity.index();
+	});
+	return result;
+}
+
 float observed_price(sys::state const& state, dcon::market_id market, dcon::commodity_id commodity, sys::date date) {
 	auto result = observation_for_date(state, market, commodity, date);
 	return result.quantity > epsilon ? result.value / result.quantity : 0.0f;
@@ -404,8 +444,7 @@ std::optional<sys::date> latest_fill_date(sys::state const& state, dcon::market_
 	dcon::commodity_id commodity, sys::date query_date) {
 	std::optional<sys::date> result;
 	for(auto const& fill : ensure_store(state)->fills)
-		if(fill.market == market && fill.commodity == commodity && fill.occurred_on < query_date
-			&& (!result || fill.occurred_on > *result)) result = fill.occurred_on;
+		if(fill.market == market && fill.commodity == commodity && fill.occurred_on < query_date && !result || fill.occurred_on > *result) result = fill.occurred_on;
 	return result;
 }
 
@@ -437,45 +476,34 @@ bool import_snapshot(sys::state& state, goods_snapshot const& snapshot) {
 	if(snapshot.version != snapshot_version) return false;
 	auto candidate = std::make_shared<exact_person_goods_store>();
 	for(auto const& record : snapshot.stocks) {
-		if(!persons::exact_population::exists(state, record.owner) || !record.site || !state.world.site_is_valid(record.site)
-			|| !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.quantity)) return false;
+		if(!persons::exact_population::exists(state, record.owner) || !record.site || !state.world.site_is_valid(record.site) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.quantity)) return false;
 		candidate->stocks.push_back(record);
 	}
 	for(auto const& record : snapshot.needs) {
-		if(!persons::exact_population::exists(state, record.owner) || !record.commodity
-			|| !state.world.commodity_is_valid(record.commodity) || !nonnegative_finite(record.desired_quantity_per_period)
-			|| !nonnegative_finite(record.consumed_this_period) || !nonnegative_finite(record.unmet_quantity)) return false;
+		if(!persons::exact_population::exists(state, record.owner) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !nonnegative_finite(record.desired_quantity_per_period) || !nonnegative_finite(record.consumed_this_period) || !nonnegative_finite(record.unmet_quantity)) return false;
 		candidate->needs.push_back(record);
 	}
 	for(auto record : snapshot.bids) {
-		if(!record.id || !persons::exact_population::exists(state, record.buyer)
-			|| !economy::exact_person_economy::account_exists(state,
-				economy::exact_person_economy::account_ref::from_exact(record.exact_account_id))
-			|| economy::exact_person_economy::owner_of(state,
-				economy::exact_person_economy::account_ref::from_exact(record.exact_account_id)) != record.buyer
-			|| !record.destination || !state.world.site_is_valid(record.destination) || !record.market
-			|| !state.world.market_is_valid(record.market) || !record.commodity || !state.world.commodity_is_valid(record.commodity)
-			|| !positive_finite(record.original_quantity) || !nonnegative_finite(record.remaining_quantity)
-			|| record.remaining_quantity > record.original_quantity + epsilon
-			|| !positive_finite(record.limit_price) || !nonnegative_finite(record.reserved_amount)
-			|| uint8_t(record.status) > uint8_t(order_status::filled)) return false;
+		if(!record.id || !persons::exact_population::exists(state, record.buyer) || !economy::exact_person_economy::account_exists(state,
+				economy::exact_person_economy::account_ref::from_exact(record.exact_account_id)) || economy::exact_person_economy::owner_of(state,
+				economy::exact_person_economy::account_ref::from_exact(record.exact_account_id)) != record.buyer || !record.destination || !state.world.site_is_valid(record.destination) || !record.market || !state.world.market_is_valid(record.market) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.original_quantity) || !nonnegative_finite(record.remaining_quantity) || record.remaining_quantity > record.original_quantity + epsilon || !positive_finite(record.limit_price) || !nonnegative_finite(record.reserved_amount) || uint8_t(record.status) > uint8_t(order_status::filled)) return false;
 		if(record.causal_sequence == 0) record.causal_sequence = economy::causal_order::allocate(state, economy::causal_order::event_kind::goods_bid);
 		if(record.causal_sequence == 0) return false;
 		economy::causal_order::observe(state, record.causal_sequence);
 		candidate->bids.push_back(record); candidate->next_bid_id = std::max(candidate->next_bid_id, record.id + 1);
 	}
 	for(auto const& record : snapshot.fills) {
-		if(!record.id || !record.exact_bid_id || !record.dcon_ask || !state.world.concrete_market_ask_is_valid(record.dcon_ask)
-			|| std::none_of(candidate->bids.begin(), candidate->bids.end(), [&](auto const& bid) { return bid.id == record.exact_bid_id; })
-			|| !economy::exact_person_economy::transaction(state, record.exact_transaction_id)
-			|| !record.source || !record.destination || !state.world.site_is_valid(record.source)
-			|| !state.world.site_is_valid(record.destination) || !record.market || !state.world.market_is_valid(record.market)
-			|| !record.commodity || !state.world.commodity_is_valid(record.commodity)
-			|| !positive_finite(record.quantity) || !positive_finite(record.execution_price)) return false;
+		if(!record.id || !record.exact_bid_id || !record.dcon_ask || !state.world.concrete_market_ask_is_valid(record.dcon_ask) || std::none_of(candidate->bids.begin(), candidate->bids.end(), [&](auto const& bid) { return bid.id == record.exact_bid_id; }) || !economy::exact_person_economy::transaction(state, record.exact_transaction_id) || !record.source || !record.destination || !state.world.site_is_valid(record.source) || !state.world.site_is_valid(record.destination) || !record.market || !state.world.market_is_valid(record.market) || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.quantity) || !positive_finite(record.execution_price)) return false;
 		candidate->fills.push_back(record); candidate->next_fill_id = std::max(candidate->next_fill_id, record.id + 1);
 	}
 	state.exact_person_goods = std::move(candidate);
 	return true;
+}
+
+void initialize_empty_store(sys::state& state) {
+	assert(!state.exact_person_goods && "exact person goods store initialized more than once");
+	if(state.exact_person_goods) std::abort();
+	state.exact_person_goods = std::make_shared<exact_person_goods_store>();
 }
 
 void clear_store(sys::state& state) { state.exact_person_goods.reset(); }

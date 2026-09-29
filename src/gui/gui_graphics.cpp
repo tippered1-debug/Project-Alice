@@ -82,9 +82,7 @@ void load_text_gui_definitions(sys::state& state, parsers::building_gfx_context&
 		for(auto& file : all_gui_files) {
 			auto file_name = get_full_name(file);
 			if(!parsers::native_has_fixed_suffix_ci(file_name.data(), file_name.data() + file_name.length(),
-						 NATIVE("confirmbuild.gui")) &&
-					!parsers::native_has_fixed_suffix_ci(file_name.data(), file_name.data() + file_name.length(), NATIVE("convoys.gui")) &&
-					!parsers::native_has_fixed_suffix_ci(file_name.data(), file_name.data() + file_name.length(),
+						 NATIVE("confirmbuild.gui")) && !parsers::native_has_fixed_suffix_ci(file_name.data(), file_name.data() + file_name.length(), NATIVE("convoys.gui")) && !parsers::native_has_fixed_suffix_ci(file_name.data(), file_name.data() + file_name.length(),
 							NATIVE("brigadeview.gui"))) {
 				auto ofile = open_file(file);
 				if(ofile) {

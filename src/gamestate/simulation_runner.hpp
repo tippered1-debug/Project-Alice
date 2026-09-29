@@ -10,7 +10,7 @@
 #include "economy/economy_stats.hpp"
 #include "economy/human_development.hpp"
 #include "economy/industry_ownership.hpp"
-#include "economy/market_clearing.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "economy/price.hpp"
 #include "economy/world_trade_capacity.hpp"
 #include "gamerule/gamerule.hpp"
@@ -20,7 +20,9 @@
 #include "nations/strategic_statecraft.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <vector>
 #include <cstdint>
 #include <cstdio>
@@ -169,7 +171,6 @@ struct strategic_crisis_actor_snapshot {
 struct aggregate_snapshot {
 	uint64_t tick = 0;
 	int32_t date_raw = 0;
-	bool age_of_transformation = false;
 	sys::checksum_key save_checksum{};
 
 	uint64_t pop_count = 0;
@@ -403,7 +404,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	aggregate_snapshot result{};
 	result.tick = tick;
 	result.date_raw = state.current_date.to_raw_value();
-	result.age_of_transformation = gamerule::age_of_transformation_enabled(state);
 	// Hash exactly the serialized save section (excluding local-only fields), so
 	// repeated runs and save/load continuations share the same comparison key.
 	result.save_checksum = state.get_save_checksum();
@@ -582,28 +582,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 				result.machine_parts_supply += double(supply);
 				result.machine_parts_demand += double(demand);
 				result.machine_parts_import += double(state.world.market_get_import(market, commodity));
-			}
-			if(state.market_clearing_account.enabled) {
-				auto const ledger_index = size_t(market.index())
-					* size_t(state.market_clearing_account.commodity_count)
-					+ size_t(commodity.index());
-				if(ledger_index < state.market_clearing_account.quantity_traded.size()) {
-					result.market_quantity_traded +=
-						double(state.market_clearing_account.quantity_traded[ledger_index]);
-					auto add_unfilled = [&](economy::market_clearing::demand_class category,
-							double& target) {
-						auto const category_index = size_t(category);
-						auto const requested = state.market_clearing_account.demand[category_index][ledger_index];
-						auto const fill = state.market_clearing_account.fill[category_index][ledger_index];
-						target += double(std::max(0.0f, requested * (1.0f - std::clamp(fill, 0.0f, 1.0f))));
-					};
-					add_unfilled(economy::market_clearing::demand_class::life_needs,
-						result.market_unfilled_life_needs);
-					add_unfilled(economy::market_clearing::demand_class::intermediate,
-						result.market_unfilled_intermediate);
-					add_unfilled(economy::market_clearing::demand_class::luxury_needs,
-						result.market_unfilled_luxury_needs);
-				}
 			}
 		});
 	});
@@ -857,18 +835,17 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		result.trade_sea_capacity_demand += double(shipment_allocation.requested_capacity(
 			market, economy::world_trade::transport_mode::sea));
 	});
-	if(shipment_allocation.enabled) {
-		state.world.for_each_nation([&](dcon::nation_id nation) {
-			result.minimum_foreign_settlement = std::min(result.minimum_foreign_settlement,
-				double(shipment_allocation.import_settlement(nation)));
-			result.maximum_exchange_rate_multiplier = std::max(
-				result.maximum_exchange_rate_multiplier,
-				double(shipment_allocation.exchange_rate_multiplier(nation)));
-		});
-	}
+	state.world.for_each_nation([&](dcon::nation_id nation) {
+		result.minimum_foreign_settlement = std::min(result.minimum_foreign_settlement,
+			double(shipment_allocation.import_settlement(nation)));
+		result.maximum_exchange_rate_multiplier = std::max(
+			result.maximum_exchange_rate_multiplier,
+			double(shipment_allocation.exchange_rate_multiplier(nation)));
+	});
 	state.world.for_each_trade_route([&](dcon::trade_route_id route) {
 		++result.trade_route_count;
-		auto const trade = economy::world_trade::evaluate_route_capacity(state, route);
+		auto const trade = economy::world_trade::evaluate_route_shipment_capacity(
+			state, shipment_allocation, route);
 		auto const entity = int32_t(route.index());
 		if(detail::observe_nonnegative(result.observed_violations, invariant_field::trade_route_volume,
 				entity, -1, trade.cargo)) {
@@ -910,6 +887,8 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	}
 
 	result.statecraft_enabled = state.strategic_statecraft_initialized;
+	assert(result.statecraft_enabled && "strategic statecraft is mandatory runtime state");
+	if(!result.statecraft_enabled) std::abort();
 	if(result.statecraft_enabled) {
 		auto const& strategic_crisis = state.strategic_crisis;
 		result.statecraft_phase = strategic_crisis.phase;
@@ -1109,8 +1088,7 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"save_checksum\":\"";
 	detail::write_checksum_hex(out, snapshot.save_checksum);
 	out << "\""
-		<< ",\"ruleset\":{\"age_of_transformation\":"
-		<< (snapshot.age_of_transformation ? "true" : "false") << "}"
+		<< ",\"runtime\":\"canonical\""
 		<< ",\"counts\":{\"pops\":" << snapshot.pop_count
 		<< ",\"provinces\":" << snapshot.province_count
 		<< ",\"owned_provinces\":" << snapshot.owned_province_count
@@ -1376,7 +1354,6 @@ struct synthetic_lab_result {
 	state.end_date = sys::absolute_time_point{sys::year_month_day{2036, 1, 1}};
 	state.game_seed = 424242;
 	state.inflation = 1.0f;
-	state.force_age_of_transformation_ruleset = true;
 
 	auto const money = state.world.create_commodity();
 	auto const staple = state.world.create_commodity();
@@ -1417,8 +1394,6 @@ struct synthetic_lab_result {
 
 	auto const worker_pop = state.world.create_pop();
 	state.world.pop_set_poptype(worker_pop, workers);
-	state.world.pop_set_size(worker_pop, 800'000.0f);
-	state.world.pop_set_savings(worker_pop, 800'000.0f);
 	state.world.pop_set_satisfaction(worker_pop, 0.65f);
 	state.world.pop_set_uliteracy(worker_pop, pop_demographics::to_pu16(0.55f));
 	state.world.pop_set_uconsciousness(worker_pop, pop_demographics::to_pmc(4.0f));
@@ -1426,12 +1401,23 @@ struct synthetic_lab_result {
 
 	auto const owner_pop = state.world.create_pop();
 	state.world.pop_set_poptype(owner_pop, owners);
-	state.world.pop_set_size(owner_pop, 200'000.0f);
-	state.world.pop_set_savings(owner_pop, 2'000'000.0f);
 	state.world.pop_set_satisfaction(owner_pop, 0.85f);
 	state.world.pop_set_uliteracy(owner_pop, pop_demographics::to_pu16(0.80f));
 	state.world.pop_set_uconsciousness(owner_pop, pop_demographics::to_pmc(6.0f));
 	state.world.force_create_pop_location(owner_pop, province);
+	for(auto pop : {worker_pop, owner_pop}) {
+		auto const registration = persons::exact_population::register_population_cell(state, pop);
+		assert(registration.result == persons::exact_population::status::created);
+	}
+	(void)persons::exact_population::adjust_population_size(state, worker_pop, 800'000.0);
+	(void)persons::exact_population::adjust_population_size(state, owner_pop, 200'000.0);
+	auto const population_projection = persons::exact_population::project_population_membership(state);
+	assert(population_projection);
+	if(!economy::exact_person_economy::apply_population_cash_effect(state,
+		worker_pop, economy::money, 800'000.0f)
+		|| !economy::exact_person_economy::apply_population_cash_effect(state,
+			owner_pop, economy::money, 2'000'000.0f)
+		|| !economy::exact_person_economy::project_population_cash_balances(state)) std::abort();
 
 	state.world.pop_type_resize_life_needs(state.world.commodity_size());
 	state.world.pop_type_resize_everyday_needs(state.world.commodity_size());
@@ -1540,8 +1526,6 @@ struct synthetic_lab_result {
 		province, economy::pop_labor::primary_no_education, 1.0f);
 
 	state.world.nation_set_stockpiles(nation, money, 1'000'000.0f);
-	pop_demographics::set_employment(state, worker_pop, 760'000.0f);
-	pop_demographics::set_employment(state, owner_pop, 200'000.0f);
 	politics::transformation::refresh_all_nations(state);
 	// The lab bypasses scenario loading, so seed the money-supply baseline the
 	// same way a loaded save does. Without it the first observed day would be
@@ -1560,9 +1544,7 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		SinkFunction&& sink_function) {
 	run_result result{};
 	auto emit_snapshot = [&](uint64_t tick) {
-		if(gamerule::age_of_transformation_enabled(state)
-			&& (!state.transformation_politics_cache_valid
-				|| state.transformation_politics_cache.size() != state.world.nation_size())) {
+		if(!state.transformation_politics_cache_valid || state.transformation_politics_cache.size() != state.world.nation_size()) {
 			politics::transformation::refresh_all_nations(state);
 		}
 		auto snapshot = collect_snapshot(state, tick, options.tracked_nation);
@@ -1661,8 +1643,9 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		pop_demographics::set_employment(target, worker_pop, 800'000.0f * employment_ratio);
 		target.world.pop_set_satisfaction(worker_pop, employment_ratio);
 		target.world.pop_set_satisfaction(owner_pop, std::clamp(0.75f + phase * 0.10f, 0.0f, 1.0f));
-		target.world.pop_set_savings(worker_pop, std::max(
-			0.0f, target.world.pop_get_savings(worker_pop) + (employment_ratio - 0.80f) * 1'000.0f));
+		if(!economy::exact_person_economy::apply_population_cash_effect(target,
+			worker_pop, economy::money, (employment_ratio - 0.80f) * 1'000.0f)
+			|| !economy::exact_person_economy::project_population_cash_balances(target)) std::abort();
 		if(day % 30 == 0)
 			politics::transformation::refresh_all_nations(target);
 	};

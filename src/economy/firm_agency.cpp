@@ -5,7 +5,6 @@
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/concrete_market.hpp"
-#include "economy/physical/concrete_labor.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/investment_ranking.hpp"
@@ -66,7 +65,9 @@ float output_in_transit(sys::state const& state, dcon::economic_actor_id owner,
 }
 
 float full_payroll(sys::state const& state, dcon::factory_id factory, float units, float capacity) {
-	return physical::concrete_labor::wage_cost_for_factory(state, factory, units, capacity);
+	if(!std::isfinite(units) || !std::isfinite(capacity) || capacity <= epsilon) return 0.0f;
+	return exact_person_economy::wage_due_for_factory(state, factory)
+		* std::clamp(units / capacity, 0.0f, 1.0f);
 }
 
 float factory_collateral_value(sys::state const& state, dcon::factory_id factory) {
@@ -127,7 +128,7 @@ void finance_working_capital(sys::state& state, dcon::factory_id factory,
 
 production_decision decide_factory(sys::state const& state, dcon::factory_id factory) {
 	production_decision result{};
-	if(!factory || !state.world.factory_get_canonical_production(factory)
+	if(!factory || !state.world.factory_is_valid(factory)
 		|| state.world.factory_get_agency_lifecycle_status(factory) >= 2) return result;
 	auto type = state.world.factory_get_building_type(factory);
 	auto province = compat::alice::province_for_factory(state, factory);
@@ -270,8 +271,7 @@ void update_decisions(sys::state& state) {
 	std::unordered_set<uint32_t> defaulted_factories;
 	std::unordered_set<uint32_t> actors_with_unscoped_defaults;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(!state.world.factory_get_canonical_production(factory)
-			|| state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
+		if(state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
 		auto actor = actors::organizations::operator_actor_for_factory(state, factory);
 		if(!actor || !serviced_actors.insert(actor.index()).second) return;
 		auto result = banking::service_actor_loans(state, actor, state.current_date, 30);
@@ -281,8 +281,7 @@ void update_decisions(sys::state& state) {
 	});
 
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(!state.world.factory_get_canonical_production(factory)
-			|| state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
+		if(state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
 		auto type = state.world.factory_get_building_type(factory);
 		auto province = compat::alice::province_for_factory(state, factory);
 		auto site = world::site::site_for_factory(state, factory);
@@ -397,7 +396,7 @@ void update_decisions(sys::state& state) {
 		if(offered > epsilon) {
 			auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
 			auto wage_per_unit = capacity > epsilon
-				? physical::concrete_labor::wage_cost_for_factory(state, factory, capacity, capacity) / capacity : 0.0f;
+				? exact_person_economy::wage_due_for_factory(state, factory) / capacity : 0.0f;
 			state.world.factory_set_agency_expected_wage_per_worker(factory, wage_per_unit);
 		}
 
@@ -546,7 +545,6 @@ void update_decisions(sys::state& state) {
 
 void post_output_asks(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(!state.world.factory_get_canonical_production(factory)) return;
 		auto type = state.world.factory_get_building_type(factory);
 		auto province = compat::alice::province_for_factory(state, factory);
 		auto owner = actors::organizations::operator_actor_for_factory(state, factory);
@@ -554,8 +552,7 @@ void post_output_asks(sys::state& state) {
 		auto market = province ? state.world.state_instance_get_market_from_local_market(
 			state.world.province_get_state_membership(province)) : dcon::market_id{};
 		auto hub = market ? physical::deposits::market_hub_for(state, market) : dcon::site_id{};
-		if(!owner || !output || !hub || state.world.commodity_get_is_local(output)
-			|| state.world.commodity_get_money_rgo(output)) return;
+		if(!owner || !output || !hub) return;
 		auto quantity = physical::inventory::quantity(state, hub, output, owner);
 		if(quantity <= epsilon) return;
 		auto reference = state.world.factory_get_agency_expected_selling_price(factory);
@@ -578,7 +575,7 @@ void post_output_asks(sys::state& state) {
 }
 
 void observe_production(sys::state& state, dcon::factory_id factory, float planned_units, float realized_units) {
-	if(!factory || !state.world.factory_get_canonical_production(factory)) return;
+	if(!factory || !state.world.factory_is_valid(factory)) return;
 	planned_units = finite_nonnegative(planned_units);
 	realized_units = finite_nonnegative(realized_units);
 	auto unmet = std::max(0.0f, planned_units - realized_units);

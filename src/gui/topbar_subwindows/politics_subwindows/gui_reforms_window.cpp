@@ -213,7 +213,7 @@ void reform_description(sys::state& state, text::columnar_layout& contents, dcon
 	if(total > 0) {
 		text::add_line(state, contents, "there_are_backing", text::variable_type::val, text::fp_percentage{ support / total });
 	}
-	if(gamerule::age_of_transformation_enabled(state)) {
+	{
 		auto const political = politics::transformation::evaluate_issue_support(
 			state, state.local_player_nation, ref);
 		auto const execution = nations::policy_execution::average_effective_policy(
@@ -274,7 +274,8 @@ void reform_description(sys::state& state, text::columnar_layout& contents, dcon
 
 	auto time_limit = state.world.nation_get_last_issue_or_reform_change(state.local_player_nation);
 	auto parent = state.world.issue_option_get_parent_issue(ref);
-	if(parent.get_issue_type() != uint8_t(culture::issue_type::party) && time_limit && !(time_limit + int32_t(state.defines.min_delay_between_reforms * 30) <= state.current_date)) {
+	if(parent.get_issue_type() != uint8_t(culture::issue_type::party) && time_limit
+		&& !(time_limit + int32_t(state.defines.min_delay_between_reforms * 30) <= state.current_date)) {
 		text::add_line_with_condition(state, contents, "too_soon_for_reform", false, text::variable_type::date, time_limit + int32_t(state.defines.min_delay_between_reforms * 30));
 	}
 
@@ -332,18 +333,10 @@ void reform_description(sys::state& state, text::columnar_layout& contents, dcon
 
 		for(int32_t i = start; i < end; i++) {
 			auto pid = dcon::political_party_id(dcon::political_party_id::value_base_t(i));
-			if(politics::political_party_is_active(state, state.local_player_nation, pid)
-				&& (state.world.nation_get_government_type(state.local_player_nation).get_ideologies_allowed() & culture::to_bits(state.world.political_party_get_ideology(pid))) != 0
-				&& state.world.political_party_get_ideology(pid) == iid) {
+			if(politics::political_party_is_active(state, state.local_player_nation, pid) && (state.world.nation_get_government_type(state.local_player_nation).get_ideologies_allowed() & culture::to_bits(state.world.political_party_get_ideology(pid))) != 0 && state.world.political_party_get_ideology(pid) == iid) {
 
 				if(auto special_opt = state.world.political_party_get_party_issues(pid, parent); special_opt) {
-					if(special_opt == ref
-							|| (state.world.issue_get_is_next_step_only(parent.id)
-								&& ((special_opt.id.index() > current.index() && ref.index() > current.index())
-									|| (special_opt.id.index() < current.index() && ref.index() < current.index())
-									)
-								)
-					) {
+					if(special_opt == ref || state.world.issue_get_is_next_step_only(parent.id) && special_opt.id.index() > current.index() && ref.index() > current.index() || special_opt.id.index() < current.index() && ref.index() < current.index()) {
 						party_special_issues_support_total = upperhouse_weight;
 					} else {
 						party_special_issues_support_total = 0.0f;
@@ -435,8 +428,7 @@ public:
 		auto const content = retrieve<dcon::issue_option_id>(state, parent);
 		auto const* bill = politics::transformation::active_bill(
 			state, state.local_player_nation);
-		if(bill && bill->target == politics::transformation::legislation_target::issue
-			&& bill->option == content) {
+		if(bill && bill->target == politics::transformation::legislation_target::issue && bill->option == content) {
 			set_text(state, transformation_bill_row_text(state, *bill));
 		} else {
 			set_text(state, text::get_name_as_string(

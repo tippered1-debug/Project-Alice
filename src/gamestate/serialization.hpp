@@ -190,20 +190,10 @@ inline uint8_t const* deserialize(uint8_t const* ptr_in, ankerl::unordered_dense
 	return ptr_in + sizeof(uint32_t) + sizeof(vec.values()[0]) * length;
 }
 
-// Version 46 changed the handwritten scenario/save sections. Version 47 added
-// per-commodity directional cargo-in-transit arrays to each trade route.
-// Version 48 persists monthly land and industry collateral valuations. Version
-// 49 added the framed exact-runtime extension; version 50 adds lifetime-stable
-// POP bindings and exact-population lifecycle checkpoints inside that
-// length-delimited extension. Version 51 adds current population membership
-// ranges and compact transition history to AOEX. Versions 48-50 stay readable
-// because their DCON schema is unchanged.
-constexpr inline uint32_t oldest_legacy_save_file_version = 48;
-constexpr inline uint32_t legacy_save_file_version = 50;
-constexpr inline uint32_t save_file_version = 51;
+// Version 54 removes legacy actor/deposit marker fields and requires the canonical runtime snapshot. Earlier aggregate save
+// layouts are intentionally unsupported.
+constexpr inline uint32_t save_file_version = 55;
 constexpr inline uint32_t scenario_file_version = 139 + save_file_version;
-constexpr inline uint32_t legacy_scenario_file_version = 139 + legacy_save_file_version;
-constexpr inline uint32_t oldest_legacy_scenario_file_version = 139 + oldest_legacy_save_file_version;
 
 struct scenario_header {
 	uint32_t version = scenario_file_version;
@@ -249,7 +239,7 @@ uint8_t* write_compressed_section(uint8_t* ptr_out, uint8_t const* ptr_in, uint3
 // Note: these functions are for read / writing the *uncompressed* data
 uint8_t const* read_scenario_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields = false);
 uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_end, sys::state& state, bool exclude_local_handwritten_fields = false);
-void migrate_legacy_army_supply_fields(sys::state& state, dcon::load_record const& loaded);
+bool canonical_runtime_loaded(sys::state const& state);
 uint8_t* write_scenario_section(uint8_t* ptr_in, sys::state& state, bool exclude_local_handwritten_fields = false);
 uint8_t* write_save_section(uint8_t* ptr_in, sys::state& state, bool exclude_local_handwritten_fields = false);
 struct scenario_size {

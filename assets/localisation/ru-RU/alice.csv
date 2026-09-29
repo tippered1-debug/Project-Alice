@@ -640,7 +640,7 @@ pop_growth_9;И 4
 pop_growth_10;Модификатор роста местного населения $x$
 pop_growth_11;Модификатор национального роста населения $x$
 pop_growth_12;Итоговый штраф от голода равен произведению фактора голода $x$ и масштаба штрафа $y$: $val$.
-pop_growth_13;?CAge of Transformation:?W доступность жилья — ?Y$x$?W, урбанизация — ?Y$y$?W, давление перенаселения — ?Y$val$?W.
+pop_growth_13;?CДемографическое давление:?W доступность жилья — ?Y$x$?W, урбанизация — ?Y$y$?W, давление перенаселения — ?Y$val$?W.
 pop_growth_14;Перенаселение изменяет месячный прирост на ?R$x$?W и добавляет ?R+$y$?W воинственности в месяц.
 pop_growth_15;Демографический переход — ?Y$x$?W (грамотность ?Y$y$?W, доступ к образованию ?Y$val$?W) и изменяет месячный прирост на ?R$value$?W.
 pop_growth_16;Местный индекс человеческого развития: ?Y$x$?W.
@@ -1436,10 +1436,6 @@ alice_budget_debt;Долг
 alice_budget_total_debt;Итого:
 alice_budget_max_debt;Макс:
 alice_budget_debt_enable;Включить долг
-alice_gamerule_age_of_transformation;Alice: Эпоха преобразований
-alice_gamerule_age_of_transformation_desc;Включает опциональный политико-экономический набор правил: группы интересов, влияние богатства, коалиции, легитимность и исполнение законов
-alice_gamerule_age_of_transformation_opt_disabled;Совместимые классические правила
-alice_gamerule_age_of_transformation_opt_enabled;Эпоха преобразований
 alice_aot_legitimacy;Легитимность преобразований: $x$ / 100
 alice_aot_electoral_reach;Электоральный охват населения: $x$
 alice_aot_coalition;Правящая коалиция: $x$
@@ -1465,7 +1461,7 @@ alice_aot_group_intelligentsia;Интеллигенция
 alice_aot_group_organized_labor;Организованный труд
 alice_aot_group_rural_communities;Сельские сообщества
 alice_aot_group_state_services;Государственные служащие
-alice_aot_reform_header;Политический баланс «Эпохи преобразований» (требуется 50%)
+alice_aot_reform_header;Политический баланс (требуется 50%)
 alice_aot_reform_popular;Народная поддержка: $x$
 alice_aot_reform_electoral;Электоральная поддержка: $x$
 alice_aot_reform_power;Поддержка политической силы: $x$
@@ -1498,8 +1494,7 @@ alice_aot_bill_status_ready;Все условия выполнены: закон
 alice_aot_bill_status_blocked;Одно или несколько условий не выполнены. Если они не улучшатся, законопроект провалится в конце этапа.
 alice_aot_bill_group_positions;Позиции политических групп (поддержка · политическая сила)
 alice_aot_bill_group_position;$X$: $Y$ · $VAL$
-alice_aot_disabled_hint;Расширенное законодательство выключено. Включите «Alice: Эпоха преобразований» в правилах новой игры, чтобы использовать переговоры, голосования и внедрение.
-alice_aot_movement_header;Давление на радикализм в «Эпохе преобразований»
+alice_aot_movement_header;Давление радикализма
 alice_aot_movement_power;Поддержка политической силы: $x$
 alice_aot_movement_coalition;Противостояние правящей коалиции: $x$
 alice_aot_movement_legitimacy;Чистое давление легитимности: $x$
@@ -1589,3 +1584,4 @@ alice_aot_lending_capacity;Дневной кредитный ресурс: $x$
 alice_aot_producer_debt;Долг производителей: $x$
 alice_aot_unfunded_credit;Непокрытый убыток производителей сегодня: $x$
 alice_aot_credit_employment;Масштаб занятости с учётом кредита: $x$
+alice_trade_actual_quantity;Запрошено: ?Y$x$?W; отправлено: ?G$y$?W

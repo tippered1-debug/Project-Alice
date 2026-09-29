@@ -818,7 +818,7 @@ void render(sys::state& state) {
 	auto screen_size = glm::vec2(state.x_size, state.y_size) / state.user_settings.ui_scale;
 
 	// render market data
-	if(zoom > map::zoom_close || (zoom > map::zoom_close / 2.f && state.iui_state.national_data && state.iui_state.tab == iui::iui_tab::commodities_markets)) {
+	if(zoom > map::zoom_close || zoom > map::zoom_close / 2.f && state.iui_state.national_data && state.iui_state.tab == iui::iui_tab::commodities_markets) {
 		iui::rect market_label_rect{ 0.f, 0.f, state.iui_state.map_label.w, state.iui_state.map_label.h };
 		if(state.iui_state.tab == iui::iui_tab::trade_volume) {
 			if(state.iui_state.selected_trade_info == iui::trade_volume_info_mode::embargo) {
@@ -942,20 +942,14 @@ void render(sys::state& state) {
 					);
 				}
 			} else if(state.iui_state.tab == iui::iui_tab::infrastructure) {
-				if(
-					state.iui_state.selected_infrastructure_mode == iui::infrastructure_mode::civilian_ports
-					&& draw_panel
-				) {
+				if(state.iui_state.selected_infrastructure_mode == iui::infrastructure_mode::civilian_ports && draw_panel) {
 					state.iui_state.float_2(
 						state, pid.index(),
 						market_label_rect_text,
 						value
 					);
 				}
-				if(
-					state.iui_state.selected_infrastructure_mode == iui::infrastructure_mode::housing
-					&& draw_panel
-				) {
+				if(state.iui_state.selected_infrastructure_mode == iui::infrastructure_mode::housing && draw_panel) {
 					state.iui_state.float_2(
 						state, pid.index(),
 						market_label_rect_text,

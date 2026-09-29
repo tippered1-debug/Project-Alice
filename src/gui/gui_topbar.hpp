@@ -460,7 +460,7 @@ public:
 		}
 		text::add_line_break_to_layout(state, contents);
 
-		if(gamerule::age_of_transformation_enabled(state)) {
+		{
 			// Put the macro indicators beside the cash-flow explanation.
 			auto const prices = economy::price_level::evaluate_nation(
 				state, nation_id);

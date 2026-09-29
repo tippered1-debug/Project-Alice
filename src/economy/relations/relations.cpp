@@ -26,8 +26,7 @@ dcon::transaction_id record_transaction(sys::state& state, dcon::economic_actor_
 dcon::obligation_id create_obligation(sys::state& state, dcon::economic_actor_id debtor,
 	dcon::economic_actor_id creditor, float principal, dcon::commodity_id settlement,
 	sys::date creation_date, sys::date due_date, float annual_interest_rate, obligation_kind kind) {
-	if(!debtor || !creditor || debtor == creditor || !std::isfinite(principal) || principal <= 0.0f
-		|| !std::isfinite(annual_interest_rate) || annual_interest_rate < 0.0f)
+	if(!debtor || !creditor || debtor == creditor || !std::isfinite(principal) || principal <= 0.0f || !std::isfinite(annual_interest_rate) || annual_interest_rate < 0.0f)
 		return {};
 	auto obligation = state.world.create_obligation();
 	state.world.obligation_set_original_principal(obligation, principal);
@@ -91,10 +90,7 @@ float outstanding_between(sys::state const& state, dcon::economic_actor_id debto
 	float total = 0.0f;
 	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(debtor, [&](dcon::obligation_debtor_id relation) {
 		auto obligation = state.world.obligation_debtor_get_obligation(relation);
-		if(state.world.obligation_get_economic_actor_from_obligation_debtor(obligation) == debtor
-			&& state.world.obligation_get_economic_actor_from_obligation_creditor(obligation) == creditor
-			&& state.world.obligation_get_settlement_commodity(obligation) == settlement
-			&& state.world.obligation_get_status(obligation) == uint8_t(obligation_status::active))
+		if(state.world.obligation_get_economic_actor_from_obligation_debtor(obligation) == debtor && state.world.obligation_get_economic_actor_from_obligation_creditor(obligation) == creditor && state.world.obligation_get_settlement_commodity(obligation) == settlement && state.world.obligation_get_status(obligation) == uint8_t(obligation_status::active))
 			total += total_due(state, obligation);
 	});
 	return total;

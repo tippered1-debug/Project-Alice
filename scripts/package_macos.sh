@@ -5,11 +5,11 @@ project_root="${0:A:h:h}"
 binary="${1:-$project_root/build/macos-arm64-release/Alice}"
 dist_dir="$project_root/dist"
 staging_dir="$dist_dir/macos-dmg"
-app_name="Project Alice - Age of Transformation.app"
+app_name="Project Alice.app"
 app_dir="$staging_dir/$app_name"
 contents_dir="$app_dir/Contents"
 resources_dir="$contents_dir/Resources"
-dmg_path="$dist_dir/Project-Alice-Age-of-Transformation-arm64.dmg"
+dmg_path="$dist_dir/Project-Alice-arm64.dmg"
 
 if [[ ! -x "$binary" ]]; then
 	print -u2 "error: Release binary not found: $binary"
@@ -46,7 +46,7 @@ codesign --force --deep --sign - "$app_dir"
 ln -s /Applications "$staging_dir/Applications"
 
 rm -f "$dmg_path"
-hdiutil create -volname "Project Alice - Age of Transformation" \
+hdiutil create -volname "Project Alice" \
 	-srcfolder "$staging_dir" -ov -format UDZO "$dmg_path"
 
 print -- "$dmg_path"

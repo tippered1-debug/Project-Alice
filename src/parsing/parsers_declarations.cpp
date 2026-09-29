@@ -545,8 +545,7 @@ void pop_province_list::any_group(std::string_view type, pop_history_definition 
 	}
 	for(auto pops_by_location : context.outer_context.state.world.province_get_pop_location(context.id)) {
 		auto pop_id = pops_by_location.get_pop();
-		if(pop_id.get_culture() == def.cul_id && pop_id.get_poptype() == ptype && pop_id.get_religion() == def.rel_id &&
-			context.outer_context.map_of_pop_rebel_affiliation.contains(pop_id) && context.outer_context.map_of_pop_rebel_affiliation.find(pop_id)->second == def.reb_id) {
+		if(pop_id.get_culture() == def.cul_id && pop_id.get_poptype() == ptype && pop_id.get_religion() == def.rel_id && context.outer_context.map_of_pop_rebel_affiliation.contains(pop_id) && context.outer_context.map_of_pop_rebel_affiliation.find(pop_id)->second == def.reb_id) {
 			pop_id.get_size() += float(def.size);
 			return; // done with this pop
 		}
@@ -2365,9 +2364,7 @@ void decision::picture(association_type, std::string_view value, error_handler& 
 	auto gfx = open_directory(root, NATIVE("gfx"));
 	auto pictures = open_directory(gfx, NATIVE("pictures"));
 	auto decisions = open_directory(pictures, NATIVE("decisions"));
-	if(!peek_file(decisions, simple_fs::utf8_to_native(value) + NATIVE(".dds")).has_value()
-	&& !peek_file(decisions, simple_fs::utf8_to_native(value) + NATIVE(".tga")).has_value()
-	&& !peek_file(decisions, simple_fs::utf8_to_native(value) + NATIVE(".png")).has_value()) {
+	if(!peek_file(decisions, simple_fs::utf8_to_native(value) + NATIVE(".dds")).has_value() && !peek_file(decisions, simple_fs::utf8_to_native(value) + NATIVE(".tga")).has_value() && !peek_file(decisions, simple_fs::utf8_to_native(value) + NATIVE(".png")).has_value()) {
 		err.accumulated_warnings += "Picture " + std::string(value) + " does not exist " + " (" + err.file_name + ")\n";
 		return; // Picture not found
 	}
@@ -3531,9 +3528,7 @@ void mod_file::add_to_file_system(simple_fs::file_system& fs){
 			simple_fs::add_ignore_path(fs, simple_fs::list_roots(fs)[0] + NATIVE("\\history\\provinces"));
 			simple_fs::add_ignore_path(fs, simple_fs::list_roots(fs)[0] + NATIVE("\\history\\units"));
 			simple_fs::add_ignore_path(fs, simple_fs::list_roots(fs)[0] + NATIVE("\\history\\wars"));
-		} else if(replace_path == NATIVE("history\\pops")
-			|| replace_path == NATIVE("map")
-			|| replace_path == NATIVE("map\\terrain")) {
+		} else if(replace_path == NATIVE("history\\pops") || replace_path == NATIVE("map") || replace_path == NATIVE("map\\terrain")) {
 			//no
 		} else {
 			native_string path_block = simple_fs::list_roots(fs)[0];

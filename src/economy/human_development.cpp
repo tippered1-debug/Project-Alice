@@ -4,7 +4,6 @@
 #include "demographics.hpp"
 #include "demographics_templates.hpp"
 #include "economy_stats.hpp"
-#include "gamerule.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -77,10 +76,8 @@ inputs inputs_for_province(sys::state const& state, dcon::province_id province,
 
 } // namespace
 
-config ruleset_config_for(sys::state const& state) {
-	config result{};
-	result.enabled = gamerule::age_of_transformation_enabled(state);
-	return result;
+config canonical_config_for(sys::state const&) {
+	return {};
 }
 
 breakdown calculate(config const& rules, inputs raw_inputs) {
@@ -90,9 +87,6 @@ breakdown calculate(config const& rules, inputs raw_inputs) {
 	result.factors.job_access = unit(raw_inputs.job_access, 1.f);
 	result.factors.education_access = unit(raw_inputs.education_access);
 	result.factors.literacy = unit(raw_inputs.literacy);
-	if(!rules.enabled)
-		return result;
-
 	result.enabled = true;
 	result.housing_shortage = 1.f - result.factors.housing_access;
 	result.overcrowding = unit(
@@ -127,24 +121,16 @@ breakdown calculate(config const& rules, inputs raw_inputs) {
 
 breakdown evaluate_province(sys::state const& state, dcon::province_id province,
 		float literacy) {
-	auto rules = ruleset_config_for(state);
-	// This early return is part of the compatibility contract: classic games
-	// must not even read service arrays that older/minimal scenarios may not
-	// have initialized.
-	if(!rules.enabled)
-		return calculate(rules, {});
+	auto const rules = canonical_config_for(state);
 	if(!province || !state.world.province_is_valid(province)) {
-		rules.enabled = false;
-		return calculate(rules, {});
+		return {};
 	}
 	return calculate(rules, inputs_for_province(state, province, literacy));
 }
 
 breakdown evaluate_pop(sys::state const& state, dcon::pop_id pop) {
 	if(!pop || !state.world.pop_is_valid(pop)) {
-		auto rules = ruleset_config_for(state);
-		rules.enabled = false;
-		return calculate(rules, {});
+		return {};
 	}
 	auto const province = state.world.pop_get_province_from_pop_location(pop);
 	return evaluate_province(state, province, pop_demographics::get_literacy(state, pop));
@@ -152,7 +138,7 @@ breakdown evaluate_pop(sys::state const& state, dcon::pop_id pop) {
 
 float migration_multiplier(config const& rules, breakdown const& origin,
 		breakdown const& target) {
-	if(!rules.enabled || !origin.enabled || !target.enabled)
+	if(!origin.enabled || !target.enabled)
 		return 1.f;
 	auto const safe_origin = std::max(0.05f, nonnegative(origin.migration_quality));
 	auto const safe_target = std::max(0.05f, nonnegative(target.migration_quality));
@@ -168,8 +154,8 @@ float migration_multiplier(config const& rules, breakdown const& origin,
 
 float migration_multiplier(sys::state const& state, dcon::province_id origin,
 		dcon::province_id target) {
-	auto const rules = ruleset_config_for(state);
-	if(!rules.enabled || !origin || !target
+	auto const rules = canonical_config_for(state);
+	if(!origin || !target
 		|| !state.world.province_is_valid(origin)
 		|| !state.world.province_is_valid(target))
 		return 1.f;
@@ -188,12 +174,10 @@ demographic_account calculate_account(float population, float legacy_growth_modi
 		? std::min(0.f, starvation_penalty) : 0.f;
 	result.baseline_natural_growth = safe_population * safe_legacy;
 	result.starvation_loss = safe_population * -safe_starvation;
-	if(development.enabled) {
-		result.housing_loss = safe_population
-			* nonnegative(development.monthly_overcrowding_growth_penalty);
-		result.transition_reduction = safe_population
-			* nonnegative(development.monthly_transition_growth_reduction);
-	}
+	result.housing_loss = safe_population
+		* nonnegative(development.monthly_overcrowding_growth_penalty);
+	result.transition_reduction = safe_population
+		* nonnegative(development.monthly_transition_growth_reduction);
 	result.net_natural_change = result.baseline_natural_growth
 		- result.starvation_loss - result.housing_loss - result.transition_reduction;
 	return result;

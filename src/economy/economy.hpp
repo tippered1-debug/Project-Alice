@@ -46,7 +46,6 @@ float farmer_min_wage(sys::state& state, dcon::market_id m, float min_wage_facto
 float laborer_min_wage(sys::state& state, dcon::market_id m, float min_wage_factor);
 
 void daily_update(sys::state& state, bool presimulation, float presimulation_stage);
-void resolve_constructions(sys::state& state);
 
 std::vector<dcon::factory_type_id> commodity_get_factory_types_as_output(sys::state const& state, dcon::commodity_id output_good);
 
@@ -71,8 +70,6 @@ float estimate_war_subsidies_spending(sys::state& state, dcon::nation_id n);
 float estimate_reparations_spending(sys::state& state, dcon::nation_id n);
 float estimate_war_subsidies_income(sys::state& state, dcon::nation_id n);
 float estimate_reparations_income(sys::state& state, dcon::nation_id n);
-float estimate_overseas_penalty_spending(sys::state& state, dcon::nation_id n);
-float estimate_stockpile_filling_spending(sys::state& state, dcon::nation_id n);
 
 struct full_construction_factory {
 	float cost = 0.0f;
@@ -115,7 +112,6 @@ int32_t previous_price_record_index(sys::state& state);
 int32_t most_recent_gdp_record_index(sys::state& state);
 int32_t previous_gdp_record_index(sys::state& state);
 
-void prune_factories(sys::state& state); // get rid of closed factories in full states
 dcon::modifier_id get_province_selector_modifier(sys::state& state);
 dcon::modifier_id get_province_immigrator_modifier(sys::state& state);
 

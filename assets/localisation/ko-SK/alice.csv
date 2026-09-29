@@ -1744,18 +1744,11 @@ alice_original_war_participant_notinvolved;?Y$NATION$?W ?R더 이상 참전하�
 pop_project;인구 계획
 state_project;주 건설
 delete_factory;공장 철거
-trade_route_volume_profit_score;이익 점수: ?Y$val$?W(기초 변화율에 따라 결정) 총계:
-trade_route_volume_profit_score_export;수출 점수: ?Y$val$?W. 수출 이익 ?Y$x$?W를 우리 수출 가격 ?Y$y$?W로 나눈 값
-trade_route_volume_profit_score_import;수입 점수: ?Y$val$?W. (수입 이익 ?Y$x$?W를 상대 수출 가격 ?Y$y$?W로 나눈 값)을 뺌
-trade_route_volume_base_change;기초 변화 예상: ?Y$val$?W(이익 점수 × 확장 배수)
-trade_route_volume_decay;감쇠: ?Y$val$?W(무역량이 합리적 범위를 벗어나는 것을 방지하고, 저이익 노선의 무역량을 점차 줄입니다.)
 export;수출액
 import;수입액
 total_volume;총 무역액
 embargo;금수 조치
 alice_toggle_administration;행정 수도 설립
-trade_route_volume_expansion_multiplier;확장 배수: ?Y$val$?W(수출 시장에서 상품을 실제로 확보하는 상황에 따라 결정)
-trade_route_volume_final_change;변화 예상: ?Y$val$
 alice_production_name_sort_tip_province;?Y좌클릭?W 으로 주 이름순 정렬
 alice_production_name_sort_tip_state;?YShift+좌클릭?W 으로 지역 이름순 정렬
 status_quo;현상 유지

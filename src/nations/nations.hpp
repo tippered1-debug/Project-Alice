@@ -303,7 +303,6 @@ float get_avg_non_colonial_literacy(sys::state& state, dcon::nation_id n);
 float get_avg_total_literacy(sys::state& state, dcon::nation_id n);
 
 void update_great_powers(sys::state& state);
-void update_influence(sys::state& state);
 void update_revanchism(sys::state& state);
 
 void monthly_flashpoint_update(sys::state& state);

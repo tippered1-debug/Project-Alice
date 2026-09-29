@@ -1,5 +1,7 @@
 # Layoffs, quits, and unemployment v1
 
+> Historical milestone snapshot. Some save and compatibility statements below describe the original v1 implementation and are superseded by the current canonical runtime contract. The current end-to-end save and runtime contract is documented in [Simulation Continuity](features/simulation-continuity.md) and [Canonical Runtime Contract](features/canonical-runtime-migration.md).
+
 Canonical factories use `firm_agency::decide_factory(...).desired_units` as
 their labor target. Concrete labor supplied is the sum of active legacy
 employment contracts and active exact-person contracts; provincial POP labor

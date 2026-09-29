@@ -514,10 +514,7 @@ bool SVGElement::isHiddenElement() const
 
 bool SVGElement::isPointableElement() const
 {
-    if(m_pointer_events != PointerEvents::None
-        && m_visibility != Visibility::Hidden
-        && m_display != Display::None
-        && m_opacity != 0.f) {
+    if(m_pointer_events != PointerEvents::None && m_visibility != Visibility::Hidden && m_display != Display::None && m_opacity != 0.f) {
         switch(m_id) {
         case ElementID::Line:
         case ElementID::Rect:
@@ -714,7 +711,7 @@ void SVGRootElement::layout(SVGLayoutState& state)
     }
 
     const auto& viewBoxRect = viewBox().value();
-    if(!viewBoxRect.isEmpty() && (m_intrinsicWidth == 0.0f || m_intrinsicHeight == 0.0f)) {
+    if(!viewBoxRect.isEmpty() && m_intrinsicWidth == 0.0f || m_intrinsicHeight == 0.0f) {
         auto intrinsicRatio = viewBoxRect.w / viewBoxRect.h;
         if(m_intrinsicWidth == 0.0f && m_intrinsicHeight != 0.0f)
             m_intrinsicWidth = m_intrinsicHeight * intrinsicRatio;
@@ -723,7 +720,7 @@ void SVGRootElement::layout(SVGLayoutState& state)
         }
     }
 
-    if(viewBoxRect.isValid() && (m_intrinsicWidth == 0.0f || m_intrinsicHeight == 0.0f)) {
+    if(viewBoxRect.isValid() && m_intrinsicWidth == 0.0f || m_intrinsicHeight == 0.0f) {
         m_intrinsicWidth = viewBoxRect.w;
         m_intrinsicHeight = viewBoxRect.h;
     }

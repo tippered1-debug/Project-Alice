@@ -6,21 +6,21 @@ namespace sys { class state; }
 
 namespace actors::ownership {
 
-enum class actor_kind : uint8_t { placeholder = 0, company = 1, bank = 2, fund = 3, cooperative = 4, state_entity = 5, other = 6, person = 7 };
+enum class actor_kind : uint8_t { invalid = 0, company = 1, bank = 2, fund = 3, cooperative = 4, state_entity = 5, other = 6, person = 7 };
 
 dcon::economic_actor_id actor_for_organization(sys::state const&, dcon::organization_id);
 dcon::asset_id equity_asset_for_organization(sys::state const&, dcon::organization_id);
 dcon::asset_id asset_for_factory(sys::state const&, dcon::factory_id);
 dcon::asset_id asset_for_deposit(sys::state const&, dcon::resource_deposit_id);
 dcon::economic_actor_id operator_for_deposit(sys::state const&, dcon::resource_deposit_id);
-dcon::economic_actor_id ensure_placeholder_organization(sys::state&, dcon::organization_id);
 dcon::ownership_stake_id create_stake(sys::state&, dcon::economic_actor_id, dcon::asset_id, float, float, float);
 bool set_stake_fractions(sys::state&, dcon::ownership_stake_id, float, float, float);
 float contribute_equity_to_factory(sys::state&, dcon::factory_id, dcon::economic_actor_id,
 	dcon::monetary_account_id, float requested_amount);
 bool issue_equity(sys::state&, dcon::asset_id, dcon::economic_actor_id investor,
 	float investment, float pre_money_value);
-void bootstrap(sys::state&);
+bool canonical_ownership_is_valid(sys::state const&);
+void validate_canonical_ownership(sys::state const&);
 bool valid_fraction(float) noexcept;
 
 } // namespace actors::ownership

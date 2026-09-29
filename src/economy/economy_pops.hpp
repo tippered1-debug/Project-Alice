@@ -28,33 +28,6 @@ VALUE safe_ratio_or_zero(BOOL_VALUE zero_denominator, VALUE numerator, VALUE den
 
 vectorized_pops_budget<float> prepare_pop_budget(const sys::state& state, dcon::pop_id ids);
 
-void update_consumption(
-	sys::state& state,
-	ve::vectorizable_buffer<float, dcon::nation_id>& invention_count,
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_life,
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_housing,
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_everyday,
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_luxury,
-	// Keep this order aligned with the literacy update: state-funded education,
-	// then household-funded education.
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_public,
-	ve::vectorizable_buffer<float, dcon::pop_id>& buffer_education_private,
-	ve::vectorizable_buffer<float, dcon::pop_id>& demand_life,
-	ve::vectorizable_buffer<float, dcon::pop_id>& demand_housing,
-	ve::vectorizable_buffer<float, dcon::pop_id>& demand_everyday,
-	ve::vectorizable_buffer<float, dcon::pop_id>& demand_luxury,
-	ve::vectorizable_buffer<float, dcon::pop_id>& demand_paid_education,
-	ve::vectorizable_buffer<float, dcon::pop_id>& subsistence_ratio
-);
-void update_income_artisans(sys::state& state);
-void update_income_national_subsidy(sys::state& state);
-void update_income_wages(sys::state& state);
-void update_income_non_labor(sys::state& state);
-
-#ifndef NDEBUG
-void debug_check_pop_savings_phase(sys::state const& state, char const* phase_name);
-#endif
-
 struct labor_ratio_wage {
 	int32_t labor_type;
 	float ratio;

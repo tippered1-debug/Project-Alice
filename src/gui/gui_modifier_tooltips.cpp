@@ -253,8 +253,7 @@ void active_modifiers_description(sys::state& state, text::layout_base& layout, 
 	state.world.for_each_issue([&](dcon::issue_id i) {
 		auto iopt = state.world.nation_get_issues(n, i);
 		auto imod = state.world.issue_option_get_modifier(iopt);
-		if(imod &&
-				(state.world.nation_get_is_civilized(n) || state.world.issue_get_issue_type(i) == uint8_t(culture::issue_type::party)))
+		if(imod && state.world.nation_get_is_civilized(n) || state.world.issue_get_issue_type(i) == uint8_t(culture::issue_type::party))
 			active_single_modifier_description(state, layout, imod, identation, header, nmid);
 	});
 	if(!state.world.nation_get_is_civilized(n)) {

@@ -58,8 +58,7 @@ struct province_land_text : element_base {
 	}
 
 	void set_text(sys::state& state, std::string new_value) {
-		if(value != new_value || cached_width != base_data.size.x
-				|| cached_height != base_data.size.y) {
+		if(value != new_value || cached_width != base_data.size.x || cached_height != base_data.size.y) {
 			value = std::move(new_value);
 			rebuild(state);
 		}
@@ -1527,9 +1526,7 @@ public:
 class province_selector_window : public window_element_base {
 public:
 	std::unique_ptr<element_base> make_child(sys::state& state, std::string_view name, dcon::gui_def_id id) noexcept override {
-		if(name == "underconstruction_icon"
-		|| name == "building_progress"
-		|| name == "expand_text") {
+		if(name == "underconstruction_icon" || name == "building_progress" || name == "expand_text") {
 			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "expand") {
 			return make_element_by_type<province_selector_button>(state, id);
@@ -1607,9 +1604,7 @@ public:
 class province_immigrator_window : public window_element_base {
 public:
 	std::unique_ptr<element_base> make_child(sys::state& state, std::string_view name, dcon::gui_def_id id) noexcept override {
-		if(name == "underconstruction_icon"
-		|| name == "building_progress"
-		|| name == "expand_text") {
+		if(name == "underconstruction_icon" || name == "building_progress" || name == "expand_text") {
 			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "expand") {
 			return make_element_by_type<province_immigrator_button>(state, id);
@@ -2845,7 +2840,7 @@ public:
 			++existing_colonizers;
 		}
 
-		if(!found_player && (existing_colonizers == 0 || (fat_def.get_colonization_stage() == 1 && existing_colonizers < 4))) {
+		if(!found_player && existing_colonizers == 0 || fat_def.get_colonization_stage() == 1 && existing_colonizers < 4) {
 			row_contents.push_back(dcon::colonization_id{});
 		}
 
@@ -3202,7 +3197,7 @@ void province_view_window::on_update(sys::state& state) noexcept {
 		auto const subtab_open = economy_window->is_visible()
 			|| factories_window->is_visible() || tiles_window->is_visible()
 			|| market_window->is_visible();
-		auto const show_land = gamerule::age_of_transformation_enabled(state)
+		auto const show_land = true
 			&& bool(active_province) && !subtab_open;
 		land_panel->set_visible(state, show_land);
 		if(show_land)

@@ -269,8 +269,7 @@ public:
 		const dcon::nation_id n = retrieve<dcon::nation_id>(state, parent);
 		for(auto p : state.world.nation_get_province_ownership(n)) {
 			for(auto fac : p.get_province().get_factory_location()) {
-				if(fac.get_factory().get_building_type() == state.world.factory_get_building_type(fid)
-				&& command::can_begin_factory_building_construction(state, state.local_player_nation,
+				if(fac.get_factory().get_building_type() == state.world.factory_get_building_type(fid) && command::can_begin_factory_building_construction(state, state.local_player_nation,
 					p.get_province(), fac.get_factory().get_building_type(), true)) {
 					command::begin_factory_building_construction(state, state.local_player_nation,
 						p.get_province(), fac.get_factory().get_building_type(), true);
@@ -284,10 +283,7 @@ public:
 		const dcon::nation_id n = retrieve<dcon::nation_id>(state, parent);
 		for(auto p : state.world.nation_get_province_ownership(n)) {
 			for(auto fac : p.get_province().get_factory_location()) {
-				if(
-					fac.get_factory().get_building_type() == state.world.factory_get_building_type(fid)
-					&& economy::factory_total_employment_score(state, fac.get_factory()) > 0.8f
-				) {
+				if(fac.get_factory().get_building_type() == state.world.factory_get_building_type(fid) && economy::factory_total_employment_score(state, fac.get_factory()) > 0.8f) {
 					if(command::can_begin_factory_building_construction(state, state.local_player_nation,
 						p.get_province(), fac.get_factory().get_building_type(), true)) {
 						command::begin_factory_building_construction(state, state.local_player_nation,

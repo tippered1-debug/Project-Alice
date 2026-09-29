@@ -1,12 +1,12 @@
 #include "deposits.hpp"
 #include "system_state.hpp"
 #include "province.hpp"
-#include "actors/organizations/organizations.hpp"
-#include "actors/ownership.hpp"
 #include "world/spatial_runtime.hpp"
 
 #include <cmath>
 #include <algorithm>
+#include <cassert>
+#include <cstdlib>
 
 namespace economy::physical::deposits {
 
@@ -29,56 +29,14 @@ bootstrap_calibration calibrate_legacy_signals(float rgo_size, float rgo_amount)
 	// These legacy values are scenario signals, not geological tonnes.  The
 	// conversion is performed only while creating a missing canonical deposit;
 	// runtime extraction uses the resulting deposit state exclusively.
+	assert(std::isfinite(rgo_size) && rgo_size >= 0.0f
+		&& std::isfinite(rgo_amount) && rgo_amount >= 0.0f);
+	if(!std::isfinite(rgo_size) || rgo_size < 0.0f
+		|| !std::isfinite(rgo_amount) || rgo_amount < 0.0f) std::abort();
 	constexpr float reserve_scale = 1000.0f;
-	auto size_signal = std::max(0.0f, std::isfinite(rgo_size) ? rgo_size : 0.0f);
-	auto amount_signal = std::max(0.0f, std::isfinite(rgo_amount) ? rgo_amount : 0.0f);
-	auto reserves = std::max(1.0f, size_signal * reserve_scale);
-	auto daily = std::max(1.0f, amount_signal);
+	auto reserves = std::max(1.0f, rgo_size * reserve_scale);
+	auto daily = std::max(1.0f, rgo_amount);
 	return { reserves, daily, std::min(reserves, daily) };
-}
-
-bool asset_has_owner(sys::state const& state, dcon::asset_id asset) {
-	bool owned = false;
-	if(!asset) return false;
-	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
-		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
-		if(state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake)) owned = true;
-	});
-	return owned;
-}
-
-dcon::economic_actor_id create_legacy_placeholder_owner(sys::state& state) {
-	auto organization = actors::organizations::create_company(state);
-	if(!organization) return {};
-	auto actor = actors::organizations::actor_for_organization(state, organization);
-	if(actor) state.world.economic_actor_set_is_legacy_placeholder(actor, 1);
-	return actor;
-}
-
-void ensure_asset_and_operator(sys::state& state, dcon::resource_deposit_id deposit) {
-	auto organization = actors::organizations::operator_organization_for_deposit(state, deposit);
-	if(!organization) {
-		organization = actors::organizations::create_company(state);
-		if(organization) {
-			actors::organizations::bind_deposit_operator(state, organization, deposit);
-			state.world.economic_actor_set_is_legacy_placeholder(
-				actors::organizations::actor_for_organization(state, organization), 1);
-		}
-	}
-	auto asset = actors::ownership::asset_for_deposit(state, deposit);
-	if(!asset) {
-		auto asset = state.world.create_asset();
-		state.world.force_create_resource_deposit_asset(deposit, asset);
-	}
-	asset = actors::ownership::asset_for_deposit(state, deposit);
-	if(asset && !asset_has_owner(state, asset)) {
-		// A real pre-existing operator is never silently made owner. Unknown
-		// legacy ownership is represented by a separate deterministic placeholder.
-		auto operator_actor = actors::organizations::operator_actor_for_deposit(state, deposit);
-		auto owner = operator_actor && state.world.economic_actor_get_is_legacy_placeholder(operator_actor)
-			? operator_actor : create_legacy_placeholder_owner(state);
-		if(owner) actors::ownership::create_stake(state, owner, asset, 1.0f, 1.0f, 1.0f);
-	}
 }
 
 bool valid_deposit_values(sys::state const& state, dcon::site_id site, dcon::commodity_id commodity,
@@ -94,9 +52,8 @@ bool valid_deposit_values(sys::state const& state, dcon::site_id site, dcon::com
 
 bool initialize_deposit(sys::state& state, dcon::resource_deposit_id deposit, dcon::site_id site,
 	dcon::commodity_id commodity, float original, float remaining, float grade, float capacity,
-	float target, uint8_t requested_status, bool legacy_compatibility) {
-	if(!deposit || !state.world.resource_deposit_is_valid(deposit)
-		|| !valid_deposit_values(state, site, commodity, original, remaining, grade, capacity, target, requested_status)) return false;
+	float target, uint8_t requested_status) {
+	if(!deposit || !state.world.resource_deposit_is_valid(deposit) || !valid_deposit_values(state, site, commodity, original, remaining, grade, capacity, target, requested_status)) return false;
 	auto status = remaining == 0.0f ? uint8_t(2) : requested_status;
 	state.world.resource_deposit_set_commodity(deposit, commodity);
 	state.world.force_create_resource_deposit_site(deposit, site);
@@ -106,15 +63,14 @@ bool initialize_deposit(sys::state& state, dcon::resource_deposit_id deposit, dc
 	state.world.resource_deposit_set_daily_extraction_capacity(deposit, capacity);
 	state.world.resource_deposit_set_target_daily_extraction(deposit, target);
 	state.world.resource_deposit_set_status(deposit, status);
-	state.world.resource_deposit_set_legacy_compatibility_deposit(deposit, legacy_compatibility ? 1 : 0);
 	return true;
 }
 
 dcon::resource_deposit_id create_deposit(sys::state& state, dcon::site_id site, dcon::commodity_id commodity,
-	float original, float remaining, float grade, float capacity, float target, uint8_t status, bool legacy_compatibility) {
+	float original, float remaining, float grade, float capacity, float target, uint8_t status) {
 	if(!valid_deposit_values(state, site, commodity, original, remaining, grade, capacity, target, status)) return {};
 	auto deposit = state.world.create_resource_deposit();
-	if(!initialize_deposit(state, deposit, site, commodity, original, remaining, grade, capacity, target, status, legacy_compatibility)) {
+	if(!initialize_deposit(state, deposit, site, commodity, original, remaining, grade, capacity, target, status)) {
 		state.world.delete_resource_deposit(deposit);
 		return {};
 	}
@@ -148,31 +104,29 @@ dcon::site_id market_hub_for(sys::state const& state, dcon::market_id market) {
 void bootstrap(sys::state& state) {
 	state.world.for_each_province([&](dcon::province_id province) {
 		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-			if(state.world.commodity_get_rgo_amount(commodity) <= 0.0f
-				|| state.world.province_get_rgo_size(province, commodity) <= 0.0f)
+			auto rgo_amount = state.world.commodity_get_rgo_amount(commodity);
+			auto rgo_size = state.world.province_get_rgo_size(province, commodity);
+			assert(std::isfinite(rgo_amount) && rgo_amount >= 0.0f
+				&& std::isfinite(rgo_size) && rgo_size >= 0.0f);
+			if(!std::isfinite(rgo_amount) || rgo_amount < 0.0f
+				|| !std::isfinite(rgo_size) || rgo_size < 0.0f) std::abort();
+			if(rgo_amount <= 0.0f || rgo_size <= 0.0f)
 				return;
 			auto existing = deposit_for(state, province, commodity);
 			if(existing) {
-				// Existing deposits are already canonical runtime state (or an
-				// explicitly marked compatibility deposit). Never re-read mutable
-				// province RGO values to repair or overwrite them.
-				if(state.world.resource_deposit_get_legacy_compatibility_deposit(existing))
-					ensure_asset_and_operator(state, existing);
+				// Existing deposits are canonical. Never re-read mutable province
+				// RGO values to repair or overwrite them.
 				return;
 			}
 			auto site = make_site(state, province);
 			auto calibration = calibrate_legacy_signals(
-				state.world.province_get_rgo_size(province, commodity),
-				state.world.commodity_get_rgo_amount(commodity));
-			// Local and money RGO have no canonical physical extraction path in
-			// this layer, so they remain explicitly compatibility-only. Ordinary
-			// commodities become canonical deposits owned by their runtime state.
-			auto compatibility = state.world.commodity_get_is_local(commodity)
-				|| state.world.commodity_get_money_rgo(commodity);
+				rgo_size, rgo_amount);
 			auto deposit = create_deposit(state, site, commodity, calibration.reserves,
-				calibration.reserves, 1.0f, calibration.daily_capacity, calibration.target, 0, compatibility);
-			if(!deposit) return;
-			ensure_asset_and_operator(state, deposit);
+				calibration.reserves, 1.0f, calibration.daily_capacity, calibration.target, 0);
+			if(!deposit) {
+				assert(false && "scenario resource must become a canonical physical deposit");
+				std::abort();
+			}
 		});
 	});
 

@@ -90,6 +90,7 @@ bool complete_external_shipment(sys::state&, dcon::shipment_id, float surviving_
 
 freight_snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, freight_snapshot const&);
+void initialize_empty_store(sys::state&);
 void clear_store(sys::state&);
 
 } // namespace economy::physical::exact_person_freight

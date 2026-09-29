@@ -27,9 +27,7 @@ constexpr uint16_t pack_font_handle(uint32_t font_index, bool black, uint32_t si
 }
 
 bool is_black_font(std::string_view txt) {
-	if(parsers::has_fixed_suffix_ci(txt.data(), txt.data() + txt.length(), "_bl") ||
-			parsers::has_fixed_suffix_ci(txt.data(), txt.data() + txt.length(), "black") ||
-			parsers::has_fixed_suffix_ci(txt.data(), txt.data() + txt.length(), "black_bold")) {
+	if(parsers::has_fixed_suffix_ci(txt.data(), txt.data() + txt.length(), "_bl") || parsers::has_fixed_suffix_ci(txt.data(), txt.data() + txt.length(), "black") || parsers::has_fixed_suffix_ci(txt.data(), txt.data() + txt.length(), "black_bold")) {
 		return true;
 	} else {
 		return false;
@@ -197,7 +195,7 @@ int32_t transform_offset_b(int32_t x, int32_t y, int32_t btmap_x_off, int32_t bt
 	int bmp_x = x - btmap_x_off;
 	int bmp_y = y - btmap_y_off;
 
-	if((bmp_x < 0) || (bmp_x >= (int32_t)width) || (bmp_y < 0) || (bmp_y >= (int32_t)height))
+	if(bmp_x < 0 || bmp_x >= (int32_t)width || bmp_y < 0 || bmp_y >= (int32_t)height)
 		return -1;
 	else
 		return bmp_x + bmp_y * (int32_t)pitch;
@@ -235,8 +233,7 @@ void dead_reckoning(float distance_map[dr_size * dr_size], bool const in_map[dr_
 	}
 	for(int32_t j = 1; j < dr_size - 1; ++j) {
 		for(int32_t i = 1; i < dr_size - 1; ++i) {
-			if(in_map[i - 1 + dr_size * j] != in_map[i + dr_size * j] || in_map[i + 1 + dr_size * j] != in_map[i + dr_size * j] ||
-					in_map[i + dr_size * (j + 1)] != in_map[i + dr_size * j] || in_map[i + dr_size * (j - 1)] != in_map[i + dr_size * j]) {
+			if(in_map[i - 1 + dr_size * j] != in_map[i + dr_size * j] || in_map[i + 1 + dr_size * j] != in_map[i + dr_size * j] || in_map[i + dr_size * (j + 1)] != in_map[i + dr_size * j] || in_map[i + dr_size * (j - 1)] != in_map[i + dr_size * j]) {
 				distance_map[i + dr_size * j] = 0.0f;
 				yborder[i + dr_size * j] = static_cast<int16_t>(j);
 				xborder[i + dr_size * j] = static_cast<int16_t>(i);
@@ -870,8 +867,7 @@ void font_at_size::remake_cache(sys::state& state, font_selection type, stored_g
 						//find word end
 						auto best_found = -1;
 						for(auto k = start_of_new_entries; k < d->grapheme_placement.size(); ++k) {
-							if(uint16_t(start_wb_position + logical_start + details_offset) <= d->grapheme_placement[k].source_offset
-								&& d->grapheme_placement[k].source_offset < uint16_t(end_seq + logical_start + details_offset)) {
+							if(uint16_t(start_wb_position + logical_start + details_offset) <= d->grapheme_placement[k].source_offset && d->grapheme_placement[k].source_offset < uint16_t(end_seq + logical_start + details_offset)) {
 
 								best_found = int32_t(k);
 							}
@@ -901,8 +897,7 @@ void font_at_size::remake_cache(sys::state& state, font_selection type, stored_g
 								d->grapheme_placement[k].x_offset = int16_t(accumulated_advance + total_x_advance);
 								d->grapheme_placement[k].width = int16_t(glyph_pos[j].x_advance / (text::fixed_to_fp * state.user_settings.ui_scale));
 								break;
-							} else if(uint16_t(rendering_details_for) < d->grapheme_placement[k].source_offset
-								&& int32_t(rendering_details_for) > best_match) {
+							} else if(uint16_t(rendering_details_for) < d->grapheme_placement[k].source_offset && int32_t(rendering_details_for) > best_match) {
 								best_match = int32_t(rendering_details_for);
 								best_match_index = j;
 							}

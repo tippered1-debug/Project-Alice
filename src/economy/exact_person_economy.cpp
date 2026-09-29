@@ -5,13 +5,16 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/household_mobility.hpp"
 #include "economy/causal_order.hpp"
+#include "money.hpp"
 #include "governance/governance.hpp"
 #include "governance/finance/finance.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <unordered_map>
@@ -43,13 +46,15 @@ constexpr uint32_t snapshot_version = 1;
 constexpr float epsilon = 1.0e-6f;
 
 std::shared_ptr<exact_person_economy_store> ensure_store(sys::state& state) {
-	if(!state.exact_person_economy)
-		state.exact_person_economy = std::make_shared<exact_person_economy_store>();
+	assert(state.exact_person_economy && "exact person economy store must be initialized before simulation");
+	if(!state.exact_person_economy) std::abort();
 	return state.exact_person_economy;
 }
 
 std::shared_ptr<exact_person_economy_store> ensure_store(sys::state const& state) {
-	return ensure_store(const_cast<sys::state&>(state));
+	assert(state.exact_person_economy && "exact person economy store must be initialized before lookup");
+	if(!state.exact_person_economy) std::abort();
+	return state.exact_person_economy;
 }
 
 bool finite_positive(float amount) {
@@ -185,7 +190,7 @@ uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::j
 	record.payer_account = payer;
 	record.worker_account_id = worker_account.exact_account_id;
 	record.start_date = state.current_date;
-	record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::employment_contract);
+	record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::labor_contract);
 	if(record.causal_sequence == 0) return 0;
 	if(!valid_date_or_current(state, record.start_date)
 		|| !std::isfinite(record.labor_capacity) || record.labor_capacity <= 0.0f
@@ -303,6 +308,103 @@ bool set_balance(sys::state& state, account_ref ref, float amount) {
 		return true;
 	}
 	return false;
+}
+
+float population_cash_balance(sys::state const& state, dcon::pop_id population,
+	dcon::commodity_id settlement) {
+	if(!state.world.pop_is_valid(population) || !settlement
+		|| !state.world.commodity_is_valid(settlement)) return 0.0f;
+	double total = 0.0;
+	for(auto const& account : ensure_store(state)->accounts) {
+		if(account.settlement == settlement && persons::exact_population::alive(state, account.owner)
+			&& persons::exact_population::current_population_for_person(state, account.owner) == population)
+			total += std::max(0.0f, account.balance);
+	}
+	return std::isfinite(total) && total <= double(std::numeric_limits<float>::max())
+		? float(total) : 0.0f;
+}
+
+bool apply_population_cash_effect(sys::state& state, dcon::pop_id population,
+	dcon::commodity_id settlement, float amount) {
+	if(!state.world.pop_is_valid(population) || !settlement
+		|| !state.world.commodity_is_valid(settlement) || !std::isfinite(amount)) return false;
+	auto store = ensure_store(state);
+	std::vector<account_record*> affected;
+	for(auto& account : store->accounts)
+		if(account.settlement == settlement && persons::exact_population::alive(state, account.owner)
+			&& persons::exact_population::current_population_for_person(state, account.owner) == population)
+			affected.push_back(&account);
+	std::sort(affected.begin(), affected.end(), [](auto left, auto right) { return left->id < right->id; });
+	if(affected.empty() && amount > 0.0f) {
+		auto current_cell = persons::exact_population::source_cell_for_population(state, population);
+		if(current_cell == 0) return false;
+		auto catalog = persons::exact_population::export_snapshot(state);
+		persons::exact_population::person_key recipient{};
+		for(auto const& range : catalog.membership_ranges) {
+			if(range.current_population_cell != current_cell) continue;
+			for(uint64_t ordinal = range.first_ordinal; ordinal < range.first_ordinal + range.count; ++ordinal) {
+				persons::exact_population::person_key candidate{range.identity_population_cell, ordinal};
+				if(persons::exact_population::alive(state, candidate)
+					&& persons::exact_population::current_population_for_person(state, candidate) == population) {
+					recipient = candidate;
+					break;
+				}
+			}
+			if(recipient.source_population_cell != 0) break;
+		}
+		if(recipient.source_population_cell == 0) return false;
+		auto opened = open_account(state, recipient, settlement);
+		if(!opened) return false;
+		if(auto account = exact_account(state, opened.exact_account_id)) affected.push_back(account);
+	}
+	if(affected.empty()) return amount <= 0.0f;
+	double total = 0.0;
+	for(auto account : affected) total += std::max(0.0f, account->balance);
+	if(amount < 0.0f && total <= 0.0) return true;
+	auto adjustment = amount < 0.0f ? -std::min(double(-amount), total) : double(amount);
+	std::vector<float> next_balances;
+	next_balances.reserve(affected.size());
+	double remaining = std::abs(adjustment);
+	for(size_t index = 0; index < affected.size(); ++index) {
+		auto const current = double(std::max(0.0f, affected[index]->balance));
+		double delta = 0.0;
+		if(adjustment >= 0.0) {
+			delta = index + 1 == affected.size() ? remaining
+				: adjustment / double(affected.size());
+		} else {
+			auto const deduction = std::min(current,
+				index + 1 == affected.size() ? remaining : std::abs(adjustment) * current / total);
+			delta = -deduction;
+		}
+		remaining = std::max(0.0, remaining - std::abs(delta));
+		auto next = current + delta;
+		if(!std::isfinite(next) || next < 0.0 || next > double(std::numeric_limits<float>::max())) return false;
+		next_balances.push_back(float(next));
+	}
+	for(size_t index = 0; index < affected.size(); ++index)
+		affected[index]->balance = next_balances[index];
+	return true;
+}
+
+bool project_population_cash_balances(sys::state& state) {
+	assert(state.exact_population && "canonical person accounts must be initialized before projection");
+	if(!state.exact_population) std::abort();
+	std::unordered_map<uint32_t, double> totals;
+	for(auto const& account : ensure_store(state)->accounts) {
+		if(account.settlement != economy::money || !persons::exact_population::alive(state, account.owner)) continue;
+		auto population = persons::exact_population::current_population_for_person(state, account.owner);
+		if(population) totals[population.index()] += std::max(0.0f, account.balance);
+	}
+	bool valid = true;
+	state.world.for_each_pop([&](dcon::pop_id population) {
+		auto value = totals[population.index()];
+		if(!std::isfinite(value) || value > double(std::numeric_limits<float>::max())) {
+			valid = false;
+			return;
+		}
+		state.world.pop_set_savings(population, float(value));
+	});
+	return valid;
 }
 
 uint64_t account_count(sys::state const& state) {
@@ -809,7 +911,7 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 		for(auto const& existing : candidate->contracts)
 			if(existing.id == record.id || (existing.worker == record.worker && existing.status == contract_status::active
 				&& record.status == contract_status::active)) return false;
-		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::employment_contract);
+		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::labor_contract);
 		if(record.causal_sequence == 0) return false;
 		if(record.unpaid_wages > epsilon && !record.arrears_since) record.arrears_since = record.start_date;
 		causal_order::observe(state, record.causal_sequence);
@@ -861,6 +963,12 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 	}
 	state.exact_person_economy = std::move(candidate);
 	return true;
+}
+
+void initialize_empty_store(sys::state& state) {
+	assert(!state.exact_person_economy && "exact person economy store initialized more than once");
+	if(state.exact_person_economy) std::abort();
+	state.exact_person_economy = std::make_shared<exact_person_economy_store>();
 }
 
 void clear_store(sys::state& state) {

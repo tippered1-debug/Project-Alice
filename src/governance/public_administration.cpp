@@ -5,7 +5,6 @@
 #include "economy/economy_stats.hpp"
 #include "economy/money.hpp"
 #include "economy/physical/concrete_market.hpp"
-#include "economy/physical/concrete_labor.hpp"
 #include "economy/physical/job_market.hpp"
 #include "economy/payroll.hpp"
 #include "economy/physical/inventory.hpp"
@@ -107,23 +106,11 @@ dcon::monetary_account_id treasury_for_kind(sys::state const& state, dcon::natio
 
 float positive(float value) { return std::isfinite(value) ? std::max(0.0f, value) : 0.0f; }
 
-float monthly_wage_cost(sys::state const& state, dcon::employment_contract_id contract) {
-	if(state.world.employment_contract_get_status(contract) != uint8_t(economy::physical::concrete_labor::contract_status::active))
-		return 0.0f;
-	auto wage = state.world.employment_contract_get_wage_rate(contract);
-	auto capacity = state.world.employment_contract_get_labor_capacity(contract);
-	return std::isfinite(wage) && wage > 0.0f && std::isfinite(capacity) && capacity > 0.0f
-		? wage * capacity : 0.0f;
-}
-
 float active_monthly_payroll(sys::state const& state, dcon::institution_id institution) {
 	float total = 0.0f;
-	for(auto contract : economy::physical::concrete_labor::active_contracts_for_institution(state, institution))
-		total += monthly_wage_cost(state, contract);
 	for(auto id : economy::exact_person_economy::active_contracts_for_institution(state, institution)) {
 		auto contract = economy::exact_person_economy::contract(state, id);
-		if(contract && std::isfinite(contract->wage_rate) && contract->wage_rate > 0.0f
-			&& std::isfinite(contract->labor_capacity) && contract->labor_capacity > 0.0f)
+		if(contract && std::isfinite(contract->wage_rate) && contract->wage_rate > 0.0f && std::isfinite(contract->labor_capacity) && contract->labor_capacity > 0.0f)
 			total += contract->wage_rate * contract->labor_capacity;
 	}
 	return positive(total);
@@ -132,16 +119,9 @@ float active_monthly_payroll(sys::state const& state, dcon::institution_id insti
 float active_capacity_at(sys::state const& state, dcon::institution_id institution,
 	dcon::province_id province, uint8_t occupation) {
 	float total = 0.0f;
-	for(auto contract : economy::physical::concrete_labor::active_contracts_for_institution(state, institution)) {
-		if(state.world.employment_contract_get_occupation(contract) != occupation) continue;
-		auto site = state.world.employment_contract_get_site_from_employment_contract_site(contract);
-		if(!site || state.world.site_get_province_from_site_location(site) != province) continue;
-		total += positive(state.world.employment_contract_get_labor_capacity(contract));
-	}
 	for(auto id : economy::exact_person_economy::active_contracts_for_institution(state, institution)) {
 		auto contract = economy::exact_person_economy::contract(state, id);
-		if(!contract || contract->occupation != occupation || !contract->workplace
-			|| state.world.site_get_province_from_site_location(contract->workplace) != province) continue;
+		if(!contract || contract->occupation != occupation || !contract->workplace || state.world.site_get_province_from_site_location(contract->workplace) != province) continue;
 		total += positive(contract->labor_capacity);
 	}
 	return total;
@@ -152,10 +132,7 @@ float open_capacity_at(sys::state const& state, dcon::institution_id institution
 	float total = 0.0f;
 	state.world.institution_for_each_job_offer_institution_as_institution(institution, [&](auto relation) {
 		auto offer = state.world.job_offer_institution_get_job_offer(relation);
-		if(!offer || state.world.job_offer_get_status(offer) != uint8_t(economy::physical::job_market::offer_status::open)
-			|| state.world.job_offer_get_occupation(offer) != occupation
-			|| (state.world.job_offer_get_expires_on(offer)
-				&& state.world.job_offer_get_expires_on(offer) < state.current_date)) return;
+		if(!offer || state.world.job_offer_get_status(offer) != uint8_t(economy::physical::job_market::offer_status::open) || state.world.job_offer_get_occupation(offer) != occupation || state.world.job_offer_get_expires_on(offer) && state.world.job_offer_get_expires_on(offer) < state.current_date) return;
 		auto site = state.world.job_offer_get_site_from_job_offer_site(offer);
 		if(!site || state.world.site_get_province_from_site_location(site) != province) return;
 		total += positive(state.world.job_offer_get_labor_capacity(offer))
@@ -168,9 +145,7 @@ float open_monthly_payroll(sys::state const& state, dcon::institution_id institu
 	float total = 0.0f;
 	state.world.institution_for_each_job_offer_institution_as_institution(institution, [&](auto relation) {
 		auto offer = state.world.job_offer_institution_get_job_offer(relation);
-		if(!offer || state.world.job_offer_get_status(offer) != uint8_t(economy::physical::job_market::offer_status::open)
-			|| (state.world.job_offer_get_expires_on(offer)
-				&& state.world.job_offer_get_expires_on(offer) < state.current_date)) return;
+		if(!offer || state.world.job_offer_get_status(offer) != uint8_t(economy::physical::job_market::offer_status::open) || state.world.job_offer_get_expires_on(offer) && state.world.job_offer_get_expires_on(offer) < state.current_date) return;
 		auto wage = state.world.job_offer_get_wage_rate(offer);
 		auto capacity = state.world.job_offer_get_labor_capacity(offer);
 		if(!std::isfinite(wage) || wage <= 0.0f || !std::isfinite(capacity) || capacity <= 0.0f) return;
@@ -368,8 +343,7 @@ void plan_public_staffing(sys::state& state, dcon::nation_id nation) {
 	float total_population = 0.0f;
 	for(auto ownership : state.world.nation_get_province_ownership(nation)) {
 		auto province = ownership.get_province().id;
-		if(province.index() >= state.province_definitions.first_sea_province.index()
-			|| state.world.province_get_nation_from_province_control(province) != nation) continue;
+		if(province.index() >= state.province_definitions.first_sea_province.index() || state.world.province_get_nation_from_province_control(province) != nation) continue;
 		state.world.province_set_public_bureaucrat_staffing(province, 0.0f);
 		state.world.province_set_public_teacher_staffing(province, 0.0f);
 		state.world.province_set_public_police_staffing(province, 0.0f);
@@ -462,21 +436,7 @@ void settle_public_payroll(sys::state& state) {
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		for(auto institution : governance::institutions_of(state, nation)) {
 			auto kind = governance::institution_kind(state.world.institution_get_kind(institution));
-			if(kind != governance::institution_kind::finance_ministry
-				&& kind != governance::institution_kind::education_ministry
-				&& kind != governance::institution_kind::interior_ministry
-				&& kind != governance::institution_kind::municipality
-				&& kind != governance::institution_kind::public_works_ministry) continue;
-			for(auto contract : economy::physical::concrete_labor::contracts_for_institution(state, institution)) {
-				auto due = economy::physical::concrete_labor::wage_due(state, contract);
-				auto payer = state.world.employment_contract_get_monetary_account_from_employment_contract_payer_account(contract);
-				auto site = state.world.employment_contract_get_site_from_employment_contract_site(contract);
-				auto province = site ? state.world.site_get_province_from_site_location(site) : dcon::province_id{};
-				auto occupation = state.world.employment_contract_get_occupation(contract);
-				auto result = economy::physical::concrete_labor::settle_contract_wage(state, contract);
-				accrue(province, economy::accounts::settlement_of(state, payer),
-					occupation, due, result.current_paid);
-			}
+			if(kind != governance::institution_kind::finance_ministry && kind != governance::institution_kind::education_ministry && kind != governance::institution_kind::interior_ministry && kind != governance::institution_kind::municipality && kind != governance::institution_kind::public_works_ministry) continue;
 			for(auto contract_id : economy::exact_person_economy::contracts_for_institution(state, institution)) {
 				auto record = economy::exact_person_economy::contract(state, contract_id);
 				if(!record) continue;
@@ -528,8 +488,7 @@ void post_procurement_bids(sys::state& state) {
 				auto source_price = source_market
 					? economy::physical::concrete_market::canonical_reference_price(state, source_market,
 						commodity, state.current_date, state.world.commodity_get_cost(commodity)) : 0.0f;
-				if(seller && seller != actor && source_market && available > 0.0f
-					&& std::isfinite(source_price) && source_price > 0.0f)
+				if(seller && seller != actor && source_market && available > 0.0f && std::isfinite(source_price) && source_price > 0.0f)
 					(void)economy::physical::concrete_market::post_ask(state, seller, source_site,
 						source_market, commodity, available, source_price,
 						economy::physical::concrete_market::order_purpose::general);

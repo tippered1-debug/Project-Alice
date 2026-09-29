@@ -1095,9 +1095,7 @@ int32_t* f_save_map(fif::state_stack& s, int32_t* ptr, fif::environment* e) {
 			buffer[idx * 3 + 2] = 0;
 		}
 		if(pa != pb) {
-			if(((sea_a || sea_b) && opt_sea_lines)
-			|| sea_a != sea_b
-			|| (opt_province_lines && !sea_a && !sea_b)) {
+			if(sea_a || sea_b && opt_sea_lines || sea_a != sea_b || opt_province_lines && !sea_a && !sea_b) {
 				if(opt_blend) {
 					buffer[idx * 3 + 0] &= 0x7f;
 					buffer[idx * 3 + 1] &= 0x7f;

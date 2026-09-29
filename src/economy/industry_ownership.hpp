@@ -75,7 +75,6 @@ enum class ownership_law : uint8_t {
 };
 
 struct market_config {
-	bool enabled = false;
 	// A month may turn over at most this fraction of provincial industry.
 	float maximum_monthly_turnover = 0.004f;
 	// Buyers may commit only cash above this many months of essential needs.
@@ -170,7 +169,6 @@ struct dividend_split {
 [[nodiscard]] dividend_split split_dividend(distribution owners, float dividend);
 
 // Monthly Project Alice adapter.
-void update_markets(sys::state& state);
 
 // Reads the persisted shares of a province, normalized.
 [[nodiscard]] distribution current_distribution(sys::state const& state, dcon::province_id province);

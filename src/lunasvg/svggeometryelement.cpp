@@ -103,7 +103,7 @@ void SVGGeometryElement::updateMarkerPositions(SVGMarkerPositionList& positions,
 
         it.next();
 
-        if(!it.isDone() && (markerStart || markerMid)) {
+        if(!it.isDone() && markerStart || markerMid) {
             it.currentSegment(points);
             outslopePoints[0] = origin;
             outslopePoints[1] = points[0];

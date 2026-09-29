@@ -116,7 +116,7 @@ float calculate_real_wage(float nominal_wage, float cpi) {
 market_result evaluate_market(sys::state const& state, dcon::market_id market,
 		float opening_cpi) {
 	market_result result;
-	result.enabled = gamerule::age_of_transformation_enabled(state);
+	result.enabled = true;
 	if(!result.enabled)
 		return result;
 
@@ -132,7 +132,7 @@ market_result evaluate_market(sys::state const& state, dcon::market_id market,
 
 nation_result evaluate_nation(sys::state const& state, dcon::nation_id nation) {
 	nation_result result;
-	result.enabled = gamerule::age_of_transformation_enabled(state);
+	result.enabled = true;
 	if(!result.enabled || !nation)
 		return result;
 
@@ -187,7 +187,7 @@ float real_wage(sys::state const& state, dcon::province_id province, int32_t lab
 
 void begin_day(sys::state& state) {
 	auto& account = state.price_level_account;
-	account.enabled = gamerule::age_of_transformation_enabled(state);
+	account.enabled = true;
 	account.opening_cpi.assign(state.world.market_size(), 1.0f);
 	account.markets.assign(state.world.market_size(), {});
 	account.world = {};

@@ -1633,7 +1633,7 @@ void template_drop_down_control::open_list(sys::state& state) {
 	auto total_vert_margin = state.ui_templates.drop_down_t[template_id].dropdown_window_margin * par->grid_size * 2;
 	auto max_vert_elm_count = int32_t((state.ui_state.root->base_data.size.y - (self_pos.y + base_data.size.y + total_vert_margin + par->grid_size * 2)) / element_y_size);
 	bool position_below = true;
-	if(max_vert_elm_count < target_page_height || (target_page_height <= 0 && max_vert_elm_count < 3)) {
+	if(max_vert_elm_count < target_page_height || target_page_height <= 0 && max_vert_elm_count < 3) {
 		max_vert_elm_count = int32_t((self_pos.y - (total_vert_margin + par->grid_size * 2)) / element_y_size);
 		position_below = false;
 	}
@@ -3067,12 +3067,7 @@ void describe_migration(sys::state& state, text::columnar_layout& contents, dcon
 
 	auto owners = state.world.province_get_nation_from_province_ownership(loc);
 	float base = 0.f;
-	if(state.world.pop_get_poptype(ids) == state.culture_definitions.bureaucrat
-		&& (
-			state.world.nation_get_accepted_cultures(owners, state.world.pop_get_culture(ids))
-			|| state.world.nation_get_primary_culture(owners) == state.world.pop_get_culture(ids)
-			)
-	) {
+	if(state.world.pop_get_poptype(ids) == state.culture_definitions.bureaucrat && state.world.nation_get_accepted_cultures(owners, state.world.pop_get_culture(ids)) || state.world.nation_get_primary_culture(owners) == state.world.pop_get_culture(ids)) {
 		base = demographics::administration_base_push;
 		text::add_line(state, contents, "pop_migration_bureaucracy", text::variable_type::x, text::fp_two_places{ base });
 	}
@@ -3127,12 +3122,7 @@ void describe_colonial_migration(sys::state& state, text::columnar_layout& conte
 	}
 
 	float base = 0.f;
-	if(state.world.pop_get_poptype(ids) == state.culture_definitions.bureaucrat
-		&& (
-			state.world.nation_get_accepted_cultures(owner, state.world.pop_get_culture(ids))
-			|| state.world.nation_get_primary_culture(owner) == state.world.pop_get_culture(ids)
-			)
-	) {
+	if(state.world.pop_get_poptype(ids) == state.culture_definitions.bureaucrat && state.world.nation_get_accepted_cultures(owner, state.world.pop_get_culture(ids)) || state.world.nation_get_primary_culture(owner) == state.world.pop_get_culture(ids)) {
 		base = demographics::administration_base_push;
 		text::add_line(state, contents, "pop_migration_bureaucracy", text::variable_type::x, text::fp_two_places{ base });
 	}

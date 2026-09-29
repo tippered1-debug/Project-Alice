@@ -85,12 +85,6 @@ struct birth_cohort {
 	uint32_t reserved_tail = 0;
 };
 
-struct population_observation {
-	uint32_t source_population_cell = 0;
-	uint32_t reserved = 0;
-	double population_size = 0.0;
-};
-
 // A person's key stays in its origin namespace. This range records where its
 // live members currently belong, so migration and class changes do not rewrite
 // identities or expand a cohort into one record per human.
@@ -109,7 +103,8 @@ enum class population_transition_cause : uint8_t {
 	demotion = 4,
 	assimilation = 5,
 	household_relocation = 6,
-	population_merge = 7
+	population_merge = 7,
+	scripted_reclassification = 8
 };
 
 struct population_transition_record {
@@ -142,22 +137,11 @@ struct catalog_snapshot {
 	std::vector<uint32_t> retired_source_cells;
 	std::vector<person_range> retired_people;
 	std::vector<birth_cohort> birth_cohorts;
-	std::vector<population_observation> population_observations;
 	std::vector<population_membership_range> membership_ranges;
 	std::vector<population_transition_record> transitions;
 	std::vector<population_transfer_remainder> transfer_remainders;
-	uint64_t observed_world_literal_count = 0;
 	bool has_source_bindings = false;
-	bool has_lifecycle_checkpoint = false;
 	bool has_current_membership = false;
-};
-
-struct population_reconciliation_result {
-	uint64_t births = 0;
-	uint64_t deaths = 0;
-	uint64_t unbound_populations = 0;
-	bool initialized_checkpoint = false;
-	bool complete = true;
 };
 
 struct population_transfer_result {
@@ -195,8 +179,10 @@ registration_result register_population_cell(sys::state&, dcon::pop_id,
 	dcon::site_id home_site = {});
 registration_result register_synthetic_population_cell(sys::state&, cell_descriptor);
 world_bootstrap_result bootstrap_from_current_pops(sys::state&);
-uint64_t synchronize_current_pop_bindings(sys::state&);
-population_reconciliation_result reconcile_population_lifecycle(sys::state&);
+// Applies population growth, casualties, or scripted demographic changes to
+// exact membership. The returned value is the number of literal persons
+// created or retired (negative for deaths); callers project after a batch.
+int64_t adjust_population_size(sys::state&, dcon::pop_id, double size_delta);
 population_transfer_result transfer_population_membership(sys::state&, dcon::pop_id source,
 	dcon::pop_id destination, float population_amount, population_transition_cause);
 bool transfer_population_person_membership(sys::state&, person_key, dcon::pop_id destination,

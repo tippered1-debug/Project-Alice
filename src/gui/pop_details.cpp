@@ -1588,7 +1588,7 @@ measure_result  pop_details_main_ln_list_t::place_item(sys::state& state, ui::no
 	if(std::holds_alternative<needs_row_option>(values[index])) {
 		if(needs_header_pool.empty()) needs_header_pool.emplace_back(make_pop_details_needs_header(state));
 		if(needs_row_pool.empty()) needs_row_pool.emplace_back(make_pop_details_needs_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<needs_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<needs_row_option>(values[index - 1])) {
 			if(destination) {
 				if(needs_header_pool.size() <= size_t(needs_header_pool_used)) needs_header_pool.emplace_back(make_pop_details_needs_header(state));
 				if(needs_row_pool.size() <= size_t(needs_row_pool_used)) needs_row_pool.emplace_back(make_pop_details_needs_row(state));
@@ -1732,7 +1732,7 @@ measure_result  pop_details_main_en_list_t::place_item(sys::state& state, ui::no
 	if(std::holds_alternative<needs_row_option>(values[index])) {
 		if(needs_header_pool.empty()) needs_header_pool.emplace_back(make_pop_details_needs_header(state));
 		if(needs_row_pool.empty()) needs_row_pool.emplace_back(make_pop_details_needs_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<needs_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<needs_row_option>(values[index - 1])) {
 			if(destination) {
 				if(needs_header_pool.size() <= size_t(needs_header_pool_used)) needs_header_pool.emplace_back(make_pop_details_needs_header(state));
 				if(needs_row_pool.size() <= size_t(needs_row_pool_used)) needs_row_pool.emplace_back(make_pop_details_needs_row(state));
@@ -1876,7 +1876,7 @@ measure_result  pop_details_main_lx_list_t::place_item(sys::state& state, ui::no
 	if(std::holds_alternative<needs_row_option>(values[index])) {
 		if(needs_header_pool.empty()) needs_header_pool.emplace_back(make_pop_details_needs_header(state));
 		if(needs_row_pool.empty()) needs_row_pool.emplace_back(make_pop_details_needs_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<needs_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<needs_row_option>(values[index - 1])) {
 			if(destination) {
 				if(needs_header_pool.size() <= size_t(needs_header_pool_used)) needs_header_pool.emplace_back(make_pop_details_needs_header(state));
 				if(needs_row_pool.size() <= size_t(needs_row_pool_used)) needs_row_pool.emplace_back(make_pop_details_needs_row(state));
@@ -1993,7 +1993,7 @@ measure_result  pop_details_main_prom_list_t::place_item(sys::state& state, ui::
 	if(std::holds_alternative<prom_row_option>(values[index])) {
 		if(prom_header_pool.empty()) prom_header_pool.emplace_back(make_pop_details_prom_header(state));
 		if(prom_row_pool.empty()) prom_row_pool.emplace_back(make_pop_details_prom_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<prom_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<prom_row_option>(values[index - 1])) {
 			if(destination) {
 				if(prom_header_pool.size() <= size_t(prom_header_pool_used)) prom_header_pool.emplace_back(make_pop_details_prom_header(state));
 				if(prom_row_pool.size() <= size_t(prom_row_pool_used)) prom_row_pool.emplace_back(make_pop_details_prom_row(state));
@@ -2106,7 +2106,7 @@ measure_result  pop_details_main_dem_list_t::place_item(sys::state& state, ui::n
 	if(std::holds_alternative<prom_row_option>(values[index])) {
 		if(prom_header_pool.empty()) prom_header_pool.emplace_back(make_pop_details_prom_header(state));
 		if(prom_row_pool.empty()) prom_row_pool.emplace_back(make_pop_details_prom_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<prom_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<prom_row_option>(values[index - 1])) {
 			if(destination) {
 				if(prom_header_pool.size() <= size_t(prom_header_pool_used)) prom_header_pool.emplace_back(make_pop_details_prom_header(state));
 				if(prom_row_pool.size() <= size_t(prom_row_pool_used)) prom_row_pool.emplace_back(make_pop_details_prom_row(state));
@@ -2166,7 +2166,7 @@ void  pop_details_main_ideo_list_t::update(sys::state& state, layout_window_elem
 	auto type = state.world.pop_get_poptype(main.for_pop);
 	for(auto i : state.world.in_ideology) {
 		auto ptrigger = state.world.pop_type_get_ideology(type, i);
-		if(ptrigger && (!i.get_is_civilized_only() || state.world.nation_get_is_civilized(nations::owner_of_pop(state, main.for_pop))) && i.get_enabled())
+		if(ptrigger && !i.get_is_civilized_only() || state.world.nation_get_is_civilized(nations::owner_of_pop(state, main.for_pop)) && i.get_enabled())
 			add_weights_row(text::produce_simple_string(state, i.get_name()), trigger::evaluate_multiplicative_modifier(state, ptrigger, trigger::to_generic(main.for_pop), trigger::to_generic(main.for_pop), 0), i.id);
 		else
 			add_weights_row(text::produce_simple_string(state, i.get_name()), 0.0f, i.id);
@@ -2216,7 +2216,7 @@ measure_result  pop_details_main_ideo_list_t::place_item(sys::state& state, ui::
 	if(std::holds_alternative<weights_row_option>(values[index])) {
 		if(weights_header_pool.empty()) weights_header_pool.emplace_back(make_pop_details_weights_header(state));
 		if(weights_row_pool.empty()) weights_row_pool.emplace_back(make_pop_details_weights_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<weights_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<weights_row_option>(values[index - 1])) {
 			if(destination) {
 				if(weights_header_pool.size() <= size_t(weights_header_pool_used)) weights_header_pool.emplace_back(make_pop_details_weights_header(state));
 				if(weights_row_pool.size() <= size_t(weights_row_pool_used)) weights_row_pool.emplace_back(make_pop_details_weights_row(state));
@@ -2350,7 +2350,7 @@ measure_result  pop_details_main_iss_list_t::place_item(sys::state& state, ui::n
 	if(std::holds_alternative<weights_row_option>(values[index])) {
 		if(weights_header_pool.empty()) weights_header_pool.emplace_back(make_pop_details_weights_header(state));
 		if(weights_row_pool.empty()) weights_row_pool.emplace_back(make_pop_details_weights_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<weights_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<weights_row_option>(values[index - 1])) {
 			if(destination) {
 				if(weights_header_pool.size() <= size_t(weights_header_pool_used)) weights_header_pool.emplace_back(make_pop_details_weights_header(state));
 				if(weights_row_pool.size() <= size_t(weights_row_pool_used)) weights_row_pool.emplace_back(make_pop_details_weights_row(state));
@@ -2421,7 +2421,7 @@ void  pop_details_main_emm_list_t::update(sys::state& state, layout_window_eleme
 	auto home_continent = state.world.province_get_continent(state.world.nation_get_capital(owner));
 
 	for(auto n : state.world.in_nation) {
-		if(n.get_owned_province_count() > 0 && n != owner && n.get_is_civilized() && (state.world.province_get_continent(state.world.nation_get_capital(n)) != home_continent || state.world.get_nation_adjacency_by_nation_adjacency_pair(owner, n))) {
+		if(n.get_owned_province_count() > 0 && n != owner && n.get_is_civilized() && state.world.province_get_continent(state.world.nation_get_capital(n)) != home_continent || state.world.get_nation_adjacency_by_nation_adjacency_pair(owner, n)) {
 			add_emm_row(n);
 
 			//float interp_result = trigger::evaluate_multiplicative_modifier(state, modifier, trigger::to_generic(n), trigger::to_generic(main.for_pop), 0);
@@ -2483,7 +2483,7 @@ measure_result  pop_details_main_emm_list_t::place_item(sys::state& state, ui::n
 	if(std::holds_alternative<emm_row_option>(values[index])) {
 		if(emm_header_pool.empty()) emm_header_pool.emplace_back(make_pop_details_emm_header(state));
 		if(emm_row_pool.empty()) emm_row_pool.emplace_back(make_pop_details_emm_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<emm_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<emm_row_option>(values[index - 1])) {
 			if(destination) {
 				if(emm_header_pool.size() <= size_t(emm_header_pool_used)) emm_header_pool.emplace_back(make_pop_details_emm_header(state));
 				if(emm_row_pool.size() <= size_t(emm_row_pool_used)) emm_row_pool.emplace_back(make_pop_details_emm_row(state));
@@ -2558,7 +2558,7 @@ void  pop_details_main_mig_list_t::update(sys::state& state, layout_window_eleme
 				add_mig_row(loc.get_province());
 			}
 		} else {
-			if((overseas_culture || loc.get_province().get_continent() == home_continent) && (!limit_to_capitals || loc.get_province().get_state_membership().get_capital().id == loc.get_province().id)) {
+			if(overseas_culture || loc.get_province().get_continent() == home_continent && !limit_to_capitals || loc.get_province().get_state_membership().get_capital().id == loc.get_province().id) {
 				//float interp_result = trigger::evaluate_multiplicative_modifier(state, modifier, trigger::to_generic(loc.get_province().id), trigger::to_generic(main.for_pop), 0);
 				//float weight = std::max(0.0f, interp_result * (loc.get_province().get_modifier_values(sys::provincial_mod_offsets::immigrant_attract) + 1.0f));
 				add_mig_row(loc.get_province());
@@ -2613,7 +2613,7 @@ measure_result  pop_details_main_mig_list_t::place_item(sys::state& state, ui::n
 	if(std::holds_alternative<mig_row_option>(values[index])) {
 		if(mig_header_pool.empty()) mig_header_pool.emplace_back(make_pop_details_mig_header(state));
 		if(mig_row_pool.empty()) mig_row_pool.emplace_back(make_pop_details_mig_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<mig_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<mig_row_option>(values[index - 1])) {
 			if(destination) {
 				if(mig_header_pool.size() <= size_t(mig_header_pool_used)) mig_header_pool.emplace_back(make_pop_details_mig_header(state));
 				if(mig_row_pool.size() <= size_t(mig_row_pool_used)) mig_row_pool.emplace_back(make_pop_details_mig_row(state));
@@ -4883,7 +4883,7 @@ void pop_details_needs_row_content_t::render(sys::state & state, int32_t x, int3
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start + table_source->needs_table_icon_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start + table_source->needs_table_icon_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_icon_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_icon){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_icon){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start + table_source->needs_table_icon_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_icon){
@@ -4902,7 +4902,7 @@ void pop_details_needs_row_content_t::render(sys::state & state, int32_t x, int3
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start + table_source->needs_table_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start + table_source->needs_table_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start + table_source->needs_table_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_name){
@@ -4921,7 +4921,7 @@ void pop_details_needs_row_content_t::render(sys::state & state, int32_t x, int3
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start + table_source->needs_table_amount_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start + table_source->needs_table_amount_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_amount_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_amount){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_amount){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start + table_source->needs_table_amount_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_amount){
@@ -4940,7 +4940,7 @@ void pop_details_needs_row_content_t::render(sys::state & state, int32_t x, int3
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start + table_source->needs_table_cost_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start + table_source->needs_table_cost_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_cost_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_cost){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_cost){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start + table_source->needs_table_cost_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_cost){
@@ -4959,7 +4959,7 @@ void pop_details_needs_row_content_t::render(sys::state & state, int32_t x, int3
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start + table_source->needs_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start + table_source->needs_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start + table_source->needs_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -5437,7 +5437,7 @@ void pop_details_needs_header_content_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start + table_source->needs_table_icon_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start + table_source->needs_table_icon_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_icon_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_icon){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_icon){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_icon_column_start + table_source->needs_table_icon_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_icon){
@@ -5456,7 +5456,7 @@ void pop_details_needs_header_content_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start + table_source->needs_table_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start + table_source->needs_table_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_name_column_start + table_source->needs_table_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_name){
@@ -5490,7 +5490,7 @@ void pop_details_needs_header_content_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start + table_source->needs_table_amount_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start + table_source->needs_table_amount_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_amount_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_amount){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_amount){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_amount_column_start + table_source->needs_table_amount_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_amount){
@@ -5524,7 +5524,7 @@ void pop_details_needs_header_content_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start + table_source->needs_table_cost_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start + table_source->needs_table_cost_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_cost_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_cost){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_cost){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_cost_column_start + table_source->needs_table_cost_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_cost){
@@ -5558,7 +5558,7 @@ void pop_details_needs_header_content_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start + table_source->needs_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start + table_source->needs_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->needs_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->needs_table_weight_column_start + table_source->needs_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -5580,7 +5580,7 @@ void pop_details_needs_header_content_t::render(sys::state & state, int32_t x, i
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->needs_table_weight_column_start + 0 + 8, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_weight.r, col_color_weight.g, col_color_weight.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }
@@ -5937,7 +5937,7 @@ void pop_details_prom_header_content_t::render(sys::state & state, int32_t x, in
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start + table_source->prom_table_icon_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start + table_source->prom_table_icon_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->prom_table_icon_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_icon){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_icon){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start + table_source->prom_table_icon_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_icon){
@@ -5956,7 +5956,7 @@ void pop_details_prom_header_content_t::render(sys::state & state, int32_t x, in
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start + table_source->prom_table_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start + table_source->prom_table_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->prom_table_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start + table_source->prom_table_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_name){
@@ -5990,7 +5990,7 @@ void pop_details_prom_header_content_t::render(sys::state & state, int32_t x, in
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start + table_source->prom_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start + table_source->prom_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->prom_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start + table_source->prom_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -6012,7 +6012,7 @@ void pop_details_prom_header_content_t::render(sys::state & state, int32_t x, in
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->prom_table_weight_column_start + 0 + 8, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_weight.r, col_color_weight.g, col_color_weight.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }
@@ -6369,7 +6369,7 @@ void pop_details_prom_row_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start + table_source->prom_table_icon_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start + table_source->prom_table_icon_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->prom_table_icon_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_icon){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_icon){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_icon_column_start + table_source->prom_table_icon_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_icon){
@@ -6388,7 +6388,7 @@ void pop_details_prom_row_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start + table_source->prom_table_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start + table_source->prom_table_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->prom_table_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_name_column_start + table_source->prom_table_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_name){
@@ -6407,7 +6407,7 @@ void pop_details_prom_row_content_t::render(sys::state & state, int32_t x, int32
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start + table_source->prom_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start + table_source->prom_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->prom_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->prom_table_weight_column_start + table_source->prom_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -6824,7 +6824,7 @@ void pop_details_weights_header_content_t::render(sys::state & state, int32_t x,
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start + table_source->weights_table_item_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start + table_source->weights_table_item_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->weights_table_item_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_item){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_item){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start + table_source->weights_table_item_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_item){
@@ -6858,7 +6858,7 @@ void pop_details_weights_header_content_t::render(sys::state & state, int32_t x,
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start + table_source->weights_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start + table_source->weights_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->weights_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start + table_source->weights_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -6880,7 +6880,7 @@ void pop_details_weights_header_content_t::render(sys::state & state, int32_t x,
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->weights_table_weight_column_start + 0 + 8, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_weight.r, col_color_weight.g, col_color_weight.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }
@@ -7321,7 +7321,7 @@ void pop_details_weights_row_content_t::render(sys::state & state, int32_t x, in
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start + table_source->weights_table_item_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start + table_source->weights_table_item_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->weights_table_item_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_item){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_item){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_item_column_start + table_source->weights_table_item_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_item){
@@ -7340,7 +7340,7 @@ void pop_details_weights_row_content_t::render(sys::state & state, int32_t x, in
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start + table_source->weights_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start + table_source->weights_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->weights_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->weights_table_weight_column_start + table_source->weights_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -7677,7 +7677,7 @@ void pop_details_emm_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start + table_source->emm_table_flag_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start + table_source->emm_table_flag_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->emm_table_flag_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_flag){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_flag){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start + table_source->emm_table_flag_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_flag){
@@ -7696,7 +7696,7 @@ void pop_details_emm_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start + table_source->emm_table_destination_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start + table_source->emm_table_destination_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->emm_table_destination_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_destination){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_destination){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start + table_source->emm_table_destination_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_destination){
@@ -7730,7 +7730,7 @@ void pop_details_emm_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start + table_source->emm_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start + table_source->emm_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->emm_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start + table_source->emm_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -7752,7 +7752,7 @@ void pop_details_emm_header_content_t::render(sys::state & state, int32_t x, int
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->emm_table_weight_column_start + 0 + 8, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_weight.r, col_color_weight.g, col_color_weight.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }
@@ -8100,7 +8100,7 @@ void pop_details_emm_row_content_t::render(sys::state & state, int32_t x, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start + table_source->emm_table_flag_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start + table_source->emm_table_flag_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->emm_table_flag_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_flag){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_flag){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_flag_column_start + table_source->emm_table_flag_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_flag){
@@ -8114,7 +8114,7 @@ void pop_details_emm_row_content_t::render(sys::state & state, int32_t x, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start + table_source->emm_table_destination_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start + table_source->emm_table_destination_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->emm_table_destination_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_destination){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_destination){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_destination_column_start + table_source->emm_table_destination_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_destination){
@@ -8133,7 +8133,7 @@ void pop_details_emm_row_content_t::render(sys::state & state, int32_t x, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start + table_source->emm_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start + table_source->emm_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->emm_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->emm_table_weight_column_start + table_source->emm_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -8585,7 +8585,7 @@ void pop_details_mig_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start + table_source->mig_table_destination_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start + table_source->mig_table_destination_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->mig_table_destination_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_destination){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_destination){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start + table_source->mig_table_destination_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_destination){
@@ -8619,7 +8619,7 @@ void pop_details_mig_header_content_t::render(sys::state & state, int32_t x, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start + table_source->mig_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start + table_source->mig_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->mig_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start + table_source->mig_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){
@@ -8641,7 +8641,7 @@ void pop_details_mig_header_content_t::render(sys::state & state, int32_t x, int
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->mig_table_weight_column_start + 0 + 8, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_weight.r, col_color_weight.g, col_color_weight.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }
@@ -8996,7 +8996,7 @@ void pop_details_mig_row_content_t::render(sys::state & state, int32_t x, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start + table_source->mig_table_destination_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start + table_source->mig_table_destination_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->mig_table_destination_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_destination){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_destination){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_destination_column_start + table_source->mig_table_destination_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_destination){
@@ -9015,7 +9015,7 @@ void pop_details_mig_row_content_t::render(sys::state & state, int32_t x, int32_
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start + table_source->mig_table_weight_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start + table_source->mig_table_weight_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->mig_table_weight_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_weight){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_weight){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->mig_table_weight_column_start + table_source->mig_table_weight_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_weight){

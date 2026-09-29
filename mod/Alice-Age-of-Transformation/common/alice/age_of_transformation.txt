@@ -1,3 +1,0 @@
-# Capability marker read by Project Alice while building a scenario.
-# Its presence defaults the Age of Transformation game rule to enabled.
-version = 1

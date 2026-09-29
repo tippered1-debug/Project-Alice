@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <thread>
 #include "system_state.hpp"
@@ -18,9 +19,7 @@
 #include "ai_alliances.hpp"
 #include "ai_focuses.hpp"
 #include "ai_economy.hpp"
-#include "ai_influence.hpp"
 #include "ai_campaign.hpp"
-#include "ai_war.hpp"
 #include "effects.hpp"
 #include "advanced_province_buildings.hpp"
 #include "military_templates.hpp"
@@ -31,6 +30,7 @@
 #include "gui_event.hpp"
 #include "game_scene.hpp"
 #include "economy_production.hpp"
+#include "economy/industrial_production.hpp"
 #include "money.hpp"
 #include "diplomatic_messages.hpp"
 #include "economy_constants.hpp"
@@ -45,6 +45,9 @@
 #include "governance/public_administration.hpp"
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
+#include "economy/causal_order.hpp"
+#include "economy/exact_person_economy.hpp"
+#include "economy/physical/exact_person_freight.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 
@@ -897,10 +900,7 @@ void state::render() { // called to render the frame may (and should) delay retu
 
 	// Have to have the map tooltip down here, and we must check both of the probes
 	// Not doing this causes the map tooltip to override some of the regular tooltips (namely the score tooltips)
-	if(current_scene.based_on_map
-		&& !mouse_probe.under_mouse
-		&& !tooltip_probe.under_mouse
-	) {
+	if(current_scene.based_on_map && !mouse_probe.under_mouse && !tooltip_probe.under_mouse) {
 		ui_state.handle_map_tooltip(*this, int16_t(root_elm->base_data.size.y - 20));		
 	}
 
@@ -1880,13 +1880,11 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	*/
 
 	if(auto it = context.map_color_to_province_id.find(sys::pack_color(240, 208, 0));
-			it != context.map_color_to_province_id.end() &&
-			context.map_color_to_province_id.find(sys::pack_color(240, 208, 1)) == context.map_color_to_province_id.end()) {
+			it != context.map_color_to_province_id.end() && context.map_color_to_province_id.find(sys::pack_color(240, 208, 1)) == context.map_color_to_province_id.end()) {
 		context.map_color_to_province_id.insert_or_assign(sys::pack_color(240, 208, 1), it->second);
 	}
 	if(auto it = context.map_color_to_province_id.find(sys::pack_color(128, 65, 96));
-			it != context.map_color_to_province_id.end() &&
-			context.map_color_to_province_id.find(sys::pack_color(128, 65, 97)) == context.map_color_to_province_id.end()) {
+			it != context.map_color_to_province_id.end() && context.map_color_to_province_id.find(sys::pack_color(128, 65, 97)) == context.map_color_to_province_id.end()) {
 		context.map_color_to_province_id.insert_or_assign(sys::pack_color(128, 65, 97), it->second);
 	}
 
@@ -1908,13 +1906,11 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 
 
 	if(auto it = context.map_color_to_province_id.find(sys::pack_color(89, 202, 202));
-			it != context.map_color_to_province_id.end() &&
-			context.map_color_to_province_id.find(sys::pack_color(94, 53, 41)) == context.map_color_to_province_id.end()) {
+			it != context.map_color_to_province_id.end() && context.map_color_to_province_id.find(sys::pack_color(94, 53, 41)) == context.map_color_to_province_id.end()) {
 		context.map_color_to_province_id.insert_or_assign(sys::pack_color(94, 53, 41), it->second);
 	}
 	if(auto it = context.map_color_to_province_id.find(sys::pack_color(89, 202, 202));
-			it != context.map_color_to_province_id.end() &&
-			context.map_color_to_province_id.find(sys::pack_color(247, 248, 245)) == context.map_color_to_province_id.end()) {
+			it != context.map_color_to_province_id.end() && context.map_color_to_province_id.find(sys::pack_color(247, 248, 245)) == context.map_color_to_province_id.end()) {
 		context.map_color_to_province_id.insert_or_assign(sys::pack_color(247, 248, 245), it->second);
 	}
 
@@ -2424,6 +2420,8 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	world.province_resize_rgo_target_employment(world.commodity_size());
 	world.province_resize_rgo_output(world.commodity_size());
 	world.province_resize_rgo_output_per_worker(world.commodity_size());
+	world.province_resize_artisan_score(world.commodity_size());
+	world.province_resize_artisan_actual_production(world.commodity_size());
 	world.province_resize_rgo_max_size(world.commodity_size());
 	world.province_resize_factory_max_size(world.commodity_size());
 
@@ -3123,8 +3121,7 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	}
 	for(auto t : world.in_invention) {
 		for(auto n : world.in_nation) {
-			if(trigger::evaluate(*this, t.get_limit(), trigger::to_generic(n), trigger::to_generic(n), -1)
-			&& trigger::evaluate_additive_modifier(*this, t.get_chance(), trigger::to_generic(n), trigger::to_generic(n), -1) > 0.f) {
+			if(trigger::evaluate(*this, t.get_limit(), trigger::to_generic(n), trigger::to_generic(n), -1) && trigger::evaluate_additive_modifier(*this, t.get_chance(), trigger::to_generic(n), trigger::to_generic(n), -1) > 0.f) {
 				n.set_active_inventions(t, true);
 			}
 			if(n.get_active_inventions(t)) {
@@ -3388,6 +3385,57 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	nations::update_revanchism(*this);
 	bool old_game_in_prog = current_scene.game_in_progress;
 	current_scene.game_in_progress = true; // Many of the "can_perform_command" functions require the game to be in progress. To avoid any assert trips in presumulation, we set it to be in progress here and reset it later
+	// Canonical entities are created once from imported scenario data. Save
+	// restoration and derived-data rebuilds must never reconstruct them from DCON.
+	assert(!exact_population && "scenario import must start without exact population state");
+	if(exact_population) std::abort();
+	auto const spatial_bootstrap = ::world::spatial_runtime::bootstrap(*this);
+	assert(world.province_size() != 0
+		&& spatial_bootstrap.status != ::world::spatial_runtime::bootstrap_status::invalid_world
+		&& "scenario import must produce a valid spatial runtime");
+	if(world.province_size() == 0
+		|| spatial_bootstrap.status == ::world::spatial_runtime::bootstrap_status::invalid_world)
+		std::abort();
+	bool spatial_runtime_complete = true;
+	world.for_each_province([&](dcon::province_id province) {
+		if(!::world::spatial_runtime::settlement_for_province(*this, province)
+			|| !::world::spatial_runtime::site_for_province(*this, province)
+			|| !::world::spatial_runtime::node_for_province(*this, province))
+			spatial_runtime_complete = false;
+	});
+	world.for_each_market([&](dcon::market_id market) {
+		auto hub = world.market_get_site_from_market_hub_site(market);
+		if(!hub || !world.site_is_valid(hub)) spatial_runtime_complete = false;
+	});
+	assert(spatial_runtime_complete && "canonical spatial runtime requires settlement, site, node, and market hub coverage");
+	if(!spatial_runtime_complete) std::abort();
+	::compat::alice::bootstrap_factory_sites(*this);
+	bool factory_sites_complete = true;
+	world.for_each_factory([&](dcon::factory_id factory) {
+		auto site = world.factory_get_site_from_factory_site(factory);
+		auto province = site ? world.site_get_province_from_site_location(site) : dcon::province_id{};
+		if(!site || !world.site_is_valid(site)
+			|| !province || !world.province_is_valid(province))
+			factory_sites_complete = false;
+	});
+	assert(factory_sites_complete && "every factory requires a canonical production site at scenario initialization");
+	if(!factory_sites_complete) std::abort();
+	::economy::causal_order::initialize_empty_store(*this);
+	::economy::exact_person_economy::initialize_empty_store(*this);
+	::economy::physical::exact_person_goods::initialize_empty_store(*this);
+	::economy::physical::exact_person_freight::initialize_empty_store(*this);
+	::economy::physical::labor_dynamics::initialize_empty_store(*this);
+	auto const population_bootstrap = persons::exact_population::bootstrap_from_current_pops(*this);
+	assert(population_bootstrap.complete && "canonical exact population bootstrap failed");
+	if(!population_bootstrap.complete) std::abort();
+	auto const population_projection = persons::exact_population::project_population_membership(*this);
+	assert(population_projection && "canonical population projection failed after initialization");
+	if(!population_projection) std::abort();
+	::economy::physical::deposits::bootstrap(*this);
+	::governance::bootstrap(*this);
+	::actors::ownership::validate_canonical_ownership(*this);
+	::economy::industrial_production::bootstrap_factories(*this);
+	::governance::public_administration::bootstrap(*this);
 	fill_unsaved_data(); // we need this to run triggers
 
 	// Clean up and fixup armies and navies
@@ -3409,7 +3457,7 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 		if(world.army_is_valid(n)) {
 			auto rng = world.army_get_army_membership(n);
 			if(!world.army_get_battle_from_army_battle_participation(n)) {
-				if(rng.begin() == rng.end() || (!world.army_get_controller_from_army_rebel_control(n) && !world.army_get_controller_from_army_control(n))) {
+				if(rng.begin() == rng.end() || !world.army_get_controller_from_army_rebel_control(n) && !world.army_get_controller_from_army_control(n)) {
 					world.delete_army(n);
 				}
 				// if the defined army does not have access to its starting location, allow it to move with blackflag
@@ -3428,14 +3476,14 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	for(auto n : world.in_nation) {
 		auto g = n.get_government_type();
 		auto name = nations::int_to_tag(n.get_identity_from_identity_holder().get_identifying_int());
-		if(!(n.get_owned_province_count() == 0 || world.government_type_is_valid(g))) {
+		if(n.get_owned_province_count() != 0 && !world.government_type_is_valid(g)) {
 			err.accumulated_errors += "Government for '" + text::produce_simple_string(*this, text::get_name(*this, n)) + "' (" + name + ") is not valid\n";
 		}
 	}
 	for(auto g : world.in_government_type) {
 		for(auto rt : world.in_rebel_type) {
 			auto ng = rt.get_government_change(g);
-			if(!(!ng || uint32_t(ng.id.index()) < world.government_type_size())) {
+			if(ng && uint32_t(ng.id.index()) >= world.government_type_size()) {
 				err.accumulated_errors += "Government change for rebel type '" + text::produce_simple_string(*this, rt.get_name()) + "' with government '" + text::produce_simple_string(*this, g.get_name()) + "' is not valid\n";
 			}
 		}
@@ -3514,7 +3562,6 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	ai::identify_focuses(*this);
 	ai::initialize_ai_tech_weights(*this);
 	// ai::update_ai_research(*this);
-	ai::update_influence_priorities(*this);
 	ai::update_focuses(*this);
 
 	military::recover_org(*this);
@@ -3988,6 +4035,12 @@ void state::on_scenario_load() {
 }
 
 void state::fill_unsaved_data() { // reconstructs derived values that are not directly saved after a save has been loaded
+	assert(exact_population && exact_person_economy && exact_person_goods
+		&& exact_person_freight && labor_dynamics && causal_order
+		&& "canonical runtime must be restored before derived data is rebuilt");
+	if(!exact_population || !exact_person_economy || !exact_person_goods
+		|| !exact_person_freight || !labor_dynamics || !causal_order)
+		std::abort();
 	clear_army_supply_derived_data();
 	politics::transformation::invalidate_cache(*this);
 	// reset ui gamerule settings to match the actual setting of the save
@@ -4068,23 +4121,6 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 
 	province::update_connected_regions(*this);
 	province::restore_unsaved_values(*this);
-
-	// Saves produced by the ARM64 null-tag bug may contain a controller relation
-	// pointing past the end of the nation/rebel tables.  Repair those provinces
-	// while loading so an affected save does not reopen as a world-wide revolt.
-	world.for_each_province([&](dcon::province_id prov) {
-		auto const owner = world.province_get_nation_from_province_ownership(prov);
-		auto const controller = world.province_get_nation_from_province_control(prov);
-		auto const rebel_controller =
-			world.province_get_rebel_faction_from_province_rebel_control(prov);
-		auto const invalid_controller = controller
-			&& uint32_t(controller.index()) >= world.nation_size();
-		auto const invalid_rebel_controller = rebel_controller
-			&& uint32_t(rebel_controller.index()) >= world.rebel_faction_size();
-		if(owner && (invalid_controller || invalid_rebel_controller)) {
-			province::set_province_controller(*this, prov, owner);
-		}
-	});
 
 	culture::update_all_nations_issue_rules(*this);
 	culture::restore_unsaved_values(*this);
@@ -4175,26 +4211,13 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 		}
 	}
 	ui_date = current_date;
-	::world::spatial_runtime::bootstrap(*this);
-	::compat::alice::bootstrap_factory_sites(*this);
-	if(gamerule::age_of_transformation_enabled(*this)
-		&& persons::exact_population::cell_count(*this) == 0) {
-		auto exact_population = persons::exact_population::bootstrap_from_current_pops(*this);
-		if(!exact_population.complete) {
-			console_command_error += std::string("?R Exact population bootstrap failed for POP ")
-				+ std::to_string(exact_population.failed_population.index()) + "?W\\n";
-		}
-	}
-	::economy::physical::deposits::bootstrap(*this);
-	::actors::ownership::bootstrap(*this);
-	::governance::bootstrap(*this);
-	::governance::public_administration::bootstrap(*this);
-
 	//copy current day's data to the alt store
 
 
 	province::update_cached_values(*this);
 	nations::update_cached_values(*this);
+	if(transformation_government_state.size() != world.nation_size() || transformation_legislation_state.size() != world.nation_size())
+		politics::transformation::refresh_all_nations(*this);
 
 	ai::identify_focuses(*this);
 	ai::initialize_ai_tech_weights(*this);
@@ -4254,6 +4277,10 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 }
 
 void state::single_game_tick() {
+	auto const runtime_loaded = canonical_runtime_loaded(*this);
+	assert(runtime_loaded
+		&& "canonical runtime must be completely initialized before the game clock advances");
+	if(!runtime_loaded) std::abort();
 	// do update logic
 
 	current_date += 1;
@@ -4502,9 +4529,6 @@ void state::single_game_tick() {
 			case 9:
 				military::daily_leaders_update(*this);
 				break;
-			case 10:
-				politics::daily_party_loyalty_update(*this);
-				break;
 			case 11:
 				nations::daily_update_flashpoint_tension(*this);
 				break;
@@ -4544,16 +4568,11 @@ void state::single_game_tick() {
 		nations::update_military_scores(*this); // depends on ship score, land unit average
 		nations::update_rankings(*this);				// depends on industrial score, military scores
 		nations::update_great_powers(*this);		// depends on rankings
-		nations::update_influence(*this);				// depends on rankings, great powers
+		// Foreign-policy choices and commitments are owned by Strategic Statecraft.
 
 		if(ymd_date.day == 1)
 			nations::strategic_statecraft::update_monthly(*this);
 		nations::update_crisis(*this);
-		politics::update_elections(*this);
-
-		if(current_date.value % 4 == 0) {
-			ai::update_ai_colonial_investment(*this);
-		}
 
 		if(defines.alice_eval_ai_mil_everyday != 0.0f) {
 			ai::make_defense(*this);
@@ -4569,7 +4588,6 @@ void state::single_game_tick() {
 		switch(ymd_date.day) {
 		case 1:
 			nations::update_monthly_points(*this);
-			economy::prune_factories(*this);
 			break;
 		case 2:
 			province::update_blockaded_cache(*this);
@@ -4577,7 +4595,6 @@ void state::single_game_tick() {
 			break;
 		case 3:
 			military::monthly_leaders_update(*this);
-			ai::add_wargoals(*this);
 			break;
 		case 4:
 			military::reinforce_regiments(*this);
@@ -4615,27 +4632,12 @@ void state::single_game_tick() {
 			rebel::update_armies(*this);
 			rebel::rebel_hunting_check(*this);
 			break;
-		case 13:
-			ai::perform_influence_actions(*this);
-			break;
-		case 14:
+			case 14:
 			ai::update_focuses(*this);
 			break;
 		case 15:
 			culture::discover_inventions(*this);
 			politics::transformation::refresh_all_nations(*this);
-			break;
-		case 16:
-			ai::build_ships(*this);
-			break;
-		case 17:
-			ai::update_land_constructions(*this);
-			break;
-		case 18:
-			ai::update_ai_econ_construction(*this);
-			break;
-		case 19:
-			ai::update_budget(*this);
 			break;
 		case 20:
 			nations::update_flashpoint_tags(*this);
@@ -4644,16 +4646,8 @@ void state::single_game_tick() {
 				ai::make_defense(*this);
 			}
 			break;
-		case 21:
-			ai::update_ai_colony_starting(*this);
-			ai::update_ai_embargoes(*this);
-			break;
 		case 22:
 			ai::take_reforms(*this);
-			break;
-		case 23:
-			ai::civilize(*this);
-			ai::make_war_decs(*this);
 			break;
 		case 24:
 			rebel::execute_rebel_victories(*this);
@@ -4666,17 +4660,8 @@ void state::single_game_tick() {
 		case 25:
 			rebel::execute_province_defections(*this);
 			break;
-		case 26:
-			ai::make_peace_offers(*this);
-			break;
-		case 27:
-			ai::update_crisis_leaders(*this);
-			break;
 		case 28:
 			rebel::rebel_risings_check(*this);
-			break;
-		case 29:
-			ai::update_war_intervention(*this);
 			break;
 		case 30:
 			if(!bool(defines.alice_eval_ai_mil_everyday)) {
@@ -4684,10 +4669,6 @@ void state::single_game_tick() {
 			}
 			rebel::update_armies(*this);
 			rebel::rebel_hunting_check(*this);
-			break;
-		case 31:
-			ai::update_cb_fabrication(*this);
-			ai::update_ai_ruling_party(*this);
 			break;
 		default:
 			break;
@@ -4699,18 +4680,8 @@ void state::single_game_tick() {
 			if(ymd_date.month == 1) {
 				sprawl_update_requested.store(true);
 
-				// yearly update : redo the upper house
-				for(auto n : world.in_nation) {
-					if(n.get_owned_province_count() != 0)
-						politics::recalculate_upper_house(*this, n);
-				}
-
-				ai::update_influence_priorities(*this);
 				nations::generate_sea_trade_routes(*this);
 				nations::recalculate_markets_distance(*this);
-			}
-			if(ymd_date.month == 2) {
-				ai::upgrade_colonies(*this);
 			}
 			if(ymd_date.month == 3 && !national_definitions.on_quarterly_pulse.empty()) {
 				for(auto n : world.in_nation) {
@@ -4724,7 +4695,6 @@ void state::single_game_tick() {
 			}
 			if(ymd_date.month == 5) {
 				ai::prune_alliances(*this);
-				ai::update_factory_types_priority(*this);
 			}
 			if(ymd_date.month == 6 && !national_definitions.on_quarterly_pulse.empty()) {
 				for(auto n : world.in_nation) {
@@ -4734,7 +4704,6 @@ void state::single_game_tick() {
 				}
 			}
 			if(ymd_date.month == 7) {
-				ai::update_influence_priorities(*this);
 				nations::recalculate_markets_distance(*this);
 			}
 			if(ymd_date.month == 9 && !national_definitions.on_quarterly_pulse.empty()) {
@@ -4796,18 +4765,12 @@ void state::single_game_tick() {
 		}
 		assert(lua_gettop(lua_game_loop_environment) == 0);
 	}
-	if(gamerule::age_of_transformation_enabled(*this)) {
-		auto reconciliation = persons::exact_population::reconcile_population_lifecycle(*this);
-		if(reconciliation.unbound_populations != 0)
-			console_command_error += std::string("?R Exact population lifetime IDs exhausted for ")
-				+ std::to_string(reconciliation.unbound_populations) + " POP rows?W\\n";
-		if(!reconciliation.complete)
-			console_command_error += "?R Exact population lifecycle reconciliation was incomplete?W\\n";
-		if(reconciliation.deaths != 0) {
-			economy::physical::labor_dynamics::retire_dead_exact_workers(*this);
-			economy::physical::exact_person_goods::cancel_dead_person_orders(*this);
-		}
-	}
+	auto const daily_population_projection =
+		persons::exact_population::project_population_membership(*this);
+	assert(daily_population_projection && "canonical population projection failed at end of day");
+	if(!daily_population_projection) std::abort();
+	economy::physical::labor_dynamics::retire_dead_exact_workers(*this);
+	economy::physical::exact_person_goods::cancel_dead_person_orders(*this);
 
 	/*
 	* END OF DAY: update cached data
@@ -4835,7 +4798,7 @@ void state::single_game_tick() {
 		}
 	}
 
-	if(((ymd_date.month % 3) == 0) && (ymd_date.day == 1)) {
+	if((ymd_date.month % 3) == 0 && ymd_date.day == 1) {
 		auto index = economy::most_recent_gdp_record_index(*this);
 		for(auto n : world.in_nation) {
 			n.set_gdp_record(index, economy::gdp::value_nation_adjusted(*this, n));
@@ -5342,23 +5305,9 @@ float state::army_group_available_supply(dcon::automated_army_group_id group, dc
 		auto regiment = dcon::fatten(world, regiment_id).get_regiment();
 		if(regiment.get_target() == province) {
 			current_weight += 3.f;
-		} else if(
-			regiment.get_ferry_target() == province
-			&& (
-				regiment.get_status() == army_group_regiment_status::move_to_port
-				|| regiment.get_status() == army_group_regiment_status::await_transport
-				|| regiment.get_status() == army_group_regiment_status::is_transported
-				|| regiment.get_status() == army_group_regiment_status::disembark
-				)
-		) {
+		} else if(regiment.get_ferry_target() == province && regiment.get_status() == army_group_regiment_status::move_to_port || regiment.get_status() == army_group_regiment_status::await_transport || regiment.get_status() == army_group_regiment_status::is_transported || regiment.get_status() == army_group_regiment_status::disembark) {
 			current_weight += 3.f;
-		} else if(
-			regiment.get_ferry_origin() == province
-			&& (
-				regiment.get_status() == army_group_regiment_status::move_to_port
-				|| regiment.get_status() == army_group_regiment_status::await_transport
-				)
-		) {
+		} else if(regiment.get_ferry_origin() == province && regiment.get_status() == army_group_regiment_status::move_to_port || regiment.get_status() == army_group_regiment_status::await_transport) {
 			current_weight += 3.f;
 		}
 	}
@@ -5470,10 +5419,7 @@ bool state::army_group_recalculate_distribution(dcon::automated_army_group_id gr
 
 		auto task = regiment.get_task();
 		auto status = regiment.get_status();
-		if(
-			task == army_group_regiment_task::idle ||
-			task == army_group_regiment_task::gather_at_hq
-		) {
+		if(task == army_group_regiment_task::idle || task == army_group_regiment_task::gather_at_hq) {
 			regiments_distribution[regiment_type.index()] += 1.f;
 			total += 1.f;
 		}
@@ -5672,10 +5618,7 @@ void state::army_group_distribute_tasks(dcon::automated_army_group_id group) {
 			for(auto regiment_automation_link : fat_group.get_automated_army_group_membership_regiment()) {
 				auto regiment = regiment_automation_link.get_regiment();
 
-				if(
-					regiment.get_status() != army_group_regiment_status::await_transport
-					&& regiment.get_status() != army_group_regiment_status::embark
-				)
+				if(regiment.get_status() != army_group_regiment_status::await_transport && regiment.get_status() != army_group_regiment_status::embark)
 					continue;
 
 				auto army = regiment.get_regiment_from_automation().get_army_from_army_membership();
@@ -6043,15 +5986,13 @@ void state::fill_vector_of_connected_provinces(dcon::province_id p1, bool is_lan
 		if(is_land) {
 			auto rid = world.province_get_connected_region_id(p1);
 			for(const auto pc : world.nation_get_province_ownership_as_nation(local_player_nation)) {
-				if(pc.get_province().get_connected_region_id() == rid
-				&& pc.get_province().get_province_control().get_nation() == local_player_nation) {
+				if(pc.get_province().get_connected_region_id() == rid && pc.get_province().get_province_control().get_nation() == local_player_nation) {
 					provinces.push_back(pc.get_province());
 				}
 			}
 		} else {
 			for(const auto pc : world.nation_get_province_ownership_as_nation(local_player_nation)) {
-				if(pc.get_province().get_province_control().get_nation() == local_player_nation
-				&& pc.get_province().get_is_coast()) {
+				if(pc.get_province().get_province_control().get_nation() == local_player_nation && pc.get_province().get_is_coast()) {
 					provinces.push_back(pc.get_province());
 				}
 			}

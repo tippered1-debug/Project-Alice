@@ -180,7 +180,7 @@ std::vector<unopened_file> list_files(directory const& dir, native_char const* e
 			auto find_handle = FindFirstFileExW(appended_path.c_str(), FindExInfoBasic, &find_result, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
 			if(find_handle != INVALID_HANDLE_VALUE) {
 				do {
-					if(!(find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+					if(!find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
 						if(
 							auto search_result = std::find_if(accumulated_results.begin(), accumulated_results.end(),
 								[n = find_result.cFileName](auto const& f) {
@@ -208,7 +208,7 @@ std::vector<unopened_file> list_files(directory const& dir, native_char const* e
 		auto find_handle = FindFirstFileExW(appended_path.c_str(), FindExInfoBasic, &find_result, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
 		if(find_handle != INVALID_HANDLE_VALUE) {
 			do {
-				if(!(find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+				if(!find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
 					accumulated_results.emplace_back(dir.relative_path + NATIVE("\\") + find_result.cFileName, find_result.cFileName);
 				}
 			} while(FindNextFileW(find_handle, &find_result) != 0);
@@ -249,10 +249,9 @@ std::vector<directory> list_subdirectories(directory const& dir) {
 			auto find_handle = FindFirstFileExW(appended_path.c_str(), FindExInfoBasic, &find_result, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
 			if(find_handle != INVALID_HANDLE_VALUE) {
 				do {
-					if((find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !impl::contains_non_ascii(find_result.cFileName)) {
+					if(find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && !impl::contains_non_ascii(find_result.cFileName)) {
 						native_string const rel_name = dir.relative_path + NATIVE("\\") + find_result.cFileName;
-						if(find_result.cFileName[0] != NATIVE('.') &&
-								std::find_if(accumulated_results.begin(), accumulated_results.end(),
+						if(find_result.cFileName[0] != NATIVE('.') && std::find_if(accumulated_results.begin(), accumulated_results.end(),
 										[&rel_name](auto const& s) { return s.relative_path.compare(rel_name) == 0; }) == accumulated_results.end()) {
 							accumulated_results.emplace_back(dir.parent_system, rel_name);
 						}
@@ -267,7 +266,7 @@ std::vector<directory> list_subdirectories(directory const& dir) {
 		auto find_handle = FindFirstFileExW(appended_path.c_str(), FindExInfoBasic, &find_result, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
 		if(find_handle != INVALID_HANDLE_VALUE) {
 			do {
-				if((find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !impl::contains_non_ascii(find_result.cFileName)) {
+				if(find_result.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && !impl::contains_non_ascii(find_result.cFileName)) {
 					native_string const rel_name = dir.relative_path + NATIVE("\\") + find_result.cFileName;
 					if(find_result.cFileName[0] != NATIVE('.')) {
 						accumulated_results.emplace_back(nullptr, rel_name);
@@ -392,14 +391,14 @@ std::optional<unopened_file> peek_file(directory const& dir, native_string_view 
 				continue;
 			}
 			DWORD dwAttrib = GetFileAttributesW(full_path.c_str());
-			if(dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+			if(dwAttrib != INVALID_FILE_ATTRIBUTES && !dwAttrib & FILE_ATTRIBUTE_DIRECTORY) {
 				return std::optional<unopened_file>(unopened_file(full_path, file_name));
 			}
 		}
 	} else {
 		native_string full_path = dir.relative_path + NATIVE('\\') + native_string(file_name);
 		DWORD dwAttrib = GetFileAttributesW(full_path.c_str());
-		if(dwAttrib != INVALID_FILE_ATTRIBUTES && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+		if(dwAttrib != INVALID_FILE_ATTRIBUTES && !dwAttrib & FILE_ATTRIBUTE_DIRECTORY) {
 			return std::optional<unopened_file>(unopened_file(full_path, file_name));
 		}
 	}

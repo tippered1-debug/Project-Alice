@@ -97,8 +97,7 @@ result calculate(inputs raw_inputs) {
 
 result evaluate_province(sys::state const& state, dcon::province_id province) {
 	inputs input;
-	if(!gamerule::age_of_transformation_enabled(state)
-		|| !province || !state.world.province_is_valid(province))
+	if(!province || !state.world.province_is_valid(province))
 		return calculate(input);
 	auto const nation = state.world.province_get_nation_from_province_ownership(province);
 	if(!nation)

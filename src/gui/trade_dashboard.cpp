@@ -4825,8 +4825,7 @@ void trade_dashboard_main_t::on_create(sys::state& state) noexcept {
 	state.ui_cached_data.set_nation(state, nation_pov);
 	if(!state.selected_trade_good) {
 		state.world.for_each_province([&](auto province) {
-			if(!state.selected_trade_good
-				&& state.world.province_get_nation_from_province_ownership(province) == nation_pov) {
+			if(!state.selected_trade_good && state.world.province_get_nation_from_province_ownership(province) == nation_pov) {
 				auto commodity = state.world.province_get_rgo(province);
 				if(commodity && commodity != economy::money)
 					state.selected_trade_good = commodity;

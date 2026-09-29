@@ -23,9 +23,7 @@ bool nonnegative_finite(float value) noexcept { return std::isfinite(value) && v
 float active_bid_reservations(sys::state const& state, dcon::monetary_account_id account) {
 	float result = 0.0f;
 	state.world.for_each_concrete_market_bid([&](dcon::concrete_market_bid_id bid) {
-		if(state.world.concrete_market_bid_get_status(bid) != 0
-			|| !state.world.concrete_market_bid_get_concrete_bid_account(bid)
-			|| state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) != account)
+		if(state.world.concrete_market_bid_get_status(bid) != 0 || !state.world.concrete_market_bid_get_concrete_bid_account(bid) || state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) != account)
 			return;
 		result += std::max(0.0f, state.world.concrete_market_bid_get_reserved_amount(bid));
 	});
@@ -57,31 +55,23 @@ bool carrier_has_presence_for(sys::state const& state, dcon::carrier_id carrier,
 bool offer_matches(sys::state const& state, dcon::freight_offer_id offer,
 	dcon::market_id origin, dcon::market_id destination, uint8_t required_modes,
 	float cargo_units, float route_distance, offer_quote& result) {
-	if(!offer || !state.world.freight_offer_is_valid(offer)
-		|| state.world.freight_offer_get_status(offer) != uint8_t(freight_offer_status::active)) return false;
+	if(!offer || !state.world.freight_offer_is_valid(offer) || state.world.freight_offer_get_status(offer) != uint8_t(freight_offer_status::active)) return false;
 	result = {};
 	result.offer = offer;
 	result.carrier = state.world.freight_offer_get_carrier_from_freight_offer_carrier(offer);
 	auto carrier = result.carrier;
-	if(!carrier || !state.world.carrier_is_valid(carrier)
-		|| state.world.carrier_get_status(carrier) != uint8_t(carrier_status::active)) return false;
-	if((state.world.carrier_get_mode_mask(carrier) & required_modes) != required_modes
-		|| (state.world.freight_offer_get_mode_mask(offer) & required_modes) != required_modes) return false;
+	if(!carrier || !state.world.carrier_is_valid(carrier) || state.world.carrier_get_status(carrier) != uint8_t(carrier_status::active)) return false;
+	if((state.world.carrier_get_mode_mask(carrier) & required_modes) != required_modes || (state.world.freight_offer_get_mode_mask(offer) & required_modes) != required_modes) return false;
 	auto offer_origin = state.world.freight_offer_get_origin_market(offer);
 	auto offer_destination = state.world.freight_offer_get_destination_market(offer);
-	if((offer_origin && offer_origin != origin) || (offer_destination && offer_destination != destination)
-		|| !carrier_has_presence_for(state, carrier, origin, destination)) return false;
+	if(offer_origin && offer_origin != origin || offer_destination && offer_destination != destination || !carrier_has_presence_for(state, carrier, origin, destination)) return false;
 	auto committed = state.world.freight_offer_get_committed_capacity(offer);
 	auto capacity = state.world.freight_offer_get_service_capacity(offer);
 	auto carrier_committed = state.world.carrier_get_committed_capacity(carrier);
 	auto carrier_capacity = state.world.carrier_get_service_capacity(carrier);
-	if(!nonnegative_finite(committed) || !nonnegative_finite(capacity)
-		|| !nonnegative_finite(carrier_committed) || !nonnegative_finite(carrier_capacity)
-		|| cargo_units > capacity - committed + epsilon
-		|| cargo_units > carrier_capacity - carrier_committed + epsilon) return false;
+	if(!nonnegative_finite(committed) || !nonnegative_finite(capacity) || !nonnegative_finite(carrier_committed) || !nonnegative_finite(carrier_capacity) || cargo_units > capacity - committed + epsilon || cargo_units > carrier_capacity - carrier_committed + epsilon) return false;
 	result.carrier_account = state.world.carrier_get_monetary_account_from_carrier_account(carrier);
-	if(!result.carrier_account || !accounts::owner_of(state, result.carrier_account)
-		|| accounts::settlement_of(state, result.carrier_account) == dcon::commodity_id{}) return false;
+	if(!result.carrier_account || !accounts::owner_of(state, result.carrier_account) || accounts::settlement_of(state, result.carrier_account) == dcon::commodity_id{}) return false;
 	result.price = state.world.freight_offer_get_base_handling_charge(offer)
 		+ cargo_units * route_distance * state.world.freight_offer_get_cargo_distance_rate(offer);
 	return positive_finite(result.price);
@@ -98,16 +88,12 @@ bool quote_offer(sys::state const& state, dcon::freight_offer_id offer,
 
 bool reserve_capacity(sys::state& state, dcon::freight_offer_id offer, dcon::carrier_id carrier,
 	float cargo_units) {
-	if(!positive_finite(cargo_units) || !offer || !carrier || !state.world.freight_offer_is_valid(offer)
-		|| !state.world.carrier_is_valid(carrier)) return false;
+	if(!positive_finite(cargo_units) || !offer || !carrier || !state.world.freight_offer_is_valid(offer) || !state.world.carrier_is_valid(carrier)) return false;
 	auto offer_committed = state.world.freight_offer_get_committed_capacity(offer);
 	auto offer_capacity = state.world.freight_offer_get_service_capacity(offer);
 	auto carrier_committed = state.world.carrier_get_committed_capacity(carrier);
 	auto carrier_capacity = state.world.carrier_get_service_capacity(carrier);
-	if(!nonnegative_finite(offer_committed) || !nonnegative_finite(offer_capacity)
-		|| !nonnegative_finite(carrier_committed) || !nonnegative_finite(carrier_capacity)
-		|| cargo_units > offer_capacity - offer_committed + epsilon
-		|| cargo_units > carrier_capacity - carrier_committed + epsilon) return false;
+	if(!nonnegative_finite(offer_committed) || !nonnegative_finite(offer_capacity) || !nonnegative_finite(carrier_committed) || !nonnegative_finite(carrier_capacity) || cargo_units > offer_capacity - offer_committed + epsilon || cargo_units > carrier_capacity - carrier_committed + epsilon) return false;
 	state.world.freight_offer_set_committed_capacity(offer, offer_committed + cargo_units);
 	state.world.carrier_set_committed_capacity(carrier, carrier_committed + cargo_units);
 	return true;
@@ -127,8 +113,7 @@ void release_capacity(sys::state& state, dcon::freight_offer_id offer, dcon::car
 dcon::carrier_id create_carrier(sys::state& state, dcon::economic_actor_id actor,
 	dcon::monetary_account_id account, float service_capacity, uint8_t mode_mask,
 	dcon::market_id market_presence) {
-	if(!actor || !account || accounts::owner_of(state, account) != actor
-		|| !positive_finite(service_capacity) || mode_mask == 0) return {};
+	if(!actor || !account || accounts::owner_of(state, account) != actor || !positive_finite(service_capacity) || mode_mask == 0) return {};
 	auto carrier = state.world.create_carrier();
 	state.world.carrier_set_mode_mask(carrier, mode_mask);
 	state.world.carrier_set_service_capacity(carrier, service_capacity);
@@ -143,12 +128,7 @@ dcon::carrier_id create_carrier(sys::state& state, dcon::economic_actor_id actor
 dcon::freight_offer_id create_offer(sys::state& state, dcon::carrier_id carrier,
 	dcon::market_id origin_market, dcon::market_id destination_market, uint8_t mode_mask,
 	float service_capacity, float base_handling_charge, float cargo_distance_rate) {
-	if(!carrier || !state.world.carrier_is_valid(carrier)
-		|| state.world.carrier_get_status(carrier) != uint8_t(carrier_status::active)
-		|| mode_mask == 0 || (mode_mask & state.world.carrier_get_mode_mask(carrier)) != mode_mask
-		|| !positive_finite(service_capacity) || !nonnegative_finite(base_handling_charge)
-		|| !nonnegative_finite(cargo_distance_rate)
-		|| (!positive_finite(base_handling_charge) && !positive_finite(cargo_distance_rate))) return {};
+	if(!carrier || !state.world.carrier_is_valid(carrier) || state.world.carrier_get_status(carrier) != uint8_t(carrier_status::active) || mode_mask == 0 || (mode_mask & state.world.carrier_get_mode_mask(carrier)) != mode_mask || !positive_finite(service_capacity) || !nonnegative_finite(base_handling_charge) || !nonnegative_finite(cargo_distance_rate) || !positive_finite(base_handling_charge) && !positive_finite(cargo_distance_rate)) return {};
 	if(origin_market && !state.world.market_is_valid(origin_market)) return {};
 	if(destination_market && !state.world.market_is_valid(destination_market)) return {};
 	auto offer = state.world.create_freight_offer();
@@ -168,10 +148,7 @@ dcon::freight_offer_id create_offer(sys::state& state, dcon::carrier_id carrier,
 dcon::freight_request_id create_request(sys::state& state, dcon::economic_actor_id requester,
 	dcon::monetary_account_id payer, dcon::site_id source, dcon::site_id destination,
 	dcon::commodity_id commodity, float quantity) {
-	if(!requester || !payer || accounts::owner_of(state, payer) != requester
-		|| !source || !destination || source == destination || !state.world.site_is_valid(source)
-		|| !state.world.site_is_valid(destination) || !commodity || !state.world.commodity_is_valid(commodity)
-		|| !positive_finite(quantity) || inventory::quantity(state, source, commodity, requester) + epsilon < quantity)
+	if(!requester || !payer || accounts::owner_of(state, payer) != requester || !source || !destination || source == destination || !state.world.site_is_valid(source) || !state.world.site_is_valid(destination) || !commodity || !state.world.commodity_is_valid(commodity) || !positive_finite(quantity) || inventory::quantity(state, source, commodity, requester) + epsilon < quantity)
 		return {};
 	auto profile = logistics::profile_for(state, commodity);
 	auto request = state.world.create_freight_request();
@@ -223,9 +200,7 @@ dcon::freight_contract_id match_request(sys::state& state, dcon::freight_request
 		offer_quote candidate;
 		if(offer_matches(state, offer, origin_market, destination_market,
 			quote.required_mode_mask, state.world.freight_request_get_cargo_units(request),
-			quote.distance, candidate)
-			&& accounts::settlement_of(state, payer) == accounts::settlement_of(state, candidate.carrier_account)
-			&& free_payer_cash(state, payer) + epsilon >= candidate.price)
+			quote.distance, candidate) && accounts::settlement_of(state, payer) == accounts::settlement_of(state, candidate.carrier_account) && free_payer_cash(state, payer) + epsilon >= candidate.price)
 			candidates.push_back(candidate);
 	});
 	std::sort(candidates.begin(), candidates.end(), [](auto const& a, auto const& b) {
@@ -316,8 +291,7 @@ void process_pending_requests(sys::state& state) {
 void complete_contract_for_shipment(sys::state& state, dcon::shipment_id shipment) {
 	if(!shipment || !state.world.shipment_is_valid(shipment)) return;
 	auto contract = state.world.shipment_get_freight_contract_from_freight_contract_shipment(shipment);
-	if(!contract || !state.world.freight_contract_is_valid(contract)
-		|| state.world.freight_contract_get_status(contract) != uint8_t(freight_contract_status::accepted)) return;
+	if(!contract || !state.world.freight_contract_is_valid(contract) || state.world.freight_contract_get_status(contract) != uint8_t(freight_contract_status::accepted)) return;
 	auto offer = state.world.freight_contract_get_freight_offer_from_freight_contract_offer(contract);
 	auto carrier = state.world.freight_contract_get_carrier_from_freight_contract_carrier(contract);
 	auto cargo_units = state.world.freight_contract_get_cargo_units(contract);

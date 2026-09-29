@@ -2850,8 +2850,7 @@ void main_menu_misc_language_dropdown_t::on_selection(sys::state& state, int32_t
 
 	dcon::locale_id new_locale = dcon::locale_id{ dcon::locale_id::value_base_t(list_contents[id].index) };
 
-	if(state.user_settings.use_classic_fonts
-	&& state.world.locale_get_hb_script(new_locale) != HB_SCRIPT_LATIN) {
+	if(state.user_settings.use_classic_fonts && state.world.locale_get_hb_script(new_locale) != HB_SCRIPT_LATIN) {
 		state.user_settings.use_classic_fonts = false;
 	}
 
@@ -3876,7 +3875,7 @@ void main_menu_graphics_ui_scale_dropdown_t::on_update(sys::state& state) noexce
 	main_menu_graphics_t& graphics = *((main_menu_graphics_t*)(parent)); 
 // BEGIN graphics::ui_scale_dropdown::update
 	for(size_t i = 0; i < sys::ui_scales_count; ++i) {
-		if(state.user_settings.ui_scale >= sys::ui_scales[i] && (i + 1 == sys::ui_scales_count || state.user_settings.ui_scale < sys::ui_scales[i + 1])) {
+		if(state.user_settings.ui_scale >= sys::ui_scales[i] && i + 1 == sys::ui_scales_count || state.user_settings.ui_scale < sys::ui_scales[i + 1]) {
 			quiet_on_selection(state, int32_t(i));
 		}
 	}
@@ -4874,7 +4873,7 @@ measure_result  main_menu_message_settings_message_settings_list_t::place_item(s
 	if(std::holds_alternative<message_setting_row_option>(values[index])) {
 		if(message_setting_header_pool.empty()) message_setting_header_pool.emplace_back(make_main_menu_message_setting_header(state));
 		if(message_setting_row_pool.empty()) message_setting_row_pool.emplace_back(make_main_menu_message_setting_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<message_setting_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<message_setting_row_option>(values[index - 1])) {
 			if(destination) {
 				if(message_setting_header_pool.size() <= size_t(message_setting_header_pool_used)) message_setting_header_pool.emplace_back(make_main_menu_message_setting_header(state));
 				if(message_setting_row_pool.size() <= size_t(message_setting_row_pool_used)) message_setting_row_pool.emplace_back(make_main_menu_message_setting_row(state));
@@ -5256,7 +5255,7 @@ void main_menu_message_setting_row_overlay_t::render(sys::state & state, int32_t
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start + table_source->message_settings_table_setting_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start + table_source->message_settings_table_setting_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_setting_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_setting_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_setting_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start + table_source->message_settings_table_setting_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_setting_name){
@@ -5270,7 +5269,7 @@ void main_menu_message_setting_row_overlay_t::render(sys::state & state, int32_t
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start + table_source->message_settings_table_self_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start + table_source->message_settings_table_self_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_self_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_self){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_self){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start + table_source->message_settings_table_self_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_self){
@@ -5284,7 +5283,7 @@ void main_menu_message_setting_row_overlay_t::render(sys::state & state, int32_t
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start + table_source->message_settings_table_interesting_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start + table_source->message_settings_table_interesting_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_interesting_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_interesting){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_interesting){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start + table_source->message_settings_table_interesting_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_interesting){
@@ -5298,7 +5297,7 @@ void main_menu_message_setting_row_overlay_t::render(sys::state & state, int32_t
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start + table_source->message_settings_table_other_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start + table_source->message_settings_table_other_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_other_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_other){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_other){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start + table_source->message_settings_table_other_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_other){
@@ -5980,7 +5979,7 @@ void main_menu_message_setting_header_contents_t::render(sys::state & state, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start + table_source->message_settings_table_setting_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start + table_source->message_settings_table_setting_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_setting_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_setting_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_setting_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_setting_name_column_start + table_source->message_settings_table_setting_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_setting_name){
@@ -5999,7 +5998,7 @@ void main_menu_message_setting_header_contents_t::render(sys::state & state, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start + table_source->message_settings_table_self_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start + table_source->message_settings_table_self_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_self_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_self){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_self){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_self_column_start + table_source->message_settings_table_self_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_self){
@@ -6018,7 +6017,7 @@ void main_menu_message_setting_header_contents_t::render(sys::state & state, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start + table_source->message_settings_table_interesting_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start + table_source->message_settings_table_interesting_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_interesting_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_interesting){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_interesting){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_interesting_column_start + table_source->message_settings_table_interesting_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_interesting){
@@ -6037,7 +6036,7 @@ void main_menu_message_setting_header_contents_t::render(sys::state & state, int
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start + table_source->message_settings_table_other_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start + table_source->message_settings_table_other_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->message_settings_table_other_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_other){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_other){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->message_settings_table_other_column_start + table_source->message_settings_table_other_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_other){
@@ -6049,7 +6048,7 @@ void main_menu_message_setting_header_contents_t::render(sys::state & state, int
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->message_settings_table_other_column_start + 9, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_other.r, col_color_other.g, col_color_other.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }

@@ -34,11 +34,13 @@ float canonical_reference_price(sys::state const&, dcon::market_id, dcon::commod
 	sys::date, float fallback = 0.0f);
 float concrete_reference_price(sys::state const&, dcon::market_id, dcon::commodity_id,
 	sys::date, float fallback = 0.0f);
-float legacy_compatibility_reference_price(sys::state const&, dcon::market_id,
-	dcon::commodity_id, sys::date, float fallback = 0.0f);
 float reserved_bid_amount(sys::state const&, dcon::monetary_account_id);
 float active_factory_bid_quantity(sys::state const&, dcon::factory_id,
 	dcon::site_id, dcon::commodity_id);
 void expire(sys::state&, sys::date);
+
+// One-way snapshot for legacy DCON consumers and UI. It never feeds the
+// canonical market, price discovery, or inventory state.
+void project_to_legacy_markets(sys::state&);
 
 } // namespace economy::physical::concrete_market

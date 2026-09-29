@@ -1,6 +1,7 @@
 #include "population_materialization.hpp"
 
 #include "persons.hpp"
+#include "exact_population.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -193,18 +194,14 @@ initial_population_materialization_result materialize_initial_population_with_st
 		}
 		pending_count += count;
 	}
-	if(state.world.person_size() > supported_person_capacity
-		|| state.world.economic_actor_size() > supported_economic_actor_capacity
-		|| pending_count > supported_person_capacity - state.world.person_size()
-		|| pending_count > supported_economic_actor_capacity - state.world.economic_actor_size()) {
+	if(state.world.person_size() > supported_person_capacity || state.world.economic_actor_size() > supported_economic_actor_capacity || pending_count > supported_person_capacity - state.world.person_size() || pending_count > supported_economic_actor_capacity - state.world.economic_actor_size()) {
 		result.status = materialization_status::capacity_exceeded;
 		return result;
 	}
 	bool created = false;
 	for(auto pop : pops) {
 		auto cell = materialize_population_cell_with_status(state, pop);
-		if(cell.status != materialization_status::created
-			&& cell.status != materialization_status::already_materialized) {
+		if(cell.status != materialization_status::created && cell.status != materialization_status::already_materialized) {
 			result.persons.clear();
 			result.status = cell.status;
 			return result;
@@ -231,8 +228,7 @@ population_estimate estimate_initial_population(sys::state const& state) {
 		}
 		result.source_population_units += double(size);
 		auto literal = std::floor(double(size) * double(literal_person_multiplier));
-		if(literal > double(std::numeric_limits<uint64_t>::max())
-			|| result.intended_literal_persons > std::numeric_limits<uint64_t>::max() - uint64_t(literal)) {
+		if(literal > double(std::numeric_limits<uint64_t>::max()) || result.intended_literal_persons > std::numeric_limits<uint64_t>::max() - uint64_t(literal)) {
 			result.overflow = true;
 			return;
 		}
@@ -240,8 +236,7 @@ population_estimate estimate_initial_population(sys::state const& state) {
 		result.intended_literal_persons += count;
 		result.intended_economic_actors += count;
 		result.largest_source_cell = std::max(result.largest_source_cell, count);
-		if(result.intended_literal_persons > supported_person_capacity - std::min<uint64_t>(supported_person_capacity, state.world.person_size())
-			|| result.intended_economic_actors > supported_economic_actor_capacity - std::min<uint64_t>(supported_economic_actor_capacity, state.world.economic_actor_size()))
+		if(result.intended_literal_persons > supported_person_capacity - std::min<uint64_t>(supported_person_capacity, state.world.person_size()) || result.intended_economic_actors > supported_economic_actor_capacity - std::min<uint64_t>(supported_economic_actor_capacity, state.world.economic_actor_size()))
 			result.capacity_exceeded = true;
 	});
 	return result;
@@ -271,7 +266,11 @@ materialization_measurement measure_synthetic_population_materialization(sys::st
 	state.world.force_create_site_location(site, province);
 	auto pop = state.world.create_pop();
 	state.world.force_create_pop_location(pop, province);
-	state.world.pop_set_size(pop, float(count) / float(literal_person_multiplier));
+	auto const registration = exact_population::register_population_cell(state, pop, site);
+	if(registration.result != exact_population::status::created) return {};
+	(void)exact_population::adjust_population_size(state, pop,
+		double(count) / double(literal_person_multiplier));
+	if(!exact_population::project_population_membership(state)) return {};
 	auto persons_before = state.world.person_size();
 	auto actors_before = state.world.economic_actor_size();
 	auto started = std::chrono::steady_clock::now();

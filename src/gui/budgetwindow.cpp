@@ -823,7 +823,7 @@ measure_result  budgetwindow_main_income_table_t::place_item(sys::state& state, 
 	if(std::holds_alternative<budget_row_option>(values[index])) {
 		if(budget_header_pool.empty()) budget_header_pool.emplace_back(make_budgetwindow_budget_header(state));
 		if(budget_row_pool.empty()) budget_row_pool.emplace_back(make_budgetwindow_budget_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<budget_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<budget_row_option>(values[index - 1])) {
 			if(destination) {
 				if(budget_header_pool.size() <= size_t(budget_header_pool_used)) budget_header_pool.emplace_back(make_budgetwindow_budget_header(state));
 				if(budget_row_pool.size() <= size_t(budget_row_pool_used)) budget_row_pool.emplace_back(make_budgetwindow_budget_row(state));
@@ -1134,8 +1134,7 @@ void  budgetwindow_main_espenses_table_t::update(sys::state& state, layout_windo
 		if(investors > 0) {
 			auto const treasury = state.world.nation_get_stockpiles(
 				state.local_player_nation, economy::money);
-			auto const daily_budget = gamerule::age_of_transformation_enabled(state)
-				? 0.0f : 0.0f;
+			auto const daily_budget = 0.0f;
 			auto total_budget = daily_budget
 				* float(state.world.nation_get_domestic_investment_spending(state.local_player_nation)) / 100.f;
 			cap_total += capitalists / investors * total_budget;
@@ -1171,7 +1170,7 @@ void  budgetwindow_main_espenses_table_t::update(sys::state& state, layout_windo
 			for(uint32_t i = 1; i < total_commodities; ++i) {
 				dcon::commodity_id cid{ dcon::commodity_id::value_base_t(i) };
 
-				if(state.world.commodity_get_overseas_penalty(cid) && (state.world.commodity_get_is_available_from_start(cid) || state.world.nation_get_unlocked_commodities(state.local_player_nation, cid))) {
+				if(state.world.commodity_get_overseas_penalty(cid) && state.world.commodity_get_is_available_from_start(cid) || state.world.nation_get_unlocked_commodities(state.local_player_nation, cid)) {
 					auto amount =
 						overseas_factor * economy::price(state, market, cid) * state.world.market_get_actual_probability_to_buy(market, cid) * float(state.world.nation_get_overseas_spending(state.local_player_nation)) / 100.0f;
 					add_budget_row(text::produce_simple_string(state, state.world.commodity_get_name(cid)), amount);
@@ -1309,7 +1308,7 @@ measure_result  budgetwindow_main_espenses_table_t::place_item(sys::state& state
 	if(std::holds_alternative<budget_row_option>(values[index])) {
 		if(budget_header_pool.empty()) budget_header_pool.emplace_back(make_budgetwindow_budget_header(state));
 		if(budget_row_pool.empty()) budget_row_pool.emplace_back(make_budgetwindow_budget_row(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<budget_row_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<budget_row_option>(values[index - 1])) {
 			if(destination) {
 				if(budget_header_pool.size() <= size_t(budget_header_pool_used)) budget_header_pool.emplace_back(make_budgetwindow_budget_header(state));
 				if(budget_row_pool.size() <= size_t(budget_row_pool_used)) budget_row_pool.emplace_back(make_budgetwindow_budget_row(state));
@@ -1379,8 +1378,7 @@ void budgetwindow_main_expenses_amount_t::on_update(sys::state& state) noexcept 
 // BEGIN main::expenses_amount::update
 	auto n = state.local_player_nation;
 	auto const treasury = economy::estimate_next_budget(state, n);
-	auto const display_budget = gamerule::age_of_transformation_enabled(state)
-		? 0.0f : 0.0f;
+	auto const display_budget = 0.0f;
 	auto spending_details = removed_budget_details{};
 	set_text(state, text::prettify_currency(spending_details.total_actual_spending));
 // END
@@ -1727,13 +1725,8 @@ void budgetwindow_main_debt_enable_t::update_tooltip(sys::state& state, int32_t 
 	auto last_br = state.world.nation_get_bankrupt_until(state.local_player_nation);
 	if(last_br && state.current_date < last_br) {
 		text::add_line(state, contents, "alice_currently_bankrupt", text::variable_type::x, last_br);
-	} else if(true) {
-		text::add_line(state, contents, "alice_no_loans_possible");
 	} else {
-		text::add_line(state, contents, "alice_debt_spending");
-		text::add_line_break_to_layout(state, contents);
 		text::add_line(state, contents, "alice_no_loans_possible");
-
 	}
 
 	text::add_line_break_to_layout(state, contents);
@@ -3083,8 +3076,7 @@ void budgetwindow_section_header_expand_button_t::on_update(sys::state& state) n
 
 	auto n = state.local_player_nation;
 	auto const treasury = economy::estimate_next_budget(state, n);
-	auto const display_budget = gamerule::age_of_transformation_enabled(state)
-		? 0.0f : 0.0f;
+	auto const display_budget = 0.0f;
 	auto spending_details = removed_budget_details{};
 
 	switch(section_header.section_type) {
@@ -3131,8 +3123,7 @@ void budgetwindow_section_header_total_amount_t::on_update(sys::state& state) no
 
 	auto n = state.local_player_nation;
 	auto const treasury = economy::estimate_next_budget(state, n);
-	auto const display_budget = gamerule::age_of_transformation_enabled(state)
-		? 0.0f : 0.0f;
+	auto const display_budget = 0.0f;
 	auto spending_details = removed_budget_details{};
 
 	auto adjust_income_value = [&](float value) {
@@ -3907,7 +3898,7 @@ void budgetwindow_budget_row_contents_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start + table_source->income_table_lead_space_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start + table_source->income_table_lead_space_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->income_table_lead_space_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_lead_space){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_lead_space){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start + table_source->income_table_lead_space_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_lead_space){
@@ -3921,7 +3912,7 @@ void budgetwindow_budget_row_contents_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start + table_source->income_table_item_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start + table_source->income_table_item_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->income_table_item_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_item_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_item_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start + table_source->income_table_item_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_item_name){
@@ -3940,7 +3931,7 @@ void budgetwindow_budget_row_contents_t::render(sys::state & state, int32_t x, i
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start + table_source->income_table_item_value_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start + table_source->income_table_item_value_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->income_table_item_value_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_item_value){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_item_value){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start + table_source->income_table_item_value_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_item_value){
@@ -4223,7 +4214,7 @@ void budgetwindow_budget_header_contents_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start + table_source->income_table_lead_space_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start + table_source->income_table_lead_space_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->income_table_lead_space_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_lead_space){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_lead_space){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_lead_space_column_start + table_source->income_table_lead_space_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_lead_space){
@@ -4242,7 +4233,7 @@ void budgetwindow_budget_header_contents_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start + table_source->income_table_item_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start + table_source->income_table_item_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->income_table_item_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_item_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_item_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_name_column_start + table_source->income_table_item_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_item_name){
@@ -4276,7 +4267,7 @@ void budgetwindow_budget_header_contents_t::render(sys::state & state, int32_t x
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start + table_source->income_table_item_value_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start + table_source->income_table_item_value_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->income_table_item_value_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_item_value){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_item_value){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->income_table_item_value_column_start + table_source->income_table_item_value_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_item_value){
@@ -4298,7 +4289,7 @@ void budgetwindow_budget_header_contents_t::render(sys::state & state, int32_t x
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->income_table_item_value_column_start + 0 + 8, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_item_value.r, col_color_item_value.g, col_color_item_value.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }

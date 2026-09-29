@@ -2,11 +2,6 @@
 #include "system_state.hpp"
 #include "commands.hpp"
 #include "nations.hpp"
-#include "ai_campaign.hpp"
-#include "ai_war.hpp"
-#include "ai_types.hpp"
-#include "ai_campaign_values.hpp"
-#include "ai_alliances.hpp"
 #include "province.hpp"
 #include "nations/strategic_statecraft.hpp"
 
@@ -232,21 +227,13 @@ bool can_accept_crisis_peace_offer(sys::state& state, dcon::nation_id from, dcon
 		bool found = [&]() {
 			for(auto par : state.crisis_attacker_wargoals) {
 				if(par.added_by == wg.get_wargoal().get_added_by()) {
-					if(wg.get_wargoal().get_associated_state() == par.state &&
-							wg.get_wargoal().get_associated_tag() == par.wg_tag &&
-							wg.get_wargoal().get_secondary_nation() == par.secondary_nation &&
-							wg.get_wargoal().get_target_nation() == par.target_nation &&
-							wg.get_wargoal().get_type() == par.cb)
+					if(wg.get_wargoal().get_associated_state() == par.state && wg.get_wargoal().get_associated_tag() == par.wg_tag && wg.get_wargoal().get_secondary_nation() == par.secondary_nation && wg.get_wargoal().get_target_nation() == par.target_nation && wg.get_wargoal().get_type() == par.cb)
 						return true;
 				}
 			}
 			for(auto par : state.crisis_defender_wargoals) {
 				if(par.added_by == wg.get_wargoal().get_added_by()) {
-					if(wg.get_wargoal().get_associated_state() == par.state &&
-							wg.get_wargoal().get_associated_tag() == par.wg_tag &&
-							wg.get_wargoal().get_secondary_nation() == par.secondary_nation &&
-							wg.get_wargoal().get_target_nation() == par.target_nation &&
-							wg.get_wargoal().get_type() == par.cb)
+					if(wg.get_wargoal().get_associated_state() == par.state && wg.get_wargoal().get_associated_tag() == par.wg_tag && wg.get_wargoal().get_secondary_nation() == par.secondary_nation && wg.get_wargoal().get_target_nation() == par.target_nation && wg.get_wargoal().get_type() == par.cb)
 						return true;
 				}
 			}
@@ -406,46 +393,30 @@ bool ai_will_accept(sys::state& state, message const& m) {
 		case type::none:
 			std::abort();
 		case type::access_request:
-			return ai::ai_will_grant_access(state, m.to, m.from);
+			return nations::strategic_statecraft::accepts_military_access(state, m.to, m.from);
 		case type::alliance_request:
-			return ai::ai_will_accept_alliance(state, m.to, m.from);
+			return nations::strategic_statecraft::accepts_alliance(state, m.to, m.from);
 		case type::call_ally_request:
 			if(!command::can_call_to_arms(state, m.from, m.to, m.data.war, true, m.automatic_call))
 				return false;
-			return ai::will_join_war(state, m.to, m.data.war, military::get_role(state, m.data.war, m.from) == military::war_role::attacker);
+			return nations::strategic_statecraft::accepts_call_to_arms(state, m.to, m.from, m.data.war);
 		case type::be_crisis_primary_defender:
-			return ai::will_be_crisis_primary_defender(state, m.to);
+			return nations::strategic_statecraft::wants_crisis_support(state, m.to, false);
 		case type::be_crisis_primary_attacker:
-			return ai::will_be_crisis_primary_attacker(state, m.to);
+			return nations::strategic_statecraft::wants_crisis_support(state, m.to, true);
 		case type::peace_offer:
-			return ai::will_accept_peace_offer(state, m.to, m.from, m.data.peace);
+			return nations::strategic_statecraft::accepts_peace_offer(state, m.from, m.to, m.data.peace);
 		case type::take_crisis_side_offer:
-			if(nations::strategic_statecraft::uses_model(state, m.to))
-				return nations::strategic_statecraft::accepts_crisis_side_offer(
-					state, m.to, m.from, m.data.crisis_offer);
-			return ai::will_join_crisis_with_offer(state, m.to, m.data.crisis_offer);
+			return nations::strategic_statecraft::accepts_crisis_side_offer(
+				state, m.to, m.from, m.data.crisis_offer);
 		case type::crisis_peace_offer:
-			if(nations::strategic_statecraft::uses_model(state, m.to))
-				return nations::strategic_statecraft::accepts_crisis_peace_offer(
-					state, m.from, m.to, m.data.peace);
-			return ai::will_accept_crisis_peace_offer(state, m.to, m.data.peace);
+			return nations::strategic_statecraft::accepts_crisis_peace_offer(
+				state, m.from, m.to, m.data.peace);
 		case type::free_trade_agreement:
-			return ai::ai_will_accept_free_trade(state, m.to, m.from);
+			return nations::strategic_statecraft::accepts_free_trade_agreement(state, m.to, m.from);
 		case type::state_transfer:
-			auto rel = state.world.nation_get_overlord_as_subject(m.to);
-			auto overlord = state.world.overlord_get_ruler(rel);
-			if(overlord == m.from) {
-				return true; // Always accept overlord reorganizing states
-			}
-			auto target_states = ai::prepare_and_sort_list_of_desired_states(state, m.to, m.from);
-			for(auto sid : target_states) {
-				if(
-					state.world.state_instance_get_definition(sid.target) == m.data.state
-				) {
-					return true; // AI wants this state
-				}
-			}
-			return false;
+			return nations::strategic_statecraft::accepts_state_transfer(
+				state, m.to, m.from, m.data.state);
 	}
 	return false;
 }

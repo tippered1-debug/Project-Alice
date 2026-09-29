@@ -1,5 +1,7 @@
 # Sparse Exact-Person Economy v1
 
+> Historical milestone snapshot. Some save and compatibility statements below describe the original v1 implementation and are superseded by the current canonical runtime contract. The current end-to-end save and runtime contract is documented in [Simulation Continuity](features/simulation-continuity.md) and [Canonical Runtime Contract](features/canonical-runtime-migration.md).
+
 This milestone connects one exact logical human to the existing concrete labor
 economy without creating a DCON `person` or `economic_actor`. The canonical
 identity remains `persons::exact_population::person_key`, a sealed source-cell

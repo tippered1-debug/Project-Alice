@@ -89,8 +89,7 @@ void read_map_adjacency(char const* start, char const* end, error_handler& err, 
 
 					auto existing_rel = context.state.world.get_province_adjacency_by_province_pair(province_id_a, province_id_b);
 					if(!existing_rel) {
-						if((province_id_a.index() < context.state.province_definitions.first_sea_province.index() && province_id_b.index() >= context.state.province_definitions.first_sea_province.index()) ||
-							(province_id_a.index() >= context.state.province_definitions.first_sea_province.index() && province_id_b.index() < context.state.province_definitions.first_sea_province.index())) {
+						if(province_id_a.index() < context.state.province_definitions.first_sea_province.index() && province_id_b.index() >= context.state.province_definitions.first_sea_province.index() || province_id_a.index() >= context.state.province_definitions.first_sea_province.index() && province_id_b.index() < context.state.province_definitions.first_sea_province.index()) {
 
 							err.accumulated_warnings += "mod attempts to create a connection between non-adjacent land and sea provinces " + std::to_string(first_value) + " and " + std::to_string(second_value) + " which is ignored because displaying docked ships would be impossible on line " + std::to_string(line) + " in file (" + err.file_name + ")\n";
 
@@ -548,7 +547,6 @@ void province_history_file::state_building(pv_state_building const& value, error
 
 		context.outer_context.state.world.factory_set_building_type(new_fac, value.id);
 		context.outer_context.state.world.factory_set_size(new_fac, (float)value.level * base_size);
-		context.outer_context.state.world.factory_set_unqualified_employment(new_fac, base_size);
 		context.outer_context.state.world.factory_set_technology_scale(new_fac, 1.f);
 		context.outer_context.state.world.force_create_factory_location(new_fac, context.id);
 	}

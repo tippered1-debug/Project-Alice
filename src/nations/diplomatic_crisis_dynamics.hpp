@@ -61,8 +61,8 @@ std::string_view stage_name(escalation_stage stage);
 escalation_stage stage_for(bool active, float temperature, bool missing_committed_side);
 breakdown calculate(inputs raw_inputs);
 
-// Read-only adapter over the existing crisis state, participants, scores,
-// exhaustion and wargoals. It is enabled only by Alice: Age of Transformation.
+// Read-only adapter over crisis state, participants, scores, exhaustion, and
+// wargoals. Strategic Statecraft remains the authority for decisions.
 breakdown evaluate_current_crisis(sys::state const& state);
 
 } // namespace nations::diplomatic_crisis_dynamics

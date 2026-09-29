@@ -116,7 +116,7 @@ void update_focuses(sys::state& state) {
 			auto ideal_swfrac = (1.f - state.economy_definitions.craftsmen_fraction);
 			// Due to floating point comparison where 2.9999 != 3, we will round the number
 			// so that the ratio is NOT exact, but rather an aproximate
-			if((pw_employed >= pw_num || pw_num < 1.0f)) {
+			if(pw_employed >= pw_num || pw_num < 1.0f) {
 				auto nf = state.national_definitions.primary_factory_worker_focus;
 				auto k = state.world.national_focus_get_limit(nf);
 				if(!k || trigger::evaluate(state, k, trigger::to_generic(prov), trigger::to_generic(n), -1)) {

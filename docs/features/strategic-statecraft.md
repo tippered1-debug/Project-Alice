@@ -1,7 +1,10 @@
 # Strategic Statecraft v1
 
-Strategic Statecraft gives each AI country a saved, bounded model for external
-policy. The decision loop is:
+Strategic Statecraft gives every country a saved, bounded model for external
+policy. Scenario loading initializes every country; a country created during a
+campaign receives its profile in the creation path before it can make or answer
+a foreign-policy decision. The model is required when loading a save.
+The decision loop is:
 
 ```text
 interests -> beliefs -> threats and opportunities -> objective
@@ -14,7 +17,7 @@ language model.
 
 ## Country state
 
-Each migrated country stores weights for security, territorial claims, market,
+Each country stores weights for security, territorial claims, market,
 resource and route access, protection of allies and subjects, and prestige.
 It also stores its current objective, target and value, plus its last decision.
 Initial weights are bounded and derived from a small set of scenario facts such
@@ -53,12 +56,11 @@ and stakes. The existing crisis temperature and
 `diplomatic_crisis_dynamics` remain useful projections and diagnostics; they do
 not choose actions for modelled leaders.
 
-## Compatibility and diagnostics
+## Save contract and diagnostics
 
-Interests, beliefs, commitments and the current crisis are stored in a framed,
-versioned save extension. Older saves without that extension keep using the
-legacy diplomacy AI. This provides compatibility for saves that have not yet
-migrated to the new model.
+Interests, beliefs, commitments and the current crisis are stored in a required
+framed, versioned save extension. A save without a valid Statecraft record is
+rejected. Legacy diplomacy AI fallback is not part of the runtime.
 
 The headless runner's JSONL `statecraft` record reports crisis phase and
 outcome, claimant and target, offers, readiness cost, and each participant's

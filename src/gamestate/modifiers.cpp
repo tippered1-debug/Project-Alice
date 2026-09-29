@@ -15,7 +15,7 @@ namespace sys {
 void apply_modifier_values_to_nation(sys::state& state, dcon::nation_id target_nation, dcon::modifier_id mod_id) {
 	auto& nat_values = state.world.modifier_get_national_values(mod_id);
 	for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-		if(!(nat_values.offsets[i]))
+		if(!nat_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = nat_values.offsets[i];
@@ -29,7 +29,7 @@ void apply_scaled_modifier_values_to_nation(sys::state& state, dcon::nation_id t
 		float scale) {
 	auto& nat_values = state.world.modifier_get_national_values(mod_id);
 	for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-		if(!(nat_values.offsets[i]))
+		if(!nat_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = nat_values.offsets[i];
@@ -43,7 +43,7 @@ void apply_modifier_values_to_province(sys::state& state, dcon::province_id targ
 	auto& prov_values = state.world.modifier_get_province_values(mod_id);
 	auto owner = state.world.province_get_nation_from_province_ownership(target_prov);
 	for(uint32_t i = 0; i < sys::provincial_modifier_definition::modifier_definition_size; ++i) {
-		if(!(prov_values.offsets[i]))
+		if(!prov_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = prov_values.offsets[i];
@@ -54,7 +54,7 @@ void apply_modifier_values_to_province(sys::state& state, dcon::province_id targ
 	if(owner) {
 		auto& nat_values = state.world.modifier_get_national_values(mod_id);
 		for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-			if(!(nat_values.offsets[i]))
+			if(!nat_values.offsets[i])
 				break; // no more modifier values
 
 			auto fixed_offset = nat_values.offsets[i];
@@ -70,7 +70,7 @@ void add_modifier_to_nation(sys::state& state, dcon::nation_id target_nation, dc
 	auto lst = state.world.nation_get_current_modifiers(target_nation);
 	for(auto& m : lst) {
 		if(m.mod_id == mod_id) {
-			if(!expiration || (m.expiration && m.expiration < expiration)) {
+			if(!expiration || m.expiration && m.expiration < expiration) {
 				m.expiration = expiration;
 			}
 			return;
@@ -83,7 +83,7 @@ void add_modifier_to_province(sys::state& state, dcon::province_id target_prov, 
 	auto lst = state.world.province_get_current_modifiers(target_prov);
 	for(auto& m : lst) {
 		if(m.mod_id == mod_id) {
-			if(!expiration || (m.expiration && m.expiration < expiration)) {
+			if(!expiration || m.expiration && m.expiration < expiration) {
 				m.expiration = expiration;
 			}
 			return;
@@ -131,7 +131,7 @@ template<typename F>
 void bulk_apply_masked_modifier_to_nations(sys::state& state, dcon::modifier_id m, F const& mask_functor) {
 	auto& nat_values = state.world.modifier_get_national_values(m);
 	for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-		if(!(nat_values.offsets[i]))
+		if(!nat_values.offsets[i])
 			break; // no more modifier values attached
 
 		state.world.execute_serial_over_nation(
@@ -148,7 +148,7 @@ template<typename F>
 void bulk_apply_scaled_modifier_to_nations(sys::state& state, dcon::modifier_id m, F const& scale_functor) {
 	auto& nat_values = state.world.modifier_get_national_values(m);
 	for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-		if(!(nat_values.offsets[i]))
+		if(!nat_values.offsets[i])
 			break; // no more modifier values attached
 
 		state.world.execute_serial_over_nation(
@@ -165,7 +165,7 @@ void bulk_apply_masked_modifier_to_provinces(sys::state& state, dcon::modifier_i
 	auto& prov_values = state.world.modifier_get_province_values(mod_id);
 
 	for(uint32_t i = 0; i < sys::provincial_modifier_definition::modifier_definition_size; ++i) {
-		if(!(prov_values.offsets[i]))
+		if(!prov_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = prov_values.offsets[i];
@@ -182,7 +182,7 @@ void bulk_apply_masked_modifier_to_provinces(sys::state& state, dcon::modifier_i
 	auto& nat_values = state.world.modifier_get_national_values(mod_id);
 
 	for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-		if(!(nat_values.offsets[i]))
+		if(!nat_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = nat_values.offsets[i];
@@ -203,7 +203,7 @@ void bulk_apply_modifier_to_provinces(sys::state& state, dcon::modifier_id mod_i
 	auto& prov_values = state.world.modifier_get_province_values(mod_id);
 
 	for(uint32_t i = 0; i < sys::provincial_modifier_definition::modifier_definition_size; ++i) {
-		if(!(prov_values.offsets[i]))
+		if(!prov_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = prov_values.offsets[i];
@@ -221,7 +221,7 @@ void bulk_apply_scaled_modifier_to_provinces(sys::state& state, dcon::modifier_i
 	auto& prov_values = state.world.modifier_get_province_values(mod_id);
 
 	for(uint32_t i = 0; i < sys::provincial_modifier_definition::modifier_definition_size; ++i) {
-		if(!(prov_values.offsets[i]))
+		if(!prov_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = prov_values.offsets[i];
@@ -237,7 +237,7 @@ void bulk_apply_scaled_modifier_to_provinces(sys::state& state, dcon::modifier_i
 	auto& nat_values = state.world.modifier_get_national_values(mod_id);
 
 	for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-		if(!(nat_values.offsets[i]))
+		if(!nat_values.offsets[i])
 			break; // no more modifier values
 
 		auto fixed_offset = nat_values.offsets[i];
@@ -298,7 +298,7 @@ void recreate_national_modifiers(sys::state& state) {
 		for(auto n : state.world.in_nation) {
 			auto iopt = state.world.nation_get_issues(n, i);
 			auto imod = state.world.issue_option_get_modifier(iopt);
-			if(imod && (n.get_is_civilized() || state.world.issue_get_issue_type(i) == uint8_t(culture::issue_type::party))) {
+			if(imod && n.get_is_civilized() || state.world.issue_get_issue_type(i) == uint8_t(culture::issue_type::party)) {
 				apply_modifier_values_to_nation(state, n, imod);
 			}
 		}
@@ -414,7 +414,7 @@ void recreate_national_modifiers(sys::state& state) {
 					return;
 				} else {
 					for(uint32_t i = 0; i < sys::national_modifier_definition::modifier_definition_size; ++i) {
-						if(!(nat_values.offsets[i]))
+						if(!nat_values.offsets[i])
 							break; // no more modifier values attached
 
 						auto fixed_offset = nat_values.offsets[i];
@@ -461,8 +461,7 @@ void update_single_nation_modifiers(sys::state& state, dcon::nation_id n) {
 	state.world.for_each_issue([&](dcon::issue_id i) {
 		auto iopt = state.world.nation_get_issues(n, i);
 		auto imod = state.world.issue_option_get_modifier(iopt);
-		if(imod &&
-				(state.world.nation_get_is_civilized(n) || state.world.issue_get_issue_type(i) == uint8_t(culture::issue_type::party))) {
+		if(imod && state.world.nation_get_is_civilized(n) || state.world.issue_get_issue_type(i) == uint8_t(culture::issue_type::party)) {
 			apply_modifier_values_to_nation(state, n, imod);
 		}
 	});

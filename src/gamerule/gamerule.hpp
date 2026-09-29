@@ -45,15 +45,8 @@ enum class command_units_settings : uint8_t {
 	enabled = 1
 };
 
-enum class age_of_transformation_settings : uint8_t {
-	disabled = 0,
-	enabled = 1
-};
-
-
 struct hardcoded_gamerules {
 	dcon::gamerule_id sphereling_can_declare_spherelord;
-	dcon::gamerule_id unused_gamerule;
 	dcon::gamerule_id fog_of_war;
 	dcon::gamerule_id auto_concession_peace;
 	dcon::gamerule_id command_units;
@@ -75,10 +68,5 @@ dcon::gamerule_id get_gamerule_id_by_name(const sys::state& state, std::string_v
 uint8_t get_gamerule_option_id_by_name(const sys::state& state, std::string_view gamerule_option_name);
 
 uint8_t get_active_gamerule_option(const sys::state& state, dcon::gamerule_id gamerule);
-
-// Master capability switch for the flagship ruleset. It defaults to disabled,
-// keeping existing Victoria 2 mods on their original simulation semantics.
-bool age_of_transformation_enabled(sys::state const& state);
-
 
 }

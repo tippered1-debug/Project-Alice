@@ -138,8 +138,7 @@ dcon::office_tenure_id authority_tenure_on_or_before(sys::state const& s, dcon::
 	governance::authority_kind kind, dcon::nation_id nation, sys::date date) {
 	for(auto office : active_offices_of(s, person)) {
 		auto tenure = active_tenure_for(s, office);
-		if(tenure && s.world.office_tenure_get_started_on(tenure) <= date
-			&& governance::has_authority(s, office, kind, nation)) return tenure;
+		if(tenure && s.world.office_tenure_get_started_on(tenure) <= date && governance::has_authority(s, office, kind, nation)) return tenure;
 	}
 	return {};
 }

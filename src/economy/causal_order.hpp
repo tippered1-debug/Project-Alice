@@ -13,7 +13,7 @@ enum class event_kind : uint8_t {
 	goods_bid,
 	job_application,
 	freight_request,
-	employment_contract
+	labor_contract
 };
 
 struct causal_order_key {
@@ -36,6 +36,7 @@ struct snapshot {
 // Sequences are allocated only for active economic events. DCON objects use a
 // small auxiliary registry; sparse exact records persist their sequence in
 // their own snapshots.
+void initialize_empty_store(sys::state&);
 uint64_t allocate(sys::state&, event_kind);
 uint64_t sequence_for_dcon(sys::state&, event_kind, uint64_t stable_id);
 void observe(sys::state&, uint64_t sequence);

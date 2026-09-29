@@ -1,7 +1,7 @@
 #pragma once
 
 #include "gui_element_types.hpp"
-#include "ai_war.hpp"
+#include "nations/strategic_statecraft.hpp"
 
 namespace ui {
 
@@ -460,7 +460,7 @@ public:
 				}
 			}
 
-			auto acceptance = ai::will_accept_peace_offer_value(state,
+			auto acceptance = nations::strategic_statecraft::evaluate_peace_offer_value(state,
 				target, state.local_player_nation,
 				prime_attacker, prime_defender,
 				military::primary_warscore(state, w), military::directed_warscore(state, w, state.local_player_nation, target),
@@ -756,7 +756,8 @@ public:
 				existing_wargoal = existing_wargoal || wargoals[i];
 			}
 
-			bool acceptance = ai::will_accept_crisis_peace_offer(state, target, is_concession, !existing_wargoal);
+			bool acceptance = nations::strategic_statecraft::evaluate_crisis_peace_offer(
+				state, target, is_concession, !existing_wargoal);
 
 			payload.emplace<test_acceptance>(test_acceptance{ acceptance });
 			return message_result::consumed;

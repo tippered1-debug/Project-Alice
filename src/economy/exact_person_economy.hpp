@@ -129,6 +129,9 @@ person_key owner_of(sys::state const&, account_ref);
 dcon::commodity_id settlement_of(sys::state const&, account_ref);
 float balance(sys::state const&, account_ref);
 bool set_balance(sys::state&, account_ref, float);
+float population_cash_balance(sys::state const&, dcon::pop_id, dcon::commodity_id settlement);
+bool apply_population_cash_effect(sys::state&, dcon::pop_id, dcon::commodity_id settlement, float amount);
+bool project_population_cash_balances(sys::state&);
 uint64_t account_count(sys::state const&);
 std::vector<account_ref> accounts_for_person(sys::state const&, person_key);
 
@@ -177,6 +180,7 @@ bool withdraw_pending_applications(sys::state&, person_key);
 
 economy_snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, economy_snapshot const&);
+void initialize_empty_store(sys::state&);
 void clear_store(sys::state&);
 
 } // namespace economy::exact_person_economy

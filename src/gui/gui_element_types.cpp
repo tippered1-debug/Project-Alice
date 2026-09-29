@@ -535,18 +535,13 @@ void tinted_button_element_base::render(sys::state& state, int32_t x, int32_t y)
 
 ogl::color3f get_text_color(sys::state& state, text::text_color text_color) {
 	if(state.user_settings.color_blind_mode == sys::color_blind_mode::achroma) {
-		if(text_color == text::text_color::black
-		|| text_color == text::text_color::unspecified) {
+		if(text_color == text::text_color::black || text_color == text::text_color::unspecified) {
 			return ogl::color3f{ 0.f, 0.f, 0.f };
 		} else if(text_color == text::text_color::white) {
 			return ogl::color3f{ 1.f, 1.f, 1.f };
-		} else if(text_color == text::text_color::dark_blue
-		|| text_color == text::text_color::dark_green
-		|| text_color == text::text_color::dark_red
-		|| text_color == text::text_color::brown) {
+		} else if(text_color == text::text_color::dark_blue || text_color == text::text_color::dark_green || text_color == text::text_color::dark_red || text_color == text::text_color::brown) {
 			return ogl::color3f{ 0.25f, 0.25f, 0.25f };
-		} else if(text_color == text::text_color::light_blue
-		|| text_color == text::text_color::light_grey) {
+		} else if(text_color == text::text_color::light_blue || text_color == text::text_color::light_grey) {
 			return ogl::color3f{ 0.75f, 0.75f, 0.75f };
 		}
 		return ogl::color3f{ 0.5f, 0.5f, 0.5f };
@@ -1221,7 +1216,7 @@ void edit_box_element_base::insert_codepoint(sys::state& state, uint32_t codepoi
 	if(disabled)
 		return;
 
-	if(!multiline && (codepoint == uint32_t('\n') || codepoint == uint32_t('\r')))
+	if(!multiline && codepoint == uint32_t('\n') || codepoint == uint32_t('\r'))
 		return;
 
 	auto old_end = std::max(anchor_position, cursor_position);
@@ -2934,11 +2929,7 @@ message_result multiline_text_element_base::test_mouse(sys::state& state, int32_
 		auto chunk = internal_layout.get_chunk_from_position(x, y + int32_t(line_height * float(current_line)));
 		if(!chunk)
 			return message_result::unseen;
-		if(std::holds_alternative<dcon::nation_id>(chunk->source)
-			|| std::holds_alternative<dcon::province_id>(chunk->source)
-			|| std::holds_alternative<dcon::state_instance_id>(chunk->source)
-			|| std::holds_alternative<dcon::national_identity_id>(chunk->source)
-			|| std::holds_alternative<dcon::state_definition_id>(chunk->source)) {
+		if(std::holds_alternative<dcon::nation_id>(chunk->source) || std::holds_alternative<dcon::province_id>(chunk->source) || std::holds_alternative<dcon::state_instance_id>(chunk->source) || std::holds_alternative<dcon::national_identity_id>(chunk->source) || std::holds_alternative<dcon::state_definition_id>(chunk->source)) {
 
 			return message_result::consumed;
 		}
@@ -3088,8 +3079,7 @@ void window_element_base::on_create(sys::state& state) noexcept {
 void window_element_base::on_drag(sys::state& state, int32_t oldx, int32_t oldy, int32_t x, int32_t y,
 		sys::key_modifiers mods) noexcept {
 	auto location_abs = get_absolute_location(state, *this);
-	if(location_abs.x <= oldx && oldx < base_data.size.x + location_abs.x && location_abs.y <= oldy &&
-			oldy < base_data.size.y + location_abs.y) {
+	if(location_abs.x <= oldx && oldx < base_data.size.x + location_abs.x && location_abs.y <= oldy && oldy < base_data.size.y + location_abs.y) {
 		xy_pair new_abs_pos = location_abs;
 		new_abs_pos.x += int16_t(x - oldx);
 		new_abs_pos.y += int16_t(y - oldy);

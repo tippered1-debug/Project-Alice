@@ -551,7 +551,7 @@ measure_result  province_factories_main_table_generator_t::place_item(sys::state
 	if(std::holds_alternative<table_body_option>(values[index])) {
 		if(table_header_pool.empty()) table_header_pool.emplace_back(make_province_factories_table_header(state));
 		if(table_body_pool.empty()) table_body_pool.emplace_back(make_province_factories_table_body(state));
-		if(index == 0 || first_in_section || (true && !std::holds_alternative<table_body_option>(values[index - 1]))) {
+		if(index == 0 || first_in_section || !std::holds_alternative<table_body_option>(values[index - 1])) {
 			if(destination) {
 				if(table_header_pool.size() <= size_t(table_header_pool_used)) table_header_pool.emplace_back(make_province_factories_table_header(state));
 				if(table_body_pool.size() <= size_t(table_body_pool_used)) table_body_pool.emplace_back(make_province_factories_table_body(state));
@@ -1855,7 +1855,7 @@ void province_factories_table_body_table_body_control_t::render(sys::state & sta
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start + table_source->local_factories_list_icon_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start + table_source->local_factories_list_icon_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_icon_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_icon){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_icon){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start + table_source->local_factories_list_icon_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_icon){
@@ -1874,7 +1874,7 @@ void province_factories_table_body_table_body_control_t::render(sys::state & sta
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start + table_source->local_factories_list_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start + table_source->local_factories_list_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start + table_source->local_factories_list_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_name){
@@ -1893,7 +1893,7 @@ void province_factories_table_body_table_body_control_t::render(sys::state & sta
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start + table_source->local_factories_list_details_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start + table_source->local_factories_list_details_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_details_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_details){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_details){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start + table_source->local_factories_list_details_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_details){
@@ -1912,7 +1912,7 @@ void province_factories_table_body_table_body_control_t::render(sys::state & sta
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start + table_source->local_factories_list_margin_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start + table_source->local_factories_list_margin_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_margin_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_margin){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_margin){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start + table_source->local_factories_list_margin_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_margin){
@@ -1931,7 +1931,7 @@ void province_factories_table_body_table_body_control_t::render(sys::state & sta
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start + table_source->local_factories_list_hired_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start + table_source->local_factories_list_hired_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_hired_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_hired){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_hired){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start + table_source->local_factories_list_hired_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_hired){
@@ -1950,7 +1950,7 @@ void province_factories_table_body_table_body_control_t::render(sys::state & sta
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start + table_source->local_factories_list_size_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start + table_source->local_factories_list_size_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_size_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_size){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_size){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start + table_source->local_factories_list_size_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_size){
@@ -2388,7 +2388,7 @@ void province_factories_table_header_table_header_control_t::render(sys::state &
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start + table_source->local_factories_list_icon_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start + table_source->local_factories_list_icon_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_icon_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_icon){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_icon){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_icon_column_start + table_source->local_factories_list_icon_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_icon){
@@ -2407,7 +2407,7 @@ void province_factories_table_header_table_header_control_t::render(sys::state &
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start + table_source->local_factories_list_name_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start + table_source->local_factories_list_name_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_name_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_name){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_name){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_name_column_start + table_source->local_factories_list_name_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_name){
@@ -2436,7 +2436,7 @@ void province_factories_table_header_table_header_control_t::render(sys::state &
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start + table_source->local_factories_list_details_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start + table_source->local_factories_list_details_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_details_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_details){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_details){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_details_column_start + table_source->local_factories_list_details_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_details){
@@ -2455,7 +2455,7 @@ void province_factories_table_header_table_header_control_t::render(sys::state &
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start + table_source->local_factories_list_margin_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start + table_source->local_factories_list_margin_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_margin_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_margin){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_margin){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_margin_column_start + table_source->local_factories_list_margin_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_margin){
@@ -2489,7 +2489,7 @@ void province_factories_table_header_table_header_control_t::render(sys::state &
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start + table_source->local_factories_list_hired_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start + table_source->local_factories_list_hired_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_hired_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_hired){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_hired){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_hired_column_start + table_source->local_factories_list_hired_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_hired){
@@ -2523,7 +2523,7 @@ void province_factories_table_header_table_header_control_t::render(sys::state &
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start + table_source->local_factories_list_size_column_width - 2), float(y), float(2), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start), float(y + base_data.size.y - 2), float(1), float(2), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start + table_source->local_factories_list_size_column_width * 0.25f), float(y + base_data.size.y - 1), float(table_source->local_factories_list_size_column_width * 0.5f), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
-	} else if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y) && col_um_size){
+	} else if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && col_um_size){
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start), float(y), float(1), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 		ogl::render_alpha_colored_rect(state, float(x + table_source->local_factories_list_size_column_start + table_source->local_factories_list_size_column_width - 2), float(y), float(2), float(base_data.size.y), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	} else if(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y && !col_um_size){
@@ -2545,7 +2545,7 @@ void province_factories_table_header_table_header_control_t::render(sys::state &
 			ui::render_text_chunk(state, t, float(x) + t.x + table_source->local_factories_list_size_column_start + 0 + 10, float(y + int32_t(ycentered)),  fh, ogl::color3f{ col_color_size.r, col_color_size.g, col_color_size.b }, ogl::color_modification::none);
 		}
 	}
-	if(!(0 <= rel_mouse_y && rel_mouse_y < base_data.size.y)){
+	if(!0 <= rel_mouse_y && rel_mouse_y < base_data.size.y){
 	ogl::render_alpha_colored_rect(state, float(x), float(y + base_data.size.y - 1), float(base_data.size.x), float(1), ink_color.r, ink_color.g, ink_color.b, 1.0f);
 	}
 }
