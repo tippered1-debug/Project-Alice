@@ -5890,7 +5890,12 @@ void end_battle(sys::state& state, dcon::land_battle_id b, battle_result result,
 	auto stackwipe = [&](dcon::army_id a) {
 		// disband regiment with pop death when they are being stackwiped, and set the army to be ready for garbage collection
 		while(state.world.army_get_army_membership(a).begin() != state.world.army_get_army_membership(a).end()) {
-			disband_regiment_w_pop_death<regiment_dmg_source::combat>(state, (*state.world.army_get_army_membership(a).begin()).get_regiment());
+			auto regiment = (*state.world.army_get_army_membership(a).begin()).get_regiment();
+			disband_regiment_w_pop_death<regiment_dmg_source::combat>(state, regiment);
+			if(state.world.regiment_is_valid(regiment)) {
+				assert(false && "stackwiped canonical regiment was not removed");
+				break;
+			}
 		}
 		state.world.army_set_controller_from_army_control(a, dcon::nation_id{});
 		state.world.army_set_controller_from_army_rebel_control(a, dcon::rebel_faction_id{});
@@ -9822,30 +9827,30 @@ void update_army_supply_cache(sys::state& state) {
 	// Legacy depots allocate an implicit daily draw. Canonical forces draw only
 	// through explicit physical shipments into local formation inventory.
 	if(!canonical_forces) {
-	// Depots allocate a day's dispatch by priority tier. Armies within a tier
-	// receive the same fraction, so iteration order cannot influence outcomes.
-	for(auto depot : state.world.in_province) {
-		if(!is_supply_depot(state, depot.id)) continue;
-		auto available = std::max(0.0f, depot.get_supply_depot_stockpile());
-		for(int32_t priority = 2; priority >= 0; --priority) {
-			float requested = 0.0f;
-			for(auto army : state.world.in_army) {
-				auto id = army.id.index();
-				if(state.army_supply_source_is_depot_cache[id] && state.army_supply_source_cache[id] == depot.id && std::min<uint8_t>(2, army.get_supply_priority()) == priority)
-					requested += 0.075f * state.army_supply_army_demand_cache[id];
-			}
-			auto factor = requested > 0.0f ? std::clamp(available / requested, 0.0f, 1.0f) : 1.0f;
-			for(auto army : state.world.in_army) {
-				auto id = army.id.index();
-				if(state.army_supply_source_is_depot_cache[id] && state.army_supply_source_cache[id] == depot.id && std::min<uint8_t>(2, army.get_supply_priority()) == priority) {
-					state.army_supply_depot_delivery_cache[id] = factor;
-					state.army_supply_depot_draw_cache[id] = 0.075f * state.army_supply_army_demand_cache[id] * factor;
-					++state.supply_depot_served_armies_cache[depot.id.index()];
+		// Depots allocate a day's dispatch by priority tier. Armies within a tier
+		// receive the same fraction, so iteration order cannot influence outcomes.
+		for(auto depot : state.world.in_province) {
+			if(!is_supply_depot(state, depot.id)) continue;
+			auto available = std::max(0.0f, depot.get_supply_depot_stockpile());
+			for(int32_t priority = 2; priority >= 0; --priority) {
+				float requested = 0.0f;
+				for(auto army : state.world.in_army) {
+					auto id = army.id.index();
+					if(state.army_supply_source_is_depot_cache[id] && state.army_supply_source_cache[id] == depot.id && std::min<uint8_t>(2, army.get_supply_priority()) == priority)
+						requested += 0.075f * state.army_supply_army_demand_cache[id];
 				}
+				auto factor = requested > 0.0f ? std::clamp(available / requested, 0.0f, 1.0f) : 1.0f;
+				for(auto army : state.world.in_army) {
+					auto id = army.id.index();
+					if(state.army_supply_source_is_depot_cache[id] && state.army_supply_source_cache[id] == depot.id && std::min<uint8_t>(2, army.get_supply_priority()) == priority) {
+						state.army_supply_depot_delivery_cache[id] = factor;
+						state.army_supply_depot_draw_cache[id] = 0.075f * state.army_supply_army_demand_cache[id] * factor;
+						++state.supply_depot_served_armies_cache[depot.id.index()];
+					}
+				}
+				available = std::max(0.0f, available - requested * factor);
 			}
-			available = std::max(0.0f, available - requested * factor);
 		}
-	}
 	}
 
 	// Materialize a complete per-army snapshot once. Cached readers can then
@@ -9864,7 +9869,7 @@ void update_army_supply_cache(sys::state& state) {
 			result.route_demand = state.army_supply_route_demand_cache[id];
 			result.effective_supply *= result.capacity_factor;
 			if(result.source_is_depot) {
-			result.depot_delivery_factor = state.army_supply_depot_delivery_cache[id];
+				result.depot_delivery_factor = state.army_supply_depot_delivery_cache[id];
 				result.depot_stockpile = canonical_forces
 					? float(military::land_forces::depot_inventory_at(state, owner, result.source))
 					: state.world.province_get_supply_depot_stockpile(result.source);
@@ -11122,11 +11127,37 @@ bool pop_eligible_for_mobilization(sys::state& state, dcon::pop_id p) {
 template<regiment_dmg_source damage_source>
 void disband_regiment_w_pop_death(sys::state& state, dcon::regiment_id reg_id) {
 	if(auto formation_id = military::land_forces::formation_for_legacy_regiment(state, reg_id)) {
-		if(military::land_forces::personnel_count(state, formation_id) != 0) {
-			assert(false && "canonical formation cannot be deleted while exact personnel remain assigned");
+		auto formation = military::land_forces::find_formation(state, formation_id);
+		if(!formation) {
+			assert(false && "legacy regiment mapping references a missing formation");
 			return;
 		}
+		if(formation->status == military::land_forces::formation_status::destroyed) {
+			military::delete_regiment_safe_wrapper(state, reg_id);
+			return;
+		}
+		auto const snapshot = military::land_forces::export_snapshot(state);
+		std::vector<military::land_forces::casualty_request> equipment_losses;
+		for(auto const& holding : snapshot.equipment)
+			if(holding.formation_id == formation_id && holding.quantity != 0)
+				equipment_losses.push_back({holding.equipment_model_id, holding.quantity});
+		auto day = state.current_date ? int32_t(state.current_date.to_raw_value() - 1) : 0;
+		auto cause = damage_source == regiment_dmg_source::attrition
+			? persons::death_cause::attrition : persons::death_cause::combat;
+		auto event_id = military::land_forces::next_loss_event_id(state, formation_id, day, cause);
+		auto result = military::land_forces::apply_losses(state, formation_id,
+			military::land_forces::personnel_count(state, formation_id), equipment_losses,
+			event_id, day, cause);
+		if(!result.applied) {
+			assert(false && "canonical formation stackwipe could not commit exact losses");
+			return;
+		}
+		(void)military::land_forces::destroy_formation(state, formation_id);
 		military::delete_regiment_safe_wrapper(state, reg_id);
+		return;
+	}
+	if(military::land_forces::initialized(state)) {
+		assert(false && "unmapped legacy regiment cannot use POP-based disband losses");
 		return;
 	}
 	auto base_pop = state.world.regiment_get_pop_from_regiment_source(reg_id);

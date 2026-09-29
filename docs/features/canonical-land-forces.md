@@ -36,7 +36,8 @@ authored legacy regiment must have exactly one formation mapping. Status is
 Each row assigns the exact living people in the specified ordinal range. The
 source population cell is the exact-person catalog cell, not a mutable POP
 index. Stride is 1 or 4. Rows cannot overlap, refer to dead people, or exceed
-the formation's personnel authorization. Recruitment selects living,
+the formation's personnel authorization. The source POP must have a valid
+friendly supply route to the formation site. Recruitment selects living,
 unassigned people and records their formation assignment and training time.
 
 ## Equipment, supplies, and depots
@@ -63,7 +64,9 @@ from trained personnel, authorized equipment holdings, and local consumable
 days. Combat and attrition select exact assigned people deterministically,
 record their deaths and equipment losses, and then project the resulting
 population totals. Reinforcement requires available people and physical
-equipment stock; a legacy regiment's scalar strength cannot create either.
+equipment stock reachable over a friendly route; a legacy regiment's scalar
+strength cannot create either. Casualty events record their cause, including
+combat and attrition.
 
 Legacy regiment strength is a derived adapter value for existing UI and battle
 integration. Unmapped legacy regiments are rejected by canonical scenario

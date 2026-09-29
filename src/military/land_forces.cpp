@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <set>
@@ -325,7 +326,7 @@ bool set_template_consumable_requirement(sys::state& state,
 			return std::pair{current.template_id, uint8_t(current.kind)} < target;
 		});
 	if(it != store->template_consumables.end() && it->template_id == value.template_id
-		&& it->kind == value.kind) *it = value;
+		&& it->kind == value.kind) return false;
 	else store->template_consumables.insert(it, value);
 	return true;
 }
@@ -367,7 +368,7 @@ bool set_initial_equipment_holding(sys::state& state, stable_id formation_id,
 		|| !has_template_model(state, unit->template_id, equipment_model_id)
 		|| quantity > equipment_authorization(state, formation_id, equipment_model_id)
 		|| mutable_holding(state, formation_id, equipment_model_id)) return false;
-	if(quantity != 0) add_equipment(state, formation_id, equipment_model_id, quantity);
+	add_equipment(state, formation_id, equipment_model_id, quantity);
 	return true;
 }
 
@@ -376,7 +377,6 @@ bool set_initial_consumable_inventory(sys::state& state, stable_id formation_id,
 	if(!find_formation(state, formation_id) || uint8_t(kind) > uint8_t(consumable_kind::ammunition)
 		|| !std::isfinite(quantity) || quantity < 0.0
 		|| mutable_consumable(state, formation_id, kind)) return false;
-	if(quantity == 0.0) return true;
 	add_consumable(state, formation_id, kind, quantity);
 	return true;
 }
@@ -467,6 +467,7 @@ bool assign_personnel(sys::state& state, stable_id formation_id,
 		return std::tie(left.source_population_cell, left.ordinal)
 			< std::tie(right.source_population_cell, right.ordinal);
 	});
+	std::map<uint32_t, std::pair<dcon::site_id, uint64_t>> source_loads;
 	for(size_t i = 0; i < ordered.size(); ++i) {
 		auto key = ordered[i];
 		if(key.source_population_cell == 0 || !persons::exists(state, key)
@@ -475,8 +476,14 @@ bool assign_personnel(sys::state& state, stable_id formation_id,
 		auto pop = persons::current_population(state, key);
 		auto province = pop ? state.world.pop_get_province_from_pop_location(pop) : dcon::province_id{};
 		auto owner = province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
-		if(owner != unit->owner) return false;
+		auto site = province ? world::spatial_runtime::site_for_province(state, province) : dcon::site_id{};
+		if(owner != unit->owner || !site) return false;
+		auto& load = source_loads[uint32_t(site.index())];
+		load.first = site;
+		++load.second;
 	}
+	for(auto const& [index, source] : source_loads)
+		if(!personnel_route_is_valid(state, unit->owner, source.first, unit->location, source.second)) return false;
 	for(size_t i = 0; i < ordered.size();) {
 		auto const source = ordered[i].source_population_cell;
 		auto first = ordered[i].ordinal;
@@ -502,6 +509,17 @@ uint64_t recruit_personnel(sys::state& state, stable_id formation_id, dcon::pop_
 	if(requested == 0) return 0;
 	auto province = state.world.pop_get_province_from_pop_location(source_pop);
 	if(!province || state.world.province_get_nation_from_province_ownership(province) != unit->owner) return 0;
+	auto source_site = world::spatial_runtime::site_for_province(state, province);
+	if(!source_site || !personnel_route_is_valid(state, unit->owner, source_site, unit->location, requested)) {
+		auto const destination = state.world.site_get_province_from_site_location(unit->location);
+		if(!source_site || !destination || province == destination) return 0;
+		auto route = military::calculate_army_supply_access_from_source(state, unit->owner, province, destination);
+		if(!route.reachable || route.source != province || !std::isfinite(route.route_capacity)
+			|| route.route_capacity <= 0.0f) return 0;
+		requested = std::min<uint64_t>(requested,
+			uint64_t(std::floor(double(route.route_capacity) * 1000.0)));
+		if(requested == 0) return 0;
+	}
 	auto const source_cell = persons::exact_population::source_cell_for_population(state, source_pop);
 	auto descriptor = persons::exact_population::descriptor_for_cell(state, source_cell);
 	if(source_cell == 0 || !descriptor) return 0;
@@ -579,6 +597,12 @@ bool move_formation(sys::state& state, stable_id formation_id, dcon::site_id des
 	find_by_id(ensure(state)->formations, formation_id,
 		[](auto const& value) { return value.id; })->location = destination;
 	return true;
+}
+
+bool personnel_route_is_valid(sys::state& state, dcon::nation_id owner,
+	dcon::site_id origin, dcon::site_id destination, uint64_t personnel) {
+	return transfer_route_is_valid(state, owner, origin, destination,
+		double(personnel) / 1000.0);
 }
 
 void sync_legacy_adapter_state(sys::state& state) {
@@ -881,6 +905,7 @@ casualty_result apply_losses(sys::state& state, stable_id formation_id,
 		auto const& request = equipment_to_remove[i];
 		if(request.equipment_model_id == 0 || request.quantity == 0
 			|| !find_equipment_model(state, request.equipment_model_id)
+			|| !mutable_holding(state, formation_id, request.equipment_model_id)
 			|| equipment_count(state, formation_id, request.equipment_model_id) < request.quantity
 			|| (i && equipment_to_remove[i - 1].equipment_model_id == request.equipment_model_id)) return result;
 	}
@@ -891,6 +916,7 @@ casualty_result apply_losses(sys::state& state, stable_id formation_id,
 		total_personnel += range.count;
 	}
 	if(requested_personnel_losses > total_personnel) return result;
+	if(requested_personnel_losses != 0 && !persons::exact_population::can_project_population_membership(state)) return result;
 	for(auto const& range : ranges) {
 		if(persons::exact_population::living_people_in_person_range(state,
 			range.source_population_cell, range.first_ordinal, range.count, range.ordinal_stride) != range.count) return result;
@@ -903,19 +929,20 @@ casualty_result apply_losses(sys::state& state, stable_id formation_id,
 		auto offset = (start + i) % total_personnel;
 		result.persons_killed.push_back(person_at_offset(ranges, offset));
 	}
+	sys::date casualty_date{};
+	if(day >= 0 && day < int32_t(std::numeric_limits<uint16_t>::max()))
+		casualty_date = sys::date{uint16_t(day + 1)};
+	if(requested_personnel_losses != 0 && !casualty_date) return casualty_result{};
 	for(auto key : result.persons_killed) {
 		uint64_t assigned_formation = 0;
 		if(!persons::alive(state, key)
 			|| !persons::exact_population::has_military_assignment(state, key, &assigned_formation)
 			|| assigned_formation != formation_id
-			|| persons::birth_day_index(state, key) > day) return casualty_result{};
+			|| !persons::can_kill_person(state, key, casualty_date, cause)) return casualty_result{};
 		auto profile = persons::exact_population::profile_for_person(state, key);
 		if(profile && !persons::active_offices_of(state, profile).empty()) return casualty_result{};
 	}
 	auto store = ensure(state);
-	sys::date casualty_date{};
-	if(day >= 0 && day < int32_t(std::numeric_limits<uint16_t>::max()))
-		casualty_date = sys::date{uint16_t(day + 1)};
 	for(auto const& key : result.persons_killed) {
 		if(!persons::exact_population::unassign_military_person(state, key, formation_id)
 			|| !persons::kill_person(state, key, casualty_date, cause, false))
@@ -983,15 +1010,20 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 		if(value.id == 0 || !all_ids.insert(value.id).second) error("duplicate or zero stable ID in templates");
 		if(value.personnel_authorization == 0) error("formation template has no personnel authorization");
 	}
+	std::set<std::pair<stable_id, stable_id>> authorized_equipment;
 	for(auto const& value : store->template_equipment) {
 		if(!find_template(state, value.template_id) || !find_equipment_model(state, value.equipment_model_id)
-			|| value.quantity == 0) error("orphan or empty template equipment authorization");
+			|| value.quantity == 0 || !authorized_equipment.insert({value.template_id, value.equipment_model_id}).second)
+			error("orphan, duplicate, or empty template equipment authorization");
 	}
+	std::set<std::pair<stable_id, uint8_t>> required_consumables;
 	for(auto const& value : store->template_consumables)
 		if(!find_template(state, value.template_id) || uint8_t(value.kind) > uint8_t(consumable_kind::ammunition)
 			|| !std::isfinite(value.per_person) || value.per_person < 0.0
 			|| !std::isfinite(value.per_equipment_tonne) || value.per_equipment_tonne < 0.0)
 			error("invalid template consumable requirement");
+		else if(!required_consumables.insert({value.template_id, uint8_t(value.kind)}).second)
+			error("duplicate template consumable requirement");
 	for(size_t i = 0; i < store->formations.size(); ++i) {
 		auto const& unit = store->formations[i];
 		if(unit.id == 0 || !all_ids.insert(unit.id).second) error("duplicate or zero stable ID in formations");
@@ -1009,13 +1041,37 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			auto regiment = dcon::regiment_id{dcon::regiment_id::value_base_t(index)};
 			if(index >= state.world.regiment_size() || !state.world.regiment_is_valid(regiment))
 				error("formation legacy adapter references a missing regiment");
+			else {
+				auto army = state.world.regiment_get_army_from_army_membership(regiment);
+				if(!army || !state.world.army_is_valid(army)
+					|| state.world.army_get_controller_from_army_control(army) != unit.owner)
+					error("formation legacy adapter owner differs from its regiment army");
+			}
 			for(size_t j = 0; j < i; ++j)
 				if(store->formations[j].legacy_regiment_index_plus_one == unit.legacy_regiment_index_plus_one)
 					error("legacy regiment is mapped to multiple formations");
 		}
 	}
+	std::map<stable_id, uint8_t> parent_visit;
+	for(auto const& unit : store->formations) {
+		std::vector<stable_id> ancestry;
+		auto current = &unit;
+		while(current) {
+			auto& visit = parent_visit[current->id];
+			if(visit == 1) {
+				error("formation parent hierarchy contains a cycle");
+				break;
+			}
+			if(visit == 2) break;
+			visit = 1;
+			ancestry.push_back(current->id);
+			current = current->parent_id == 0 ? nullptr : find_formation(state, current->parent_id);
+		}
+		for(auto id : ancestry) parent_visit[id] = 2;
+	}
 	auto assignments = persons::exact_population::all_military_assignments(state);
-	for(auto const& range : assignments) {
+	for(size_t i = 0; i < assignments.size(); ++i) {
+		auto const& range = assignments[i];
 		auto unit = find_formation(state, range.formation_id);
 		if(!unit || range.count == 0 || range.source_population_cell == 0
 			|| (range.ordinal_stride != 1 && range.ordinal_stride != 4)
@@ -1025,8 +1081,34 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 		if(unit && unit->status == formation_status::destroyed) error("destroyed formation has assigned personnel");
 		if(unit && unit->personnel_authorization != 0
 			&& personnel_count(state, unit->id) > unit->personnel_authorization) error("formation exceeds personnel authorization");
+		if(range.count == 0 || (range.ordinal_stride != 1 && range.ordinal_stride != 4)
+			|| range.count - 1 > (std::numeric_limits<uint64_t>::max() - range.first_ordinal) / range.ordinal_stride) continue;
+		auto last = range.first_ordinal + (range.count - 1) * uint64_t(range.ordinal_stride);
+		for(size_t j = i + 1; j < assignments.size(); ++j) {
+			auto const& other = assignments[j];
+			if(other.source_population_cell != range.source_population_cell) break;
+			if(other.first_ordinal > last) break;
+			if((other.ordinal_stride != 1 && other.ordinal_stride != 4)
+				|| other.count == 0
+				|| other.count - 1 > (std::numeric_limits<uint64_t>::max() - other.first_ordinal) / other.ordinal_stride) continue;
+			auto other_last = other.first_ordinal + (other.count - 1) * uint64_t(other.ordinal_stride);
+			auto low = std::max(range.first_ordinal, other.first_ordinal);
+			auto high = std::min(last, other_last);
+			if(low > high) continue;
+			auto period = std::lcm(range.ordinal_stride, other.ordinal_stride);
+			auto check_end = low + std::min<uint64_t>(period, high - low);
+			for(uint64_t ordinal = low; ordinal <= check_end; ++ordinal)
+				if((ordinal - range.first_ordinal) % range.ordinal_stride == 0
+					&& (ordinal - other.first_ordinal) % other.ordinal_stride == 0) {
+					error("exact person has multiple military assignments");
+					break;
+				}
+		}
 	}
+	std::set<std::pair<stable_id, stable_id>> formation_equipment_keys;
 	for(auto const& holding : store->equipment) {
+		if(!formation_equipment_keys.insert({holding.formation_id, holding.equipment_model_id}).second)
+			error("duplicate formation equipment holding");
 		if(!find_formation(state, holding.formation_id) || !find_equipment_model(state, holding.equipment_model_id)) error("orphan equipment holding");
 		if(holding.quantity > 0 && !has_template_model(state,
 			find_formation(state, holding.formation_id) ? find_formation(state, holding.formation_id)->template_id : 0,
@@ -1035,11 +1117,15 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			&& holding.quantity > equipment_authorization(state, holding.formation_id,
 				holding.equipment_model_id)) error("formation equipment exceeds its template authorization");
 	}
-	for(auto const& inventory : store->consumables)
+	std::set<std::pair<stable_id, uint8_t>> formation_consumable_keys;
+	for(auto const& inventory : store->consumables) {
+		if(!formation_consumable_keys.insert({inventory.formation_id, uint8_t(inventory.kind)}).second)
+			error("duplicate formation consumable inventory");
 		if(!find_formation(state, inventory.formation_id)
 			|| uint8_t(inventory.kind) > uint8_t(consumable_kind::ammunition)
 			|| !std::isfinite(inventory.quantity) || inventory.quantity < 0.0)
 			error("invalid formation consumable inventory");
+	}
 	for(auto const& pile : store->stockpiles) {
 		if(pile.id == 0 || !all_ids.insert(pile.id).second) error("duplicate or zero stable ID in stockpiles");
 		if(!state.world.nation_is_valid(pile.owner) || !valid_site(state, pile.location)
@@ -1059,14 +1145,20 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 	}
 	std::set<stable_id> event_ids;
 	std::set<std::pair<uint32_t, uint64_t>> dead_person_keys;
+	std::map<stable_id, casualty_event_record const*> events_by_id;
 	for(auto const& event : store->casualty_events) {
 		if(event.event_id == 0 || !event_ids.insert(event.event_id).second
 			|| !find_formation(state, event.formation_id)
-			|| uint8_t(event.cause) > uint8_t(persons::death_cause::attrition)) error("invalid or duplicate casualty event");
+			|| uint8_t(event.cause) > uint8_t(persons::death_cause::attrition)
+			|| event.reserved[0] != 0 || event.reserved[1] != 0 || event.reserved[2] != 0)
+			error("invalid or duplicate casualty event");
 		if(!all_ids.insert(event.event_id).second) error("duplicate stable ID in casualty events");
+		events_by_id.emplace(event.event_id, &event);
 	}
 	for(auto const& loss : store->person_losses) {
-		if(!event_ids.contains(loss.event_id) || !find_formation(state, loss.formation_id)
+		auto event = events_by_id.find(loss.event_id);
+		if(event == events_by_id.end() || event->second->formation_id != loss.formation_id
+			|| !find_formation(state, loss.formation_id)
 			|| persons::alive(state, loss.person)
 			|| assigned(state, loss.person)) error("personnel loss does not match an exact removal");
 		if(!dead_person_keys.insert({loss.person.source_population_cell, loss.person.ordinal}).second) error("exact person appears in multiple casualty records");
@@ -1076,10 +1168,15 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			[&](auto const& loss) { return loss.event_id == event.event_id; }));
 		if(records != event.personnel_losses) error("casualty event personnel count differs from exact loss records");
 	}
-	for(auto const& loss : store->equipment_losses)
-		if(!event_ids.contains(loss.event_id) || !find_formation(state, loss.formation_id)
+	std::set<std::pair<stable_id, stable_id>> equipment_loss_keys;
+	for(auto const& loss : store->equipment_losses) {
+		auto event = events_by_id.find(loss.event_id);
+		if(event == events_by_id.end() || event->second->formation_id != loss.formation_id
+			|| !equipment_loss_keys.insert({loss.event_id, loss.equipment_model_id}).second
+			|| !find_formation(state, loss.formation_id)
 			|| !find_equipment_model(state, loss.equipment_model_id) || loss.quantity == 0)
 			error("equipment loss record is invalid");
+	}
 	return result;
 }
 

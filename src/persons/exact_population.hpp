@@ -206,6 +206,7 @@ uint32_t current_population_cell(sys::state const&, person_key);
 dcon::pop_id current_population_for_person(sys::state const&, person_key);
 person_key first_living_person_in_population(sys::state const&, dcon::pop_id);
 uint64_t living_people_in_population_cell(sys::state const&, uint32_t population_cell);
+bool can_project_population_membership(sys::state const&);
 bool project_population_membership(sys::state&);
 
 bool source_cell_registered(sys::state const&, uint32_t source_population_cell);

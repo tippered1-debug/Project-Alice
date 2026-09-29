@@ -1415,10 +1415,17 @@ bool load_land_forces(sys::state& state, parsers::scenario_building_context cons
 			add_row_error(err, "formation_personnel.csv", source.line, "training_days must be an unsigned 16-bit value");
 		auto source_pop = persons::population_for_source_cell(state, source_cell);
 		auto source_province = source_pop ? state.world.pop_get_province_from_pop_location(source_pop) : dcon::province_id{};
+		auto source_site = source_province
+			? world::spatial_runtime::site_for_province(state, source_province) : dcon::site_id{};
 		auto formation = military::land_forces::find_formation(state, formation_id);
 		if(!source_pop || !source_province || !formation
 			|| state.world.province_get_nation_from_province_ownership(source_province) != formation->owner)
 			add_row_error(err, "formation_personnel.csv", source.line, "personnel range must reference a living source POP owned by the formation nation");
+		else if(source_site && count != 0
+			&& !military::land_forces::personnel_route_is_valid(state, formation->owner,
+				source_site, formation->location, count))
+			add_row_error(err, "formation_personnel.csv", source.line,
+				"personnel range cannot reach the formation over a friendly supply route");
 		if(source_cell && count && stride && formation
 			&& !persons::exact_population::assign_military_range(state,
 				{source_cell, stride, first, count, formation_id, training, 0}))

@@ -264,6 +264,14 @@ TEST_CASE("canonical land forces move and route physical equipment without inven
 	land_forces_tests::miniature world;
 	auto& state = *world.state;
 	auto before_people = military::land_forces::personnel_count(state, land_forces_tests::a_second);
+	REQUIRE_FALSE(military::land_forces::create_formation(state,
+		*military::land_forces::find_formation(state, land_forces_tests::a_first)));
+	REQUIRE_FALSE(persons::exact_population::assign_military_range(state,
+		{world.cell_a, 1, 0, 100, land_forces_tests::a_first, 7, 0}));
+	REQUIRE(military::land_forces::personnel_route_is_valid(state, world.nation_a,
+		world.a_capital_site, world.a_connected_site, 100));
+	REQUIRE_FALSE(military::land_forces::personnel_route_is_valid(state, world.nation_a,
+		world.a_capital_site, world.a_isolated_site, 100));
 	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second, land_forces_tests::tank_model) == 0);
 	REQUIRE(military::land_forces::logistics_demand(state, land_forces_tests::a_second) > 0.0);
 	REQUIRE(military::land_forces::replacement_load(state, land_forces_tests::a_second) == Approx(2.0));
@@ -290,6 +298,15 @@ TEST_CASE("canonical land forces move and route physical equipment without inven
 	REQUIRE(military::land_forces::replacement_load(state, land_forces_tests::a_second) == Approx(1.5));
 	REQUIRE(military::land_forces::consumable_quantity(state, land_forces_tests::a_first,
 		military::land_forces::consumable_kind::food) < food_before);
+	REQUIRE(military::land_forces::dispatch_to_formation(state, 705, land_forces_tests::a_depot,
+		land_forces_tests::a_second, 10.0));
+	advance(world, 1);
+	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
+		land_forces_tests::tank_model) == 15);
+	REQUIRE(military::land_forces::replacement_load(state, land_forces_tests::a_second) == Approx(0.5));
+	REQUIRE_FALSE(military::land_forces::dispatch_to_formation(state, 706, land_forces_tests::a_depot,
+		land_forces_tests::a_second, 1.0));
+	REQUIRE(land_forces_tests::tank_material(world) == Approx(material_before));
 	REQUIRE(military::land_forces::move_formation(state, land_forces_tests::a_second, world.a_capital_site));
 	REQUIRE(military::land_forces::personnel_count(state, land_forces_tests::a_second) == before_people);
 	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
@@ -346,6 +363,8 @@ TEST_CASE("canonical land force save and replay preserves daily checksum",
 	for(int day = 0; day < 90; ++day) {
 		land_forces_tests::advance(continuous, 1);
 		land_forces_tests::advance(split, 1);
+		REQUIRE(military::land_forces::validate_canonical_land_forces(*continuous.state).valid);
+		REQUIRE(military::land_forces::validate_canonical_land_forces(*split.state).valid);
 		REQUIRE(military::land_forces::canonical_checksum(*continuous.state)
 			== military::land_forces::canonical_checksum(*split.state));
 	}
@@ -364,6 +383,8 @@ TEST_CASE("canonical land force save and replay preserves daily checksum",
 	for(int day = 0; day < 90; ++day) {
 		land_forces_tests::advance(continuous, 1);
 		land_forces_tests::advance(loaded, 1);
+		REQUIRE(military::land_forces::validate_canonical_land_forces(*continuous.state).valid);
+		REQUIRE(military::land_forces::validate_canonical_land_forces(*loaded.state).valid);
 		REQUIRE(military::land_forces::canonical_checksum(*continuous.state)
 			== military::land_forces::canonical_checksum(*loaded.state));
 	}

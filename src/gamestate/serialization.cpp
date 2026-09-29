@@ -81,6 +81,14 @@ struct exact_runtime_snapshot {
 	bool transformation_legislation_loaded = false;
 };
 
+struct legacy_casualty_event_record_v10 {
+	military::land_forces::stable_id event_id = 0;
+	military::land_forces::stable_id formation_id = 0;
+	uint64_t personnel_losses = 0;
+	int32_t day = 0;
+};
+static_assert(sizeof(legacy_casualty_event_record_v10) == sizeof(military::land_forces::casualty_event_record));
+
 void disable_strategic_statecraft(sys::state& state) {
 	state.strategic_statecraft_initialized = false;
 	state.strategic_interests.clear();
@@ -372,7 +380,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	result.extension_version = version;
 	if(std::size_t(section_end - ptr) < payload_size) return section_end;
 	auto const* payload_end = ptr + payload_size;
-	if(version != exact_runtime_save_version) return payload_end;
+	if(version < 10 || version > exact_runtime_save_version) return payload_end;
 
 	auto& population = result.population;
 	auto& economy = result.economy;
@@ -472,7 +480,24 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.shipments);
 	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.person_losses);
 	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.equipment_losses);
-	if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.casualty_events);
+	if(valid && version == 10) {
+		valid = read_custom_vector(ptr, payload_end, land_forces.casualty_events,
+			sizeof(legacy_casualty_event_record_v10),
+			[](uint8_t const*& input, uint8_t const* end, military::land_forces::casualty_event_record& record) {
+				legacy_casualty_event_record_v10 old_record{};
+				if(std::size_t(end - input) < sizeof(old_record)) return false;
+				auto const* record_start = input;
+				input = memcpy_deserialize(input, old_record.event_id);
+				input = memcpy_deserialize(input, old_record.formation_id);
+				input = memcpy_deserialize(input, old_record.personnel_losses);
+				input = memcpy_deserialize(input, old_record.day);
+				input = record_start + sizeof(old_record);
+				record = {old_record.event_id, old_record.formation_id,
+					old_record.personnel_losses, old_record.day,
+					persons::death_cause::combat, {}};
+				return true;
+			});
+	} else if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.casualty_events);
 	valid = valid && ptr == payload_end;
 	if(valid) result.present = true;
 	else {

@@ -54,9 +54,9 @@ void checksum_byte(uint64_t& hash, uint8_t value) {
 template<typename T>
 void checksum_integer(uint64_t& hash, T value) {
 	using unsigned_t = std::make_unsigned_t<T>;
-	auto bits = static_cast<unsigned_t>(value);
+	auto bits = uint64_t(static_cast<unsigned_t>(value));
 	for(std::size_t i = 0; i < sizeof(T); ++i) {
-		checksum_byte(hash, uint8_t(bits & unsigned_t(0xff)));
+		checksum_byte(hash, uint8_t(bits & uint64_t(0xff)));
 		bits >>= 8;
 	}
 }
@@ -73,13 +73,18 @@ bool key_less(person_key a, person_key b) {
 
 } // namespace
 
-bool kill_person(sys::state& state, person_key key, sys::date date, death_cause cause,
-	bool project_population) {
+bool can_kill_person(sys::state const& state, person_key key, sys::date date, death_cause cause) {
 	if(!exact_population::exists(state, key) || !exact_population::alive(state, key)
 		|| !date || uint8_t(cause) > uint8_t(death_cause::attrition)
 		|| int32_t(date.to_raw_value()) - 1 < exact_population::birth_day_index(state, key)) return false;
 	auto profile = exact_population::profile_for_person(state, key);
-	if(profile && (!born_on_or_before(state, profile, date) || !tenure_closable_by(state, profile, date))) return false;
+	return !profile || (born_on_or_before(state, profile, date) && tenure_closable_by(state, profile, date));
+}
+
+bool kill_person(sys::state& state, person_key key, sys::date date, death_cause cause,
+	bool project_population) {
+	if(!can_kill_person(state, key, date, cause)) return false;
+	auto profile = exact_population::profile_for_person(state, key);
 	if(!military::land_forces::close_person_assignment_on_death(state, key)) return false;
 	economy::physical::labor_dynamics::close_person_relations_on_death(state, key, date);
 	if(!exact_population::retire_person(state, key, int32_t(date.to_raw_value()) - 1, uint8_t(cause))) return false;

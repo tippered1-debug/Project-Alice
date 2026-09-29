@@ -944,6 +944,23 @@ uint64_t living_people_in_population_cell(sys::state const& state, uint32_t popu
 	return living_count_in_population_cell(*state.exact_population, population_cell);
 }
 
+
+bool can_project_population_membership(sys::state const& state) {
+	if(!state.exact_population) return false;
+	bool complete = true;
+	state.world.for_each_pop([&](auto pop) {
+		auto source = source_cell_for_population(state, pop);
+		if(source == 0 || !find_cell(state, source)) {
+			complete = false;
+			return;
+		}
+		auto people = living_count_in_population_cell(*ensure_store(state), source);
+		auto size = double(people) / 4.0;
+		if(!std::isfinite(size) || size > double(std::numeric_limits<float>::max())) complete = false;
+	});
+	return complete;
+}
+
 bool project_population_membership(sys::state& state) {
 	std::vector<std::pair<dcon::pop_id, float>> projected_sizes;
 	bool complete = true;

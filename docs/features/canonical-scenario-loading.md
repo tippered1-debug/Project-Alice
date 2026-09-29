@@ -1,6 +1,6 @@
 # Canonical Scenario Firms and Ownership
 
-Every scenario must provide seven tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `assets.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
+Every scenario must provide seven firm, ownership, and banking tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `assets.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The canonical land-force tables are also required; see [Canonical Land Forces](canonical-land-forces.md) for their schemas and validation rules. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
 
 ## Firms
 

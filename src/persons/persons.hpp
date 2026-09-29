@@ -117,6 +117,7 @@ population_transfer_result transfer_population(sys::state&, dcon::pop_id source,
 bool set_home_site(sys::state&, person_key, dcon::site_id);
 bool transfer_population_membership(sys::state&, person_key, dcon::pop_id,
 	population_transition_cause);
+bool can_kill_person(sys::state const&, person_key, sys::date, death_cause);
 bool kill_person(sys::state&, person_key, sys::date, death_cause, bool project_population = true);
 int64_t adjust_population_size(sys::state&, dcon::pop_id, double size_delta,
 	death_cause cause = death_cause::demographic);

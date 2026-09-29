@@ -142,6 +142,7 @@ struct casualty_event_record {
 	uint64_t personnel_losses = 0;
 	int32_t day = 0;
 	persons::death_cause cause = persons::death_cause::combat;
+	uint8_t reserved[3]{};
 };
 
 struct readiness {
@@ -215,6 +216,8 @@ bool close_person_assignment_on_death(sys::state&, persons::person_key);
 void advance_training(sys::state&);
 void update_daily(sys::state&);
 bool move_formation(sys::state&, stable_id formation_id, dcon::site_id destination);
+bool personnel_route_is_valid(sys::state&, dcon::nation_id owner, dcon::site_id origin,
+	dcon::site_id destination, uint64_t personnel);
 void sync_legacy_adapter_state(sys::state&);
 bool map_legacy_regiment(sys::state&, stable_id formation_id, dcon::regiment_id);
 bool clear_legacy_regiment_mapping(sys::state&, dcon::regiment_id);
