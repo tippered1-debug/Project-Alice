@@ -361,6 +361,10 @@ int main(int argc, char* argv[]) {
 					window::emit_error_message("Development test file not found. Proceeding to generate file, this process may take a few minutes to complete.\n", false);
 					parsers::error_handler err{ "" };
 					game_state.load_scenario_data(err, sys::year_month_day{ 1836, 1, 1 });
+					if(err.fatal) {
+						window::emit_error_message("Canonical scenario loading failed. See the reported scenario errors; no scenario file was written.\n", false);
+						return EXIT_FAILURE;
+					}
 					if(!err.accumulated_errors.empty() || !err.accumulated_warnings.empty()) {
 						auto assembled_msg = std::string("You can still play the mod, but it might be unstable\r\nThe following problems were encountered while creating the scenario:\r\n\r\nErrors:\r\n") + err.accumulated_errors + "\r\n\r\nWarnings:\r\n" + err.accumulated_warnings;
 						window::emit_error_message(assembled_msg, false);

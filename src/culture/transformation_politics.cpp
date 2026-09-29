@@ -1,5 +1,4 @@
 #include "transformation_politics.hpp"
-#include "economy/industry_ownership.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "persons/exact_population.hpp"
 #include "money.hpp"
@@ -527,28 +526,15 @@ population_sample sample_from_pop(sys::state const& state, dcon::pop_id pop) {
 		auto const foreign_land_share = unit_interval(state.world.province_get_foreign_land_share(province));
 		auto const smallholder_share = unit_interval(1.f - landed_share
 			- capitalist_share - state_land_share - foreign_land_share);
-		// Political standing follows what a class actually owns. Land and
-		// industry are blended by their market values, so a province with no
-		// industry behaves exactly as it did before this existed.
-		auto const industry = economy::industry_ownership::current_distribution(state, province);
-		auto const land_value = nonnegative(state.world.province_get_land_market_value(province));
-		auto const industry_value = nonnegative(state.world.province_get_industry_market_value(province));
-		auto const total_value = land_value + industry_value;
-		auto const industry_weight = total_value > 0.0f ? industry_value / total_value : 0.0f;
-		auto const blend = [&](float from_land, float from_industry) {
-			return unit_interval((1.0f - industry_weight) * from_land
-				+ industry_weight * from_industry);
-		};
+		// Political standing uses canonical land title only. The retired
+		// province-wide industrial ownership shares cannot stand in for firm
+		// ownership or influence political outcomes.
 		if(result.role == population_role::landowner) {
-			result.property_ownership = blend(landed_share, industry.landed_elites);
+			result.property_ownership = landed_share;
 		} else if(result.role == population_role::capital_owner) {
-			result.property_ownership = blend(capitalist_share, industry.capitalists);
+			result.property_ownership = capitalist_share;
 		} else if(result.role == population_role::farmer) {
 			result.property_ownership = smallholder_share;
-		} else if(result.role == population_role::industrial_worker) {
-			// Worker-owned industry is the point of industrial democracy: it has
-			// to turn into political weight, not just into income.
-			result.property_ownership = unit_interval(industry_weight * industry.workers);
 		}
 	}
 	return result;
@@ -579,13 +565,9 @@ float foreign_owned_share(sys::state const& state, dcon::nation_id nation) {
 		auto const province = ownership.get_province();
 		auto const land_value = double(nonnegative(
 			state.world.province_get_land_market_value(province)));
-		auto const industry_value = double(nonnegative(
-			state.world.province_get_industry_market_value(province)));
-		total_value += land_value + industry_value;
+		total_value += land_value;
 		foreign_value += land_value
 			* double(unit_interval(state.world.province_get_foreign_land_share(province)));
-		foreign_value += industry_value
-			* double(economy::industry_ownership::current_distribution(state, province).foreign);
 	}
 	if(total_value <= 0.0)
 		return 0.0f;

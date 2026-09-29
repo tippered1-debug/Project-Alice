@@ -188,6 +188,7 @@ void liquidate_unrecovered_factory_loans(sys::state& state, dcon::factory_id fac
 void transfer_factory_title(sys::state& state, dcon::factory_id factory, dcon::economic_actor_id new_owner) {
 	auto asset = actors::ownership::asset_for_factory(state, factory);
 	if(!asset || !new_owner) return;
+	actors::ownership::assign_runtime_canonical_id(state, new_owner);
 	std::vector<dcon::ownership_stake_id> stakes;
 	state.world.asset_for_each_ownership_stake_asset_as_asset(asset,
 		[&](dcon::ownership_stake_asset_id relation) {
@@ -195,7 +196,8 @@ void transfer_factory_title(sys::state& state, dcon::factory_id factory, dcon::e
 		});
 	for(auto stake : stakes)
 		if(stake && state.world.ownership_stake_is_valid(stake)) state.world.delete_ownership_stake(stake);
-	(void)actors::ownership::create_stake(state, new_owner, asset, 1.0f, 1.0f, 1.0f);
+	auto stake = actors::ownership::create_stake(state, new_owner, asset, 1.0f, 1.0f, 1.0f);
+	actors::ownership::assign_runtime_canonical_id(state, stake);
 }
 
 void transfer_factory_inventory(sys::state& state, dcon::factory_id factory,

@@ -13,6 +13,7 @@
 #include "compat/alice/legacy_bridge.cpp"
 #include "actors/ownership.cpp"
 #include "actors/organizations/organizations.cpp"
+#include "actors/canonical_scenario.cpp"
 #include "economy/physical/deposits.cpp"
 #include "economy/physical/extraction.cpp"
 #include "economy/physical/inventory.cpp"

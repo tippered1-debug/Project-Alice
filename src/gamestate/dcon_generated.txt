@@ -2094,6 +2094,7 @@ object{
 	storage_type{ erasable }
 	size{ 20000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 
 	property{
 		name{ position }
@@ -5017,6 +5018,7 @@ object{
 	storage_type{ erasable }
 	size{ 20000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{
 		name{ commodity }
 		type{ commodity_id }
@@ -5056,6 +5058,7 @@ object{
 	storage_type{ erasable }
 	size{ 50000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ industrial_last_decision_date } type{ sys::date } tag{ save } }
 }
@@ -5065,6 +5068,9 @@ object{
 	storage_type{ erasable }
 	size{ 30000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
+	property{ name{ retained_earnings } type{ float } tag{ save } }
+	property{ name{ paid_in_equity } type{ float } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ lending_base_rate } type{ float } tag{ save } }
 }
@@ -5074,6 +5080,7 @@ object{
 	storage_type{ erasable }
 	size{ 50000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 }
 
@@ -5181,6 +5188,8 @@ object{
 	storage_type{ erasable }
 	size{ 50000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
+	property{ name{ appraised_value } type{ float } tag{ save } }
 }
 
 object{
@@ -5188,6 +5197,7 @@ object{
 	storage_type{ erasable }
 	size{ 100000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ ownership_fraction } type{ float } tag{ save } }
 	property{ name{ voting_fraction } type{ float } tag{ save } }
 	property{ name{ economic_fraction } type{ float } tag{ save } }
@@ -5209,6 +5219,7 @@ object{
 	storage_type{ erasable }
 	size{ 100000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ original_principal } type{ float } tag{ save } }
 	property{ name{ principal_outstanding } type{ float } tag{ save } }
 	property{ name{ accrued_interest } type{ float } tag{ save } }
@@ -5227,6 +5238,7 @@ object{
 	storage_type{ erasable }
 	size{ 100000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ balance } type{ float } tag{ save } }
 }
 
@@ -5964,6 +5976,7 @@ object {
 	storage_type{ erasable }
 	size{ 100000 }
 	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	
 
 	property{

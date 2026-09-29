@@ -186,9 +186,15 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		assert(output && "new factories require a physical output commodity");
 		s.world.force_create_factory_location(f, province);
 		s.world.force_create_factory_site(f, project_site);
+		actors::ownership::assign_runtime_canonical_id(s, project_site);
+		actors::ownership::assign_runtime_canonical_id(s, responsible);
+		actors::ownership::assign_runtime_canonical_id(s, sponsor(s, p));
+		actors::ownership::assign_runtime_canonical_id(s, f);
 		auto asset = s.world.create_asset();
+		actors::ownership::assign_runtime_canonical_id(s, asset);
 		s.world.force_create_factory_asset(f, asset);
 		auto stake = actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f);
+		actors::ownership::assign_runtime_canonical_id(s, stake);
 		if(!stake || !actors::organizations::bind_factory_operator(s, responsible, f)) {
 			if(stake) s.world.delete_ownership_stake(stake);
 			s.world.delete_factory(f);
@@ -203,12 +209,18 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 			s.world.capital_project_get_planned_grade(p), s.world.capital_project_get_planned_daily_capacity(p),
 			s.world.capital_project_get_planned_target_daily_extraction(p));
 		if(!d) return false;
+		actors::ownership::assign_runtime_canonical_id(s, site(s, p));
+		actors::ownership::assign_runtime_canonical_id(s, d);
+		actors::ownership::assign_runtime_canonical_id(s, responsible);
+		actors::ownership::assign_runtime_canonical_id(s, sponsor(s, p));
 		if(!actors::organizations::bind_deposit_operator(s, responsible, d)) {
 			s.world.delete_resource_deposit(d);
 			return false;
 		}
 		auto asset = s.world.create_asset();
+		actors::ownership::assign_runtime_canonical_id(s, asset);
 		auto stake = actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f);
+		actors::ownership::assign_runtime_canonical_id(s, stake);
 		if(!stake) {
 			s.world.delete_resource_deposit(d);
 			s.world.delete_asset(asset);

@@ -41,6 +41,7 @@
 #include "world/spatial_runtime.hpp"
 #include "economy/physical/deposits.hpp"
 #include "actors/ownership.hpp"
+#include "actors/canonical_scenario.hpp"
 #include "governance/governance.hpp"
 #include "governance/public_administration.hpp"
 #include "gamerule/gamerule.hpp"
@@ -3433,7 +3434,8 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	if(!population_projection) std::abort();
 	::economy::physical::deposits::bootstrap(*this);
 	::governance::bootstrap(*this);
-	::actors::ownership::validate_canonical_ownership(*this);
+	if(!::actors::canonical_scenario::load(*this, common, context, err))
+		return;
 	::economy::industrial_production::bootstrap_factories(*this);
 	::governance::public_administration::bootstrap(*this);
 	fill_unsaved_data(); // we need this to run triggers

@@ -384,6 +384,16 @@ void update_decisions(sys::state& state) {
 		auto realized_costs = realized_input_cost + realized_payroll_due;
 		auto realized_profit = revenue - realized_costs;
 		auto realized_cashflow = revenue - realized_input_cost - realized_payroll_paid;
+		auto firm_organization = actors::organizations::organization_for_actor(state, owner);
+		if(firm_organization) {
+			state.world.organization_set_retained_earnings(firm_organization,
+				state.world.organization_get_retained_earnings(firm_organization) + realized_profit);
+			auto equity_asset = actors::organizations::equity_asset_for_organization(state, firm_organization);
+			if(equity_asset)
+				state.world.asset_set_appraised_value(equity_asset,
+					std::max(0.0f, state.world.organization_get_paid_in_equity(firm_organization)
+						+ state.world.organization_get_retained_earnings(firm_organization)));
+		}
 		auto prior_costs = state.world.factory_get_agency_recent_costs(factory);
 		auto prior_profit = state.world.factory_get_agency_recent_profit(factory);
 		state.world.factory_set_agency_recent_costs(factory,

@@ -1080,27 +1080,15 @@ profit_explanation explain_last_factory_profit(sys::state const& state, dcon::fa
 		* market_access::evaluate_province(state, location).access;
 	auto last_output = state.world.factory_get_output(f) * local_price * local_access;
 
-	auto priority = state.world.nation_get_production_directive(nation, production_directives::to_key(state, output_commodity));
-	auto priority_local = state.world.state_instance_get_production_directive(zone, production_directives::to_key(state, output_commodity));
-	auto subsidy = 0.f;
-
-	if(priority || priority_local) {
-		auto base_output = state.world.factory_type_get_output_amount(ftid);
-		auto factory_output = state.world.factory_get_output(f);
-		auto effective_output = factory_output / base_output;
-		auto tokens = state.world.nation_get_subsidy_token_total(nation);
-		auto last_token_price = state.world.nation_get_subsidy_token_price(nation);
-		subsidy = last_token_price * effective_output;
-	}
 	auto last_inputs = state.world.factory_get_input_cost(f);
 	auto wages = get_total_wage(state, f);
-	auto profit = subsidy + last_output * state.world.market_get_actual_probability_to_sell(market, output_commodity) - wages - last_inputs;
+	auto profit = last_output * state.world.market_get_actual_probability_to_sell(market, output_commodity) - wages - last_inputs;
 
 	return {
 		.inputs = last_inputs,
 		.wages = wages,
 		.output = last_output,
-		.subsidy = subsidy,
+		.subsidy = 0.0f,
 		.profit = profit
 	};
 }
@@ -1225,26 +1213,12 @@ float factory_investment_tokens(
 
 	auto factory_type = state.world.factory_get_building_type(factory);
 	auto output_type = state.world.factory_type_get_output(factory_type);
-	auto priority = state.world.nation_get_production_directive(nation, production_directives::to_key(state, output_type));
-	auto priority_local = state.world.state_instance_get_production_directive(area, production_directives::to_key(state, output_type));
-	auto subsidy = 0.f;
-
-	auto size = state.world.factory_get_size(factory);
-	if(priority || priority_local) {
-		auto base_output = state.world.factory_type_get_output_amount(factory_type);
-		auto factory_output = state.world.factory_get_output(factory);
-		auto effective_output = factory_output / base_output;
-		auto tokens = state.world.nation_get_subsidy_token_total(nation);
-		auto last_token_price = state.world.nation_get_subsidy_token_price(nation);
-		subsidy = last_token_price * effective_output / (size + 1.f);
-	}
-
 	auto time = state.world.factory_type_get_construction_time(factory_type);
 	auto per_worker_output_cost = state.world.factory_get_output_per_worker(factory) * price(state, market, output_type);
 	auto per_worker_input_cost = state.world.factory_get_input_cost_per_worker(factory);
 	auto profit = per_worker_output_cost;
 
-	return  factory_priority_bonus * (profit + subsidy);
+	return factory_priority_bonus * profit;
 }
 
 float rgo_investment_tokens(
@@ -1260,19 +1234,12 @@ float rgo_investment_tokens(
 	auto current_max_size = state.world.province_get_rgo_potential(province, commodity);
 	if (current_max_size == 0.f) return 0.f;
 	auto current_size = state.world.province_get_rgo_size(province, commodity);
-	auto priority = state.world.nation_get_production_directive(nation, production_directives::to_key(state, commodity));
-	auto priority_local = state.world.state_instance_get_production_directive(area, production_directives::to_key(state, commodity));
-	auto subsidy_tokens = 0.f;
-	if (priority || priority_local) {
-		auto last_token_price = state.world.nation_get_subsidy_token_price(nation);
-		subsidy_tokens = last_token_price / state.defines.alice_rgo_per_size_employment;
-	}
 	auto output_tokens = state.world.commodity_get_rgo_amount(commodity)
 		* state.world.province_get_rgo_base_efficiency(province, commodity)
 		* state.world.market_get_price(market, commodity)
 		/ state.defines.alice_rgo_per_size_employment;
 	auto base_tokens = 1.f / state.defines.alice_rgo_per_size_employment;
-	auto local_tokens = subsidy_tokens + output_tokens + base_tokens;
+	auto local_tokens = output_tokens + base_tokens;
 	return local_tokens;
 }
 
@@ -1565,12 +1532,7 @@ float factory_type_output_cost(
 	float output_multiplier = nation_factory_output_multiplier(state, factory_type, n);
 	float total_production = fac_type.get_output_amount() * output_multiplier;
 
-	auto priority = state.world.nation_get_production_directive(n, production_directives::to_key(state, fac_type.get_output()));
-	auto priority_local = state.world.state_instance_get_production_directive(state.world.market_get_zone_from_local_market(m), production_directives::to_key(state, fac_type.get_output()));
-	auto base_output = state.world.factory_type_get_output_amount(factory_type);
-	auto subsidy = (priority_local || priority ? state.world.nation_get_subsidy_token_price(n) : 0.f) / base_output;
-
-	return total_production * (price(state, m, fac_type.get_output()) + subsidy);
+	return total_production * price(state, m, fac_type.get_output());
 }
 
 float factory_type_input_cost(
@@ -2202,17 +2164,13 @@ detailed_explanation explain_everything(sys::state const& state, dcon::factory_i
 
 	auto sold_expectation = state.world.market_get_expected_probability_to_sell(m, result.output);
 
-	auto priority = state.world.nation_get_production_directive(n, production_directives::to_key(state, result.output));
-	auto priority_local = state.world.state_instance_get_production_directive(s, production_directives::to_key(state, result.output));
-	auto subsidy = (priority_local || priority ? state.world.nation_get_subsidy_token_price(n) / result.output_base_amount : 0.f);
-
 	auto profit_per_employment_unit =
 		result.output_amount_per_employment_unit_ignore_inputs
-		* (result.output_price + subsidy)
+		* result.output_price
 		* (sales_optimism + (1.f - sales_optimism) * sold_expectation)
 		* (purchase_optimism + (1.f - purchase_optimism) * primary_inputs_data.min_expected);
 
-	result.revenue_from_subsidies = subsidy * result.output_actual_amount;
+	result.revenue_from_subsidies = 0.0f;
 
 	result.investments_tokens = factory_investment_tokens(state, n, p, f);
 	result.investments_expansion_priority = investment_expand_factory_priority(state, f);

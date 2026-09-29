@@ -9,7 +9,6 @@
 #include "economy/economy_constants.hpp"
 #include "economy/economy_stats.hpp"
 #include "economy/human_development.hpp"
-#include "economy/industry_ownership.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/price.hpp"
 #include "economy/world_trade_capacity.hpp"
@@ -250,17 +249,8 @@ struct aggregate_snapshot {
 	double minimum_government_stability = 0.0;
 	double cabinet_confidence_sum = 0.0;
 	double minimum_cabinet_confidence = 0.0;
-	// Industrial ownership, weighted by each province's capitalized industry
-	// value so a province with no industry cannot sway the mix.
 	double industry_value = 0.0;
-	double industry_value_capitalists = 0.0;
-	double industry_value_landed = 0.0;
-	double industry_value_state = 0.0;
-	double industry_value_foreign = 0.0;
-	double industry_value_workers = 0.0;
 	double industry_turnover = 0.0;
-	double maximum_industry_state_share = 0.0;
-	double maximum_industry_foreign_share = 0.0;
 	double trade_route_cargo = 0.0;
 	double trade_effective_capacity = 0.0;
 	double trade_congestion_sum = 0.0;
@@ -698,20 +688,7 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		{
 			auto const value = double(state.world.province_get_industry_market_value(province));
 			if(std::isfinite(value) && value > 0.0) {
-				auto const owners = economy::industry_ownership::current_distribution(state, province);
 				result.industry_value += value;
-				result.industry_value_capitalists += value * double(owners.capitalists);
-				result.industry_value_landed += value * double(owners.landed_elites);
-				result.industry_value_state += value * double(owners.state);
-				result.industry_value_foreign += value * double(owners.foreign);
-				result.industry_value_workers += value * double(owners.workers);
-			}
-			{
-				auto const owners = economy::industry_ownership::current_distribution(state, province);
-				result.maximum_industry_state_share = std::max(
-					result.maximum_industry_state_share, double(owners.state));
-				result.maximum_industry_foreign_share = std::max(
-					result.maximum_industry_foreign_share, double(owners.foreign));
 			}
 			auto const turnover = double(state.world.province_get_industry_market_turnover(province));
 			if(std::isfinite(turnover))
@@ -1013,11 +990,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.cabinet_confidence_sum);
 	validate_aggregate(snapshot.minimum_cabinet_confidence);
 	validate_aggregate(snapshot.industry_value);
-	validate_aggregate(snapshot.industry_value_capitalists);
-	validate_aggregate(snapshot.industry_value_landed);
-	validate_aggregate(snapshot.industry_value_state);
-	validate_aggregate(snapshot.industry_value_foreign);
-	validate_aggregate(snapshot.industry_value_workers);
 	validate_aggregate(snapshot.industry_turnover);
 	validate_aggregate(snapshot.trade_route_cargo);
 	validate_aggregate(snapshot.trade_effective_capacity);
@@ -1183,14 +1155,7 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"finance\":{\"treasury\":" << snapshot.treasury
 		<< ",\"government_debt\":" << snapshot.government_debt
 		<< ",\"industry\":{\"value\":" << snapshot.industry_value
-		<< ",\"value_capitalists\":" << snapshot.industry_value_capitalists
-		<< ",\"value_landed\":" << snapshot.industry_value_landed
-		<< ",\"value_state\":" << snapshot.industry_value_state
-		<< ",\"value_foreign\":" << snapshot.industry_value_foreign
-		<< ",\"value_workers\":" << snapshot.industry_value_workers
-		<< ",\"turnover\":" << snapshot.industry_turnover
-		<< ",\"maximum_state_share\":" << snapshot.maximum_industry_state_share
-		<< ",\"maximum_foreign_share\":" << snapshot.maximum_industry_foreign_share << "}"
+		<< ",\"turnover\":" << snapshot.industry_turnover << "}"
 		<< ",\"labor\":{\"price_sum\":" << snapshot.labor_price_sum
 		<< ",\"real_price_sum\":" << snapshot.real_labor_price_sum
 		<< ",\"supply\":" << snapshot.labor_supply

@@ -11,6 +11,7 @@ bool is_economic_kind(ownership::actor_kind kind) noexcept {
 	case ownership::actor_kind::bank:
 	case ownership::actor_kind::fund:
 	case ownership::actor_kind::cooperative:
+	case ownership::actor_kind::state_entity:
 	case ownership::actor_kind::other:
 		return true;
 	default:

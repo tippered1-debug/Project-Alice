@@ -32,7 +32,6 @@
 #include "events.hpp"
 #include "commands.hpp"
 #include "land_ownership.hpp"
-#include "industry_ownership.hpp"
 #include "labor_relations.hpp"
 #include "policy_execution.hpp"
 #include "gamerule.hpp"
@@ -723,7 +722,7 @@ void set_factory_priority(sys::state& state, dcon::factory_id f, int32_t priorit
 	state.world.factory_set_priority_low(f, (priority & 1) != 0);
 }
 bool factory_is_profitable(sys::state const& state, dcon::factory_id f) {
-	return state.world.factory_get_unprofitable(f) == false || state.world.factory_get_subsidized(f);
+	return state.world.factory_get_unprofitable(f) == false;
 }
 
 struct commodity_profit_holder {
