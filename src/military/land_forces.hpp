@@ -40,7 +40,8 @@ struct formation_template {
 struct template_consumable_requirement {
 	stable_id template_id = 0;
 	consumable_kind kind = consumable_kind::food;
-	uint8_t reserved[7]{};
+	dcon::commodity_id commodity{};
+	uint8_t reserved[3]{};
 	// Units per person and per tonne of operational equipment per day.
 	double per_person = 0.0;
 	double per_equipment_tonne = 0.0;
@@ -114,7 +115,8 @@ struct physical_shipment {
 	cargo_kind cargo = cargo_kind::equipment;
 	consumable_kind consumable = consumable_kind::food;
 	uint8_t status = 0; // 0=in transit, 1=delivered
-	uint8_t reserved[5]{};
+	dcon::shipment_id shared_shipment{};
+	uint8_t reserved = 0;
 	stable_id equipment_model_id = 0;
 	double quantity = 0.0;
 	uint16_t days_remaining = 0;
@@ -168,7 +170,7 @@ struct validation_result {
 };
 
 struct snapshot {
-	uint32_t version = 1;
+	uint32_t version = 2;
 	std::vector<equipment_model> equipment_models;
 	std::vector<formation_template> templates;
 	std::vector<template_equipment_authorization> template_equipment;
@@ -205,10 +207,13 @@ uint64_t equipment_authorization(sys::state const&, stable_id formation_id, stab
 double consumable_quantity(sys::state const&, stable_id formation_id, consumable_kind);
 readiness derive_readiness(sys::state const&, stable_id formation_id);
 
-// Selects currently living, unassigned adults deterministically from the POP.
-// The selection stays as exact ordinal ranges after assignment.
-uint64_t recruit_personnel(sys::state&, stable_id formation_id, dcon::pop_id source_pop,
-	uint64_t requested, uint16_t training_days);
+// Recruitment candidates are exact Person Kernel identities, selected in
+// stable identity order from currently owned, reachable sites.
+std::vector<persons::person_key> recruitment_candidates(sys::state&,
+	stable_id formation_id, uint64_t requested);
+uint64_t recruit_personnel(sys::state&, stable_id formation_id,
+	std::span<persons::person_key const> candidates, uint64_t requested,
+	uint16_t training_days);
 bool assign_personnel(sys::state&, stable_id formation_id,
 	std::span<persons::person_key const>, uint16_t training_days);
 uint64_t demobilize(sys::state&, stable_id formation_id);

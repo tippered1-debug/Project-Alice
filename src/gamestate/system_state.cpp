@@ -2994,32 +2994,25 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 		auto prov = reg_prov.second.home_prov;
 		auto reb_army = context.state.world.regiment_get_army_from_army_membership(rebel_reg);
 		auto reb_army_fac = context.state.world.army_get_controller_from_army_rebel_control(reb_army);
-
-		auto rebel_pop = military::find_available_soldier_parsing(context.state, prov, [&](sys::state& state, dcon::pop_id pop) {
-
-			auto reb_fac = state.world.pop_get_rebel_faction_from_pop_rebellion_membership(pop);
-			// if the army rebel faction is not set yet, or the pop rebel faction is the same as the army one, proceed and attempt to use this pop as pop source
-			return bool(reb_fac) && (!bool(reb_army_fac) || reb_fac == reb_army_fac);
-		});
-		if(bool(rebel_pop)) {
-			context.state.world.force_create_regiment_source(rebel_reg, rebel_pop);
-			if(!bool(reb_army_fac)) {
-				auto pop_rebel_faction = context.state.world.pop_get_rebel_faction_from_pop_rebellion_membership(rebel_pop);
-				context.state.world.army_set_controller_from_army_rebel_control(reb_army, pop_rebel_faction);
-			}
-		}
-		// no rebel pop available
-		else {
+		auto rebel_faction = reb_army_fac;
+		if(!rebel_faction)
+			rebel_faction = context.state.world.province_get_rebel_faction_from_province_rebel_control(prov);
+		if(rebel_faction) {
+			if(!reb_army_fac)
+				context.state.world.army_set_controller_from_army_rebel_control(reb_army, rebel_faction);
+		} else {
 			context.state.world.delete_regiment(rebel_reg);
 			err.accumulated_warnings +=
-				"Not enough available pops in province are a member of a rebel faction to spawn a rebel brigade (" + reg_prov.second.file_name + " line " + std::to_string(reg_prov.second.line_num) + ")\n";
+				"No rebel faction controls the regiment's starting province (" + reg_prov.second.file_name + " line " + std::to_string(reg_prov.second.line_num) + ")\n";
 		}
 
 	}
 
-	//cleanup regiments with no pop attached
+	// Remove unsourced legacy regiments, while retaining faction-owned rebels.
 	world.for_each_regiment([&](auto n) {
 		if(!world.regiment_get_pop_from_regiment_source(n)) {
+			auto army = world.regiment_get_army_from_army_membership(n);
+			if(army && world.army_get_controller_from_army_rebel_control(army)) return;
 			world.delete_regiment(n);
 		}
 	});
@@ -4037,6 +4030,13 @@ void state::on_scenario_load() {
 
 	dispatch.detach();
 #endif
+	// DCON POP regiment sources are scenario import scaffolding. Canonical land
+	// rosters own exact personnel, so do not carry aggregate source links into
+	// the running world.
+	world.for_each_regiment([&](dcon::regiment_id regiment) {
+		auto value = dcon::fatten(world, regiment);
+		if(value.get_regiment_source()) value.remove_regiment_source();
+	});
 
 }
 
@@ -6030,6 +6030,7 @@ void state::build_up_to_template_land(
 	std::vector<dcon::province_id>& available_provinces,
 	std::array<uint8_t, sys::macro_builder_template::max_types>& current_distribution
 ) {
+	if(military::land_forces::initialized(*this)) return;
 	// Have to queue commands [temporarily on UI side] or it may mess calculations up
 	std::vector<build_queue_data> build_queue;
 	auto upper_limit = sys::macro_builder_template::max_types;

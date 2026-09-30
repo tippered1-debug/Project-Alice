@@ -1,6 +1,9 @@
 #include "land_forces.hpp"
 
 #include "military.hpp"
+#include "actors/ownership.hpp"
+#include "economy/physical/inventory.hpp"
+#include "economy/physical/shipments.hpp"
 #include "persons/exact_population.hpp"
 #include "system_state.hpp"
 #include "world/spatial_runtime.hpp"
@@ -113,6 +116,75 @@ bool valid_site(sys::state const& state, dcon::site_id site) {
 	return province && state.world.province_is_valid(province);
 }
 
+uint64_t actor_canonical_id(uint64_t domain, uint64_t source) {
+	auto result = hash_combine(domain, source);
+	return result == 0 ? 1 : result;
+}
+
+dcon::economic_actor_id find_actor(sys::state const& state, uint64_t canonical_id) {
+	dcon::economic_actor_id result{};
+	bool duplicate = false;
+	state.world.for_each_economic_actor([&](dcon::economic_actor_id actor) {
+		if(state.world.economic_actor_get_canonical_id(actor) != canonical_id) return;
+		if(result) duplicate = true;
+		else result = actor;
+	});
+	return duplicate ? dcon::economic_actor_id{} : result;
+}
+
+dcon::economic_actor_id ensure_actor(sys::state& state, uint64_t canonical_id) {
+	if(auto existing = find_actor(state, canonical_id)) return existing;
+	auto actor = state.world.create_economic_actor();
+	state.world.economic_actor_set_kind(actor, uint8_t(actors::ownership::actor_kind::state_entity));
+	state.world.economic_actor_set_canonical_id(actor, canonical_id);
+	return actor;
+}
+
+uint64_t nation_actor_key(sys::state const& state, dcon::nation_id owner) {
+	auto identity = state.world.nation_get_identity_from_identity_holder(owner);
+	auto canonical = identity ? uint64_t(state.world.national_identity_get_identifying_int(identity)) : 0;
+	if(canonical == 0) canonical = uint64_t(owner.index()) + 1;
+	return actor_canonical_id(0x4c414e444e415449ULL, canonical);
+}
+
+uint64_t formation_actor_key(stable_id formation_id) {
+	return actor_canonical_id(0x4c414e44464f524dULL, formation_id);
+}
+
+dcon::economic_actor_id inventory_owner(sys::state const& state, dcon::nation_id owner) {
+	return find_actor(state, nation_actor_key(state, owner));
+}
+
+dcon::economic_actor_id inventory_owner(sys::state const& state, stable_id formation_id) {
+	return find_actor(state, formation_actor_key(formation_id));
+}
+
+dcon::commodity_id commodity_for_consumable(sys::state const& state, consumable_kind kind) {
+	dcon::commodity_id result{};
+	for(auto const& requirement : ensure(state)->template_consumables) {
+		if(requirement.kind != kind) continue;
+		if(!result) result = requirement.commodity;
+		else if(result != requirement.commodity) return {};
+	}
+	return result;
+}
+
+bool template_requires_consumable(sys::state const& state, stable_id template_id,
+	consumable_kind kind, dcon::commodity_id commodity) {
+	for(auto const& requirement : ensure(state)->template_consumables)
+		if(requirement.template_id == template_id && requirement.kind == kind
+			&& requirement.commodity == commodity) return true;
+	return false;
+}
+
+dcon::commodity_id commodity_for_stockpile(sys::state const& state, stockpile const& pile) {
+	if(pile.cargo == cargo_kind::equipment) {
+		auto model = find_equipment_model(state, pile.equipment_model_id);
+		return model ? model->commodity : dcon::commodity_id{};
+	}
+	return commodity_for_consumable(state, pile.consumable);
+}
+
 formation_template const* find_template(sys::state const& state, stable_id id) {
 	return find_by_id(ensure(state)->templates, id, [](auto const& value) { return value.id; });
 }
@@ -174,34 +246,34 @@ bool has_template_model(sys::state const& state, stable_id template_id, stable_i
 
 uint64_t equipment_count_in_state(sys::state const& state, stable_id formation_id,
 	stable_id equipment_model_id) {
-	for(auto const& holding : ensure(state)->equipment)
-		if(holding.formation_id == formation_id && holding.equipment_model_id == equipment_model_id)
-			return holding.quantity;
-	return 0;
+	auto unit = find_formation(state, formation_id);
+	auto model = find_equipment_model(state, equipment_model_id);
+	auto actor = inventory_owner(state, formation_id);
+	if(!unit || !model || !actor) return 0;
+	auto quantity = economy::physical::inventory::quantity(state, unit->location,
+		model->commodity, actor);
+	if(!std::isfinite(quantity) || quantity <= 0.0f || std::floor(quantity) != quantity) return 0;
+	return uint64_t(quantity);
 }
 
 void add_equipment(sys::state& state, stable_id formation_id, stable_id model_id, uint64_t quantity) {
-	auto store = ensure(state);
-	if(auto existing = mutable_holding(state, formation_id, model_id)) existing->quantity += quantity;
-	else {
-		store->equipment.push_back({formation_id, model_id, quantity});
-		std::sort(store->equipment.begin(), store->equipment.end(), [](auto const& left, auto const& right) {
-			return std::tie(left.formation_id, left.equipment_model_id)
-				< std::tie(right.formation_id, right.equipment_model_id);
-		});
-	}
+	if(quantity == 0) return;
+	auto unit = find_formation(state, formation_id);
+	auto model = find_equipment_model(state, model_id);
+	auto actor = inventory_owner(state, formation_id);
+	if(!unit || !model || !actor || quantity > 16'777'216ULL) return;
+	(void)economy::physical::inventory::add(state, unit->location, model->commodity,
+		float(quantity), actor);
 }
 
 void add_consumable(sys::state& state, stable_id formation_id, consumable_kind kind, double quantity) {
-	auto store = ensure(state);
-	if(auto existing = mutable_consumable(state, formation_id, kind)) existing->quantity += quantity;
-	else {
-		store->consumables.push_back({formation_id, kind, {}, quantity});
-		std::sort(store->consumables.begin(), store->consumables.end(), [](auto const& left, auto const& right) {
-			return std::pair{left.formation_id, uint8_t(left.kind)}
-				< std::pair{right.formation_id, uint8_t(right.kind)};
-		});
-	}
+	if(!std::isfinite(quantity) || quantity <= 0.0) return;
+	auto unit = find_formation(state, formation_id);
+	auto actor = inventory_owner(state, formation_id);
+	auto commodity = commodity_for_consumable(state, kind);
+	if(!unit || !actor || !commodity) return;
+	(void)economy::physical::inventory::add(state, unit->location, commodity,
+		float(quantity), actor);
 }
 
 persons::person_key person_at_offset(
@@ -236,29 +308,28 @@ bool transfer_route_is_valid(sys::state& state, dcon::nation_id owner,
 		&& cargo_weight <= double(access.route_capacity);
 }
 
-uint16_t transit_days(army_supply_access_data const& route, dcon::site_id origin,
-	dcon::site_id destination, sys::state const& state) {
-	if(state.world.site_get_province_from_site_location(origin)
-		== state.world.site_get_province_from_site_location(destination)) return 0;
-	auto const km = std::max(1.0f, route.distance_km);
-	auto const days = std::ceil(km / 100.0f);
-	return uint16_t(std::clamp(days, 1.0f, float(std::numeric_limits<uint16_t>::max())));
-}
-
 double cargo_mass(sys::state const& state, stockpile const& pile, double quantity) {
 	if(pile.cargo == cargo_kind::consumable) return quantity;
 	auto model = find_equipment_model(state, pile.equipment_model_id);
 	return model ? double(model->mass) * quantity : std::numeric_limits<double>::infinity();
 }
 
+double stockpile_quantity(sys::state const& state, stockpile const& pile) {
+	auto actor = inventory_owner(state, pile.owner);
+	auto commodity = commodity_for_stockpile(state, pile);
+	if(!actor || !commodity) return 0.0;
+	return economy::physical::inventory::quantity(state, pile.location, commodity, actor);
+}
+
 double formation_daily_demand(sys::state const& state, formation const& unit,
 	consumable_kind kind) {
 	double demand = 0.0;
 	double equipment_tonnes = 0.0;
-	for(auto const& holding : ensure(state)->equipment) {
-		if(holding.formation_id != unit.id) continue;
-		auto model = find_equipment_model(state, holding.equipment_model_id);
-		if(model) equipment_tonnes += double(model->mass) * double(holding.quantity);
+	for(auto const& authorization : ensure(state)->template_equipment) {
+		if(authorization.template_id != unit.template_id) continue;
+		auto model = find_equipment_model(state, authorization.equipment_model_id);
+		if(model) equipment_tonnes += double(model->mass)
+			* double(equipment_count(state, unit.id, authorization.equipment_model_id));
 	}
 	for(auto const& requirement : ensure(state)->template_consumables) {
 		if(requirement.template_id != unit.template_id || requirement.kind != kind) continue;
@@ -282,11 +353,17 @@ void initialize_empty_store(sys::state& state) {
 bool initialized(sys::state const& state) { return bool(state.land_forces); }
 
 bool add_equipment_model(sys::state& state, equipment_model const& model) {
-	if(stable_id_in_use(state, model.id) || !std::isfinite(model.mass) || model.mass <= 0.0f
+	if(stable_id_in_use(state, model.id) || !model.commodity
+		|| !state.world.commodity_is_valid(model.commodity)
+		|| !std::isfinite(model.mass) || model.mass <= 0.0f
 		|| !std::isfinite(model.reliability) || model.reliability < 0.0f || model.reliability > 1.0f
 		|| !std::isfinite(model.attack) || model.attack < 0.0f
 		|| !std::isfinite(model.defense) || model.defense < 0.0f
 		|| !std::isfinite(model.range_km) || model.range_km < 0.0f) return false;
+	for(auto const& existing : ensure(state)->equipment_models)
+		if(existing.commodity == model.commodity) return false;
+	for(auto const& requirement : ensure(state)->template_consumables)
+		if(requirement.commodity == model.commodity) return false;
 	return insert_by_id(ensure(state)->equipment_models, model, model.id,
 		[](auto const& value) { return value.id; });
 }
@@ -316,10 +393,16 @@ bool authorize_template_equipment(sys::state& state, template_equipment_authoriz
 bool set_template_consumable_requirement(sys::state& state,
 	template_consumable_requirement const& value) {
 	if(value.template_id == 0 || uint8_t(value.kind) > uint8_t(consumable_kind::ammunition)
+		|| !value.commodity || !state.world.commodity_is_valid(value.commodity)
 		|| !find_template(state, value.template_id) || !std::isfinite(value.per_person)
 		|| value.per_person < 0.0 || !std::isfinite(value.per_equipment_tonne)
 		|| value.per_equipment_tonne < 0.0 || (value.per_person == 0.0 && value.per_equipment_tonne == 0.0)) return false;
 	auto store = ensure(state);
+	for(auto const& model : store->equipment_models)
+		if(model.commodity == value.commodity) return false;
+	for(auto const& current : store->template_consumables)
+		if((current.kind == value.kind && current.commodity != value.commodity)
+			|| (current.kind != value.kind && current.commodity == value.commodity)) return false;
 	auto key = std::pair{value.template_id, uint8_t(value.kind)};
 	auto it = std::lower_bound(store->template_consumables.begin(), store->template_consumables.end(), key,
 		[](auto const& current, auto const& target) {
@@ -341,6 +424,7 @@ bool create_formation(sys::state& state, formation const& value) {
 		if(!parent || parent->owner != value.owner || parent->id == value.id) return false;
 	}
 	if(find_formation(state, value.id)) return false;
+	if(!ensure_actor(state, formation_actor_key(value.id))) return false;
 	auto created = value;
 	created.personnel_authorization = find_template(state, value.template_id)->personnel_authorization;
 	return insert_by_id(ensure(state)->formations, created, created.id,
@@ -351,14 +435,34 @@ bool create_stockpile(sys::state& state, stockpile const& value) {
 	if(stable_id_in_use(state, value.id) || !state.world.nation_is_valid(value.owner) || !valid_site(state, value.location)
 		|| uint8_t(value.kind) > uint8_t(stockpile_kind::depot)
 		|| uint8_t(value.cargo) > uint8_t(cargo_kind::consumable)
-		|| !std::isfinite(value.quantity) || value.quantity < 0.0) return false;
+		|| !std::isfinite(value.quantity) || value.quantity < 0.0
+		|| value.quantity > std::numeric_limits<float>::max()) return false;
 	if(value.cargo == cargo_kind::equipment) {
 		if(value.equipment_model_id == 0 || !find_equipment_model(state, value.equipment_model_id)
-			|| std::floor(value.quantity) != value.quantity) return false;
+			|| std::floor(value.quantity) != value.quantity || value.quantity > 16'777'216.0) return false;
 	} else if(uint8_t(value.consumable) > uint8_t(consumable_kind::ammunition)
 		|| value.equipment_model_id != 0) return false;
-	return insert_by_id(ensure(state)->stockpiles, value, value.id,
-		[](auto const& item) { return item.id; });
+	auto commodity = commodity_for_stockpile(state, value);
+	auto actor = ensure_actor(state, nation_actor_key(state, value.owner));
+	if(!commodity || !state.world.commodity_is_valid(commodity) || !actor) return false;
+	for(auto const& existing : ensure(state)->stockpiles)
+		if(existing.owner == value.owner && existing.location == value.location
+			&& commodity_for_stockpile(state, existing) == commodity) return false;
+	auto created = value;
+	created.quantity = 0.0; // Quantity lives in the shared physical inventory.
+	if(!insert_by_id(ensure(state)->stockpiles, created, created.id,
+		[](auto const& item) { return item.id; })) return false;
+	if(value.quantity > 0.0) {
+		auto added = economy::physical::inventory::add(state, value.location, commodity,
+			float(value.quantity), actor);
+		if(added != float(value.quantity)) {
+			ensure(state)->stockpiles.erase(std::remove_if(ensure(state)->stockpiles.begin(),
+				ensure(state)->stockpiles.end(), [&](auto const& item) { return item.id == value.id; }),
+				ensure(state)->stockpiles.end());
+			return false;
+		}
+	}
+	return true;
 }
 
 bool set_initial_equipment_holding(sys::state& state, stable_id formation_id,
@@ -368,6 +472,11 @@ bool set_initial_equipment_holding(sys::state& state, stable_id formation_id,
 		|| !has_template_model(state, unit->template_id, equipment_model_id)
 		|| quantity > equipment_authorization(state, formation_id, equipment_model_id)
 		|| mutable_holding(state, formation_id, equipment_model_id)) return false;
+	if(quantity > 16'777'216ULL) return false;
+	ensure(state)->equipment.push_back({formation_id, equipment_model_id, 0});
+	std::sort(ensure(state)->equipment.begin(), ensure(state)->equipment.end(), [](auto const& left, auto const& right) {
+		return std::tie(left.formation_id, left.equipment_model_id) < std::tie(right.formation_id, right.equipment_model_id);
+	});
 	add_equipment(state, formation_id, equipment_model_id, quantity);
 	return true;
 }
@@ -375,8 +484,13 @@ bool set_initial_equipment_holding(sys::state& state, stable_id formation_id,
 bool set_initial_consumable_inventory(sys::state& state, stable_id formation_id,
 	consumable_kind kind, double quantity) {
 	if(!find_formation(state, formation_id) || uint8_t(kind) > uint8_t(consumable_kind::ammunition)
-		|| !std::isfinite(quantity) || quantity < 0.0
+		|| !commodity_for_consumable(state, kind) || !std::isfinite(quantity) || quantity < 0.0
+		|| quantity > std::numeric_limits<float>::max()
 		|| mutable_consumable(state, formation_id, kind)) return false;
+	ensure(state)->consumables.push_back({formation_id, kind, {}, 0.0});
+	std::sort(ensure(state)->consumables.begin(), ensure(state)->consumables.end(), [](auto const& left, auto const& right) {
+		return std::pair{left.formation_id, uint8_t(left.kind)} < std::pair{right.formation_id, uint8_t(right.kind)};
+	});
 	add_consumable(state, formation_id, kind, quantity);
 	return true;
 }
@@ -415,9 +529,11 @@ uint64_t equipment_authorization(sys::state const& state, stable_id formation_id
 }
 
 double consumable_quantity(sys::state const& state, stable_id formation_id, consumable_kind kind) {
-	for(auto const& item : ensure(state)->consumables)
-		if(item.formation_id == formation_id && item.kind == kind) return item.quantity;
-	return 0.0;
+	auto unit = find_formation(state, formation_id);
+	auto actor = inventory_owner(state, formation_id);
+	auto commodity = commodity_for_consumable(state, kind);
+	if(!unit || !actor || !commodity) return 0.0;
+	return economy::physical::inventory::quantity(state, unit->location, commodity, actor);
 }
 
 readiness derive_readiness(sys::state const& state, stable_id formation_id) {
@@ -473,10 +589,9 @@ bool assign_personnel(sys::state& state, stable_id formation_id,
 		if(key.source_population_cell == 0 || !persons::exists(state, key)
 			|| !persons::alive(state, key) || assigned(state, key)
 			|| (i != 0 && ordered[i - 1] == key)) return false;
-		auto pop = persons::current_population(state, key);
-		auto province = pop ? state.world.pop_get_province_from_pop_location(pop) : dcon::province_id{};
+		auto site = persons::home_site(state, key);
+		auto province = site ? state.world.site_get_province_from_site_location(site) : dcon::province_id{};
 		auto owner = province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
-		auto site = province ? world::spatial_runtime::site_for_province(state, province) : dcon::site_id{};
 		if(owner != unit->owner || !site) return false;
 		auto& load = source_loads[uint32_t(site.index())];
 		load.first = site;
@@ -488,73 +603,95 @@ bool assign_personnel(sys::state& state, stable_id formation_id,
 		auto const source = ordered[i].source_population_cell;
 		auto first = ordered[i].ordinal;
 		auto count = uint64_t(1);
+		auto stride = uint32_t(1);
+		if(i + 1 < ordered.size() && ordered[i + 1].source_population_cell == source
+			&& ordered[i + 1].ordinal - first == 4) stride = 4;
 		while(i + count < ordered.size() && ordered[i + count].source_population_cell == source
-			&& ordered[i + count].ordinal == first + count) ++count;
+			&& ordered[i + count].ordinal == first + count * stride) ++count;
 		if(!persons::exact_population::assign_military_range(state,
-			{source, 1, first, count, formation_id, training_days, 0})) return false;
+			{source, stride, first, count, formation_id, training_days, 0})) return false;
 		i += size_t(count);
 	}
 	return true;
 }
 
-uint64_t recruit_personnel(sys::state& state, stable_id formation_id, dcon::pop_id source_pop,
-	uint64_t requested, uint16_t training_days) {
-	if(requested == 0 || !source_pop || !state.world.pop_is_valid(source_pop)
-		|| !state.exact_population) return 0;
+std::vector<persons::person_key> recruitment_candidates(sys::state& state,
+	stable_id formation_id, uint64_t requested) {
+	std::vector<persons::person_key> result;
+	if(requested == 0 || !state.exact_population) return result;
 	auto unit = find_formation(state, formation_id);
-	if(!unit || unit->status == formation_status::destroyed) return 0;
+	if(!unit || unit->status == formation_status::destroyed) return result;
 	requested = std::min<uint64_t>(requested,
 		unit->personnel_authorization > personnel_count(state, formation_id)
 			? unit->personnel_authorization - personnel_count(state, formation_id) : 0);
-	if(requested == 0) return 0;
-	auto province = state.world.pop_get_province_from_pop_location(source_pop);
-	if(!province || state.world.province_get_nation_from_province_ownership(province) != unit->owner) return 0;
-	auto source_site = world::spatial_runtime::site_for_province(state, province);
-	if(!source_site || !personnel_route_is_valid(state, unit->owner, source_site, unit->location, requested)) {
-		auto const destination = state.world.site_get_province_from_site_location(unit->location);
-		if(!source_site || !destination || province == destination) return 0;
-		auto route = military::calculate_army_supply_access_from_source(state, unit->owner, province, destination);
-		if(!route.reachable || route.source != province || !std::isfinite(route.route_capacity)
-			|| route.route_capacity <= 0.0f) return 0;
-		requested = std::min<uint64_t>(requested,
-			uint64_t(std::floor(double(route.route_capacity) * 1000.0)));
-		if(requested == 0) return 0;
-	}
-	auto const source_cell = persons::exact_population::source_cell_for_population(state, source_pop);
-	auto descriptor = persons::exact_population::descriptor_for_cell(state, source_cell);
-	if(source_cell == 0 || !descriptor) return 0;
-	std::vector<personnel_assignment_range> recruited;
-	uint64_t actual = 0;
-	uint64_t run_first = 0;
-	uint64_t run_count = 0;
-	auto flush = [&] {
-		if(run_count != 0) recruited.push_back({formation_id, source_cell, run_first,
-			run_count, 4, training_days, 0});
-		run_count = 0;
-	};
-	for(uint64_t ordinal = 0; ordinal < descriptor->literal_count && actual < requested; ordinal += 4) {
-		persons::person_key key{source_cell, ordinal};
-		bool eligible = persons::alive(state, key)
-			&& persons::current_population_cell(state, key) == source_cell
-			&& persons::age_years(state, key, state.current_date) >= 18
-			&& persons::age_years(state, key, state.current_date) < 65
-			&& !assigned(state, key);
-		if(!eligible) {
-			flush();
-			continue;
+	if(requested == 0) return result;
+	auto const destination = state.world.site_get_province_from_site_location(unit->location);
+	if(!destination) return result;
+	auto catalog = persons::exact_population::export_snapshot(state);
+	std::sort(catalog.cells.begin(), catalog.cells.end(), [](auto const& left, auto const& right) {
+		return left.source_population_cell < right.source_population_cell;
+	});
+	struct source_capacity { uint64_t limit = 0; uint64_t used = 0; bool evaluated = false; };
+	std::map<uint32_t, source_capacity> capacity_by_site;
+	for(auto const& cell : catalog.cells) {
+		for(uint64_t ordinal = 0; ordinal < cell.literal_count && result.size() < requested; ordinal += 4) {
+			persons::person_key key{cell.source_population_cell, ordinal};
+			if(!persons::alive(state, key) || !persons::is_source_workforce_anchor(state, key)
+				|| assigned(state, key)
+				|| persons::age_years(state, key, state.current_date) < 18
+				|| persons::age_years(state, key, state.current_date) >= 65) continue;
+			auto source = persons::home_site(state, key);
+			auto province = source ? state.world.site_get_province_from_site_location(source) : dcon::province_id{};
+			if(!province || state.world.province_get_nation_from_province_ownership(province) != unit->owner) continue;
+			auto& capacity = capacity_by_site[uint32_t(source.index())];
+			if(!capacity.evaluated) {
+				capacity.evaluated = true;
+				if(province == destination) {
+					capacity.limit = requested;
+				} else {
+					auto route = military::calculate_army_supply_access_from_source(state,
+						unit->owner, province, destination);
+					if(!route.reachable || route.source != province || !std::isfinite(route.route_capacity)
+						|| route.route_capacity <= 0.0f) continue;
+					capacity.limit = uint64_t(std::floor(double(route.route_capacity) * 1000.0));
+				}
+			}
+			if(capacity.limit == 0 || capacity.used >= capacity.limit) continue;
+			result.push_back(key);
+			++capacity.used;
 		}
-		if(run_count == 0) run_first = ordinal;
-		if(run_count != 0 && run_first + run_count * 4 != ordinal) flush(), run_first = ordinal;
-		++run_count;
-		++actual;
 	}
-	flush();
-	if(actual == 0) return 0;
-	for(auto const& range : recruited)
-		if(!persons::exact_population::assign_military_range(state,
-			{range.source_population_cell, range.ordinal_stride, range.first_ordinal,
-				range.count, range.formation_id, range.training_days_remaining, 0})) return 0;
-	return actual;
+	return result;
+}
+
+uint64_t recruit_personnel(sys::state& state, stable_id formation_id,
+	std::span<persons::person_key const> candidates, uint64_t requested,
+	uint16_t training_days) {
+	if(requested == 0 || candidates.empty()) return 0;
+	auto unit = find_formation(state, formation_id);
+	if(!unit || unit->status == formation_status::destroyed) return 0;
+	auto vacancy = unit->personnel_authorization > personnel_count(state, formation_id)
+		? unit->personnel_authorization - personnel_count(state, formation_id) : 0;
+	requested = std::min<uint64_t>({requested, vacancy, candidates.size()});
+	if(requested == 0) return 0;
+	std::vector<persons::person_key> selected(candidates.begin(), candidates.end());
+	std::sort(selected.begin(), selected.end(), [](auto left, auto right) {
+		return std::tie(left.source_population_cell, left.ordinal)
+			< std::tie(right.source_population_cell, right.ordinal);
+	});
+	selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+	std::vector<persons::person_key> eligible;
+	eligible.reserve(size_t(requested));
+	for(auto key : selected) {
+		if(!persons::exists(state, key) || !persons::alive(state, key)
+			|| !persons::is_source_workforce_anchor(state, key) || assigned(state, key)
+			|| persons::age_years(state, key, state.current_date) < 18
+			|| persons::age_years(state, key, state.current_date) >= 65) continue;
+		eligible.push_back(key);
+		if(eligible.size() == requested) break;
+	}
+	if(eligible.empty() || !assign_personnel(state, formation_id, eligible, training_days)) return 0;
+	return uint64_t(eligible.size());
 }
 
 uint64_t demobilize(sys::state& state, stable_id formation_id) {
@@ -594,6 +731,40 @@ bool move_formation(sys::state& state, stable_id formation_id, dcon::site_id des
 		&& !world::spatial_runtime::route_for_sites(state, unit->location, destination).connected) return false;
 	for(auto const& shipment : ensure(state)->shipments)
 		if(shipment.status == 0 && shipment.destination_formation_id == formation_id) return false;
+	if(unit->location != destination) {
+		auto actor = inventory_owner(state, formation_id);
+		if(!actor) return false;
+		struct carried_stock { dcon::commodity_id commodity{}; float quantity = 0.0f; };
+		std::vector<carried_stock> cargo;
+		state.world.for_each_physical_stock([&](dcon::physical_stock_id stock) {
+			auto owner_relation = state.world.physical_stock_get_physical_stock_owner(stock);
+			auto site_relation = state.world.physical_stock_get_physical_stock_site(stock);
+			if(!owner_relation || !site_relation
+				|| state.world.physical_stock_owner_get_economic_actor(owner_relation) != actor
+				|| state.world.physical_stock_site_get_site(site_relation) != unit->location) return;
+			auto quantity = state.world.physical_stock_get_quantity(stock);
+			if(quantity > 0.0f) cargo.push_back({
+				state.world.physical_stock_get_commodity_from_physical_stock_commodity(stock), quantity });
+		});
+		std::sort(cargo.begin(), cargo.end(), [](auto const& left, auto const& right) {
+			return left.commodity.value < right.commodity.value;
+		});
+		for(auto const& item : cargo) {
+			auto available = economy::physical::inventory::quantity(state, unit->location, item.commodity, actor);
+			auto destination_quantity = economy::physical::inventory::quantity(state, destination, item.commodity, actor);
+			if(available < item.quantity || !std::isfinite(destination_quantity + item.quantity)) return false;
+		}
+		for(auto const& item : cargo) {
+			if(economy::physical::inventory::remove(state, unit->location, item.commodity,
+				item.quantity, actor) != item.quantity) return false;
+			if(economy::physical::inventory::add(state, destination, item.commodity,
+				item.quantity, actor) != item.quantity) {
+				(void)economy::physical::inventory::add(state, unit->location, item.commodity,
+					item.quantity, actor);
+				return false;
+			}
+		}
+	}
 	find_by_id(ensure(state)->formations, formation_id,
 		[](auto const& value) { return value.id; })->location = destination;
 	return true;
@@ -660,16 +831,19 @@ float projected_regiment_strength(sys::state const& state, stable_id formation_i
 
 float formation_combat_stat(sys::state const& state, dcon::regiment_id regiment, bool attacking) {
 	auto formation_id = formation_for_legacy_regiment(state, regiment);
-	if(!formation_id) return 0.0f;
+	auto unit = find_formation(state, formation_id);
+	if(!formation_id || !unit) return 0.0f;
 	double weighted = 0.0;
 	double quantity = 0.0;
-	for(auto const& holding : ensure(state)->equipment) {
-		if(holding.formation_id != formation_id || holding.quantity == 0) continue;
-		auto model = find_equipment_model(state, holding.equipment_model_id);
+	for(auto const& authorization : ensure(state)->template_equipment) {
+		if(authorization.template_id != unit->template_id) continue;
+		auto held = equipment_count(state, formation_id, authorization.equipment_model_id);
+		if(held == 0) continue;
+		auto model = find_equipment_model(state, authorization.equipment_model_id);
 		if(!model) continue;
 		auto stat = attacking ? model->attack : model->defense;
-		weighted += double(stat) * double(holding.quantity);
-		quantity += double(holding.quantity);
+		weighted += double(stat) * double(held);
+		quantity += double(held);
 	}
 	return quantity > 0.0 ? float(weighted / quantity) : 0.0f;
 }
@@ -682,18 +856,21 @@ float apply_legacy_regiment_damage(sys::state& state, dcon::regiment_id regiment
 	auto const applied_damage = std::min(before, damage);
 	if(applied_damage <= 0.0f) return 0.0f;
 	auto const ratio = std::clamp(applied_damage / before, 0.0f, 1.0f);
+	auto unit = find_formation(state, formation_id);
+	if(!unit) return 0.0f;
 	std::vector<casualty_request> equipment_losses;
-	for(auto const& holding : ensure(state)->equipment) {
-		if(holding.formation_id != formation_id || holding.quantity == 0) continue;
-		auto loss = uint64_t(std::llround(double(holding.quantity) * double(ratio)));
-		if(loss != 0) equipment_losses.push_back({holding.equipment_model_id, loss});
+	for(auto const& authorization : ensure(state)->template_equipment) {
+		if(authorization.template_id != unit->template_id) continue;
+		auto held = equipment_count(state, formation_id, authorization.equipment_model_id);
+		if(held == 0) continue;
+		auto loss = uint64_t(std::llround(double(held) * double(ratio)));
+		if(loss != 0) equipment_losses.push_back({authorization.equipment_model_id, loss});
 	}
 	auto personnel = personnel_count(state, formation_id);
 	auto personnel_losses = uint64_t(std::llround(double(personnel) * double(ratio)));
 	if(ratio >= 1.0f) personnel_losses = personnel;
 	auto result = apply_losses(state, formation_id, personnel_losses, equipment_losses, event_id, day, cause);
 	if(!result.applied) return 0.0f;
-	auto unit = find_formation(state, formation_id);
 	if(personnel_count(state, formation_id) == 0 && unit && unit->status != formation_status::destroyed)
 		(void)destroy_formation(state, formation_id);
 	state.world.regiment_set_strength(regiment, projected_regiment_strength(state, formation_id));
@@ -729,22 +906,24 @@ bool dispatch_to_stockpile(sys::state& state, stable_id shipment_id, stable_id s
 	if(!source || !destination || source->id == destination->id || source->owner != destination->owner
 		|| destination->kind != stockpile_kind::depot || source->cargo != destination->cargo
 		|| source->equipment_model_id != destination->equipment_model_id
-		|| source->consumable != destination->consumable || source->quantity < quantity) return false;
-	if(source->cargo == cargo_kind::equipment && std::floor(quantity) != quantity) return false;
+		|| source->consumable != destination->consumable || stockpile_quantity(state, *source) < quantity) return false;
+	if(source->cargo == cargo_kind::equipment
+		&& (std::floor(quantity) != quantity || quantity > 16'777'216.0)) return false;
 	auto mass = cargo_mass(state, *source, quantity);
 	army_supply_access_data route{};
 	if(!transfer_route_is_valid(state, source->owner, source->location, destination->location, mass, &route)) return false;
-	auto days = transit_days(route, source->location, destination->location, state);
-	auto mutable_source = find_by_id(store->stockpiles, source_stockpile_id,
-		[](auto const& value) { return value.id; });
-	mutable_source->quantity -= quantity;
+	auto actor = inventory_owner(state, source->owner);
+	auto commodity = commodity_for_stockpile(state, *source);
+	if(!actor || !commodity || source->location == destination->location) return false;
+	auto shared = economy::physical::shipments::dispatch_transfer(state, source->location,
+		destination->location, commodity, float(quantity), actor, actor);
+	if(!shared) return false;
 	store->shipments.push_back({shipment_id, source_stockpile_id, destination_stockpile_id,
 		0, destination->location, source->cargo, source->consumable, 0,
-		{}, source->equipment_model_id, quantity, days, 0});
+		shared, 0, source->equipment_model_id, 0.0, 0, 0});
 	std::sort(store->shipments.begin(), store->shipments.end(), [](auto const& left, auto const& right) {
 		return left.id < right.id;
 	});
-	if(days == 0) advance_shipments(state);
 	return true;
 }
 
@@ -756,52 +935,54 @@ bool dispatch_to_formation(sys::state& state, stable_id shipment_id, stable_id s
 	auto source = find_by_id(store->stockpiles, source_stockpile_id, [](auto const& value) { return value.id; });
 	auto unit = find_formation(state, destination_formation_id);
 	if(!source || !unit || source->kind != stockpile_kind::depot || source->owner != unit->owner
-		|| source->quantity < quantity || unit->status == formation_status::destroyed) return false;
+		|| stockpile_quantity(state, *source) < quantity
+		|| unit->status == formation_status::destroyed) return false;
 	if(source->cargo == cargo_kind::equipment
 		&& !has_template_model(state, unit->template_id, source->equipment_model_id)) return false;
+	if(source->cargo == cargo_kind::consumable
+		&& !template_requires_consumable(state, unit->template_id, source->consumable,
+			commodity_for_stockpile(state, *source))) return false;
 	if(source->cargo == cargo_kind::equipment
-		&& (std::floor(quantity) != quantity
-			|| equipment_count(state, unit->id, source->equipment_model_id) + uint64_t(quantity)
-				> equipment_authorization(state, unit->id, source->equipment_model_id))) return false;
+		&& (std::floor(quantity) != quantity || quantity > 16'777'216.0
+			|| quantity > double(equipment_authorization(state, unit->id, source->equipment_model_id)
+				- std::min(equipment_count(state, unit->id, source->equipment_model_id),
+					equipment_authorization(state, unit->id, source->equipment_model_id))))) return false;
 	auto mass = cargo_mass(state, *source, quantity);
 	army_supply_access_data route{};
 	if(!transfer_route_is_valid(state, source->owner, source->location, unit->location, mass, &route)) return false;
-	auto days = transit_days(route, source->location, unit->location, state);
-	auto mutable_source = find_by_id(store->stockpiles, source_stockpile_id,
-		[](auto const& value) { return value.id; });
-	mutable_source->quantity -= quantity;
+	auto seller = inventory_owner(state, source->owner);
+	auto buyer = inventory_owner(state, destination_formation_id);
+	auto commodity = commodity_for_stockpile(state, *source);
+	if(!seller || !buyer || !commodity) return false;
+	dcon::shipment_id shared{};
+	if(source->location == unit->location) {
+		if(!economy::physical::inventory::transfer(state, source->location, commodity,
+			seller, buyer, float(quantity))) return false;
+	} else {
+		shared = economy::physical::shipments::dispatch_transfer(state, source->location,
+			unit->location, commodity, float(quantity), seller, buyer);
+		if(!shared) return false;
+	}
 	store->shipments.push_back({shipment_id, source_stockpile_id, 0,
 		destination_formation_id, unit->location, source->cargo, source->consumable,
-		0, {}, source->equipment_model_id, quantity, days, 0});
+		uint8_t(shared ? 0 : 1), shared, 0, source->equipment_model_id, 0.0, 0, 0});
 	std::sort(store->shipments.begin(), store->shipments.end(), [](auto const& left, auto const& right) {
 		return left.id < right.id;
 	});
-	if(days == 0) advance_shipments(state);
 	return true;
 }
 
 void advance_shipments(sys::state& state) {
 	auto store = ensure(state);
 	for(auto& shipment : store->shipments) {
-		if(shipment.status != 0) continue;
-		if(shipment.days_remaining != 0) --shipment.days_remaining;
-		if(shipment.days_remaining != 0) continue;
-		if(shipment.destination_stockpile_id != 0) {
-			auto destination = find_by_id(store->stockpiles, shipment.destination_stockpile_id,
-				[](auto const& value) { return value.id; });
-			if(!destination) continue;
-			destination->quantity += shipment.quantity;
-		} else {
-			auto unit = find_by_id(store->formations, shipment.destination_formation_id,
-				[](auto const& value) { return value.id; });
-			if(!unit || unit->status == formation_status::destroyed || unit->location != shipment.destination_site) continue;
-			if(shipment.cargo == cargo_kind::equipment) {
-			auto quantity = uint64_t(std::floor(shipment.quantity));
-			if(double(quantity) != shipment.quantity) continue;
-			add_equipment(state, unit->id, shipment.equipment_model_id, quantity);
-			} else add_consumable(state, unit->id, shipment.consumable, shipment.quantity);
+		if(shipment.status != 0 || !shipment.shared_shipment) continue;
+		if(!state.world.shipment_is_valid(shipment.shared_shipment)) {
+			shipment.status = 1;
+			shipment.shared_shipment = {};
+			shipment.days_remaining = 0;
+			continue;
 		}
-		shipment.status = 1;
+		shipment.days_remaining = state.world.shipment_get_remaining_days(shipment.shared_shipment);
 	}
 }
 
@@ -814,10 +995,11 @@ double logistics_demand(sys::state const& state, stable_id formation_id) {
 	auto unit = find_formation(state, formation_id);
 	if(!unit || unit->status == formation_status::destroyed) return 0.0;
 	double equipment_mass = 0.0;
-	for(auto const& holding : ensure(state)->equipment) {
-		if(holding.formation_id != formation_id) continue;
-		auto model = find_equipment_model(state, holding.equipment_model_id);
-		if(model) equipment_mass += double(model->mass) * double(holding.quantity);
+	for(auto const& authorization : ensure(state)->template_equipment) {
+		if(authorization.template_id != unit->template_id) continue;
+		auto model = find_equipment_model(state, authorization.equipment_model_id);
+		if(model) equipment_mass += double(model->mass)
+			* double(equipment_count(state, formation_id, authorization.equipment_model_id));
 	}
 	constexpr std::array<consumable_kind, 3> consumables = {
 		consumable_kind::food, consumable_kind::fuel, consumable_kind::ammunition
@@ -853,21 +1035,27 @@ double replacement_load(sys::state const& state, stable_id formation_id) {
 double consume_daily_supply(sys::state& state, stable_id formation_id, consumable_kind kind) {
 	auto unit = find_formation(state, formation_id);
 	if(!unit || unit->status == formation_status::destroyed) return 0.0;
-	auto inventory = mutable_consumable(state, formation_id, kind);
-	if(!inventory) return 0.0;
+	auto actor = inventory_owner(state, formation_id);
+	auto commodity = commodity_for_consumable(state, kind);
+	if(!actor || !commodity) return 0.0;
 	auto const demand = formation_daily_demand(state, *unit, kind);
-	auto const consumed = std::min(inventory->quantity, demand);
-	inventory->quantity -= consumed;
-	return consumed;
+	if(!std::isfinite(demand) || demand <= 0.0) return 0.0;
+	return economy::physical::inventory::remove(state, unit->location, commodity,
+		float(demand), actor);
 }
 
 double depot_inventory_at(sys::state const& state, dcon::nation_id owner, dcon::province_id province) {
 	if(!state.land_forces || !province) return 0.0;
 	double result = 0.0;
-	for(auto const& pile : ensure(state)->stockpiles)
-		if(pile.kind == stockpile_kind::depot && pile.owner == owner
-			&& state.world.site_get_province_from_site_location(pile.location) == province)
-			result += pile.quantity;
+	std::set<std::tuple<uint32_t, uint32_t, uint32_t>> counted;
+	for(auto const& pile : ensure(state)->stockpiles) {
+		if(pile.kind != stockpile_kind::depot || pile.owner != owner
+			|| state.world.site_get_province_from_site_location(pile.location) != province) continue;
+		auto commodity = commodity_for_stockpile(state, pile);
+		auto actor = inventory_owner(state, owner);
+		if(!commodity || !actor || !counted.insert({pile.location.index(), commodity.index(), actor.index()}).second) continue;
+		result += economy::physical::inventory::quantity(state, pile.location, commodity, actor);
+	}
 	return result;
 }
 
@@ -905,7 +1093,6 @@ casualty_result apply_losses(sys::state& state, stable_id formation_id,
 		auto const& request = equipment_to_remove[i];
 		if(request.equipment_model_id == 0 || request.quantity == 0
 			|| !find_equipment_model(state, request.equipment_model_id)
-			|| !mutable_holding(state, formation_id, request.equipment_model_id)
 			|| equipment_count(state, formation_id, request.equipment_model_id) < request.quantity
 			|| (i && equipment_to_remove[i - 1].equipment_model_id == request.equipment_model_id)) return result;
 	}
@@ -950,9 +1137,10 @@ casualty_result apply_losses(sys::state& state, stable_id formation_id,
 		store->person_losses.push_back({event_id, formation_id, key, day});
 	}
 	for(auto const& request : equipment_to_remove) {
-		auto holding = mutable_holding(state, formation_id, request.equipment_model_id);
-		if(!holding || holding->quantity < request.quantity) return casualty_result{};
-		holding->quantity -= request.quantity;
+		auto model = find_equipment_model(state, request.equipment_model_id);
+		auto actor = inventory_owner(state, formation_id);
+		if(!model || !actor || economy::physical::inventory::remove(state, unit->location,
+			model->commodity, float(request.quantity), actor) != float(request.quantity)) return casualty_result{};
 		store->equipment_losses.push_back({event_id, formation_id, request.equipment_model_id,
 			request.quantity, day});
 	}
@@ -999,12 +1187,15 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 		result.errors.push_back(std::move(message));
 	};
 	std::set<stable_id> all_ids;
+	std::set<uint32_t> equipment_commodities;
 	for(auto const& model : store->equipment_models) {
 		if(model.id == 0 || !all_ids.insert(model.id).second) error("duplicate or zero stable ID in equipment models");
 		if(!std::isfinite(model.mass) || model.mass <= 0.0f || !std::isfinite(model.reliability)
 			|| model.reliability < 0.0f || model.reliability > 1.0f || !std::isfinite(model.attack)
 			|| !std::isfinite(model.defense) || !std::isfinite(model.range_km)) error("invalid equipment model properties");
-		if(model.commodity && !state.world.commodity_is_valid(model.commodity)) error("equipment model references a missing commodity");
+		if(!model.commodity || !state.world.commodity_is_valid(model.commodity)) error("equipment model references a missing commodity");
+		else if(!equipment_commodities.insert(model.commodity.index()).second)
+			error("multiple equipment models map to one physical commodity");
 	}
 	for(auto const& value : store->templates) {
 		if(value.id == 0 || !all_ids.insert(value.id).second) error("duplicate or zero stable ID in templates");
@@ -1017,13 +1208,23 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			error("orphan, duplicate, or empty template equipment authorization");
 	}
 	std::set<std::pair<stable_id, uint8_t>> required_consumables;
+	std::map<uint8_t, dcon::commodity_id> consumable_commodities;
 	for(auto const& value : store->template_consumables)
 		if(!find_template(state, value.template_id) || uint8_t(value.kind) > uint8_t(consumable_kind::ammunition)
+			|| !value.commodity || !state.world.commodity_is_valid(value.commodity)
 			|| !std::isfinite(value.per_person) || value.per_person < 0.0
 			|| !std::isfinite(value.per_equipment_tonne) || value.per_equipment_tonne < 0.0)
 			error("invalid template consumable requirement");
-		else if(!required_consumables.insert({value.template_id, uint8_t(value.kind)}).second)
-			error("duplicate template consumable requirement");
+		else {
+			auto kind = uint8_t(value.kind);
+			if(equipment_commodities.contains(value.commodity.index()))
+				error("physical commodity is shared by equipment and consumables");
+			auto [commodity_it, inserted] = consumable_commodities.emplace(kind, value.commodity);
+			if(!inserted && commodity_it->second != value.commodity)
+				error("one consumable kind maps to multiple physical commodities");
+			if(!required_consumables.insert({value.template_id, kind}).second)
+				error("duplicate template consumable requirement");
+		}
 	for(size_t i = 0; i < store->formations.size(); ++i) {
 		auto const& unit = store->formations[i];
 		if(unit.id == 0 || !all_ids.insert(unit.id).second) error("duplicate or zero stable ID in formations");
@@ -1050,6 +1251,24 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			for(size_t j = 0; j < i; ++j)
 				if(store->formations[j].legacy_regiment_index_plus_one == unit.legacy_regiment_index_plus_one)
 					error("legacy regiment is mapped to multiple formations");
+		}
+		auto actor = inventory_owner(state, unit.id);
+		if(!actor) error("formation has no unique physical inventory owner");
+		for(auto const& authorization : store->template_equipment) {
+			if(authorization.template_id != unit.template_id || !actor) continue;
+			auto model = find_equipment_model(state, authorization.equipment_model_id);
+			if(!model) continue;
+			auto quantity = economy::physical::inventory::quantity(state, unit.location, model->commodity, actor);
+			if(!std::isfinite(quantity) || quantity < 0.0f || std::floor(quantity) != quantity
+				|| quantity > float(authorization.quantity))
+				error("formation physical equipment exceeds its template authorization");
+		}
+		for(auto const& requirement : store->template_consumables) {
+			if(requirement.template_id != unit.template_id || !actor) continue;
+			auto quantity = economy::physical::inventory::quantity(state, unit.location,
+				requirement.commodity, actor);
+			if(!std::isfinite(quantity) || quantity < 0.0f)
+				error("formation physical consumable inventory is invalid");
 		}
 	}
 	std::map<stable_id, uint8_t> parent_visit;
@@ -1110,12 +1329,10 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 		if(!formation_equipment_keys.insert({holding.formation_id, holding.equipment_model_id}).second)
 			error("duplicate formation equipment holding");
 		if(!find_formation(state, holding.formation_id) || !find_equipment_model(state, holding.equipment_model_id)) error("orphan equipment holding");
-		if(holding.quantity > 0 && !has_template_model(state,
+		if(holding.quantity != 0) error("legacy formation equipment quantity is not zero in physical inventory mode");
+		if(find_formation(state, holding.formation_id) && !has_template_model(state,
 			find_formation(state, holding.formation_id) ? find_formation(state, holding.formation_id)->template_id : 0,
 			holding.equipment_model_id)) error("equipment holding is not authorized by its formation template");
-		if(find_formation(state, holding.formation_id)
-			&& holding.quantity > equipment_authorization(state, holding.formation_id,
-				holding.equipment_model_id)) error("formation equipment exceeds its template authorization");
 	}
 	std::set<std::pair<stable_id, uint8_t>> formation_consumable_keys;
 	for(auto const& inventory : store->consumables) {
@@ -1123,25 +1340,60 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			error("duplicate formation consumable inventory");
 		if(!find_formation(state, inventory.formation_id)
 			|| uint8_t(inventory.kind) > uint8_t(consumable_kind::ammunition)
-			|| !std::isfinite(inventory.quantity) || inventory.quantity < 0.0)
+			|| inventory.quantity != 0.0)
 			error("invalid formation consumable inventory");
 	}
+	std::set<std::tuple<uint32_t, uint32_t, uint32_t>> physical_stockpile_keys;
 	for(auto const& pile : store->stockpiles) {
 		if(pile.id == 0 || !all_ids.insert(pile.id).second) error("duplicate or zero stable ID in stockpiles");
 		if(!state.world.nation_is_valid(pile.owner) || !valid_site(state, pile.location)
-			|| !std::isfinite(pile.quantity) || pile.quantity < 0.0) error("invalid stockpile owner, site, or quantity");
-		if(pile.cargo == cargo_kind::equipment && !find_equipment_model(state, pile.equipment_model_id)) error("stockpile references missing equipment model");
+			|| pile.quantity != 0.0) error("invalid stockpile owner, site, or physical inventory projection");
+		if(!commodity_for_stockpile(state, pile)
+			|| !state.world.commodity_is_valid(commodity_for_stockpile(state, pile)))
+			error("stockpile has no valid physical commodity");
+		auto actor = inventory_owner(state, pile.owner);
+		auto commodity = commodity_for_stockpile(state, pile);
+		if(!actor || !commodity
+			|| !physical_stockpile_keys.insert({pile.location.index(), commodity.index(), actor.index()}).second)
+			error("duplicate stockpile metadata for one physical inventory");
 	}
 	for(auto const& shipment : store->shipments) {
 		if(shipment.id == 0 || !all_ids.insert(shipment.id).second) error("duplicate or zero stable ID in shipments");
 		if(!find_by_id(store->stockpiles, shipment.source_stockpile_id,
-			[](auto const& value) { return value.id; }) || !std::isfinite(shipment.quantity)
-			|| shipment.quantity <= 0.0 || shipment.status > 1) error("invalid physical shipment");
+			[](auto const& value) { return value.id; }) || shipment.quantity != 0.0
+			|| shipment.status > 1) error("invalid physical shipment manifest");
 		if(shipment.destination_stockpile_id == 0 && shipment.destination_formation_id == 0) error("shipment has no destination");
 		if(shipment.destination_stockpile_id != 0 && !find_by_id(store->stockpiles,
 			shipment.destination_stockpile_id, [](auto const& value) { return value.id; })) error("shipment references missing depot");
 		if(shipment.destination_formation_id != 0 && !find_formation(state,
 			shipment.destination_formation_id)) error("shipment references missing formation");
+		if(shipment.status == 0 && (!shipment.shared_shipment
+			|| !state.world.shipment_is_valid(shipment.shared_shipment)))
+			error("in-flight military manifest has no shared freight shipment");
+		if(shipment.status == 1 && shipment.shared_shipment)
+			error("delivered military manifest retains a shared shipment reference");
+		if(shipment.status == 0 && shipment.shared_shipment
+			&& state.world.shipment_is_valid(shipment.shared_shipment)) {
+			auto shared_commodity = state.world.shipment_get_commodity(shipment.shared_shipment);
+				auto destination_relation = state.world.shipment_get_shipment_destination(shipment.shared_shipment);
+			auto origin_relation = state.world.shipment_get_shipment_origin(shipment.shared_shipment);
+			auto owner_relation = state.world.shipment_get_shipment_owner(shipment.shared_shipment);
+			auto source_pile = find_by_id(store->stockpiles, shipment.source_stockpile_id,
+				[](auto const& value) { return value.id; });
+			auto destination_pile = shipment.destination_stockpile_id != 0
+				? find_by_id(store->stockpiles, shipment.destination_stockpile_id,
+					[](auto const& value) { return value.id; }) : nullptr;
+			auto expected_destination = destination_pile ? destination_pile->location : shipment.destination_site;
+			auto expected_owner = shipment.destination_formation_id != 0
+				? inventory_owner(state, shipment.destination_formation_id)
+				: (source_pile ? inventory_owner(state, source_pile->owner) : dcon::economic_actor_id{});
+			if(!source_pile || !destination_relation || !origin_relation || !owner_relation
+				|| shared_commodity != commodity_for_stockpile(state, *source_pile)
+				|| state.world.shipment_origin_get_site(origin_relation) != source_pile->location
+				|| state.world.shipment_destination_get_site(destination_relation) != expected_destination
+				|| state.world.shipment_owner_get_economic_actor(owner_relation) != expected_owner)
+				error("military manifest differs from its shared freight shipment");
+		}
 	}
 	std::set<stable_id> event_ids;
 	std::set<std::pair<uint32_t, uint64_t>> dead_person_keys;
@@ -1181,7 +1433,7 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 }
 
 snapshot export_snapshot(sys::state const& state) {
-	 snapshot result;
+	snapshot result;
 	auto store = ensure(state);
 	result.equipment_models = store->equipment_models;
 	result.templates = store->templates;
@@ -1199,7 +1451,7 @@ snapshot export_snapshot(sys::state const& state) {
 }
 
 bool import_snapshot(sys::state& state, snapshot const& value) {
-	if(value.version != 1 || !state.exact_population) return false;
+	if(value.version != 2 || !state.exact_population) return false;
 	auto candidate = std::make_shared<land_force_store>();
 	candidate->equipment_models = value.equipment_models;
 	candidate->templates = value.templates;
@@ -1215,6 +1467,16 @@ bool import_snapshot(sys::state& state, snapshot const& value) {
 	candidate->casualty_events = value.casualty_events;
 	auto old = state.land_forces;
 	state.land_forces = candidate;
+	for(auto const& unit : candidate->formations)
+		if(!ensure_actor(state, formation_actor_key(unit.id))) {
+			state.land_forces = old;
+			return false;
+		}
+	for(auto const& pile : candidate->stockpiles)
+		if(!ensure_actor(state, nation_actor_key(state, pile.owner))) {
+			state.land_forces = old;
+			return false;
+		}
 	auto valid = validate_canonical_land_forces(state).valid;
 	if(!valid) state.land_forces = old;
 	return valid;
@@ -1233,6 +1495,7 @@ uint64_t canonical_checksum(sys::state const& state) {
 	for(auto const& item : value.template_equipment) { hash = hash_combine(hash, item.template_id); hash = hash_combine(hash, item.equipment_model_id); hash = hash_combine(hash, item.quantity); }
 	for(auto const& item : value.template_consumables) {
 		hash = hash_combine(hash, item.template_id); hash = hash_combine(hash, uint8_t(item.kind));
+		hash = hash_combine(hash, item.commodity.value);
 		hash = hash_double(hash, item.per_person); hash = hash_double(hash, item.per_equipment_tonne);
 	}
 	for(auto const& unit : value.formations) {
@@ -1269,6 +1532,94 @@ uint64_t canonical_checksum(sys::state const& state) {
 		hash = hash_combine(hash, uint8_t(shipment.consumable)); hash = hash_combine(hash, shipment.equipment_model_id);
 		hash = hash_double(hash, shipment.quantity); hash = hash_combine(hash, shipment.days_remaining);
 		hash = hash_combine(hash, shipment.status);
+		if(shipment.shared_shipment && state.world.shipment_is_valid(shipment.shared_shipment)) {
+			auto shared = shipment.shared_shipment;
+			hash = hash_combine(hash, state.world.shipment_get_commodity(shared).id.value);
+			hash = hash_float(hash, state.world.shipment_get_remaining_quantity(shared));
+			hash = hash_combine(hash, state.world.shipment_get_lifecycle(shared));
+			hash = hash_combine(hash, state.world.shipment_get_remaining_days(shared));
+			auto origin_relation = state.world.shipment_get_shipment_origin(shared);
+			auto destination_relation = state.world.shipment_get_shipment_destination(shared);
+			hash = hash_combine(hash, origin_relation ? state.world.shipment_origin_get_site(origin_relation).value : 0);
+			hash = hash_combine(hash, destination_relation ? state.world.shipment_destination_get_site(destination_relation).value : 0);
+		}
+	}
+	struct inventory_record {
+		uint64_t owner = 0;
+		uint32_t site = 0;
+		uint32_t commodity = 0;
+		uint32_t quantity = 0;
+	};
+	std::map<uint32_t, uint64_t> military_actors;
+	for(auto const& unit : value.formations)
+		if(auto actor = inventory_owner(state, unit.id))
+			military_actors.emplace(uint32_t(actor.index()), state.world.economic_actor_get_canonical_id(actor));
+	for(auto const& pile : value.stockpiles)
+		if(auto actor = inventory_owner(state, pile.owner))
+			military_actors.emplace(uint32_t(actor.index()), state.world.economic_actor_get_canonical_id(actor));
+	std::vector<inventory_record> inventory_records;
+	state.world.for_each_physical_stock([&](dcon::physical_stock_id stock) {
+		auto owner_relation = state.world.physical_stock_get_physical_stock_owner(stock);
+		auto site_relation = state.world.physical_stock_get_physical_stock_site(stock);
+		auto commodity_relation = state.world.physical_stock_get_physical_stock_commodity(stock);
+		if(!owner_relation || !site_relation || !commodity_relation) return;
+		auto actor = state.world.physical_stock_owner_get_economic_actor(owner_relation);
+		auto owner = military_actors.find(uint32_t(actor.index()));
+		auto quantity = state.world.physical_stock_get_quantity(stock);
+		if(owner == military_actors.end() || !std::isfinite(quantity) || quantity == 0.0f) return;
+		inventory_records.push_back({owner->second,
+			state.world.physical_stock_site_get_site(site_relation).value,
+			state.world.physical_stock_commodity_get_commodity(commodity_relation).value,
+			std::bit_cast<uint32_t>(quantity)});
+	});
+	std::sort(inventory_records.begin(), inventory_records.end(), [](auto const& left, auto const& right) {
+		return std::tie(left.owner, left.site, left.commodity, left.quantity)
+			< std::tie(right.owner, right.site, right.commodity, right.quantity);
+	});
+	for(auto const& record : inventory_records) {
+		hash = hash_combine(hash, record.owner);
+		hash = hash_combine(hash, record.site);
+		hash = hash_combine(hash, record.commodity);
+		hash = hash_combine(hash, record.quantity);
+	}
+	struct in_flight_record {
+		uint64_t owner = 0;
+		uint32_t origin = 0;
+		uint32_t destination = 0;
+		uint32_t commodity = 0;
+		uint32_t quantity = 0;
+		uint32_t lifecycle = 0;
+		uint32_t current_leg = 0;
+		uint32_t remaining_days = 0;
+	};
+	std::vector<in_flight_record> freight_records;
+	state.world.for_each_shipment([&](dcon::shipment_id shipment) {
+		auto owner_relation = state.world.shipment_get_shipment_owner(shipment);
+		if(!owner_relation) return;
+		auto actor = state.world.shipment_owner_get_economic_actor(owner_relation);
+		auto owner = military_actors.find(uint32_t(actor.index()));
+		if(owner == military_actors.end()) return;
+		auto origin_relation = state.world.shipment_get_shipment_origin(shipment);
+		auto destination_relation = state.world.shipment_get_shipment_destination(shipment);
+		freight_records.push_back({owner->second,
+			origin_relation ? state.world.shipment_origin_get_site(origin_relation).value : uint32_t(0),
+			destination_relation ? state.world.shipment_destination_get_site(destination_relation).value : uint32_t(0),
+			state.world.shipment_get_commodity(shipment).id.value,
+			std::bit_cast<uint32_t>(state.world.shipment_get_remaining_quantity(shipment)),
+			state.world.shipment_get_lifecycle(shipment), state.world.shipment_get_current_leg(shipment),
+			state.world.shipment_get_remaining_days(shipment)});
+	});
+	std::sort(freight_records.begin(), freight_records.end(), [](auto const& left, auto const& right) {
+		return std::tie(left.owner, left.origin, left.destination, left.commodity, left.quantity,
+			left.lifecycle, left.current_leg, left.remaining_days)
+			< std::tie(right.owner, right.origin, right.destination, right.commodity, right.quantity,
+				right.lifecycle, right.current_leg, right.remaining_days);
+	});
+	for(auto const& record : freight_records) {
+		hash = hash_combine(hash, record.owner); hash = hash_combine(hash, record.origin);
+		hash = hash_combine(hash, record.destination); hash = hash_combine(hash, record.commodity);
+		hash = hash_combine(hash, record.quantity); hash = hash_combine(hash, record.lifecycle);
+		hash = hash_combine(hash, record.current_leg); hash = hash_combine(hash, record.remaining_days);
 	}
 	for(auto const& loss : value.person_losses) {
 		hash = hash_combine(hash, loss.event_id); hash = hash_combine(hash, loss.formation_id);

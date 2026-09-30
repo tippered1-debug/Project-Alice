@@ -4,6 +4,8 @@
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/exact_person_freight.hpp"
 #include "economy/physical/exact_person_goods.hpp"
+#include "economy/physical/inventory.hpp"
+#include "economy/physical/shipments.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 #include "military/land_forces.hpp"
 #include "nations/strategic_statecraft.hpp"
@@ -44,6 +46,7 @@ struct miniature {
 	dcon::province_id b_connected{};
 	dcon::site_id a_capital_site{};
 	dcon::site_id a_connected_site{};
+	dcon::site_id a_second_site{};
 	dcon::site_id a_isolated_site{};
 	dcon::site_id b_capital_site{};
 	dcon::site_id b_connected_site{};
@@ -51,6 +54,11 @@ struct miniature {
 	dcon::pop_id pop_b{};
 	uint32_t cell_a = 0;
 	uint32_t cell_b = 0;
+	dcon::commodity_id tank_commodity{};
+	dcon::commodity_id rifle_commodity{};
+	dcon::commodity_id food_commodity{};
+	dcon::commodity_id fuel_commodity{};
+	dcon::commodity_id ammunition_commodity{};
 
 	explicit miniature(bool reverse_authoring = false) {
 		state->current_date = sys::date{30000};
@@ -65,9 +73,15 @@ struct miniature {
 		b_connected = make_province(nation_b);
 		a_capital_site = make_site(a_capital);
 		a_connected_site = make_site(a_connected);
+		a_second_site = make_site(a_connected);
 		a_isolated_site = make_site(a_isolated_province);
 		b_capital_site = make_site(b_capital);
 		b_connected_site = make_site(b_connected);
+		tank_commodity = state->world.create_commodity();
+		rifle_commodity = state->world.create_commodity();
+		food_commodity = state->world.create_commodity();
+		fuel_commodity = state->world.create_commodity();
+		ammunition_commodity = state->world.create_commodity();
 		make_capital_state(nation_a, a_capital, a_connected);
 		make_capital_state(nation_b, b_capital, b_connected);
 		connect(a_capital, a_connected, 100.0f);
@@ -141,8 +155,8 @@ struct miniature {
 	}
 
 	void add_equipment(bool reverse) {
-		military::land_forces::equipment_model tank{tank_model, 1, {}, 1.0f, 0.8f, 8.0f, 7.0f, 500.0f};
-		military::land_forces::equipment_model rifle{rifle_model, 2, {}, 0.02f, 0.9f, 1.0f, 0.5f, 0.5f};
+		military::land_forces::equipment_model tank{tank_model, 1, tank_commodity, 1.0f, 0.8f, 8.0f, 7.0f, 500.0f};
+		military::land_forces::equipment_model rifle{rifle_model, 2, rifle_commodity, 0.02f, 0.9f, 1.0f, 0.5f, 0.5f};
 		if(reverse) {
 			REQUIRE(military::land_forces::add_equipment_model(*state, rifle));
 			REQUIRE(military::land_forces::add_equipment_model(*state, tank));
@@ -164,17 +178,17 @@ struct miniature {
 			REQUIRE(military::land_forces::authorize_template_equipment(*state, rifle));
 		}
 		REQUIRE(military::land_forces::set_template_consumable_requirement(*state,
-			{line_template, military::land_forces::consumable_kind::food, {}, 0.1, 0.0}));
+			{line_template, military::land_forces::consumable_kind::food, food_commodity, {}, 0.1, 0.0}));
 		REQUIRE(military::land_forces::set_template_consumable_requirement(*state,
-			{line_template, military::land_forces::consumable_kind::fuel, {}, 0.0, 0.1}));
+			{line_template, military::land_forces::consumable_kind::fuel, fuel_commodity, {}, 0.0, 0.1}));
 		REQUIRE(military::land_forces::set_template_consumable_requirement(*state,
-			{line_template, military::land_forces::consumable_kind::ammunition, {}, 0.01, 0.0}));
+			{line_template, military::land_forces::consumable_kind::ammunition, ammunition_commodity, {}, 0.01, 0.0}));
 	}
 
 	void add_formations(bool reverse) {
 		std::vector<military::land_forces::formation> units = {
 			{a_first, 0, line_template, 0, nation_a, a_capital_site, 0, military::land_forces::formation_status::active, 0, 0, 0, 1.0f},
-			{a_second, a_first, line_template, 0, nation_a, a_connected_site, 0, military::land_forces::formation_status::active, 0, 0, 0, 0.75f},
+			{a_second, a_first, line_template, 0, nation_a, a_second_site, 0, military::land_forces::formation_status::active, 0, 0, 0, 0.75f},
 			{a_isolated, 0, line_template, 0, nation_a, a_isolated_site, 0, military::land_forces::formation_status::active, 0, 0, 0, 0.5f},
 			{b_first, 0, line_template, 0, nation_b, b_capital_site, 0, military::land_forces::formation_status::active, 0, 0, 0, 1.0f},
 			{b_second, b_first, line_template, 0, nation_b, b_connected_site, 0, military::land_forces::formation_status::active, 0, 0, 0, 0.75f}
@@ -224,11 +238,11 @@ struct miniature {
 		std::vector<military::land_forces::stockpile> piles = {
 			{a_warehouse, nation_a, a_capital_site, military::land_forces::stockpile_kind::warehouse,
 				military::land_forces::cargo_kind::equipment, military::land_forces::consumable_kind::food, {}, tank_model, 20.0},
-			{a_depot, nation_a, a_capital_site, military::land_forces::stockpile_kind::depot,
+			{a_depot, nation_a, a_connected_site, military::land_forces::stockpile_kind::depot,
 				military::land_forces::cargo_kind::equipment, military::land_forces::consumable_kind::food, {}, tank_model, 10.0},
 			{b_warehouse, nation_b, b_capital_site, military::land_forces::stockpile_kind::warehouse,
 				military::land_forces::cargo_kind::equipment, military::land_forces::consumable_kind::food, {}, tank_model, 20.0},
-			{b_depot, nation_b, b_capital_site, military::land_forces::stockpile_kind::depot,
+			{b_depot, nation_b, b_connected_site, military::land_forces::stockpile_kind::depot,
 				military::land_forces::cargo_kind::equipment, military::land_forces::consumable_kind::food, {}, tank_model, 10.0}
 		};
 		if(reverse) std::reverse(piles.begin(), piles.end());
@@ -238,22 +252,23 @@ struct miniature {
 
 void advance(miniature& world, int days) {
 	for(int i = 0; i < days; ++i) {
+		economy::physical::shipments::process_arrivals(*world.state);
 		military::land_forces::update_daily(*world.state);
 		world.state->current_date += 1;
 	}
 }
 
 double tank_material(miniature const& world) {
-	auto snapshot = military::land_forces::export_snapshot(*world.state);
 	double total = 0.0;
-	for(auto const& holding : snapshot.equipment)
-		if(holding.equipment_model_id == tank_model) total += double(holding.quantity);
-	for(auto const& pile : snapshot.stockpiles)
-		if(pile.cargo == military::land_forces::cargo_kind::equipment
-			&& pile.equipment_model_id == tank_model) total += pile.quantity;
-	for(auto const& shipment : snapshot.shipments)
-		if(shipment.status == 0 && shipment.cargo == military::land_forces::cargo_kind::equipment
-			&& shipment.equipment_model_id == tank_model) total += shipment.quantity;
+	world.state->world.for_each_physical_stock([&](dcon::physical_stock_id stock) {
+		if(world.state->world.physical_stock_get_commodity_from_physical_stock_commodity(stock)
+			== world.tank_commodity)
+			total += std::max(0.0f, world.state->world.physical_stock_get_quantity(stock));
+	});
+	world.state->world.for_each_shipment([&](dcon::shipment_id shipment) {
+		if(world.state->world.shipment_get_commodity(shipment) == world.tank_commodity)
+			total += std::max(0.0f, world.state->world.shipment_get_remaining_quantity(shipment));
+	});
 	return total;
 }
 
@@ -311,8 +326,10 @@ TEST_CASE("canonical land forces move and route physical equipment without inven
 	REQUIRE(military::land_forces::personnel_count(state, land_forces_tests::a_second) == before_people);
 	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
 		land_forces_tests::tank_model) == 5);
+	auto no_vacancy_candidates = military::land_forces::recruitment_candidates(
+		state, land_forces_tests::a_first, 1);
 	REQUIRE(military::land_forces::recruit_personnel(state, land_forces_tests::a_first,
-		world.pop_a, 1, 0) == 0);
+		no_vacancy_candidates, 1, 0) == 0);
 	REQUIRE(military::land_forces::validate_canonical_land_forces(state).valid);
 }
 
@@ -346,8 +363,10 @@ TEST_CASE("land casualties retire exact people and equipment deterministically",
 	REQUIRE(std::any_of(population_after_attrition.deaths.begin(), population_after_attrition.deaths.end(),
 		[](auto const& death) { return death.cause == uint8_t(persons::death_cause::attrition); }));
 	REQUIRE(first.state->world.pop_get_size(first.pop_a) == Approx(24.75f));
+	auto no_available_people = military::land_forces::recruitment_candidates(
+		*first.state, land_forces_tests::a_first, 1);
 	REQUIRE(military::land_forces::recruit_personnel(*first.state, land_forces_tests::a_first,
-		first.pop_a, 1, 0) == 0);
+		no_available_people, 1, 0) == 0);
 	REQUIRE_FALSE(military::land_forces::apply_losses(*first.state, land_forces_tests::a_first,
 		1, losses, 90001, day).applied);
 	REQUIRE(military::land_forces::canonical_checksum(*first.state)

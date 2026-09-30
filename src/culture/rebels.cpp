@@ -12,6 +12,8 @@
 #include "province.hpp"
 #include "policy_execution.hpp"
 #include "transformation_politics.hpp"
+#include "military/land_forces.hpp"
+#include "persons/exact_population.hpp"
 
 namespace rebel {
 
@@ -1072,7 +1074,8 @@ void rebel_risings_check(sys::state& state) {
 			for(auto pop : rf.get_pop_rebellion_membership()) {
 				if(counter == 0)
 					break;
-				auto location = pop.get_pop().get_province_from_pop_location();
+				auto pop_location = pop.get_pop().get_province_from_pop_location();
+				auto location = pop_location;
 				if(pop_demographics::get_militancy(state, pop.get_pop()) >= state.defines.mil_to_join_rising && // prevent pops at occupied locations from starting rebellion
 					(
 						location.get_nation_from_province_control() == location.get_nation_from_province_ownership()
@@ -1080,14 +1083,48 @@ void rebel_risings_check(sys::state& state) {
 						!location.get_nation_from_province_control()
 					)) {
 
-					// this is the logic we would use if we were creating rebel regiments
-					auto max_count = int32_t(state.world.pop_get_size(pop.get_pop()) * rebel_size_reduction / (province::is_overseas(state, pop.get_pop().get_province_from_pop_location()) ? (state.defines.pop_min_size_for_regiment_colony_multiplier * state.defines.pop_size_per_regiment) : state.defines.pop_size_per_regiment));
-					auto cregs = pop.get_pop().get_regiment_source();
-					auto used_count = int32_t(cregs.end() - cregs.begin());
+					// Canonical rebellion capacity comes from exact living people.
+					// POP-sized regiment sources remain only in the legacy runtime.
+					auto divisor = province::is_overseas(state, pop_location)
+						? state.defines.pop_min_size_for_regiment_colony_multiplier * state.defines.pop_size_per_regiment
+						: state.defines.pop_size_per_regiment;
+					auto canonical_runtime = military::land_forces::initialized(state);
+					auto person_cell = canonical_runtime
+						? persons::exact_population::source_cell_for_population(state, pop.get_pop().id)
+						: 0u;
+					auto population_count = canonical_runtime
+						? double(person_cell
+							? persons::exact_population::living_people_in_population_cell(state, person_cell) : 0u)
+						: double(pop.get_pop().get_size());
+					auto max_count = int32_t(population_count * rebel_size_reduction / divisor);
+					int32_t used_count = 0;
+					if(canonical_runtime) {
+						max_count = 0;
+						for(auto faction_pop : rf.get_pop_rebellion_membership()) {
+							auto member = faction_pop.get_pop();
+							auto member_location = member.get_province_from_pop_location();
+							if(member_location != pop_location) continue;
+							auto member_cell = persons::exact_population::source_cell_for_population(state, member.id);
+							if(!member_cell) continue;
+							auto member_divisor = province::is_overseas(state, member_location)
+								? state.defines.pop_min_size_for_regiment_colony_multiplier * state.defines.pop_size_per_regiment
+								: state.defines.pop_size_per_regiment;
+							max_count += int32_t(double(persons::exact_population::living_people_in_population_cell(
+								state, member_cell)) * rebel_size_reduction / member_divisor);
+						}
+						for(auto army_entry : state.world.province_get_army_location(pop_location)) {
+							auto army = army_entry.get_army();
+							if(army.get_controller_from_army_rebel_control() != rf) continue;
+							for(auto membership : army.get_army_membership())
+								if(membership.get_regiment().get_type() == state.military_definitions.irregular)
+									++used_count;
+						}
+					} else {
+						auto cregs = pop.get_pop().get_regiment_source();
+						used_count = int32_t(cregs.end() - cregs.begin());
+					}
 
 					if(used_count < max_count) {
-						auto pop_location = pop.get_pop().get_province_from_pop_location();
-
 						auto new_reg = military::create_new_regiment(state, dcon::nation_id{}, state.military_definitions.irregular);
 						auto a = [&]() {
 							for(auto ar : state.world.province_get_army_location(pop_location)) {
@@ -1103,7 +1140,8 @@ void rebel_risings_check(sys::state& state) {
 							return new_army.id;
 						}();
 						state.world.try_create_army_membership(new_reg, a);
-						state.world.try_create_regiment_source(new_reg, pop.get_pop());
+						if(!canonical_runtime)
+							state.world.try_create_regiment_source(new_reg, pop.get_pop());
 
 						--counter;
 					}

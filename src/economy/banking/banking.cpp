@@ -3,6 +3,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/consent/consent.hpp"
+#include "economy/money/ontology.hpp"
 #include "economy/relations/relations.hpp"
 #include "system_state.hpp"
 
@@ -253,7 +254,10 @@ dcon::monetary_account_id reserve_account_for(sys::state const& state,
 	state.world.organization_for_each_monetary_account_reserve_bank_as_organization(bank,
 		[&](dcon::monetary_account_reserve_bank_id relation) {
 			auto account = state.world.monetary_account_reserve_bank_get_monetary_account(relation);
-			if(!account || economy::accounts::settlement_of(state, account) != settlement) return;
+			economy::monetary::ontology::account_view view;
+			if(!account || economy::accounts::settlement_of(state, account) != settlement
+				|| !economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_monetary(account), view)
+				|| view.instrument != economy::monetary::ontology::instrument_kind::base_money_reserve) return;
 			if(result) duplicate = true;
 			else result = account;
 		});
@@ -293,7 +297,10 @@ dcon::monetary_account_id open_reserve_account(sys::state& state, dcon::organiza
 
 bool bootstrap_set_reserve_balance(sys::state& state, dcon::monetary_account_id account,
 	float amount) {
+	economy::monetary::ontology::account_view view;
 	if(!account || !state.world.monetary_account_is_valid(account)
+		|| !economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_monetary(account), view)
+		|| view.instrument != economy::monetary::ontology::instrument_kind::base_money_reserve
 		|| !valid_nonnegative_amount(amount)
 		|| !state.world.monetary_account_get_organization_from_monetary_account_reserve_bank(account)
 		|| !policy_configured(state, state.world.monetary_account_get_organization_from_monetary_account_reserve_bank(account))
@@ -345,7 +352,10 @@ float deposit_balance(sys::state const& state, dcon::deposit_account_id account)
 
 bool bootstrap_set_deposit_balance(sys::state& state, dcon::deposit_account_id account,
 	float amount) {
+	economy::monetary::ontology::account_view view;
 	if(!account || !state.world.deposit_account_is_valid(account)
+		|| !economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_deposit(account), view)
+		|| view.instrument != economy::monetary::ontology::instrument_kind::bank_deposit
 		|| !valid_nonnegative_amount(amount)
 		|| !policy_configured(state, state.world.deposit_account_get_organization_from_deposit_account_bank(account))
 		|| status_of(state, state.world.deposit_account_get_organization_from_deposit_account_bank(account)) == bank_status::insolvent
@@ -411,6 +421,9 @@ dcon::obligation_id originate_factory_loan_to_operating_account(sys::state& stat
 	if(!policy_configured(state, bank) || status_of(state, bank) != bank_status::solvent
 		|| !factory || !operating_account
 		|| !state.world.monetary_account_is_valid(operating_account)) return {};
+	economy::monetary::ontology::account_view operating_view;
+	if(!economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_monetary(operating_account), operating_view)
+		|| operating_view.instrument != economy::monetary::ontology::instrument_kind::operating_account) return {};
 	auto borrower = accounts::owner_of(state, operating_account);
 	auto settlement = accounts::settlement_of(state, operating_account);
 	auto lender = actors::organizations::actor_for_organization(state, bank);
@@ -480,8 +493,12 @@ dcon::obligation_id originate_loan_with_consent(sys::state& state, dcon::organiz
 
 bool transfer_deposit(sys::state& state, dcon::deposit_account_id source,
 	dcon::deposit_account_id destination, float amount, sys::date timestamp) {
+	economy::monetary::ontology::account_view source_view, destination_view;
 	if(!source || !destination || source == destination || !valid_positive_amount(amount)
-		|| !state.world.deposit_account_is_valid(source) || !state.world.deposit_account_is_valid(destination)) return false;
+		|| !economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_deposit(source), source_view)
+		|| !economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_deposit(destination), destination_view)
+		|| source_view.instrument != economy::monetary::ontology::instrument_kind::bank_deposit
+		|| destination_view.instrument != economy::monetary::ontology::instrument_kind::bank_deposit) return false;
 	auto source_bank = state.world.deposit_account_get_organization_from_deposit_account_bank(source);
 	auto destination_bank = state.world.deposit_account_get_organization_from_deposit_account_bank(destination);
 	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(source);
@@ -516,9 +533,13 @@ bool transfer_deposit(sys::state& state, dcon::deposit_account_id source,
 bool queue_interbank_payment(sys::state& state, dcon::deposit_account_id source,
 	dcon::deposit_account_id destination, float amount, sys::date timestamp,
 	uint64_t stable_transaction_key) {
+	economy::monetary::ontology::account_view source_view, destination_view;
 	if(!source || !destination || source == destination || stable_transaction_key == 0
-		|| !valid_positive_amount(amount) || !state.world.deposit_account_is_valid(source)
-		|| !state.world.deposit_account_is_valid(destination)) return false;
+		|| !valid_positive_amount(amount)
+		|| !economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_deposit(source), source_view)
+		|| !economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_deposit(destination), destination_view)
+		|| source_view.instrument != economy::monetary::ontology::instrument_kind::bank_deposit
+		|| destination_view.instrument != economy::monetary::ontology::instrument_kind::bank_deposit) return false;
 	auto source_bank = state.world.deposit_account_get_organization_from_deposit_account_bank(source);
 	auto destination_bank = state.world.deposit_account_get_organization_from_deposit_account_bank(destination);
 	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(source);

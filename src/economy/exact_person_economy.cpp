@@ -5,6 +5,7 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/household_mobility.hpp"
 #include "economy/causal_order.hpp"
+#include "economy/money/ontology.hpp"
 #include "money.hpp"
 #include "governance/governance.hpp"
 #include "governance/finance/finance.hpp"
@@ -326,49 +327,13 @@ float population_cash_balance(sys::state const& state, dcon::pop_id population,
 
 bool apply_population_cash_effect(sys::state& state, dcon::pop_id population,
 	dcon::commodity_id settlement, float amount) {
-	if(!state.world.pop_is_valid(population) || !settlement
-		|| !state.world.commodity_is_valid(settlement) || !std::isfinite(amount)) return false;
-	auto store = ensure_store(state);
-	std::vector<account_record*> affected;
-	for(auto& account : store->accounts)
-		if(account.settlement == settlement && persons::alive(state, account.owner)
-			&& persons::current_population(state, account.owner) == population)
-			affected.push_back(&account);
-	std::sort(affected.begin(), affected.end(), [](auto left, auto right) { return left->id < right->id; });
-	if(affected.empty() && amount > 0.0f) {
-		auto recipient = persons::first_living_person_in_population(state, population);
-		if(recipient.source_population_cell == 0) return false;
-		auto opened = open_account(state, recipient, settlement);
-		if(!opened) return false;
-		if(auto account = exact_account(state, opened.exact_account_id)) affected.push_back(account);
-	}
-	if(affected.empty()) return amount <= 0.0f;
-	double total = 0.0;
-	for(auto account : affected) total += std::max(0.0f, account->balance);
-	if(amount < 0.0f && total <= 0.0) return true;
-	auto adjustment = amount < 0.0f ? -std::min(double(-amount), total) : double(amount);
-	std::vector<float> next_balances;
-	next_balances.reserve(affected.size());
-	double remaining = std::abs(adjustment);
-	for(size_t index = 0; index < affected.size(); ++index) {
-		auto const current = double(std::max(0.0f, affected[index]->balance));
-		double delta = 0.0;
-		if(adjustment >= 0.0) {
-			delta = index + 1 == affected.size() ? remaining
-				: adjustment / double(affected.size());
-		} else {
-			auto const deduction = std::min(current,
-				index + 1 == affected.size() ? remaining : std::abs(adjustment) * current / total);
-			delta = -deduction;
-		}
-		remaining = std::max(0.0, remaining - std::abs(delta));
-		auto next = current + delta;
-		if(!std::isfinite(next) || next < 0.0 || next > double(std::numeric_limits<float>::max())) return false;
-		next_balances.push_back(float(next));
-	}
-	for(size_t index = 0; index < affected.size(); ++index)
-		affected[index]->balance = next_balances[index];
-	return true;
+	(void)state;
+	(void)population;
+	(void)settlement;
+	(void)amount;
+	// POP is an aggregate projection. A POP-targeted cash mutation has no
+	// canonical recipient and must be migrated to an explicit person payment.
+	return false;
 }
 
 bool project_population_cash_balances(sys::state& state) {
@@ -417,6 +382,18 @@ transfer_result transfer_with_result(sys::state& state, account_ref source, acco
 		|| !std::isfinite(source_balance) || !std::isfinite(destination_balance)
 		|| source_balance < amount
 		|| amount > std::numeric_limits<float>::max() - destination_balance) return result;
+	if(source.kind == account_kind::dcon) {
+		monetary::ontology::account_view view;
+		if(!monetary::ontology::describe(state,
+			monetary::ontology::account_ref::from_monetary(source.dcon_account), view)
+			|| view.instrument != monetary::ontology::instrument_kind::operating_account) return result;
+	}
+	if(destination.kind == account_kind::dcon) {
+		monetary::ontology::account_view view;
+		if(!monetary::ontology::describe(state,
+			monetary::ontology::account_ref::from_monetary(destination.dcon_account), view)
+			|| view.instrument != monetary::ontology::instrument_kind::operating_account) return result;
+	}
 	if(source.kind == account_kind::dcon && destination.kind == account_kind::dcon) {
 		result.dcon_transaction_id = accounts::transfer(state, source.dcon_account, destination.dcon_account, amount, kind, timestamp);
 		result.success = bool(result.dcon_transaction_id);

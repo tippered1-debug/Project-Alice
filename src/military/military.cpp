@@ -1078,6 +1078,13 @@ int32_t supply_limit_in_province(sys::state& state, dcon::nation_id n, dcon::pro
 	return std::max(int32_t(base_supply_lim * modifier * national_supply_lim), 0);
 }
 int32_t regiments_created_from_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) {
+		int32_t total = 0;
+		for(auto const& unit : land_forces::export_snapshot(state).formations)
+			if(unit.legacy_regiment_index_plus_one != 0 && unit.status != land_forces::formation_status::destroyed
+				&& state.world.site_get_province_from_site_location(unit.location) == p) ++total;
+		return total;
+	}
 	int32_t total = 0;
 	for(auto pop : state.world.province_get_pop_location(p)) {
 		if(pop.get_pop().get_poptype() == state.culture_definitions.soldiers) {
@@ -1088,6 +1095,7 @@ int32_t regiments_created_from_province(sys::state& state, dcon::province_id p) 
 	return total;
 }
 int32_t mobilized_regiments_created_from_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) return 0;
 	/*
 	Mobilized regiments come only from non-colonial provinces.
 	*/
@@ -1105,6 +1113,7 @@ int32_t mobilized_regiments_created_from_province(sys::state& state, dcon::provi
 }
 
 int32_t regiments_possible_from_pop(sys::state& state, dcon::pop_id p) {
+	if(land_forces::initialized(state)) return 0;
 	auto type = state.world.pop_get_poptype(p);
 	if(type == state.culture_definitions.soldiers) {
 		auto location = state.world.pop_get_province_from_pop_location(p);
@@ -1139,6 +1148,7 @@ int32_t regiments_possible_from_pop(sys::state& state, dcon::pop_id p) {
 }
 
 int32_t regiments_max_possible_from_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) return 0;
 	/*
 	- A soldier pop must be at least define:POP_MIN_SIZE_FOR_REGIMENT to support any regiments
 	- If it is at least that large, then it can support one regiment per define:POP_SIZE_PER_REGIMENT x
@@ -1183,6 +1193,7 @@ int32_t regiments_max_possible_from_province(sys::state& state, dcon::province_i
 	return total;
 }
 int32_t main_culture_regiments_created_from_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) return regiments_created_from_province(state, p);
 	int32_t total = 0;
 	for(auto pop : state.world.province_get_pop_location(p)) {
 		if(pop.get_pop().get_poptype() == state.culture_definitions.soldiers && pop.get_pop().get_is_primary_or_accepted_culture()) {
@@ -1193,6 +1204,7 @@ int32_t main_culture_regiments_created_from_province(sys::state& state, dcon::pr
 	return total;
 }
 int32_t main_culture_regiments_max_possible_from_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) return 0;
 	/*
 	- A soldier pop must be at least define:POP_MIN_SIZE_FOR_REGIMENT to support any regiments
 	- If it is at least that large, then it can support one regiment per define:POP_SIZE_PER_REGIMENT x
@@ -1237,6 +1249,7 @@ int32_t main_culture_regiments_max_possible_from_province(sys::state& state, dco
 	return total;
 }
 int32_t regiments_under_construction_in_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) return 0;
 	int32_t total = 0;
 	for(auto pop : state.world.province_get_pop_location(p)) {
 		if(pop.get_pop().get_poptype() == state.culture_definitions.soldiers) {
@@ -1247,6 +1260,7 @@ int32_t regiments_under_construction_in_province(sys::state& state, dcon::provin
 	return total;
 }
 int32_t main_culture_regiments_under_construction_in_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) return 0;
 	int32_t total = 0;
 	for(auto pop : state.world.province_get_pop_location(p)) {
 		if(pop.get_pop().get_poptype() == state.culture_definitions.soldiers && pop.get_pop().get_is_primary_or_accepted_culture()) {
@@ -1259,6 +1273,7 @@ int32_t main_culture_regiments_under_construction_in_province(sys::state& state,
 
 
 bool can_pop_form_regiment(sys::state& state, dcon::pop_id pop, float divisor) {
+	if(land_forces::initialized(state)) return false;
 	if(state.world.pop_get_size(pop) >= state.defines.pop_min_size_for_regiment) {
 
 		auto amount = int32_t((state.world.pop_get_size(pop) / divisor) + 1);
@@ -1275,6 +1290,7 @@ bool can_pop_form_regiment(sys::state& state, dcon::pop_id pop, float divisor) {
 
 
 dcon::pop_id find_available_soldier_anywhere(sys::state& state, dcon::nation_id nation, dcon::unit_type_id type) {
+	if(land_forces::initialized(state)) return {};
 
 	const auto& unit_stats = state.military_definitions.unit_base_definitions[type];
 	if(unit_stats.primary_culture) {
@@ -1293,6 +1309,7 @@ dcon::pop_id find_available_soldier_anywhere(sys::state& state, dcon::nation_id 
 // Calculates whether province can support more regiments
 // Considers existing regiments and construction as well
 dcon::pop_id find_available_soldier(sys::state& state, dcon::province_id p, dcon::culture_id pop_culture) {
+	if(land_forces::initialized(state)) return {};
 
 	return find_available_soldier(state, p, [&](sys::state& state, dcon::pop_id pop) {
 		return state.world.pop_get_poptype(pop) == state.culture_definitions.soldiers && state.world.pop_get_culture(pop) == pop_culture;
@@ -1301,6 +1318,7 @@ dcon::pop_id find_available_soldier(sys::state& state, dcon::province_id p, dcon
 }
 
 int32_t mobilized_regiments_possible_from_province(sys::state& state, dcon::province_id p) {
+	if(land_forces::initialized(state)) return 0;
 	/*
 	Mobilized regiments come only from unoccupied, non-colonial provinces.
 	*/
@@ -1330,6 +1348,7 @@ int32_t mobilized_regiments_possible_from_province(sys::state& state, dcon::prov
 }
 
 int32_t mobilized_regiments_pop_limit(sys::state& state, dcon::nation_id n) {
+	if(land_forces::initialized(state)) return 0;
 	int32_t total = 0;
 	for(auto p : state.world.nation_get_province_ownership(n)) {
 		if(p.get_province().get_is_colonial() == false)
@@ -1340,6 +1359,7 @@ int32_t mobilized_regiments_pop_limit(sys::state& state, dcon::nation_id n) {
 
 void update_recruitable_regiments(sys::state& state, dcon::nation_id n) {
 	state.world.nation_set_recruitable_regiments(n, uint16_t(0));
+	if(land_forces::initialized(state)) return;
 	auto& cur_regiments = state.world.nation_get_recruitable_regiments(n);
 	for(auto p : state.world.nation_get_province_ownership(n)) {
 		state.world.nation_set_recruitable_regiments(n, uint16_t(cur_regiments + uint16_t(regiments_max_possible_from_province(state, p.get_province()))));
@@ -1347,6 +1367,7 @@ void update_recruitable_regiments(sys::state& state, dcon::nation_id n) {
 }
 void update_all_recruitable_regiments(sys::state& state) {
 	state.world.execute_serial_over_nation([&](auto ids) { state.world.nation_set_recruitable_regiments(ids, ve::int_vector(0)); });
+	if(land_forces::initialized(state)) return;
 	state.world.for_each_province([&](dcon::province_id p) {
 		auto owner = state.world.province_get_nation_from_province_ownership(p);
 		if(owner) {
@@ -9675,6 +9696,11 @@ float regiment_logistics_weight(sys::state& state, dcon::regiment_id regiment) {
 	// Base unit consumption represents the physical footprint. National modifiers
 	// and spending affect goods availability instead of changing route demand.
 	auto weight = std::max(0.25f, state.military_definitions.unit_base_definitions[type].supply_consumption);
+	if(land_forces::initialized(state)) {
+		// Unmapped legacy units have no canonical person roster from which to
+		// derive a POP-based logistics adjustment.
+		return weight;
+	}
 	auto pop = state.world.regiment_get_pop_from_regiment_source(regiment);
 	if(pop && state.world.pop_get_poptype(pop) != state.culture_definitions.soldiers) weight *= 0.75f;
 	return weight;
@@ -10408,6 +10434,23 @@ float calculate_average_battle_national_modifiers(sys::state& state, dcon::land_
 // Combined = max reinforcement for units in the army from calculate_army_combined_reinforce
 // potential_reinf = if true, will not cap max reinforcement to max unit strength, aka it will ignore current unit strength when returning reinforcement rate!
 float regiment_calculate_reinforcement(sys::state& state, dcon::regiment_fat_id reg, float combined, bool potential_reinf = false) {
+	if(land_forces::initialized(state)) {
+		auto formation_id = land_forces::formation_for_legacy_regiment(state, reg.id);
+		auto unit = land_forces::find_formation(state, formation_id);
+		if(!unit || unit->status == land_forces::formation_status::destroyed
+			|| (reg.get_army_from_army_membership().get_battle_from_army_battle_participation()
+				&& !is_regiment_in_reserve(state, reg))) return 0.0f;
+		auto authorized = unit->personnel_authorization;
+		auto personnel = land_forces::personnel_count(state, formation_id);
+		if(authorized == 0 || personnel == 0) return 0.0f;
+		auto personnel_fraction = std::clamp(float(personnel) / float(authorized), 0.0f, 1.0f);
+		if(potential_reinf) return combined;
+		auto current = reg.get_strength();
+		auto next = std::min(current + combined, personnel_fraction);
+		assert(std::isfinite(next));
+		assert(std::isfinite(current));
+		return next - current;
+	}
 	auto pop = reg.get_pop_from_regiment_source();
 	if(reg.get_army_from_army_membership().get_battle_from_army_battle_participation() && !is_regiment_in_reserve(state, reg) || !pop) {
 		return 0.0f;
@@ -10562,6 +10605,12 @@ maximum-strength x (technology-repair-rate + provincial-modifier-to-repair-rate 
 
 /* === Mobilization === */
 void start_mobilization(sys::state& state, dcon::nation_id n) {
+	if(land_forces::initialized(state)) {
+		state.world.nation_set_is_mobilized(n, false);
+		state.world.nation_set_mobilization_remaining(n, 0);
+		state.world.nation_get_mobilization_schedule(n).clear();
+		return;
+	}
 	if(state.world.nation_get_is_mobilized(n))
 		return;
 
@@ -10638,6 +10687,12 @@ void start_mobilization(sys::state& state, dcon::nation_id n) {
 	});
 }
 void end_mobilization(sys::state& state, dcon::nation_id n) {
+	if(land_forces::initialized(state)) {
+		state.world.nation_set_is_mobilized(n, false);
+		state.world.nation_set_mobilization_remaining(n, 0);
+		state.world.nation_get_mobilization_schedule(n).clear();
+		return;
+	}
 	if(!state.world.nation_get_is_mobilized(n))
 		return;
 
@@ -11118,6 +11173,7 @@ void move_navy_to_merge(sys::state& state, dcon::nation_id by, dcon::navy_id a, 
 }
 
 bool pop_eligible_for_mobilization(sys::state& state, dcon::pop_id p) {
+	if(military::land_forces::initialized(state)) return false;
 	auto const pop = dcon::fatten(state.world, p);
 	return pop.get_poptype() != state.culture_definitions.soldiers
 		&& pop.get_poptype() != state.culture_definitions.slaves
@@ -11138,9 +11194,12 @@ void disband_regiment_w_pop_death(sys::state& state, dcon::regiment_id reg_id) {
 		}
 		auto const snapshot = military::land_forces::export_snapshot(state);
 		std::vector<military::land_forces::casualty_request> equipment_losses;
-		for(auto const& holding : snapshot.equipment)
-			if(holding.formation_id == formation_id && holding.quantity != 0)
-				equipment_losses.push_back({holding.equipment_model_id, holding.quantity});
+		for(auto const& authorization : snapshot.template_equipment)
+			if(authorization.template_id == formation->template_id) {
+				auto quantity = military::land_forces::equipment_count(state, formation_id,
+					authorization.equipment_model_id);
+				if(quantity != 0) equipment_losses.push_back({authorization.equipment_model_id, quantity});
+			}
 		auto day = state.current_date ? int32_t(state.current_date.to_raw_value() - 1) : 0;
 		auto cause = damage_source == regiment_dmg_source::attrition
 			? persons::death_cause::attrition : persons::death_cause::combat;

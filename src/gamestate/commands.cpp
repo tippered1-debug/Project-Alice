@@ -32,6 +32,7 @@
 #include "gui_combat.hpp"
 #include "validation.hpp"
 #include "compat/alice/legacy_bridge.hpp"
+#include "military/land_forces.hpp"
 
 #include <cstdlib>
 
@@ -683,6 +684,7 @@ void start_land_unit_construction(sys::state& state, dcon::nation_id source, dco
 
 template <bool VALIDATE>
 bool can_start_land_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type, dcon::province_id template_province) {
+	if(military::land_forces::initialized(state)) return false;
 	/*
 	The province must be owned and controlled by the building nation, without an ongoing siege.
 	The unit type must be available from start / unlocked by the nation
@@ -720,6 +722,7 @@ template bool can_start_land_unit_construction<false>(sys::state& state, dcon::n
 
 
 void execute_start_land_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type, dcon::province_id template_province) {
+	if(military::land_forces::initialized(state)) return;
 	auto soldier = military::find_available_soldier(state, location, soldier_culture);
 
 	auto c = fatten(state.world, state.world.try_create_province_land_construction(soldier, source));
@@ -4188,6 +4191,24 @@ bool can_disband_undermanned_regiments(sys::state& state, dcon::nation_id source
 void execute_disband_undermanned_regiments(sys::state& state, dcon::nation_id source, dcon::army_id a) {
 	if(!state.world.army_is_valid(a)) return;
 	std::vector<dcon::regiment_id> regs;
+	if(military::land_forces::initialized(state)) {
+		auto threshold = std::max(1.0f, state.defines.pop_min_size_for_regiment);
+		for(auto r : state.world.army_get_army_membership(a)) {
+			auto regiment = r.get_regiment();
+			auto formation_id = military::land_forces::formation_for_legacy_regiment(state, regiment);
+			auto formation = military::land_forces::find_formation(state, formation_id);
+			if(formation && (formation->status == military::land_forces::formation_status::destroyed
+				|| military::land_forces::personnel_count(state, formation_id)
+					< uint64_t(std::min(double(formation->personnel_authorization), double(threshold)))))
+				regs.push_back(regiment);
+		}
+		for(auto regiment : regs) {
+			auto formation_id = military::land_forces::formation_for_legacy_regiment(state, regiment);
+			if(formation_id) (void)military::land_forces::destroy_formation(state, formation_id);
+			military::delete_regiment_safe_wrapper(state, regiment);
+		}
+		return;
+	}
 	for(auto r : state.world.army_get_army_membership(a)) {
 		auto pop = r.get_regiment().get_pop_from_regiment_source();
 		if(!pop || pop.get_size() < state.defines.pop_min_size_for_regiment)

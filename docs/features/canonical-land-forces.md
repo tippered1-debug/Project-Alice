@@ -10,16 +10,17 @@ deterministic hashes of the table domain and key.
 
 `military_equipment.csv` has columns
 `equipment_id;category;commodity;mass;reliability;attack;defense;range_km`.
-The commodity may be empty. Mass must be positive; reliability is from 0 to 1;
-combat values and range are nonnegative.
+Commodity must name a product in the shared physical inventory. Mass must be
+positive; reliability is from 0 to 1; combat values and range are nonnegative.
 
 `formation_templates.csv` has columns
 `template_id;personnel_authorization`.
 `formation_template_equipment.csv` has columns
 `template_id;equipment_id;quantity` and declares authorized equipment counts.
 `formation_template_consumables.csv` has columns
-`template_id;consumable;per_person;per_equipment_tonne`. Consumables are
-`food`, `fuel`, or `ammunition`; rates are daily quantities.
+`template_id;consumable;commodity;per_person;per_equipment_tonne`. Consumables
+are `food`, `fuel`, or `ammunition`; each kind uses one shared product across
+templates, and rates are daily quantities.
 
 ## Formations and personnel
 
@@ -30,15 +31,19 @@ scenario province number, and `legacy_regiment_index` is a zero-based DCON
 regiment index used only to connect the legacy battle/UI adapter. Every
 authored legacy regiment must have exactly one formation mapping. Status is
 `active`, `reserve`, or `destroyed`; operational tempo is from 0 to 1.
+Scenario-import `regiment_source` links are cleared before runtime; legacy
+regiments do not retain POP-backed personnel.
 
 `formation_personnel.csv` has columns
 `formation_id;source_population_cell;first_ordinal;count;ordinal_stride;training_days`.
 Each row assigns the exact living people in the specified ordinal range. The
 source population cell is the exact-person catalog cell, not a mutable POP
 index. Stride is 1 or 4. Rows cannot overlap, refer to dead people, or exceed
-the formation's personnel authorization. The source POP must have a valid
-friendly supply route to the formation site. Recruitment selects living,
-unassigned people and records their formation assignment and training time.
+the formation's personnel authorization. Recruitment selects living,
+unassigned Person Kernel workforce anchors from owned sites with a valid
+friendly route to the formation and records their assignment and training
+time. POP soldier counts do not create military personnel or recruitable
+regiments in canonical runtime.
 
 ## Equipment, supplies, and depots
 
@@ -52,9 +57,12 @@ formation template's authorization. `formation_consumables.csv` has columns
 Stockpile kind is `warehouse` or `depot`; cargo kind is `equipment` or
 `consumable`. Equipment cargo names an equipment model and leaves `consumable`
 empty. Consumable cargo names `food`, `fuel`, or `ammunition` and leaves
-`equipment_id` empty. Stock is consumed when a shipment is dispatched. It
-arrives only after a valid spatial supply route and its transit time; an
+`equipment_id` empty. Stock lives in the shared physical inventory. A shipment
+dispatch creates a shared freight shipment and removes stock from its source
+inventory. The shared freight processor delivers it after route travel; an
 unreachable or enemy-controlled route cannot create stock at the destination.
+Formation equipment and consumables use the same inventory layer at the
+formation site.
 
 ## Runtime ownership and saves
 

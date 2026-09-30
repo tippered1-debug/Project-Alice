@@ -69,10 +69,12 @@ float canonical_leg_capacity(sys::state const& state, dcon::shipment_route_leg_i
 	if(!leg || !state.world.shipment_route_leg_is_valid(leg)) return 0.0f;
 	auto site = state.world.shipment_route_leg_get_origin_site(leg);
 	auto destination = state.world.shipment_route_leg_get_destination_site(leg);
-	if(auto spatial = world::spatial_runtime::route_for_sites(state, site, destination);
-		spatial.connected && spatial.bottleneck_capacity > 0.0f)
-		return std::isfinite(spatial.bottleneck_capacity)
-			? spatial.bottleneck_capacity : std::numeric_limits<float>::max();
+	if(auto spatial = world::spatial_runtime::route_for_sites(state, site, destination); spatial.connected) {
+		if(spatial.edges.empty()) return std::numeric_limits<float>::max();
+		if(spatial.bottleneck_capacity > 0.0f)
+			return std::isfinite(spatial.bottleneck_capacity)
+				? spatial.bottleneck_capacity : std::numeric_limits<float>::max();
+	}
 	return 0.0f;
 }
 
@@ -275,8 +277,10 @@ void advance(sys::state& state) {
 		}
 		auto owner_relation = state.world.shipment_get_shipment_owner(shipment);
 		auto owner = owner_relation ? state.world.shipment_owner_get_economic_actor(owner_relation) : dcon::economic_actor_id{};
-		inventory::add(state, destination, state.world.shipment_get_commodity(shipment),
-			state.world.shipment_get_remaining_quantity(shipment), owner);
+		auto commodity = state.world.shipment_get_commodity(shipment);
+		auto quantity = state.world.shipment_get_remaining_quantity(shipment);
+		if(inventory::add(state, destination, commodity, quantity, owner) != quantity)
+			continue;
 		freight_market::complete_contract_for_shipment(state, shipment);
 		state.world.delete_shipment(shipment);
 	}

@@ -1189,8 +1189,8 @@ bool load_land_forces(sys::state& state, parsers::scenario_building_context cons
 	static constexpr std::array<std::string_view, 3> template_equipment_header = {
 		"template_id", "equipment_id", "quantity"
 	};
-	static constexpr std::array<std::string_view, 4> template_consumables_header = {
-		"template_id", "consumable", "per_person", "per_equipment_tonne"
+	static constexpr std::array<std::string_view, 5> template_consumables_header = {
+		"template_id", "consumable", "commodity", "per_person", "per_equipment_tonne"
 	};
 	static constexpr std::array<std::string_view, 8> formations_header = {
 		"formation_id", "parent_formation_id", "template_id", "owner_tag", "province_id",
@@ -1255,10 +1255,8 @@ bool load_land_forces(sys::state& state, parsers::scenario_building_context cons
 		model.id = declare_id("equipment", source.cells[0], "military_equipment.csv", source.line);
 		if(!parse_integer(source.cells[1], model.category))
 			add_row_error(err, "military_equipment.csv", source.line, "category must be an unsigned integer");
-		if(!source.cells[2].empty()) {
-			model.commodity = find_commodity(context, source.cells[2]);
-			if(!model.commodity) add_row_error(err, "military_equipment.csv", source.line, "commodity references a missing product");
-		}
+		model.commodity = find_commodity(context, source.cells[2]);
+		if(!model.commodity) add_row_error(err, "military_equipment.csv", source.line, "commodity must reference a product");
 		if(!parse_float(source.cells[3], model.mass) || model.mass <= 0.0f)
 			add_row_error(err, "military_equipment.csv", source.line, "mass must be finite and positive");
 		if(!parse_float(source.cells[4], model.reliability) || model.reliability < 0.0f || model.reliability > 1.0f)
@@ -1302,10 +1300,13 @@ bool load_land_forces(sys::state& state, parsers::scenario_building_context cons
 		else if(source.cells[1] == "fuel") item.kind = military::land_forces::consumable_kind::fuel;
 		else if(source.cells[1] == "ammunition") item.kind = military::land_forces::consumable_kind::ammunition;
 		else add_row_error(err, "formation_template_consumables.csv", source.line, "consumable must be food, fuel, or ammunition");
+		item.commodity = find_commodity(context, source.cells[2]);
+		if(!item.commodity) add_row_error(err, "formation_template_consumables.csv", source.line,
+			"commodity must reference a product");
 		float per_person = 0.0f, per_tonne = 0.0f;
-		if(!parse_float(source.cells[2], per_person) || per_person < 0.0f)
+		if(!parse_float(source.cells[3], per_person) || per_person < 0.0f)
 			add_row_error(err, "formation_template_consumables.csv", source.line, "per_person must be finite and nonnegative");
-		if(!parse_float(source.cells[3], per_tonne) || per_tonne < 0.0f)
+		if(!parse_float(source.cells[4], per_tonne) || per_tonne < 0.0f)
 			add_row_error(err, "formation_template_consumables.csv", source.line, "per_equipment_tonne must be finite and nonnegative");
 		item.per_person = per_person;
 		item.per_equipment_tonne = per_tonne;

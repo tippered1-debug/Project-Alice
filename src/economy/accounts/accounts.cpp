@@ -1,4 +1,5 @@
 #include "accounts.hpp"
+#include "economy/money/ontology.hpp"
 #include "system_state.hpp"
 
 #include <cmath>
@@ -22,8 +23,11 @@ dcon::monetary_account_id find_account(sys::state const& state, dcon::economic_a
 	dcon::monetary_account_id result{};
 	state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(owner, [&](dcon::monetary_account_owner_id relation) {
 		auto account = state.world.monetary_account_owner_get_monetary_account(relation);
-		if(!result && state.world.monetary_account_get_commodity_from_monetary_account_settlement(account) == settlement)
-			result = account;
+		if(result || !account || state.world.monetary_account_get_commodity_from_monetary_account_settlement(account) != settlement) return;
+		economy::monetary::ontology::account_view view;
+		if(economy::monetary::ontology::describe(state,
+			economy::monetary::ontology::account_ref::from_monetary(account), view)
+			&& view.instrument == economy::monetary::ontology::instrument_kind::operating_account) result = account;
 	});
 	return result;
 }
@@ -34,8 +38,12 @@ dcon::commodity_id first_settlement_for(sys::state const& state, dcon::economic_
 	state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(owner,
 		[&](dcon::monetary_account_owner_id relation) {
 			auto account = state.world.monetary_account_owner_get_monetary_account(relation);
-			if(!result && account && state.world.monetary_account_is_valid(account))
-				result = settlement_of(state, account);
+			if(result || !account || !state.world.monetary_account_is_valid(account)) return;
+			economy::monetary::ontology::account_view view;
+			if(economy::monetary::ontology::describe(state,
+				economy::monetary::ontology::account_ref::from_monetary(account), view)
+				&& view.instrument == economy::monetary::ontology::instrument_kind::operating_account)
+				result = view.settlement;
 		});
 	return result;
 }
@@ -53,7 +61,11 @@ float balance(sys::state const& state, dcon::monetary_account_id account) {
 }
 
 bool bootstrap_set_balance(sys::state& state, dcon::monetary_account_id account, float amount) {
-	if(!account || !std::isfinite(amount) || amount < 0.0f) return false;
+	economy::monetary::ontology::account_view view;
+	if(!account || !std::isfinite(amount) || amount < 0.0f
+		|| !economy::monetary::ontology::describe(state,
+			economy::monetary::ontology::account_ref::from_monetary(account), view)
+		|| view.instrument != economy::monetary::ontology::instrument_kind::operating_account) return false;
 	state.world.monetary_account_set_balance(account, amount);
 	return true;
 }
@@ -61,6 +73,13 @@ bool bootstrap_set_balance(sys::state& state, dcon::monetary_account_id account,
 dcon::transaction_id transfer(sys::state& state, dcon::monetary_account_id source,
 	dcon::monetary_account_id destination, float amount, relations::transaction_kind kind, sys::date timestamp) {
 	if(!source || !destination || source == destination || !valid_amount(amount)) return {};
+	economy::monetary::ontology::account_view source_view, destination_view;
+	if(!economy::monetary::ontology::describe(state,
+		economy::monetary::ontology::account_ref::from_monetary(source), source_view)
+		|| !economy::monetary::ontology::describe(state,
+			economy::monetary::ontology::account_ref::from_monetary(destination), destination_view)
+		|| source_view.instrument != economy::monetary::ontology::instrument_kind::operating_account
+		|| destination_view.instrument != economy::monetary::ontology::instrument_kind::operating_account) return {};
 	auto source_owner = owner_of(state, source);
 	auto destination_owner = owner_of(state, destination);
 	auto settlement = settlement_of(state, source);
@@ -86,6 +105,14 @@ dcon::transaction_id settle_obligation_payment(sys::state& state, dcon::obligati
 	float requested_amount, sys::date timestamp) {
 	if(!obligation || !valid_amount(requested_amount)
 		|| state.world.obligation_get_status(obligation) != uint8_t(relations::obligation_status::active)) return {};
+	economy::monetary::ontology::account_view debtor_view, creditor_view;
+	if(!economy::monetary::ontology::describe(state,
+		economy::monetary::ontology::account_ref::from_monetary(debtor_account), debtor_view)
+		|| !economy::monetary::ontology::describe(state,
+			economy::monetary::ontology::account_ref::from_monetary(creditor_account), creditor_view)
+		|| debtor_view.instrument != economy::monetary::ontology::instrument_kind::operating_account
+		|| (creditor_view.instrument != economy::monetary::ontology::instrument_kind::operating_account
+			&& creditor_view.instrument != economy::monetary::ontology::instrument_kind::base_money_reserve)) return {};
 	auto debtor = state.world.obligation_get_economic_actor_from_obligation_debtor(obligation);
 	auto creditor = state.world.obligation_get_economic_actor_from_obligation_creditor(obligation);
 	auto settlement = state.world.obligation_get_settlement_commodity(obligation);

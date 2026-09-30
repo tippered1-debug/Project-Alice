@@ -28,7 +28,7 @@ The simulation writes DCON market and POP values through explicit projectors aft
 
 A new scenario imports its authored POP rows, factories, geography, and resource signals into canonical runtime records. Factories and deposits require authored firm/operator, asset, and ownership records; the importer does not create placeholder firms. A scenario missing that canonical ownership graph fails during initialization. Aggregate history is never reconstructed from an old campaign save.
 
-Save file version 55 is the current format. Its framed `AOEX` v8 section stores exact population membership, person accounts and transactions, jobs, household goods, freight, labor events, and causal ordering. Strategic Statecraft has a required versioned section. A save is accepted only when both runtimes restore and validate. Earlier aggregate save versions are unsupported.
+Save file version 57 is the current format. Its framed `AOEX` v13 section stores exact population membership, person accounts and transactions, jobs, household goods, freight, labor events, and causal ordering. Strategic Statecraft has a required versioned section. A save is accepted only when both runtimes restore and validate. Earlier aggregate save versions are unsupported.
 
 ## Running bounded simulation reports
 

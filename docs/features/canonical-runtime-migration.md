@@ -21,7 +21,7 @@ DCON writes are allowed only when they import authored scenario data, execute a 
 
 ## Load contract
 
-The current save header is version 55 and its exact-runtime extension is `AOEX` v8. Strategic Statecraft state is mandatory. A save load succeeds only when the population, labor, household, goods, freight, causality, and Statecraft records validate against the loaded world. Older aggregate save versions are unsupported; there is no reconstruction of individual histories from their POP totals.
+The current save header is version 57 and its exact-runtime extension is `AOEX` v13. Strategic Statecraft state is mandatory. A save load succeeds only when the population, labor, household, goods, freight, causality, and Statecraft records validate against the loaded world. Older aggregate save versions are unsupported; there is no reconstruction of individual histories from their POP totals.
 
 New scenarios import authored POP rows, factory definitions, resource signals, and static geography before daily simulation begins. Each factory and resource deposit must also carry a canonical operator, asset, and complete ownership stakes. Initialization no longer invents replacement firms or ownership when those records are absent; such a scenario is rejected at startup. Canonical identities, sites, deposits, accounts, institutions, and Statecraft profiles are initialized before the game clock advances.
 
