@@ -321,6 +321,58 @@ void project_labor_price_view(sys::state& state) {
 	});
 }
 
+void recruit_local_applicants(sys::state& state) {
+	auto engaged = economy::exact_person_economy::engaged_workers(state);
+	auto is_engaged = [&](persons::person_key key) {
+		return std::binary_search(engaged.begin(), engaged.end(), key, [](auto left, auto right) {
+			return left.source_population_cell == right.source_population_cell
+				? left.ordinal < right.ordinal : left.source_population_cell < right.source_population_cell;
+		});
+	};
+	std::vector<persons::person_key> applied;
+	for(auto offer : all_offers(state)) {
+		if(!open_for_application(state, offer)) continue;
+		uint32_t pending = 0;
+		for(auto id : economy::exact_person_economy::applications_for_offer(state, offer)) {
+			auto application = economy::exact_person_economy::application(state, id);
+			if(application && application->status == economy::exact_person_economy::application_status::pending) ++pending;
+		}
+		auto openings = state.world.job_offer_get_openings(offer);
+		if(openings <= pending) continue;
+		auto needed = openings - pending;
+		auto workplace = state.world.job_offer_get_site_from_job_offer_site(offer);
+		auto province = workplace ? state.world.site_get_province_from_site_location(workplace) : dcon::province_id{};
+		if(!province) continue;
+		std::vector<dcon::pop_id> populations;
+		for(auto location : state.world.province_get_pop_location(province))
+			populations.push_back(location.get_pop());
+		sort_ids(populations);
+		for(auto population : populations) {
+			if(needed == 0) break;
+			auto cell = persons::source_population_cell_for_population(state, population);
+			if(cell == 0) continue;
+			auto count = persons::exact_population::literal_count_for_cell(state, cell);
+			// Anchors are the working members of the source cell; ordinals between
+			// them are their dependents.
+			for(uint64_t ordinal = 0; ordinal < count && needed > 0; ordinal += 4) {
+				persons::person_key worker{cell, ordinal};
+				if(!persons::alive(state, worker) || persons::current_population(state, worker) != population
+					|| is_engaged(worker)
+					|| std::find(applied.begin(), applied.end(), worker) != applied.end()
+					|| persons::exact_population::has_military_assignment(state, worker)
+					|| !economy::exact_person_economy::is_labor_force_participant(state, worker)
+					|| !exact_worker_qualifies_for_offer(state, worker, offer)) continue;
+				auto home = persons::home_site(state, worker);
+				if(!home || state.world.site_get_province_from_site_location(home) != province) continue;
+				if(economy::exact_person_economy::submit_application(state, worker, offer, state.current_date)) {
+					applied.push_back(worker);
+					--needed;
+				}
+			}
+		}
+	}
+}
+
 void process(sys::state& state) {
 	for(auto offer : all_offers(state)) refresh_offer(state, offer);
 	process_factory_vacancies(state);
@@ -328,6 +380,7 @@ void process(sys::state& state) {
 	// Exact persons apply against concrete offers, then hiring creates a
 	// person-specific contract and decrements the offer's opening count.
 	labor_dynamics::process_displaced_job_search(state);
+	recruit_local_applicants(state);
 	economy::exact_person_economy::process_pending_applications(state);
 }
 

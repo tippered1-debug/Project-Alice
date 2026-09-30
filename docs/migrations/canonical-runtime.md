@@ -11,7 +11,7 @@ The canonical runtime is mandatory for every domain required by the scenario and
 | Work and wages | Exact worker applications, contracts, and payroll | DCON employment and wage prices are projections. |
 | Factory production | Firm agency, productive capacity, inputs, and physical output | DCON factory output and employment are projections. |
 | Market activity | Concrete bids, asks, fills, inventories, freight, and shipments | DCON markets are price and activity views. |
-| Resource production | Site deposits, extraction capacity, inventories, and shipments | Scenario RGO values seed deposits; DCON RGO output is not a producer. |
+| Resource production | Extraction plants: factories bound to authored deposits, using exact labor, inventories, and shipments | `deposits.csv` authors deposits. Province RGO values seed nothing and produce nothing. See [Primary production](../architecture/primary-production.md). |
 | Firm finance | Economic actor accounts, equity, loans, and asset ownership | Factory finance fields are diagnostics and display data. |
 | Public finance | Institutional tax obligations, treasury accounts, payroll, procurement, and services | National and provincial budget fields are views or policy inputs. |
 | Political authority | Transformation politics, governance institutions, and staged bills | Parties and reform IDs remain content and interface identities. |
@@ -52,7 +52,7 @@ absence of legacy per-person needs. The household checksum includes sorted
 accounts, labor references, transactions, needs, stock, bids, fills, and
 freight state.
 
-New scenarios import authored POP rows, factory definitions, resource signals, and static geography before daily simulation begins. Each factory and resource deposit must also carry a canonical operator, asset, and complete ownership stakes. Initialization no longer invents replacement firms or ownership when those records are absent; such a scenario is rejected at startup. Canonical identities, sites, deposits, accounts, institutions, and Statecraft profiles are initialized before the game clock advances.
+New scenarios import authored POP rows, factory definitions, resource deposits, and static geography before daily simulation begins. Each factory and resource deposit must also carry a canonical operator, asset, and complete ownership stakes. Initialization no longer invents replacement firms or ownership when those records are absent; such a scenario is rejected at startup. Canonical identities, sites, deposits, accounts, institutions, and Statecraft profiles are initialized before the game clock advances.
 
 ## Change checklist
 

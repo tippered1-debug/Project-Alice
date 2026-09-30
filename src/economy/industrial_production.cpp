@@ -4,6 +4,7 @@
 #include "economy_production.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/factory_output.hpp"
+#include "economy/physical/extraction.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "world/site.hpp"
@@ -112,6 +113,15 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	}
 	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
 	auto productivity = finite_nonnegative(state.world.factory_get_productivity_factor(factory), 1.0f);
+	// An extraction recipe produces only from its bound deposit: grade scales
+	// output per unit, and what the deposit still allows today caps the units.
+	auto const extracts = physical::extraction::extracts_deposit(state, factory);
+	auto const output_per_unit = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * productivity
+		* physical::extraction::output_grade(state, factory);
+	if(extracts) {
+		auto const available = physical::extraction::available_today(state, factory, state.current_date);
+		capacity = output_per_unit > 0.0f ? std::min(capacity, available / output_per_unit) : 0.0f;
+	}
 	auto desired = firm_agency::decide_factory(state, factory).desired_units;
 	auto planned = std::min(desired, labor_units(state, factory));
 	auto market = state.world.state_instance_get_market_from_local_market(state.world.province_get_state_membership(province));
@@ -124,12 +134,19 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	if(!std::isfinite(ratio)) ratio = 0.0f;
 	auto actual_units = std::clamp(planned * std::clamp(ratio, 0.0f, 1.0f), 0.0f, capacity);
 	firm_agency::observe_production(state, factory, planned, actual_units);
-	auto actual_output = actual_units * std::max(0.0f, state.world.factory_type_get_output_amount(type)) * productivity;
+	auto actual_output = actual_units * output_per_unit;
 	if(!std::isfinite(actual_units) || !std::isfinite(actual_output) || actual_units < 0.0f || actual_output < 0.0f) return 0.0f;
 	if(actual_units > 0.0f && !physical::factory_inputs::consume(state, site, owner, state.world.factory_type_get_inputs(type), actual_units, 1.0f)) return 0.0f;
 	state.world.factory_set_actual_utilization(factory, capacity > 0.0f ? std::clamp(actual_units / capacity, 0.0f, 1.0f) : 0.0f);
 	state.world.factory_set_output(factory, actual_output);
-	if(actual_output > 0.0f) physical::factory_output::materialize_and_dispatch(state, factory, actual_output);
+	if(actual_output > 0.0f) {
+		physical::factory_output::materialize_and_dispatch(state, factory, actual_output);
+		if(extracts) {
+			[[maybe_unused]] auto const committed = physical::extraction::commit(state, factory, actual_output, state.current_date);
+			assert(std::abs(committed - actual_output) <= 1.0e-4f * std::max(1.0f, actual_output)
+				&& "extracted output must deplete exactly the reserves it came from");
+		}
+	}
 	::economy::payroll::settle_factory(state, factory, actual_units, planned);
 	return actual_output;
 }

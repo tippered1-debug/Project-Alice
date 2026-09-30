@@ -1,12 +1,9 @@
 #include "shipments.hpp"
 #include "freight_market.hpp"
-#include "deposits.hpp"
 #include "inventory.hpp"
 #include "system_state.hpp"
 #include "commodity_logistics.hpp"
 #include "world_trade_capacity.hpp"
-#include "actors/ownership.hpp"
-#include "economy/physical/extraction.hpp"
 #include "exact_person_goods.hpp"
 #include "exact_person_freight.hpp"
 #include "world/spatial_runtime.hpp"
@@ -324,44 +321,6 @@ void project_route_volumes_to_legacy_view(sys::state& state) {
 		auto const old_volume = state.world.trade_route_get_volume(route, commodity);
 		state.world.trade_route_set_volume(route, commodity,
 			old_volume + direction * quantity);
-	});
-}
-
-void process_rgo_output(sys::state& state) {
-	// Canonical deposits are the only source of canonical extraction.  In
-	// particular this path never consults province.rgo_output.
-	state.world.for_each_province([&](dcon::province_id province) {
-		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-			state.world.province_set_rgo_output(province, commodity, 0.0f);
-			state.world.province_set_rgo_output_per_worker(province, commodity, 0.0f);
-		});
-	});
-	state.world.for_each_resource_deposit([&](dcon::resource_deposit_id deposit) {
-		auto commodity = state.world.resource_deposit_get_commodity(deposit);
-		if(!commodity) {
-			assert(false && "canonical resource deposit requires a commodity");
-			std::abort();
-		}
-		auto operator_actor = actors::ownership::operator_for_deposit(state, deposit);
-		auto site = state.world.resource_deposit_get_site_from_resource_deposit_site(deposit);
-		auto province = site ? state.world.site_get_province_from_site_location(site) : dcon::province_id{};
-		auto zone = province ? state.world.province_get_state_membership(province) : dcon::state_instance_id{};
-		auto market = zone ? state.world.state_instance_get_market_from_local_market(zone) : dcon::market_id{};
-		auto hub = market ? deposits::market_hub_for(state, market) : dcon::site_id{};
-		if(!operator_actor || !site || !hub) {
-			assert(false && "canonical resource deposit requires an operator, site, and market hub");
-			std::abort();
-		}
-		auto target = state.world.resource_deposit_get_target_daily_extraction(deposit);
-		auto amount = extraction::extract_resource(state, deposit, operator_actor, target, state.current_date);
-		if(amount > 0.0f) {
-			auto previous = state.world.province_get_rgo_output(province, commodity);
-			state.world.province_set_rgo_output(province, commodity, previous + amount);
-		}
-		if(amount > 0.0f && !dispatch(state, site, hub, commodity, amount, operator_actor)) {
-			// Extraction is already a committed physical event. A failed dispatch
-			// leaves the operator stock at the extraction site for a later retry.
-		}
 	});
 }
 

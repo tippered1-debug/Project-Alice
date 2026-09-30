@@ -620,6 +620,22 @@ bool person_has_active_contract(sys::state const& state, person_key worker) {
 	return !active_contracts_for_person(state, worker).empty();
 }
 
+std::vector<person_key> engaged_workers(sys::state const& state) {
+	std::vector<person_key> result;
+	auto store = ensure_store(state);
+	for(auto const& record : store->contracts)
+		if(record.status == contract_status::active) result.push_back(record.worker);
+	for(auto const& application : store->applications)
+		if(application.status == application_status::pending && offer_open(state, application.offer))
+			result.push_back(application.worker);
+	std::sort(result.begin(), result.end(), [](auto left, auto right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.ordinal < right.ordinal : left.source_population_cell < right.source_population_cell;
+	});
+	result.erase(std::unique(result.begin(), result.end()), result.end());
+	return result;
+}
+
 float labor_supplied_to_factory(sys::state const& state, dcon::factory_id factory) {
 	float result = 0.0f;
 	for(auto id : active_contracts_for_factory(state, factory)) {

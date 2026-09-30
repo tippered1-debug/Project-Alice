@@ -11,6 +11,7 @@
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/factory_inputs.hpp"
+#include "economy/physical/extraction.hpp"
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/economy_stats.hpp"
@@ -145,7 +146,14 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
 	auto productivity = std::max(0.0f, finite_nonnegative(state.world.factory_get_productivity_factor(factory), 1.0f));
 	auto output_commodity = state.world.factory_type_get_output(type);
-	auto output_per_unit = finite_nonnegative(state.world.factory_type_get_output_amount(type)) * productivity;
+	auto output_per_unit = finite_nonnegative(state.world.factory_type_get_output_amount(type)) * productivity
+		* physical::extraction::output_grade(state, factory);
+	// An extraction plant plans against what its deposit allows per day, not
+	// what remains after today's output, so staffing does not swing daily.
+	if(physical::extraction::extracts_deposit(state, factory))
+		capacity = output_per_unit > epsilon
+			? std::min(capacity, physical::extraction::daily_ceiling(state, factory, state.current_date) / output_per_unit)
+			: 0.0f;
 	if(capacity <= epsilon || !output_commodity || output_per_unit <= epsilon) return result;
 	auto output_price = state.world.factory_get_agency_expected_selling_price(factory);
 	if(!std::isfinite(output_price) || output_price <= epsilon)

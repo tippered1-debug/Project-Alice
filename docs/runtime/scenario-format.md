@@ -1,6 +1,6 @@
 # Canonical Scenario Firms and Ownership
 
-Every scenario must provide seven firm, ownership, and banking tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `assets.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The canonical land-force tables are also required; see [Canonical Land Forces](../architecture/military.md) for their schemas and validation rules. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
+Every scenario must provide eight firm, ownership, banking, and resource tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `deposits.csv`, `assets.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The canonical land-force tables are also required; see [Canonical Land Forces](../architecture/military.md) for their schemas and validation rules. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
 
 ## Firms
 
@@ -14,9 +14,19 @@ Example row: `steel_co;company;money;12000;4500;8000`.
 
 Example rows: `usa_treasury;government;USA;money;40000` and `founder_1;person;17:0;money;2500`.
 
+## Resource deposits
+
+`deposits.csv` has columns `province_id;commodity_id;original_reserves;remaining_reserves;grade;daily_capacity`. Each row creates one subsoil deposit at the province's site. `commodity_id` must be a content commodity whose production type has `mine = yes`; precious metal is rejected while it is the settlement unit. A province can declare only one deposit per commodity. Reserves must satisfy `0 <= remaining_reserves <= original_reserves` with `original_reserves > 0`, and `grade` and `daily_capacity` must be positive. `grade` scales output per worker. `daily_capacity` is the most the deposit yields per day. Province RGO values in history files create no deposits.
+
+Example row: `253;coal;120000;120000;1;12`.
+
 ## Productive assets
 
-`assets.csv` has columns `asset_id;kind;site_id;operator_id;province_id;building;ordinal;commodity_id;opening_value`. It gives every scenario factory and resource deposit a stable ID, site, operator, and opening appraised value. `province_id` is the original numeric scenario province ID. A factory selector is `province_id/building/ordinal`: `building` is the exact building identifier from scenario content and `ordinal` is one-based within that province and building type, ordered by its authored scenario instances. Deposit selectors are `province_id/commodity_id`. Factory rows leave `commodity_id` empty; deposit rows leave `building` and `ordinal` empty. `site_id` is an authored stable key; co-located factories and deposits use the same key. Every factory and deposit instance created by the scenario must occur exactly once.
+`assets.csv` has columns `asset_id;kind;site_id;operator_id;province_id;building;ordinal;commodity_id;opening_value`. It gives every scenario factory, resource deposit, and extraction plant a stable ID, site, operator, and opening appraised value. `province_id` is the original numeric scenario province ID. A factory selector is `province_id/building/ordinal`: `building` is the exact building identifier from scenario content and `ordinal` is one-based within that province and building type, ordered by its authored scenario instances. Deposit selectors are `province_id/commodity_id`. Factory rows leave `commodity_id` empty; deposit rows leave `building` and `ordinal` empty. `site_id` is an authored stable key; co-located factories and deposits use the same key. Every factory and deposit instance created by the scenario must occur exactly once.
+
+An `extraction` row creates an extraction plant on the deposit selected by `province_id/commodity_id`. `building` is the content production type that extracts that commodity (for example `coal_mine`), and `ordinal` is empty. The plant is an ordinary factory at the deposit's site, sized so full capacity extracts the deposit's `daily_capacity`. A deposit can host one plant. The plant extracts only while its operator is the deposit's operator or holds an active extraction right, and it takes part in labor, loans, and ownership like any factory.
+
+Example rows: `us_pa_coal;deposit;pittsburgh;steel_co;253;;;coal;9000` and `us_pa_coal_mine;extraction;pittsburgh;steel_co;253;coal_mine;;coal;4000`.
 
 Example factory row: `us_pittsburgh_steel;factory;pittsburgh;steel_co;253;steel_factory;1;;18000`.
 

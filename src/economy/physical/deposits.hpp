@@ -6,7 +6,6 @@ namespace sys { class state; }
 
 namespace economy::physical::deposits {
 
-void bootstrap(sys::state& state);
 dcon::resource_deposit_id create_deposit(sys::state&, dcon::site_id, dcon::commodity_id,
 	float original_reserves, float remaining_reserves, float grade, float daily_capacity,
 	float target_daily_extraction, uint8_t status = 0);

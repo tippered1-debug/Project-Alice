@@ -39,7 +39,6 @@
 #include "dcon_oos_reporter_generated.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "world/spatial_runtime.hpp"
-#include "economy/physical/deposits.hpp"
 #include "actors/ownership.hpp"
 #include "actors/canonical_scenario.hpp"
 #include "governance/governance.hpp"
@@ -2707,6 +2706,10 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 
 			parsers::production_context new_context{ context };
 			parsers::parse_production_types_file(gen, err, new_context);
+			// Primary extraction recipes add factory types after technologies were
+			// sized. No technology activates them; the new entries stay zero.
+			world.technology_resize_activate_building(world.factory_type_size());
+			world.invention_resize_activate_building(world.factory_type_size());
 
 			for(const auto ft : world.in_factory_type) {
 				if(!bool(world.factory_type_get_output(ft))) {
@@ -3429,7 +3432,6 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	auto const population_projection = persons::exact_population::project_population_membership(*this);
 	assert(population_projection && "canonical population projection failed after initialization");
 	if(!population_projection) std::abort();
-	::economy::physical::deposits::bootstrap(*this);
 	::governance::bootstrap(*this);
 	if(!::actors::canonical_scenario::load(*this, common, context, err))
 		return;

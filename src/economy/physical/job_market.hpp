@@ -27,6 +27,9 @@ bool add_job_offer_openings(sys::state&, dcon::job_offer_id, uint32_t);
 std::vector<dcon::job_offer_id> open_offers_for_factory(sys::state const&, dcon::factory_id);
 
 void process_factory_vacancies(sys::state&);
+// Unemployed labor-force participants living in an offer's province apply to
+// it. This is how people who never held a contract enter the labor market.
+void recruit_local_applicants(sys::state&);
 void process(sys::state&);
 void project_labor_price_view(sys::state&);
 

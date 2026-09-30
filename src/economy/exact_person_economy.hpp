@@ -165,6 +165,8 @@ std::vector<uint64_t> active_contracts_for_institution(sys::state const&, dcon::
 std::vector<uint64_t> contracts_for_institution(sys::state const&, dcon::institution_id);
 std::vector<uint64_t> active_contracts_for_person(sys::state const&, person_key);
 bool person_has_active_contract(sys::state const&, person_key);
+// Workers with an active contract or an open pending application, sorted.
+std::vector<person_key> engaged_workers(sys::state const&);
 float labor_supplied_to_factory(sys::state const&, dcon::factory_id);
 float wage_due(sys::state const&, uint64_t contract_id);
 float wage_due_for_factory(sys::state const&, dcon::factory_id);

@@ -1,5 +1,6 @@
 #include "parsers_declarations.hpp"
 #include "text.hpp"
+#include "money.hpp"
 
 namespace parsers {
 
@@ -194,6 +195,25 @@ void make_production_type(std::string_view name, token_generator& gen, error_han
 		});
 		context.outer_context.state.world.commodity_set_rgo_efficiency_inputs(pt.output_goods_, sm_cset);
 		context.outer_context.state.world.commodity_set_rgo_efficiency_inputs_are_defined_in_content(pt.output_goods_, pt.efficiency.defined);
+		// A finite subsoil resource is produced by an ordinary establishment bound
+		// to one deposit. Precious metal is still the settlement unit
+		// (economy::money), so it gets no extraction recipe until the two split.
+		if(pt.mine && pt.output_goods_ != economy::money) {
+			auto& world = context.outer_context.state.world;
+			auto& names = context.outer_context.map_of_factory_names;
+			if(names.find(std::string(name)) != names.end()) {
+				err.accumulated_errors += "Extraction production type " + std::string(name) + " collides with a building name (" + err.file_name + ")\n";
+			} else {
+				auto type = world.create_factory_type();
+				names.insert_or_assign(std::string(name), type);
+				world.factory_type_set_name(type, text::find_or_add_key(context.outer_context.state, name, false));
+				world.factory_type_set_description(type, text::find_or_add_key(context.outer_context.state, std::string(name) + "_desc", false));
+				world.factory_type_set_output(type, pt.output_goods_);
+				world.factory_type_set_output_amount(type, pt.value);
+				world.factory_type_set_base_workforce(type, pt.workforce);
+				world.factory_type_set_extracts_deposit(type, true);
+			}
+		}
 	} else if(pt.type_ == production_type_enum::artisan) {
 		economy::commodity_set cset;
 		uint32_t added = 0;

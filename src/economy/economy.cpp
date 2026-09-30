@@ -1112,10 +1112,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 #endif
 	}
 
-
-	update_rgo_production(state);
-
-
 	{
 		// Intermediate inputs are charged before this day's output is registered.
 		// A tiny market that consumes stored inputs but produces nothing can

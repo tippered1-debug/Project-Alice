@@ -29,6 +29,5 @@ dcon::shipment_id dispatch_exact(sys::state&, persons::person_key owner,
 void advance(sys::state&);
 void process_arrivals(sys::state&);
 void project_route_volumes_to_legacy_view(sys::state&);
-void process_rgo_output(sys::state&);
 
 } // namespace economy::physical::shipments

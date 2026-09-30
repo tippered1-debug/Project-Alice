@@ -84,7 +84,9 @@ inline std::vector<dcon::factory_type_id> ranked_factory_builds(sys::state& stat
 
 	std::vector<dcon::factory_type_id> types;
 	for(auto type : state.world.in_factory_type) {
-		types.push_back(type);
+		// Extraction plants are only created on a controlled deposit.
+		if(!type.get_extracts_deposit())
+			types.push_back(type);
 	}
 
 	std::sort(types.begin(), types.end(), [&](auto a, auto b) {

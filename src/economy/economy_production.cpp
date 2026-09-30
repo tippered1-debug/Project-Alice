@@ -1277,11 +1277,6 @@ void update_factories_production(sys::state& state) {
 	});
 }
 
-// currently rgos consume only labor and efficiency goods
-void update_rgo_production(sys::state& state) {
-	::economy::physical::shipments::process_rgo_output(state);
-}
-
 template<size_t N, typename VALUE>
 struct employment_data {
 	std::array<VALUE, N> target;

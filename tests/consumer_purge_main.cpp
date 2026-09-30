@@ -3,3 +3,4 @@
 #include "catch2/catch.hpp"
 #define ALICE_NO_ENTRY_POINT 1
 #include "main.cpp"
+#include "primary_production_tests.cpp"

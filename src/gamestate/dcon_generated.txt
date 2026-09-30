@@ -516,6 +516,11 @@ object {
 		tag{ scenario }
 	}
 	property{
+		name{ extracts_deposit }
+		type{ bitfield }
+		tag{ scenario }
+	}
+	property{
 		name{ inputs }
 		type{ economy::commodity_set }
 		tag{ scenario }
@@ -5030,6 +5035,8 @@ object{
 	property{ name{ daily_extraction_capacity } type{ float } tag{ save } }
 	property{ name{ target_daily_extraction } type{ float } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ last_extraction_date } type{ sys::date } tag{ save } }
+	property{ name{ extracted_on_last_date } type{ float } tag{ save } }
 }
 
 object{
@@ -5041,16 +5048,6 @@ object{
 	property{ name{ valid_until } type{ sys::date } tag{ save } }
 	property{ name{ max_daily_quantity } type{ float } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
-}
-
-object{
-	name{ extraction_event }
-	storage_type{ erasable }
-	size{ 500000 }
-	tag{ save }
-	property{ name{ commodity } type{ commodity_id } tag{ save } }
-	property{ name{ quantity } type{ float } tag{ save } }
-	property{ name{ date } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -6206,17 +6203,10 @@ relationship{
 }
 
 relationship{
-	name{ extraction_event_deposit }
+	name{ factory_resource_deposit }
 	tag{ save }
-	link{ object{ extraction_event } name{ extraction_event } type{ unique } }
-	link{ object{ resource_deposit } name{ resource_deposit } type{ many } index_storage{ array } }
-}
-
-relationship{
-	name{ extraction_event_operator }
-	tag{ save }
-	link{ object{ extraction_event } name{ extraction_event } type{ unique } }
-	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
+	link{ object{ factory } name{ factory } type{ unique } }
+	link{ object{ resource_deposit } name{ resource_deposit } type{ unique } }
 }
 
 relationship{

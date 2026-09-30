@@ -6,6 +6,8 @@
 #include "economy/banking/banking.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/deposits.hpp"
+#include "economy/physical/extraction.hpp"
+#include "economy/money.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
 #include "military/land_forces.hpp"
@@ -223,6 +225,12 @@ struct asset_record {
 	dcon::asset_id asset{};
 };
 
+// A factory row names an existing scenario factory. An extraction row creates
+// an extraction plant on a deposit. Both are ordinary productive factories.
+bool establishment_kind(std::string const& kind) {
+	return kind == "factory" || kind == "extraction";
+}
+
 struct stake_record {
 	std::string asset_id;
 	std::string owner_type;
@@ -339,7 +347,7 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 
 bool read_and_parse_tables(simple_fs::directory const& common,
 	parsers::error_handler& err, table& firms, table& owners, table& assets,
-	table& ownerships, table& loans, table& banks, table& bank_deposits) {
+	table& ownerships, table& loans, table& banks, table& bank_deposits, table& deposits) {
 	static constexpr std::array<std::string_view, 6> firms_header = {
 		"firm_id", "kind", "settlement", "opening_cash", "retained_earnings", "paid_in_equity"
 	};
@@ -364,6 +372,9 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	static constexpr std::array<std::string_view, 5> bank_deposits_header = {
 		"deposit_id", "bank_id", "owner_type", "owner_id", "opening_balance"
 	};
+	static constexpr std::array<std::string_view, 6> deposits_header = {
+		"province_id", "commodity_id", "original_reserves", "remaining_reserves", "grade", "daily_capacity"
+	};
 	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
 	auto before = err.accumulated_errors.size();
 	auto f = read_table(canonical, "firms.csv", firms_header, err);
@@ -373,7 +384,8 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	auto l = read_table(canonical, "loans.csv", loans_header, err);
 	auto b = read_table(canonical, "banks.csv", banks_header, err);
 	auto d = read_table(canonical, "bank_deposits.csv", bank_deposits_header, err);
-	if(!f || !o || !a || !s || !l || !b || !d || err.accumulated_errors.size() != before) return false;
+	auto r = read_table(canonical, "deposits.csv", deposits_header, err);
+	if(!f || !o || !a || !s || !l || !b || !d || !r || err.accumulated_errors.size() != before) return false;
 	firms = std::move(*f);
 	owners = std::move(*o);
 	assets = std::move(*a);
@@ -381,6 +393,7 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	loans = std::move(*l);
 	banks = std::move(*b);
 	bank_deposits = std::move(*d);
+	deposits = std::move(*r);
 	return true;
 }
 
@@ -482,7 +495,16 @@ bool parse_tables(sys::state& state, parsers::scenario_building_context& context
 				add_row_error(err, "assets.csv", source.line, "building and ordinal must be empty for a deposit asset");
 			if(!find_commodity(context, value.commodity_key))
 				add_row_error(err, "assets.csv", source.line, "unknown deposit commodity '" + value.commodity_key + "'");
-		} else add_row_error(err, "assets.csv", source.line, "kind must be 'factory' or 'deposit'");
+		} else if(value.kind == "extraction") {
+			auto type = context.map_of_factory_names.find(value.building_key);
+			auto commodity = find_commodity(context, value.commodity_key);
+			if(type == context.map_of_factory_names.end() || !economy::physical::extraction::extracts_deposit(state, type->second))
+				add_row_error(err, "assets.csv", source.line, "unknown extraction production type '" + value.building_key + "'");
+			else if(state.world.factory_type_get_output(type->second) != commodity)
+				add_row_error(err, "assets.csv", source.line, "extraction production type '" + value.building_key + "' does not produce '" + value.commodity_key + "'");
+			if(!source.cells[6].empty())
+				add_row_error(err, "assets.csv", source.line, "ordinal must be empty for an extraction asset");
+		} else add_row_error(err, "assets.csv", source.line, "kind must be 'factory', 'deposit', or 'extraction'");
 		if(!parse_float(source.cells[8], value.appraised_value) || value.appraised_value < 0.0f)
 			add_row_error(err, "assets.csv", source.line, "opening_value must be finite and nonnegative");
 		assets.push_back(std::move(value));
@@ -914,6 +936,72 @@ bool resolve_deposit(sys::state& state, parsers::scenario_building_context& cont
 	return bool(asset.site);
 }
 
+// Deposits are authored natural endowment. They are created before assets bind
+// owners and operators to them; nothing is derived from province RGO values.
+bool load_deposits(sys::state& state, parsers::scenario_building_context& context,
+	parsers::error_handler& err, table const& deposit_table) {
+	auto initial_errors = err.accumulated_errors.size();
+	std::set<std::pair<uint32_t, uint32_t>> seen;
+	for(auto const& source : deposit_table.rows) {
+		uint32_t province_id = 0;
+		float original = 0.0f;
+		float remaining = 0.0f;
+		float grade = 0.0f;
+		float capacity = 0.0f;
+		auto province = parse_integer(source.cells[0], province_id)
+			? province_from_original_id(state, context, province_id) : dcon::province_id{};
+		auto commodity = find_commodity(context, source.cells[1]);
+		if(!province) {
+			add_row_error(err, "deposits.csv", source.line, "province_id does not resolve in this scenario");
+			continue;
+		}
+		if(!commodity || !state.world.commodity_get_is_mine(commodity) || commodity == economy::money) {
+			add_row_error(err, "deposits.csv", source.line, "commodity_id '" + source.cells[1] + "' is not an extractable subsoil commodity");
+			continue;
+		}
+		if(!seen.emplace(province.index(), commodity.index()).second) {
+			add_row_error(err, "deposits.csv", source.line, "a province may declare only one deposit per commodity");
+			continue;
+		}
+		if(!parse_float(source.cells[2], original) || !parse_float(source.cells[3], remaining)
+			|| !parse_float(source.cells[4], grade) || !parse_float(source.cells[5], capacity)
+			|| original <= 0.0f || remaining < 0.0f || remaining > original || grade <= 0.0f || capacity <= 0.0f) {
+			add_row_error(err, "deposits.csv", source.line, "reserves, grade, and daily_capacity must be finite, with 0 <= remaining <= original, original > 0, grade > 0, and daily_capacity > 0");
+			continue;
+		}
+		auto site = world::spatial_runtime::site_for_province(state, province);
+		if(!site || !economy::physical::deposits::create_deposit(state, site, commodity, original, remaining,
+			grade, capacity, capacity, remaining > 0.0f ? uint8_t(0) : uint8_t(2))) {
+			add_row_error(err, "deposits.csv", source.line, "could not create the deposit at the province site");
+		}
+	}
+	return err.accumulated_errors.size() == initial_errors;
+}
+
+bool resolve_extraction(sys::state& state, parsers::scenario_building_context& context,
+	asset_record& asset, std::vector<firm_record> const& firms,
+	std::unordered_map<std::string, size_t> const& firm_by_id,
+	parsers::error_handler& err, uint32_t line) {
+	if(!resolve_deposit(state, context, asset, err, line)) return false;
+	auto type = context.map_of_factory_names.find(asset.building_key);
+	auto operator_firm = firm_by_id.find(asset.operator_id);
+	if(type == context.map_of_factory_names.end() || operator_firm == firm_by_id.end()) return false;
+	if(economy::physical::extraction::enterprise_for_deposit(state, asset.deposit)) {
+		add_row_error(err, "assets.csv", line, "deposit selector " + std::to_string(asset.province_original_id) + "/"
+			+ asset.commodity_key + " already has an extraction plant");
+		return false;
+	}
+	asset.factory = economy::physical::extraction::create_enterprise(state, asset.deposit, type->second,
+		firms[operator_firm->second].organization);
+	if(!asset.factory) {
+		add_row_error(err, "assets.csv", line, "could not create extraction plant '" + asset.id
+			+ "' on deposit dcon:" + std::to_string(asset.deposit.index())
+			+ " (the deposit needs positive grade and daily capacity)");
+		return false;
+	}
+	return true;
+}
+
 bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 	parsers::error_handler& err, std::vector<asset_record>& assets,
 	std::vector<firm_record> const& firms,
@@ -932,7 +1020,9 @@ bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 		auto& record = assets[i];
 		bool resolved = record.kind == "factory"
 			? resolve_factory(state, context, record, err, record.line)
-			: resolve_deposit(state, context, record, err, record.line);
+			: record.kind == "extraction"
+				? resolve_extraction(state, context, record, firms, firm_by_id, err, record.line)
+				: resolve_deposit(state, context, record, err, record.line);
 		if(!resolved) continue;
 		auto dcon_site = record.site.index();
 		auto site_key = "site:" + record.site_key;
@@ -948,7 +1038,7 @@ bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 		assign_id(state.world.site_get_canonical_id(record.site),
 			[&](uint64_t id) { state.world.site_set_canonical_id(record.site, id); }, site_key, site_ids, id_error);
 		if(!id_error.empty()) add_row_error(err, "assets.csv", record.line, id_error);
-		if(record.kind == "factory") {
+		if(establishment_kind(record.kind)) {
 			if(auto it = bound_factory_ids.find(record.factory.index()); it != bound_factory_ids.end())
 				add_row_error(err, "assets.csv", record.line, "factory dcon:" + std::to_string(record.factory.index())
 					+ " is assigned by both asset_id '" + it->second + "' and '" + record.id + "'");
@@ -962,7 +1052,7 @@ bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 		auto operator_firm = firm_by_id.find(record.operator_id);
 		if(operator_firm == firm_by_id.end()) continue;
 		std::string error;
-		if(record.kind == "factory") {
+		if(establishment_kind(record.kind)) {
 			assign_id(state.world.factory_get_canonical_id(record.factory),
 				[&](uint64_t id) { state.world.factory_set_canonical_id(record.factory, id); },
 				"factory:productive:" + record.id, asset_ids, error);
@@ -972,7 +1062,7 @@ bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 				"deposit:productive:" + record.id, asset_ids, error);
 		}
 		if(!error.empty()) add_row_error(err, "assets.csv", record.line, error);
-		if(record.kind == "factory" && state.world.factory_get_asset_from_factory_asset(record.factory))
+		if(establishment_kind(record.kind) && state.world.factory_get_asset_from_factory_asset(record.factory))
 			add_row_error(err, "assets.csv", record.line, "factory dcon:" + std::to_string(record.factory.index()) + " already has an asset relation before canonical import");
 		if(record.kind == "deposit" && state.world.resource_deposit_get_asset_from_resource_deposit_asset(record.deposit))
 			add_row_error(err, "assets.csv", record.line, "deposit dcon:" + std::to_string(record.deposit.index()) + " already has an asset relation before canonical import");
@@ -982,7 +1072,7 @@ bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 			[&](uint64_t id) { state.world.asset_set_canonical_id(record.asset, id); }, asset_key, asset_ids, error);
 		if(!error.empty()) add_row_error(err, "assets.csv", record.line, error);
 		state.world.asset_set_appraised_value(record.asset, record.appraised_value);
-		if(record.kind == "factory") {
+		if(establishment_kind(record.kind)) {
 			state.world.force_create_factory_asset(record.factory, record.asset);
 			if(!organizations::bind_factory_operator(state, firms[operator_firm->second].organization, record.factory))
 				add_row_error(err, "assets.csv", record.line, "could not bind explicitly declared operator to factory dcon:" + std::to_string(record.factory.index()));
@@ -1081,7 +1171,7 @@ bool load_ownership(sys::state& state, parsers::error_handler& err,
 		if(owners_per_asset[asset_id].empty()) {
 			std::string detail = "asset '" + asset_id + "' has no explicitly declared owner relation";
 			if(auto source = std::find_if(assets.begin(), assets.end(), [&](auto const& row) { return row.id == asset_id; }); source != assets.end()) {
-				if(source->kind == "factory") {
+				if(establishment_kind(source->kind)) {
 					auto site = source->factory ? state.world.factory_get_site_from_factory_site(source->factory) : dcon::site_id{};
 					detail += " for factory dcon:" + std::to_string(source->factory.index())
 						+ " at site dcon:" + std::to_string(site.index());
@@ -1121,7 +1211,7 @@ bool load_loans(sys::state& state, parsers::error_handler& err,
 			continue;
 		}
 		auto asset = asset_by_id.find(loan.asset_id);
-		if(asset == asset_by_id.end() || asset->second->kind != "factory" || !asset->second->factory) {
+		if(asset == asset_by_id.end() || !establishment_kind(asset->second->kind) || !asset->second->factory) {
 			add_row_error(err, "loans.csv", loan.line, "asset_id '" + loan.asset_id + "' must identify a loaded factory asset");
 			continue;
 		}
@@ -1861,8 +1951,9 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	table loan_table;
 	table bank_table;
 	table bank_deposit_table;
+	table deposit_table;
 	if(!read_and_parse_tables(common, err, firm_table, owner_table, asset_table,
-		ownership_table, loan_table, bank_table, bank_deposit_table)) {
+		ownership_table, loan_table, bank_table, bank_deposit_table, deposit_table)) {
 		err.fatal = true;
 		return false;
 	}
@@ -1898,6 +1989,7 @@ bool load(sys::state& state, simple_fs::directory const& common,
 		|| !load_capital_owners(state, context, err, owners, owners_by_id,
 			actor_ids, institution_ids, account_ids)
 		|| !load_banks(state, err, banks, bank_deposits, firms, owners_by_id, account_ids)
+		|| !load_deposits(state, context, err, deposit_table)
 		|| !load_assets(state, context, err, assets, firms, firm_by_id, asset_ids, site_ids,
 			assets_by_id, asset_row_by_id)
 		|| !load_ownership(state, err, firms, owners, assets, stakes, owners_by_id,
