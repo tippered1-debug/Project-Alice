@@ -446,6 +446,10 @@ bool transfer(sys::state& state, account_ref source, account_ref destination, fl
 	return transfer_with_result(state, source, destination, amount, kind, timestamp).success;
 }
 
+std::vector<transaction_record> const& transaction_records(sys::state const& state) {
+	return ensure_store(state)->transactions;
+}
+
 uint64_t transaction_count(sys::state const& state) {
 	return uint64_t(ensure_store(state)->transactions.size());
 }

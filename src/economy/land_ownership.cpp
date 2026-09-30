@@ -1,6 +1,5 @@
 #include "land_ownership.hpp"
 
-#include "economy_pops_constants.hpp"
 #include "demographics.hpp"
 #include "gamerule.hpp"
 #include "money.hpp"

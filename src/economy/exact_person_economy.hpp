@@ -145,6 +145,7 @@ bool transfer(sys::state&, account_ref source, account_ref destination, float am
 transfer_result transfer_with_result(sys::state&, account_ref source, account_ref destination,
 	float amount, relations::transaction_kind, sys::date timestamp);
 uint64_t transaction_count(sys::state const&);
+std::vector<transaction_record> const& transaction_records(sys::state const&);
 std::optional<transaction_record> latest_transaction(sys::state const&);
 std::optional<transaction_record> transaction(sys::state const&, uint64_t transaction_id);
 

@@ -6,6 +6,7 @@
 #include "triggers.hpp"
 #include "economy.hpp"
 #include "province.hpp"
+#include "demographics.hpp"
 
 namespace fif {
 
@@ -1075,6 +1076,29 @@ inline int32_t* f_influence_on_b(fif::state_stack& s, int32_t* p, fif::environme
 	s.push_back_main(fif::fif_f32, data, nullptr);
 	return p + 2;
 }
+inline float f_consumption_ratio(sys::state* state, int32_t category, int32_t index) {
+	dcon::pop_id pop{dcon::pop_id::value_base_t(index)};
+	if(category == 0) return pop_demographics::get_life_needs(*state, pop);
+	if(category == 1) return pop_demographics::get_everyday_needs(*state, pop);
+	return pop_demographics::get_luxury_needs(*state, pop);
+}
+inline int32_t* f_consumption_ratio_b(fif::state_stack& s, int32_t* p, fif::environment* e) {
+	if(fif::typechecking_mode(e->mode)) {
+		if(fif::typechecking_failed(e->mode)) return p + 2;
+		s.pop_main(); s.pop_main(); s.pop_main();
+		s.push_back_main(fif::fif_f32, 0, nullptr);
+		return p + 2;
+	}
+	auto state = reinterpret_cast<sys::state*>(s.main_data_back(0)); s.pop_main();
+	auto category = int32_t(s.main_data_back(0)); s.pop_main();
+	auto index = int32_t(s.main_data_back(0)); s.pop_main();
+	auto ratio = f_consumption_ratio(state, category, index);
+	int64_t data = 0;
+	memcpy(&data, &ratio, sizeof(ratio));
+	s.push_back_main(fif::fif_f32, data, nullptr);
+	return p + 2;
+}
+
 inline float f_relations(sys::state* state, int32_t t_index, int32_t n_index) {
 	dcon::nation_id n{ dcon::nation_id::value_base_t(n_index) };
 	dcon::nation_id t{ dcon::nation_id::value_base_t(t_index) };
@@ -1423,6 +1447,8 @@ inline void common_fif_environment(sys::state& state, fif::environment& env) {
 	auto nation_id_type = env.dict.types.find("nation_id")->second;
 	auto prov_id_type = env.dict.types.find("province_id")->second;
 
+ fif::add_import("consumption-ratio", (void*)f_consumption_ratio, f_consumption_ratio_b,
+  {fif::fif_i32, fif::fif_i32, fif::fif_opaque_ptr}, {fif::fif_f32}, env);
 	fif::add_import("current-year", (void *) f_date_to_year, f_date_to_year_b, { fif::fif_i64 }, { fif::fif_i32 }, env);
 	fif::add_import("current-month", (void *) f_date_to_month, f_date_to_month_b, { fif::fif_i64 }, { fif::fif_i32 }, env);
 	fif::add_import("empty-a-province", (void *) f_empty_adjacent_province, f_empty_adjacent_province_b, { fif::fif_i32, fif::fif_opaque_ptr }, { fif::fif_bool }, env);

@@ -6,6 +6,7 @@
 #include "concrete_market.hpp"
 #include "exact_person_freight.hpp"
 #include "inventory.hpp"
+#include "economy/economy_pops.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <type_traits>
 #include <unordered_map>
@@ -29,6 +31,11 @@ struct exact_person_goods_store {
 	std::vector<exact_person_goods::bid_record> bids;
 	std::vector<exact_person_goods::fill_record> fills;
 	std::vector<exact_person_goods::person_key> imported_need_profiles;
+ // Derived compatibility cache is neither serialized nor hashed.
+ mutable std::mutex projection_mutex;
+ mutable bool projection_dirty = true;
+ mutable sys::date projection_date{};
+ mutable std::map<uint32_t, std::array<float, 3>> population_consumption;
 	uint64_t next_bid_id = 1;
 	uint64_t next_fill_id = 1;
 };
@@ -194,6 +201,7 @@ float remove_stock(sys::state& state, person_key owner, dcon::site_id site,
 }
 
 bool set_need(sys::state& state, person_key owner, dcon::commodity_id commodity, float desired) {
+	invalidate_consumption_projection(state);
 	if(!persons::exists(state, owner) || !commodity || !state.world.commodity_is_valid(commodity) || !nonnegative_finite(desired)) return false;
 	auto record = need_for(state, owner, commodity);
 	if(record && record->consumed_this_period > desired + epsilon) return false;
@@ -242,6 +250,7 @@ bool mark_need_profile_imported(sys::state& state, person_key owner) {
 }
 
 void refresh_unmet_needs(sys::state& state, person_key owner) {
+	invalidate_consumption_projection(state);
 	for(auto& record : ensure_store(state)->needs)
 		if(record.owner == owner) refresh_unmet(state, record);
 }
@@ -261,6 +270,7 @@ float consumed_this_period(sys::state const& state, person_key owner, dcon::comm
 }
 
 void begin_period(sys::state& state, sys::date period) {
+	invalidate_consumption_projection(state);
 	for(auto& record : ensure_store(state)->needs) {
 		if(period <= record.consumption_period_start) continue;
 		record.consumed_this_period = 0.0f;
@@ -278,6 +288,7 @@ float consume_stock(sys::state& state, person_key owner, dcon::commodity_id comm
 	auto amount = std::min({requested, remaining,
 		stock_quantity(state, owner, site, commodity)});
 	auto consumed = remove_stock(state, owner, site, commodity, amount);
+	invalidate_consumption_projection(state);
 	record->consumed_this_period += consumed;
 	record->last_consumed_quantity = consumed;
 	record->last_consumed_on = state.current_date;
@@ -500,6 +511,8 @@ void process_daily(sys::state& state) {
 		if(persons::alive(state, record->owner))
 			(void)process_consumption(state, record->owner, record->commodity);
 	}
+	project_population_consumption(state);
+
 }
 
 namespace {
@@ -996,6 +1009,60 @@ uint64_t fill_count(sys::state const& state) { return uint64_t(ensure_store(stat
 
 float reserved_bid_amount(sys::state const& state, uint64_t exact_account_id) {
 	return reserved_exact(state, exact_account_id);
+}
+
+std::vector<need_record> const& need_records(sys::state const& state) {
+	return ensure_store(state)->needs;
+}
+std::vector<fill_record> const& fill_records(sys::state const& state) {
+	return ensure_store(state)->fills;
+}
+void invalidate_consumption_projection(sys::state& state) {
+	if(!state.exact_person_goods) return;
+	auto store = ensure_store(state);
+	std::lock_guard lock(store->projection_mutex);
+	store->projection_dirty = true;
+}
+std::array<float, 3> population_consumption_satisfaction(sys::state const& state, dcon::pop_id pop) {
+	if(!pop || !state.exact_person_goods) return {};
+	auto store = ensure_store(state);
+	std::lock_guard lock(store->projection_mutex);
+	if(store->projection_dirty || store->projection_date != state.current_date) {
+		std::map<uint32_t, std::array<double, 6>> totals;
+		std::vector<need_record const*> ordered;
+		for(auto const& n : store->needs) ordered.push_back(&n);
+		std::sort(ordered.begin(), ordered.end(), [](auto a, auto b) {
+			return std::tuple{a->owner.source_population_cell, a->owner.ordinal, a->commodity.index()}
+				< std::tuple{b->owner.source_population_cell, b->owner.ordinal, b->commodity.index()};
+		});
+		for(auto n : ordered) {
+			if(!persons::alive(state, n->owner)) continue;
+			auto population = persons::current_population(state, n->owner);
+			if(!population) continue;
+			auto shares = economy::pops::compatibility_category_shares(state, n->owner, n->commodity);
+			auto& t = totals[population.index()];
+			for(size_t i = 0; i < 3; ++i) {
+				t[i] += double(n->desired_quantity_per_period) * shares[i];
+				t[i+3] += double(n->consumption_period_start == state.current_date ? n->consumed_this_period : 0.0f) * shares[i];
+			}
+		}
+		store->population_consumption.clear();
+		for(auto const& [id, t] : totals) {
+			auto& ratios = store->population_consumption[id];
+			for(size_t i = 0; i < 3; ++i) ratios[i] = t[i] > 0.0 ? float(std::clamp(t[i+3] / t[i], 0.0, 1.0)) : 1.0f;
+		}
+		store->projection_date = state.current_date;
+		store->projection_dirty = false;
+	}
+	auto found = store->population_consumption.find(pop.index());
+	return found == store->population_consumption.end() ? std::array<float, 3>{} : found->second;
+}
+void project_population_consumption(sys::state& state) {
+	if(!state.exact_person_goods) return;
+	state.world.for_each_pop([&](dcon::pop_id pop) {
+		auto ratios = population_consumption_satisfaction(state, pop);
+		state.world.pop_set_satisfaction(pop, (ratios[0] + ratios[1] + ratios[2]) / 3.0f);
+	});
 }
 
 goods_snapshot export_snapshot(sys::state const& state) {

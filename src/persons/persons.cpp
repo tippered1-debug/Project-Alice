@@ -1,4 +1,5 @@
 #include "persons.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 
 #include "actors/ownership.hpp"
 #include "economy/exact_person_economy.hpp"
@@ -83,6 +84,7 @@ bool can_kill_person(sys::state const& state, person_key key, sys::date date, de
 
 bool kill_person(sys::state& state, person_key key, sys::date date, death_cause cause,
 	bool project_population) {
+	economy::physical::exact_person_goods::invalidate_consumption_projection(state);
 	if(!can_kill_person(state, key, date, cause)) return false;
 	auto profile = exact_population::profile_for_person(state, key);
 	if(!military::land_forces::close_person_assignment_on_death(state, key)) return false;
@@ -357,15 +359,18 @@ uint64_t living_people_in_population_cell(sys::state const& state, uint32_t sour
 }
 
 bool project_population_membership(sys::state& state) {
+	economy::physical::exact_person_goods::invalidate_consumption_projection(state);
 	return exact_population::project_population_membership(state);
 }
 
 void retire_population_cell(sys::state& state, dcon::pop_id population) {
+	economy::physical::exact_person_goods::invalidate_consumption_projection(state);
 	exact_population::retire_population_cell(state, population);
 }
 
 population_transfer_result transfer_population(sys::state& state, dcon::pop_id source,
 	dcon::pop_id destination, float amount, population_transition_cause cause) {
+	economy::physical::exact_person_goods::invalidate_consumption_projection(state);
 	auto result = exact_population::transfer_population_membership(state, source, destination, amount, cause);
 	return {result.people_moved, result.complete};
 }
@@ -385,6 +390,7 @@ bool set_home_site(sys::state& state, person_key key, dcon::site_id site) {
 
 bool transfer_population_membership(sys::state& state, person_key key, dcon::pop_id destination,
 	population_transition_cause cause) {
+	economy::physical::exact_person_goods::invalidate_consumption_projection(state);
 	if(!exact_population::exists(state, key)) return false;
 	if(!exact_population::transfer_population_person_membership(state, key, destination, cause)) return false;
 	auto profile = exact_population::profile_for_person(state, key);

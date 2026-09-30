@@ -5,8 +5,8 @@
 #include "economy_constants.hpp"
 #include "money.hpp"
 #include "economy_templates_pure.hpp"
-#include "economy_pops_constants.hpp"
 #include "economy_pops.hpp"
+#include "advanced_province_buildings.hpp"
 #include "province_templates.hpp"
 #include "economy_production.hpp"
 
@@ -1266,17 +1266,9 @@ market_budget breakdown_market_budget(sys::state const& state, dcon::market_id m
 	});
 
 
-	auto treasury = state.world.market_get_stockpile(m, economy::money);
-
-	result.dividents = treasury > 0 ? treasury * economy::pops::trade_dividents_rate : 0.f;
-
-	auto sid = state.world.market_get_zone_from_local_market(m);
-	province::for_each_province_in_state_instance(state, sid, [&](auto pid) {
-		state.world.province_for_each_pop_location(pid, [&](auto poploc){
-			auto pop = state.world.pop_location_get_pop(poploc);
-			result.investments += economy::pops::estimate_trade_spending(state, pop);
-		});
-
+ // Aggregate POP dividends and savings contributions have no ledger entries.
+ auto sid = state.world.market_get_zone_from_local_market(m);
+ province::for_each_province_in_state_instance(state, sid, [&](auto pid) {
 		for(int32_t i = 0; i < advanced_province_buildings::list::total; i++) {
 			auto& def = advanced_province_buildings::definitions[i];
 			auto private_size = state.world.province_get_advanced_province_building_private_size(pid, i);
@@ -1602,29 +1594,20 @@ nation_monetary_breakdown breakdown_nation_monetary_structure(sys::state& state,
 		auto pid = state.world.province_ownership_get_province(poid);
 		state.world.province_for_each_pop_location(pid, [&](auto location) {
 			auto pop = state.world.pop_location_get_pop(location);
-			result.pops += state.world.pop_get_savings(pop);
-			auto wages = pops::estimate_wage(state, pop);
-			auto slaves = pops::estimate_slave_income(state, pop);
-			result.pops_wages += slaves;
+			auto view = pops::project_consumption(state, pop);
+			result.pops += view.cash;
+			auto wages = pops::projected_payroll(state, pop);
 			for(auto& item : wages) {
 				result.pops_wages += item.wage;
 			}
 
 			state.world.for_each_commodity([&](dcon::commodity_id c) {
-				result.pops_spending_life += pops::estimate_pop_spending_life(state, pop, c);
-				result.pops_spending_everyday += pops::estimate_pop_spending_everyday(state, pop, c);
-				result.pops_spending_luxury += pops::estimate_pop_spending_luxury(state, pop, c);
+				result.pops_spending_life += economy::pops::projected_spending(state, pop, c, 0);
+				result.pops_spending_everyday += economy::pops::projected_spending(state, pop, c, 1);
+				result.pops_spending_luxury += economy::pops::projected_spending(state, pop, c, 2);
 			});
 
-			auto budget = pops::prepare_pop_budget(state, pop);
-			result.pops_spending_housing += budget.housing.spent;
-			result.pops_spending_education += budget.education.spent;
 
-			auto literacy_sat_paid = state.world.province_get_service_satisfaction(pid, services::list::education);
-			auto housing_sat = state.world.province_get_service_satisfaction(pid, services::list::urban_housing);
-
-			result.pops_cashback_housing += budget.housing.spent * (1.f - housing_sat);
-			result.pops_cashback_education += budget.education.spent * (1.f - literacy_sat_paid);
 		});
 	});
 

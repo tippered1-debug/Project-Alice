@@ -301,6 +301,8 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 		+ pod_vector_size(population.transfer_remainders);
 	size += sizeof(uint32_t) + population.overrides.size() *
 		(sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint8_t) + sizeof(dcon::site_id));
+	size += sizeof(uint32_t) + economy.participation_overrides.size() *
+		(sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint8_t));
 	size += pod_vector_size(economy.accounts) + pod_vector_size(economy.applications)
 		+ pod_vector_size(economy.contracts) + pod_vector_size(economy.transactions);
 	size += sizeof(uint32_t) + economy.last_separation_dates.size() *
@@ -452,7 +454,12 @@ bool read_custom_vector(uint8_t const*& ptr, uint8_t const* end,
 
 uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	uint8_t const* section_end, exact_runtime_snapshot& result) {
+	// These flags were read from preceding sections and gate runtime restore.
+	auto const politics_loaded = result.transformation_politics_loaded;
+	auto const legislation_loaded = result.transformation_legislation_loaded;
 	result = exact_runtime_snapshot{};
+	result.transformation_politics_loaded = politics_loaded;
+	result.transformation_legislation_loaded = legislation_loaded;
 	if(std::size_t(section_end - ptr) < exact_runtime_save_header_size) return ptr;
 	auto const* header_start = ptr;
 	uint32_t magic = 0;
@@ -630,6 +637,10 @@ bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const
 	if(restored) {
 		std::vector<std::string> technology_errors;
 		restored = technology::kernel::validate_canonical_technology_state(state, technology_errors);
+	}
+	if(restored) {
+		restored = economy::exact_person_economy::project_population_cash_balances(state);
+		if(restored) economy::physical::exact_person_goods::project_population_consumption(state);
 	}
 	if(!restored) clear_on_failure();
 	return restored;

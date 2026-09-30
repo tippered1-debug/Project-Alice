@@ -8,6 +8,9 @@
 #include "container_types.hpp"
 #include "economy_stats.hpp"
 #include "economy_pops.hpp"
+#include <map>
+#include "advanced_province_buildings.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 #include "economy_constants.hpp"
 #include "human_development.hpp"
 #include "math_fns.hpp"
@@ -96,14 +99,17 @@ void set_consciousness(sys::state& state, T p, ve::fp_vector v) {
 	state.world.pop_set_uconsciousness(p, to_pmc(v));
 }
 float get_life_needs(sys::state const& state, dcon::pop_id p) {
+	if(state.exact_person_goods) return economy::physical::exact_person_goods::population_consumption_satisfaction(state, p)[0];
 	auto value = state.world.pop_get_satisfaction(p);
 	return std::min(value * 3.f, 1.f);
 }
 float get_everyday_needs(sys::state const& state, dcon::pop_id p) {
+	if(state.exact_person_goods) return economy::physical::exact_person_goods::population_consumption_satisfaction(state, p)[1];
 	auto value = state.world.pop_get_satisfaction(p);
 	return std::clamp(value* 3.f - 1.f, 0.f, 1.f);
 }
 float get_luxury_needs(sys::state const& state, dcon::pop_id p) {
+	if(state.exact_person_goods) return economy::physical::exact_person_goods::population_consumption_satisfaction(state, p)[2];
 	auto value = state.world.pop_get_satisfaction(p);
 	return std::clamp(value* 3.f - 2.f, 0.f, 1.f);
 }
@@ -2448,11 +2454,7 @@ float get_estimated_con_change(sys::state& state, dcon::nation_id n) {
 }
 
 float get_estimated_literacy_change(sys::state& state, dcon::pop_id ids) {
-	auto pop_budget = economy::pops::prepare_pop_budget(state, ids);
-	auto const education_access = std::clamp(
-		pop_budget.education.satisfied_with_money_ratio
-			+ pop_budget.education.satisfied_for_free_ratio,
-		0.f, 1.f);
+	auto const education_access = economy::pops::education_access(state, ids);
 	auto const literacy = std::clamp(pop_demographics::get_literacy(state, ids), 0.f, 1.f);
 	// The old 70/90% thresholds made almost every developing country sit in a
 	// dead zone for decades. Education now yields continuous progress, with
@@ -3347,7 +3349,7 @@ float expected_labor_income_per_capita(
 	auto culture = state.world.pop_get_culture(pop);
 	auto accepted = owner && nations::nation_accepts_culture(state, owner, culture);
 	float result = 0.f;
-	for(auto const& item : economy::pops::estimate_wage(state, province, pop_type, accepted, 1.f)) {
+	for(auto const& item : economy::pops::compatibility_wage_opportunities(state, province, pop_type, accepted, 1.f)) {
 		if(std::isfinite(item.wage) && item.wage > 0.f) {
 			result += item.wage;
 		}
@@ -3376,6 +3378,20 @@ float expected_life_needs_coverage(
 		return 0.f;
 	}
 
+	if(state.exact_person_goods) {
+		std::map<std::pair<uint32_t, uint64_t>, double> per_person_cost;
+		for(auto const& need : economy::physical::exact_person_goods::need_records(state)) {
+			if(!persons::alive(state, need.owner) || persons::current_population(state, need.owner) != pop) continue;
+			auto share = economy::pops::compatibility_category_shares(state, need.owner, need.commodity)[0];
+			auto price = economy::physical::exact_person_goods::concrete_reference_price(state, market, need.commodity, state.current_date);
+			per_person_cost[{need.owner.source_population_cell, need.owner.ordinal}] += need.desired_quantity_per_period * share * price;
+		}
+		double total = 0.0;
+		for(auto const& [key, cost] : per_person_cost) total += cost;
+		auto cost = per_person_cost.empty() ? 0.0f : float(total / per_person_cost.size());
+		return life_needs_coverage_from_income(expected_labor_income_per_capita(state, pop, province), cost, 1.0f, 0.0f);
+	}
+
 	auto subsistence_coverage = 0.f;
 	if(state.world.pop_type_get_is_paid_rgo_worker(pop_type)) {
 		auto population = state.world.province_get_demographics(province, demographics::total);
@@ -3383,8 +3399,7 @@ float expected_life_needs_coverage(
 		auto subsistence_employment = finite_nonnegative_or(state.world.province_get_subsistence_employment(province), 0.f);
 		auto safe_population = finite_nonnegative_or(population, 0.f);
 		auto subsistence_per_person = subsistence_score * subsistence_employment / (safe_population + 1.f);
-		// Match prepare_pop_budget's free life-needs semantics at the neutral
-		// target demand scale of one: qol / (1 + demand_scale).
+		// Compatibility migration report only; subsistence cannot fund a purchase.
 		if(std::isfinite(subsistence_per_person) && economy::subsistence_score_life > 0.f) {
 			subsistence_coverage = std::clamp(subsistence_per_person, 0.f, economy::subsistence_score_life)
 				/ economy::subsistence_score_life / 2.f;

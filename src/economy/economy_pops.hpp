@@ -1,61 +1,38 @@
 #pragma once
 
 #include "system_state.hpp"
-#include "advanced_province_buildings.hpp"
-#include "demographics.hpp"
-#include "adaptive_ve.hpp"
-#include "economy_templates_pure.hpp"
+#include "persons/persons.hpp"
+#include <array>
+#include <vector>
 
+namespace economy::pops {
+
+// Read models only. None of these values allocates cash or posts an order.
+struct consumption_category_projection {
+	float required = 0.0f;
+	float spent = 0.0f;
+	float physical_consumption_ratio = 0.0f; // physical consumption / exact need
+};
+struct population_consumption_projection {
+	consumption_category_projection life_needs{}, everyday_needs{}, luxury_needs{};
+	float cash = 0.0f;
+	float payroll_received = 0.0f;
+	float public_transfers_received = 0.0f;
+	float tax_paid = 0.0f;
+	float capital_contributed = 0.0f;
+	float spent_total = 0.0f;
+};
+// Authored category mapping is presentation metadata, never a demand multiplier.
+std::array<float, 3> compatibility_category_shares(sys::state const&, persons::person_key, dcon::commodity_id);
+population_consumption_projection project_consumption(sys::state const&, dcon::pop_id);
+float projected_spending(sys::state const&, dcon::pop_id, dcon::commodity_id, uint8_t category);
+float education_access(sys::state const&, dcon::pop_id);
+
+struct labor_ratio_wage { int32_t labor_type; float ratio; float wage; };
+// Prospective migration report based on the projected labor market; no payment.
+std::vector<labor_ratio_wage> compatibility_wage_opportunities(sys::state const&, dcon::province_id, dcon::pop_type_id, bool accepted, float size);
+std::vector<labor_ratio_wage> projected_payroll(sys::state const&, dcon::pop_id);
+}
 namespace economy {
-
-namespace pops {
-
-template<typename BOOL_VALUE, typename VALUE>
-VALUE safe_spending_ratio(BOOL_VALUE zero_required, VALUE spent, VALUE required, VALUE ratio_when_zero_required) {
-	// A vector select does not short-circuit: forming `spent / required` first
-	// still raises an invalid/divide-by-zero exception in masked SIMD lanes.
-	// Replace the denominator before dividing, then select the requested
-	// fallback. This also keeps scalar and vector behavior identical.
-	auto safe_required = adaptive_ve::select<BOOL_VALUE, VALUE>(zero_required, VALUE{ 1.f }, required);
-	return adaptive_ve::select<BOOL_VALUE, VALUE>(zero_required, ratio_when_zero_required, spent / safe_required);
-}
-
-template<typename BOOL_VALUE, typename VALUE>
-VALUE safe_ratio_or_zero(BOOL_VALUE zero_denominator, VALUE numerator, VALUE denominator) {
-	auto safe_denominator = adaptive_ve::select<BOOL_VALUE, VALUE>(zero_denominator, VALUE{ 1.f }, denominator);
-	return adaptive_ve::select<BOOL_VALUE, VALUE>(zero_denominator, VALUE{ 0.f }, numerator / safe_denominator);
-}
-
-vectorized_pops_budget<float> prepare_pop_budget(const sys::state& state, dcon::pop_id ids);
-
-struct labor_ratio_wage {
-	int32_t labor_type;
-	float ratio;
-	float wage;
-};
-
-struct money_from_nation {
-	float pension;
-	float unemployment;
-	float military;
-	float investment;
-};
-
-float market_cut(sys::state const& state, dcon::market_id market, float no_education_wage);
-
-std::vector<labor_ratio_wage> estimate_wage(sys::state const& state, dcon::province_id pid, dcon::pop_type_id ptid, bool accepted, float size);
-std::vector<labor_ratio_wage> estimate_wage(sys::state const& state, dcon::pop_id pop);
-float estimate_slave_income(sys::state const& state, dcon::pop_id pop);
-float estimate_trade_income(sys::state const& state, dcon::pop_id pop);
-float estimate_artisan_income(sys::state const& state, dcon::pop_id pop);
-money_from_nation estimate_income_from_nation(sys::state const& state, dcon::pop_id pop);
-float estimate_trade_spending(sys::state const& state, dcon::pop_id pop);
-float estimate_tax_spending(sys::state const& state, dcon::pop_id pop, float tax_rate);
-float estimate_pop_spending_life(sys::state const& state, dcon::pop_id pop, dcon::commodity_id cid);
-float estimate_pop_spending_everyday(sys::state const& state, dcon::pop_id pop, dcon::commodity_id cid);
-float estimate_pop_spending_luxury(sys::state const& state, dcon::pop_id pop, dcon::commodity_id cid);
-}
-
-float estimate_pops_consumption(sys::state const& state, dcon::commodity_id c, dcon::province_id p);
-
+float estimate_pops_consumption(sys::state const&, dcon::commodity_id, dcon::province_id);
 }

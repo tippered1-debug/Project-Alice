@@ -320,7 +320,7 @@ void  pop_budget_details_main_wage_per_labor_t::update(sys::state& state, layout
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::wage_per_labor::update
 	values.clear();
-	auto list = economy::pops::estimate_wage(state, main.for_pop);
+	auto list = economy::pops::projected_payroll(state, main.for_pop);
 	for(auto& item : list) {
 		add_wage_income(item.labor_type, item.ratio, item.wage);
 	}
@@ -371,7 +371,7 @@ void  pop_budget_details_main_needs_t::update(sys::state& state, layout_window_e
 
 	// life
 	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		auto cost = economy::pops::estimate_pop_spending_life(state, main.for_pop, cid);
+		auto cost = economy::pops::projected_spending(state, main.for_pop, cid, 0);
 		if(cost > 0.001f) {
 			add_consumption(cid, 0, cost, state.world.market_get_actual_probability_to_buy(market, cid));
 		}
@@ -379,7 +379,7 @@ void  pop_budget_details_main_needs_t::update(sys::state& state, layout_window_e
 
 	// everyday
 	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		auto cost = economy::pops::estimate_pop_spending_everyday(state, main.for_pop, cid);
+		auto cost = economy::pops::projected_spending(state, main.for_pop, cid, 1);
 		if(cost > 0.001f) {
 			add_consumption(cid, 1, cost, state.world.market_get_actual_probability_to_buy(market, cid));
 		}
@@ -387,7 +387,7 @@ void  pop_budget_details_main_needs_t::update(sys::state& state, layout_window_e
 
 	//luxury
 	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		auto cost = economy::pops::estimate_pop_spending_luxury(state, main.for_pop, cid);
+		auto cost = economy::pops::projected_spending(state, main.for_pop, cid, 2);
 		if(cost > 0.001f) {
 			add_consumption(cid, 2, cost, state.world.market_get_actual_probability_to_buy(market, cid));
 		}
@@ -423,80 +423,64 @@ void  pop_budget_details_main_needs_t::reset_pools() {
 void pop_budget_details_main_unemployment_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::unemployment_value::update
-	auto data = economy::pops::estimate_income_from_nation(state, main.for_pop);
-	set_text(state, text::format_money(data.unemployment));
+	set_text(state, text::format_money(0.0f)); // No canonical unemployment transfer kind yet.
 // END
 }
 void pop_budget_details_main_pension_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::pension_value::update
-	auto data = economy::pops::estimate_income_from_nation(state, main.for_pop);
-	set_text(state, text::format_money(data.pension));
+	set_text(state, text::format_money(0.0f)); // No canonical pension transfer kind yet.
 // END
 }
 void pop_budget_details_main_rgo_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::rgo_value::update
-	set_text(state, text::format_money(economy::pops::estimate_slave_income(state, main.for_pop)));
+	set_text(state, text::format_money(0.0f));
 // END
 }
 void pop_budget_details_main_nation_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::nation_value::update
-	auto data = economy::pops::estimate_income_from_nation(state, main.for_pop);
-	set_text(state, text::format_money(data.investment + data.military));
+	auto data = economy::pops::project_consumption(state, main.for_pop);
+	set_text(state, text::format_money(data.public_transfers_received));
 // END
 }
 void pop_budget_details_main_trade_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::trade_value::update
-	set_text(state, text::format_money(economy::pops::estimate_trade_income(state, main.for_pop)));
+	set_text(state, text::format_money(0.0f));
 // END
 }
 void pop_budget_details_main_artisan_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::artisan_value::update
-	set_text(state, text::format_money(economy::pops::estimate_artisan_income(state, main.for_pop)));
+	set_text(state, text::format_money(0.0f));
 // END
 }
 void pop_budget_details_main_tax_s_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::tax_s_value::update
-	auto pid = state.world.pop_get_province_from_pop_location(main.for_pop);
-	auto nid = state.world.province_get_nation_from_province_control(pid);
-	// account for strata
-	auto pop_type = state.world.pop_get_poptype(main.for_pop);
-	auto strata = state.world.pop_type_get_strata(pop_type);
-	auto tax_rate = 0.f;
-	if(strata == (uint8_t)culture::pop_strata::poor) {
-		tax_rate = float(state.world.nation_get_poor_tax(nid)) / 100.f;
-	} else if(strata == (uint8_t)culture::pop_strata::middle) {
-		tax_rate = float(state.world.nation_get_middle_tax(nid)) / 100.f;
-	} else if(strata == (uint8_t)culture::pop_strata::rich) {
-		tax_rate = float(state.world.nation_get_rich_tax(nid)) / 100.f;
-	}
-	auto tax_efficiency = economy::tax_collection_rate(state, nid, pid);
-	set_text(state, text::format_money(economy::pops::estimate_tax_spending(state, main.for_pop, tax_rate * tax_efficiency)));
+ auto data = economy::pops::project_consumption(state, main.for_pop);
+ set_text(state, text::format_money(data.tax_paid));
 // END
 }
 void pop_budget_details_main_education_s_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::education_s_value::update
-	auto budget = economy::pops::prepare_pop_budget(state, main.for_pop);
-	set_text(state, text::format_money(budget.education.spent));
+	set_text(state, text::format_money(0.0f)); // No paid canonical education transaction yet.
 // END
 }
 void pop_budget_details_main_trade_s_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::trade_s_value::update
-	set_text(state, text::format_money(economy::pops::estimate_trade_spending(state, main.for_pop)));
+	set_text(state, text::format_money(0.0f));
 // END
 }
 void pop_budget_details_main_investment_s_value_t::on_update(sys::state& state) noexcept {
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent)); 
 // BEGIN main::investment_s_value::update
-	auto budget = economy::pops::prepare_pop_budget(state, main.for_pop);
-	set_text(state, text::format_money(budget.investments.spent + budget.bank_savings.spent));
+	auto budget = economy::pops::project_consumption(state, main.for_pop);
+	set_text(state, text::format_money(budget.capital_contributed));
 // END
 }
 void pop_budget_details_main_needs_s_value_t::on_update(sys::state& state) noexcept {
@@ -510,19 +494,19 @@ void pop_budget_details_main_needs_s_value_t::on_update(sys::state& state) noexc
 	auto total = 0.f;
 	// life
 	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		auto cost = economy::pops::estimate_pop_spending_life(state, main.for_pop, cid);
+		auto cost = economy::pops::projected_spending(state, main.for_pop, cid, 0);
 		total += cost;
 	});
 
 	// everyday
 	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		auto cost = economy::pops::estimate_pop_spending_everyday(state, main.for_pop, cid);
+		auto cost = economy::pops::projected_spending(state, main.for_pop, cid, 1);
 		total += cost;
 	});
 
 	//luxury
 	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		auto cost = economy::pops::estimate_pop_spending_luxury(state, main.for_pop, cid);
+		auto cost = economy::pops::projected_spending(state, main.for_pop, cid, 2);
 		total += cost;
 	});
 
@@ -1442,7 +1426,7 @@ void pop_budget_details_wage_income_labor_type_t::on_update(sys::state& state) n
 	pop_budget_details_wage_income_t& wage_income = *((pop_budget_details_wage_income_t*)(parent)); 
 	pop_budget_details_main_t& main = *((pop_budget_details_main_t*)(parent->parent)); 
 // BEGIN wage_income::labor_type::update
-	set_text(state, text::produce_simple_string(state, ui::labour_type_to_employment_name_text_key(wage_income.labor_type_index)));
+	set_text(state, text::produce_simple_string(state, "pop_actual_payroll"));
 // END
 }
 void pop_budget_details_wage_income_labor_ratio_t::on_update(sys::state& state) noexcept {

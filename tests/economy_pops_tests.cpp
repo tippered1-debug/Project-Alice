@@ -10,37 +10,6 @@ TEST_CASE("commodity price ceiling is tied to the base price", "[economy][price]
 	REQUIRE(economy::price_properties::commodity::maximum(0.f) == Approx(economy::price_properties::commodity::min));
 }
 
-TEST_CASE("safe spending ratio returns fallback when required is zero", "[economy][pops]") {
-	auto scalar = economy::pops::safe_spending_ratio(true, 0.0f, 0.0f, 1.0f);
-	REQUIRE(scalar == 1.0f);
-
-	auto vector = economy::pops::safe_spending_ratio(
-		ve::mask_vector(true, false, true, false),
-		ve::fp_vector(0.0f, 2.0f, 0.0f, 6.0f),
-		ve::fp_vector(0.0f, 4.0f, 0.0f, 3.0f),
-		ve::fp_vector(1.0f)
-	);
-	REQUIRE(vector[0] == 1.0f);
-	REQUIRE(vector[1] == 0.5f);
-	REQUIRE(vector[2] == 1.0f);
-	REQUIRE(vector[3] == 2.0f);
-}
-
-TEST_CASE("safe ratio returns zero when denominator is zero", "[economy][pops]") {
-	auto scalar = economy::pops::safe_ratio_or_zero(true, 0.0f, 0.0f);
-	REQUIRE(scalar == 0.0f);
-
-	auto vector = economy::pops::safe_ratio_or_zero(
-		ve::mask_vector(true, false, true, false),
-		ve::fp_vector(0.0f, 2.0f, 0.0f, 6.0f),
-		ve::fp_vector(0.0f, 4.0f, 0.0f, 3.0f)
-	);
-	REQUIRE(vector[0] == 0.0f);
-	REQUIRE(vector[1] == 0.5f);
-	REQUIRE(vector[2] == 0.0f);
-	REQUIRE(vector[3] == 2.0f);
-}
-
 TEST_CASE("migration opportunity multiplier is neutral for equal coverage", "[economy][migration]") {
 	REQUIRE(demographics::migration_opportunity_multiplier_from_coverage(1.f, 1.f) == Approx(1.f));
 }

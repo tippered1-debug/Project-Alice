@@ -83,12 +83,6 @@ auto artisan_input_multiplier(
 	}
 }
 template<typename T>
-ve::fp_vector ve_artisan_min_wage(sys::state& state, T markets) {
-	auto life = state.world.market_get_life_needs_costs(markets, state.culture_definitions.artisans);
-	auto everyday = state.world.market_get_everyday_needs_costs(markets, state.culture_definitions.artisans);
-	return (life + everyday) * 0.001f;
-}
-template<typename T>
 auto artisan_output_multiplier(
 	const sys::state& state,
 	T nations

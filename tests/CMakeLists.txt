@@ -105,3 +105,19 @@ catch_discover_tests(tests_project
 #     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 #     COMMAND ${CMAKE_CTEST_COMMAND} -C $<CONFIGURATION> -R "^tests_project$" --output-on-failures
 # )
+
+# Independent canonical-consumer runner: legacy tests referring to removed APIs
+# must not prevent the consumer hard-cut regressions from building and running.
+get_target_property(CONSUMER_PURGE_SOURCES tests_project SOURCES)
+list(REMOVE_ITEM CONSUMER_PURGE_SOURCES "${PROJECT_SOURCE_DIR}/tests/test_main.cpp")
+add_executable(consumer_purge_tests "${PROJECT_SOURCE_DIR}/tests/consumer_purge_main.cpp"
+ "${PROJECT_SOURCE_DIR}/tests/legacy_consumer_purge_tests.cpp"
+ "${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp" ${CONSUMER_PURGE_SOURCES})
+target_link_libraries(consumer_purge_tests PRIVATE AliceCommon Catch2::Catch2)
+if(WIN32)
+ target_link_libraries(consumer_purge_tests PRIVATE ${PROJECT_SOURCE_DIR}/libs/LLVM-C.lib)
+else()
+ target_link_libraries(consumer_purge_tests PRIVATE fmt::fmt)
+endif()
+add_dependencies(consumer_purge_tests GENERATE_TEST_PARSERS GENERATE_PARSERS GENERATE_CONTAINER)
+catch_discover_tests(consumer_purge_tests WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets")

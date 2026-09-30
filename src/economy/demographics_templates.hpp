@@ -46,16 +46,25 @@ void set_literacy(sys::state& state, P p, V v) {
 }
 template<typename T>
 auto get_life_needs(sys::state const& state, T p) {
+	if(state.exact_person_goods) return ve::apply([&](dcon::pop_id pop) {
+		return pop_demographics::get_life_needs(state, pop);
+	}, p);
 	auto val = state.world.pop_get_satisfaction(p);
 	return adaptive_ve::min<decltype(val)>(val * 3.f, 1.f);
 }
 template<typename T>
 auto get_everyday_needs(sys::state const& state, T p) {
+	if(state.exact_person_goods) return ve::apply([&](dcon::pop_id pop) {
+		return pop_demographics::get_everyday_needs(state, pop);
+	}, p);
 	auto val = state.world.pop_get_satisfaction(p);
 	return adaptive_ve::max<decltype(val)>(adaptive_ve::min<decltype(val)>(val * 3.f - 1.f, 1.f), 0.f);
 }
 template<typename T>
 auto get_luxury_needs(sys::state const& state, T p) {
+	if(state.exact_person_goods) return ve::apply([&](dcon::pop_id pop) {
+		return pop_demographics::get_luxury_needs(state, pop);
+	}, p);
 	auto val = state.world.pop_get_satisfaction(p);
 	return adaptive_ve::max<decltype(val)>(adaptive_ve::min<decltype(val)>(val * 3.f - 2.f, 1.f), 0.f);
 }

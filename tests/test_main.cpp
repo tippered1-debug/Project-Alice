@@ -112,6 +112,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "technology_kernel_tests.cpp"
 #include "exact_person_goods_tests.cpp"
 #include "exact_person_freight_tests.cpp"
+#include "legacy_consumer_purge_tests.cpp"
 #include "layoffs_quits_tests.cpp"
 #include "commodity_logistics_tests.cpp"
 #include "investment_ranking_tests.cpp"

@@ -5,6 +5,7 @@
 #include "economy/exact_person_economy.hpp"
 
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <vector>
 
@@ -137,6 +138,13 @@ float concrete_reference_price(sys::state const&, dcon::market_id, dcon::commodi
 price_observation observation_for_date(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);
 std::vector<market_activity_record> market_activity_for_date(sys::state const&, sys::date);
 std::optional<sys::date> latest_fill_date(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date query_date);
+
+// Compatibility read model. Category shares never enter purchase decisions.
+std::vector<need_record> const& need_records(sys::state const&);
+std::vector<fill_record> const& fill_records(sys::state const&);
+std::array<float, 3> population_consumption_satisfaction(sys::state const&, dcon::pop_id);
+void invalidate_consumption_projection(sys::state&);
+void project_population_consumption(sys::state&);
 
 goods_snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, goods_snapshot const&);

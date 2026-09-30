@@ -3038,13 +3038,13 @@ TRIGGER_FUNCTION(tf_has_pop_religion_nation) {
 	return "dup " + value_to_string(demographics::to_key(ws, trigger::payload(tval[1]).rel_id).index()) + " >demographics_key demographics @ 0.0 > " + truth_inversion(tval[0]);
 }
 TRIGGER_FUNCTION(tf_life_needs) {
-	return "dup satisfaction @ 3.0 * " + value_to_string(read_float_from_payload(tval + 1)) + " " + compare_values(tval[0]);
+	return "dup >index 0 state-ptr @ consumption-ratio " + value_to_string(read_float_from_payload(tval + 1)) + " " + compare_values(tval[0]);
 }
 TRIGGER_FUNCTION(tf_everyday_needs) {
-	return "dup satisfaction @ 3.0 * 1.0 - " + value_to_string(read_float_from_payload(tval + 1)) + " " + compare_values(tval[0]);
+	return "dup >index 1 state-ptr @ consumption-ratio " + value_to_string(read_float_from_payload(tval + 1)) + " " + compare_values(tval[0]);
 }
 TRIGGER_FUNCTION(tf_luxury_needs) {
-	return "dup satisfaction @ 3.0 * 2.0 - " + value_to_string(read_float_from_payload(tval + 1)) + " " + compare_values(tval[0]);
+	return "dup >index 2 state-ptr @ consumption-ratio " + value_to_string(read_float_from_payload(tval + 1)) + " " + compare_values(tval[0]);
 }
 TRIGGER_FUNCTION(tf_consciousness_pop) {
 	return "dup uconsciousness @ >f32 " + value_to_string(10.0f / float(std::numeric_limits<uint16_t>::max())) + " * " + value_to_string(read_float_from_payload(tval + 1)) + " " + compare_values(tval[0]);

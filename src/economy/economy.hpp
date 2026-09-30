@@ -41,9 +41,6 @@ dcon::unilateral_relationship_id nation_gives_direct_free_trade_rights(sys::stat
 void initialize(sys::state& state);
 void regenerate_unsaved_values(sys::state& state);
 
-float pop_min_wage_factor(sys::state& state, dcon::nation_id n);
-float farmer_min_wage(sys::state& state, dcon::market_id m, float min_wage_factor);
-float laborer_min_wage(sys::state& state, dcon::market_id m, float min_wage_factor);
 
 void daily_update(sys::state& state, bool presimulation, float presimulation_stage);
 

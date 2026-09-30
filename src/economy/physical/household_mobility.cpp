@@ -75,7 +75,7 @@ dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id
 		state.world.pop_set_uliteracy(result, state.world.pop_get_uliteracy(source));
 		state.world.pop_set_umilitancy(result, state.world.pop_get_umilitancy(source));
 		state.world.pop_set_uconsciousness(result, state.world.pop_get_uconsciousness(source));
-		state.world.pop_set_satisfaction(result, state.world.pop_get_satisfaction(source));
+		state.world.pop_set_satisfaction(result, 0.0f); // Filled by the physical consumption projection.
 		state.world.pop_set_is_primary_or_accepted_culture(result,
 			state.world.pop_get_is_primary_or_accepted_culture(source));
 	}
