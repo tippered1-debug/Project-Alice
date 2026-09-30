@@ -10,6 +10,7 @@
 #include "economy/economy_stats.hpp"
 #include "economy/human_development.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/relations/relations.hpp"
 #include "economy/price.hpp"
 #include "economy/world_trade_capacity.hpp"
 #include "gamerule/gamerule.hpp"
@@ -1378,10 +1379,13 @@ struct synthetic_lab_result {
 	(void)persons::adjust_population_size(state, owner_pop, 200'000.0);
 	auto const population_projection = persons::exact_population::project_population_membership(state);
 	assert(population_projection);
-	if(!economy::exact_person_economy::apply_population_cash_effect(state,
-		worker_pop, economy::money, 800'000.0f)
-		|| !economy::exact_person_economy::apply_population_cash_effect(state,
-			owner_pop, economy::money, 2'000'000.0f)
+	auto worker_person = persons::first_living_person_in_population(state, worker_pop);
+	auto owner_person = persons::first_living_person_in_population(state, owner_pop);
+	auto worker_account = economy::exact_person_economy::open_account(state, worker_person, economy::money);
+	auto owner_account = economy::exact_person_economy::open_account(state, owner_person, economy::money);
+	if(!worker_account || !owner_account
+		|| !economy::exact_person_economy::set_balance(state, worker_account, 800'000.0f)
+		|| !economy::exact_person_economy::set_balance(state, owner_account, 2'000'000.0f)
 		|| !economy::exact_person_economy::project_population_cash_balances(state)) std::abort();
 
 	state.world.pop_type_resize_life_needs(state.world.commodity_size());
@@ -1608,9 +1612,21 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		pop_demographics::set_employment(target, worker_pop, 800'000.0f * employment_ratio);
 		target.world.pop_set_satisfaction(worker_pop, employment_ratio);
 		target.world.pop_set_satisfaction(owner_pop, std::clamp(0.75f + phase * 0.10f, 0.0f, 1.0f));
-		if(!economy::exact_person_economy::apply_population_cash_effect(target,
-			worker_pop, economy::money, (employment_ratio - 0.80f) * 1'000.0f)
-			|| !economy::exact_person_economy::project_population_cash_balances(target)) std::abort();
+		auto worker_person = persons::first_living_person_in_population(target, worker_pop);
+		auto owner_person = persons::first_living_person_in_population(target, owner_pop);
+		auto worker_account = economy::exact_person_economy::find_account(target, worker_person, economy::money);
+		auto owner_account = economy::exact_person_economy::find_account(target, owner_person, economy::money);
+		auto transfer_amount = (employment_ratio - 0.80f) * 1'000.0f;
+		bool transferred = std::abs(transfer_amount) <= 1.0e-6f;
+		if(transfer_amount > 1.0e-6f)
+			transferred = economy::exact_person_economy::transfer(target, owner_account,
+				worker_account, transfer_amount, economy::relations::transaction_kind::other,
+				target.current_date);
+		else if(transfer_amount < -1.0e-6f)
+			transferred = economy::exact_person_economy::transfer(target, worker_account,
+				owner_account, -transfer_amount, economy::relations::transaction_kind::other,
+				target.current_date);
+		if(!transferred || !economy::exact_person_economy::project_population_cash_balances(target)) std::abort();
 		if(day % 30 == 0)
 			politics::transformation::refresh_all_nations(target);
 	};

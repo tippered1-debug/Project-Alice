@@ -42,7 +42,7 @@
 #include "economy/physical/freight_market.hpp"
 #include "economy/physical/job_market.hpp"
 #include "economy/physical/labor_dynamics.hpp"
-#include "economy/physical/individual_consumption.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/household_mobility.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/exact_person_economy.hpp"
@@ -1670,7 +1670,11 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	{
 		governance::public_administration::settle_public_payroll(state);
 		::economy::physical::household_mobility::update_employed_households(state);
-		::economy::physical::individual_consumption::process(state);
+		::economy::physical::exact_person_goods::process_daily(state);
+#ifndef NDEBUG
+		assert(::economy::physical::exact_person_goods::validate_canonical_household_economy(state)
+			&& "canonical household invariants failed after daily consumer settlement");
+#endif
 	}
 
 	set_profile_point(state, "factories production");

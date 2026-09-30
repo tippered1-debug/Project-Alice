@@ -62,7 +62,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 13;
+constexpr uint16_t exact_runtime_save_version = 14;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -308,6 +308,7 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	size += person_key_vector_size(economy.displaced_workers.size());
 	size += pod_vector_size(goods.stocks) + pod_vector_size(goods.needs)
 		+ pod_vector_size(goods.bids) + pod_vector_size(goods.fills);
+	size += person_key_vector_size(goods.imported_need_profiles.size());
 	size += pod_vector_size(freight.requests) + pod_vector_size(freight.contracts)
 		+ pod_vector_size(freight.shipment_owners);
 	size += sizeof(uint64_t) + pod_vector_size(labor.events);
@@ -405,6 +406,7 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = write_pod_vector(ptr, goods.needs);
 	ptr = write_pod_vector(ptr, goods.bids);
 	ptr = write_pod_vector(ptr, goods.fills);
+	ptr = write_person_key_vector(ptr, goods.imported_need_profiles);
 
 	ptr = memcpy_serialize(ptr, freight.version);
 	ptr = write_pod_vector(ptr, freight.requests);
@@ -536,6 +538,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	if(valid) valid = read_pod_vector(ptr, payload_end, goods.needs);
 	if(valid) valid = read_pod_vector(ptr, payload_end, goods.bids);
 	if(valid) valid = read_pod_vector(ptr, payload_end, goods.fills);
+	if(valid && version >= 14) valid = read_person_key_vector(ptr, payload_end, goods.imported_need_profiles);
 
 	if(valid) ptr = memcpy_deserialize(ptr, freight.version);
 	if(valid) valid = read_pod_vector(ptr, payload_end, freight.requests);
@@ -622,6 +625,8 @@ bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const
 	if(restored) restored = military::land_forces::import_snapshot(state, snapshot.land_forces);
 	if(restored && snapshot.extension_version >= 12)
 		restored = technology::kernel::import_snapshot(state, snapshot.technology);
+	if(restored)
+		restored = economy::physical::exact_person_goods::validate_canonical_household_economy(state);
 	if(restored) {
 		std::vector<std::string> technology_errors;
 		restored = technology::kernel::validate_canonical_technology_state(state, technology_errors);
@@ -1823,6 +1828,7 @@ bool canonical_runtime_loaded(sys::state const& state) {
 	std::vector<std::string> banking_errors;
 	std::vector<std::string> technology_errors;
 	return economy::banking::validate_canonical_banking_state(state, banking_errors)
+		&& economy::physical::exact_person_goods::validate_canonical_household_economy(state)
 		&& bool(state.exact_population) && bool(state.exact_person_economy)
 		&& bool(state.exact_person_goods) && bool(state.exact_person_freight)
 		&& bool(state.labor_dynamics) && bool(state.causal_order)

@@ -134,6 +134,9 @@ bool apply_population_cash_effect(sys::state&, dcon::pop_id, dcon::commodity_id 
 bool project_population_cash_balances(sys::state&);
 uint64_t account_count(sys::state const&);
 std::vector<account_ref> accounts_for_person(sys::state const&, person_key);
+// Sparse canonical consumer population: owners with an exact account are
+// economically relevant without requiring a scan of all logical people.
+std::vector<person_key> account_owners(sys::state const&);
 
 // Transfers touching an exact account are recorded in the exact ledger. This
 // narrow primitive also supports DCON-to-DCON by delegating to normal accounts.

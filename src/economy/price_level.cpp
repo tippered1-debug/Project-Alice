@@ -4,11 +4,14 @@
 #include "demographics.hpp"
 #include "economy_constants.hpp"
 #include "economy_stats.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 #include "gamerule.hpp"
+#include "persons/persons.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace economy::price_level {
 namespace {
@@ -37,6 +40,26 @@ basket_totals measure_basket(sys::state const& state, dcon::market_id market) {
 		return totals;
 	totals.population = finite_nonnegative(
 		state.world.state_instance_get_demographics(zone, demographics::total));
+	auto needs = economy::physical::exact_person_goods::export_snapshot(state).needs;
+	std::sort(needs.begin(), needs.end(), [](auto const& left, auto const& right) {
+		if(left.owner.source_population_cell != right.owner.source_population_cell)
+			return left.owner.source_population_cell < right.owner.source_population_cell;
+		if(left.owner.ordinal != right.owner.ordinal)
+			return left.owner.ordinal < right.owner.ordinal;
+		return left.commodity.index() < right.commodity.index();
+	});
+	std::vector<double> quantity_by_commodity(state.world.commodity_size(), 0.0);
+	for(auto const& need : needs) {
+		if(!need.commodity || !state.world.commodity_is_valid(need.commodity)
+			|| !persons::alive(state, need.owner)) continue;
+		auto const home = persons::home_site(state, need.owner);
+		if(!home || !state.world.site_is_valid(home)) continue;
+		auto const province = state.world.site_get_province_from_site_location(home);
+		if(!province || !state.world.province_is_valid(province)) continue;
+		if(state.world.province_get_state_membership(province) != zone) continue;
+		quantity_by_commodity[need.commodity.index()] +=
+			double(finite_nonnegative(need.desired_quantity_per_period));
+	}
 
 	for(uint32_t raw_commodity = 1; raw_commodity < state.world.commodity_size(); ++raw_commodity) {
 		dcon::commodity_id const commodity{
@@ -44,24 +67,7 @@ basket_totals measure_basket(sys::state const& state, dcon::market_id market) {
 		if(state.world.commodity_get_money_rgo(commodity))
 			continue;
 
-		auto const life_weight = finite_nonnegative(
-			state.world.market_get_life_needs_weights(market, commodity));
-		auto const everyday_weight = finite_nonnegative(
-			state.world.market_get_everyday_needs_weights(market, commodity));
-		double quantity = 0.0;
-		state.world.for_each_pop_type([&](dcon::pop_type_id pop_type) {
-			auto const population = finite_nonnegative(
-				state.world.state_instance_get_demographics(
-					zone, demographics::to_key(state, pop_type)));
-			if(population <= 0.0f)
-				return;
-			auto const life = finite_nonnegative(
-				state.world.pop_type_get_life_needs(pop_type, commodity));
-			auto const everyday = finite_nonnegative(
-				state.world.pop_type_get_everyday_needs(pop_type, commodity));
-			quantity += double(population)
-				* double(life * life_weight + everyday * everyday_weight);
-		});
+		double const quantity = quantity_by_commodity[raw_commodity];
 		if(quantity <= 0.0)
 			continue;
 

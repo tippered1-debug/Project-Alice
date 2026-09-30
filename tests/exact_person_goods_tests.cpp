@@ -7,6 +7,11 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/job_market.hpp"
 #include "economy/payroll.hpp"
+#include "gamestate/serialization.hpp"
+#include "nations/strategic_statecraft.hpp"
+#include "technology/technology_kernel.hpp"
+
+#include <vector>
 
 namespace exact_person_goods_tests {
 
@@ -14,6 +19,13 @@ using person_key = persons::exact_population::person_key;
 
 person_key worker(individual_concrete_labor_tests::fixture& f) {
 	return exact_person_economy_tests::register_anchor(f);
+}
+
+void initialize_runtime_for_save_test(sys::state& state) {
+	person_kernel_tests::initialize_runtime(state);
+	if(!state.technology_kernel) technology::kernel::initialize_empty_store(state);
+	if(!state.strategic_statecraft_initialized)
+		nations::strategic_statecraft::initialize(state);
 }
 
 }
@@ -33,6 +45,46 @@ TEST_CASE("exact consumption is capped by remaining period need", "[economy][exa
 	economy::physical::exact_person_goods::begin_period(*f.state, f.state->current_date);
 	REQUIRE(economy::physical::exact_person_goods::consumed_this_period(*f.state, key, f.output) == Approx(0.0f));
 	REQUIRE(economy::physical::exact_person_goods::unmet_need(*f.state, key, f.output) == Approx(0.0f));
+}
+
+TEST_CASE("a dead canonical person cannot create a new consumer bid",
+	"[economy][exact][goods][lifecycle]") {
+	individual_concrete_labor_tests::fixture f;
+	auto person = exact_person_goods_tests::worker(f);
+	auto account = economy::exact_person_economy::open_account(*f.state, person, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, account, 20.0f));
+	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, person, f.output, 1.0f));
+	auto seller = f.state->world.create_economic_actor();
+	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.output, 1.0f, seller)
+		== Approx(1.0f));
+	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, f.site,
+		f.market, f.output, 1.0f, 10.0f, {}));
+	REQUIRE(persons::kill_person(*f.state, person, f.state->current_date,
+		persons::death_cause::natural));
+	economy::physical::exact_person_goods::process_daily(*f.state);
+	REQUIRE(economy::physical::exact_person_goods::active_bids(*f.state, f.market,
+		f.output).empty());
+	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 0);
+	REQUIRE(economy::exact_person_economy::balance(*f.state, account) == Approx(20.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.output, seller)
+		== Approx(1.0f));
+	REQUIRE(economy::physical::exact_person_goods::validate_canonical_household_economy(*f.state));
+}
+
+TEST_CASE("a person cannot buy from aggregate availability without a concrete seller ask",
+	"[economy][exact][goods][physical]") {
+	individual_concrete_labor_tests::fixture f;
+	auto person = exact_person_goods_tests::worker(f);
+	f.state->world.commodity_set_cost(f.output, 10.0f);
+	auto account = economy::exact_person_economy::open_account(*f.state, person, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, account, 20.0f));
+	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, person, f.output, 1.0f));
+	economy::physical::exact_person_goods::process_daily(*f.state);
+	REQUIRE(economy::physical::exact_person_goods::bid_count(*f.state) == 0);
+	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 0);
+	REQUIRE(economy::exact_person_economy::balance(*f.state, account) == Approx(20.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, person,
+		f.site, f.output) == Approx(0.0f));
 }
 
 TEST_CASE("exact remote asks create source stock and pending freight", "[economy][exact][goods][freight]") {
@@ -86,18 +138,38 @@ TEST_CASE("exact worker wage purchases and consumes real seller goods", "[econom
 	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.output, 1.0f, seller) == Approx(1.0f));
 	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, f.site, f.market, f.output, 1.0f, 10.0f, {}));
 	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, key, f.output, 1.0f));
-	REQUIRE(economy::physical::exact_person_goods::process_purchase_decision(*f.state, key, f.output));
+	persons::exact_population::cell_descriptor unemployed_cell;
+	unemployed_cell.source_population_cell = 9001;
+	unemployed_cell.literal_count = 1;
+	unemployed_cell.bootstrap_base_day = f.state->current_date.to_raw_value() - 1;
+	unemployed_cell.home_site = f.site;
+	REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state,
+		unemployed_cell).result == persons::exact_population::status::created);
+	auto unemployed = exact_person_goods_tests::person_key{9001, 0};
+	auto unemployed_account = economy::exact_person_economy::open_account(*f.state,
+		unemployed, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, unemployed_account, 0.0f));
+	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, unemployed, f.output, 1.0f));
+	// POP cash and satisfaction are read-model data and cannot fund the
+	// unemployed person's bid or alter the employed worker's canonical purchase.
+	auto worker_pop = persons::current_population(*f.state, key);
+	f.state->world.pop_set_savings(worker_pop, 999999.0f);
+	f.state->world.pop_set_satisfaction(worker_pop, 0.0f);
+	economy::physical::exact_person_goods::process_daily(*f.state);
 	REQUIRE(economy::exact_person_economy::balance(*f.state, worker_account) == Approx(0.0f));
+	REQUIRE(economy::exact_person_economy::balance(*f.state, unemployed_account) == Approx(0.0f));
 	REQUIRE(economy::accounts::balance(*f.state, seller_account) == Approx(10.0f));
 	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.output, seller) == Approx(0.0f));
-	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, key, f.site, f.output) == Approx(1.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, key, f.site, f.output) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::active_bids(*f.state, f.market, f.output).empty());
 	REQUIRE(economy::physical::exact_person_goods::fill_count(*f.state) == 1);
 	REQUIRE(economy::physical::concrete_market::observed_price(*f.state, f.market, f.output,
 		f.state->current_date, 0.0f) == Approx(10.0f));
-	REQUIRE(economy::physical::exact_person_goods::process_consumption(*f.state, key, f.output) == Approx(1.0f));
 	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, key, f.site, f.output) == Approx(0.0f));
 	REQUIRE(economy::physical::exact_person_goods::consumed_this_period(*f.state, key, f.output) == Approx(1.0f));
 	REQUIRE(economy::physical::exact_person_goods::unmet_need(*f.state, key, f.output) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::validate_canonical_household_economy(*f.state));
+	REQUIRE(economy::physical::exact_person_goods::canonical_household_checksum(*f.state) != 0);
 	REQUIRE(f.state->world.person_size() == before_persons);
 	REQUIRE(f.state->world.economic_actor_size() == before_actors + 1); // seller only
 	REQUIRE(f.state->world.monetary_account_size() == before_accounts + 1); // seller only
@@ -124,6 +196,122 @@ TEST_CASE("exact goods stay sparse for a million logical persons", "[economy][ex
 	REQUIRE(f.state->world.person_size() == 0);
 	REQUIRE(f.state->world.economic_actor_size() == 1); // fixture employer only
 	REQUIRE(economy::exact_person_economy::account_count(*f.state) == 1);
+}
+
+TEST_CASE("daily exact consumer matching is stable under record insertion permutations",
+	"[economy][exact][goods][determinism]") {
+	auto run = [](bool reverse_insertion) {
+		individual_concrete_labor_tests::fixture f;
+		persons::exact_population::cell_descriptor first;
+		first.source_population_cell = 9100;
+		first.literal_count = 1;
+		first.bootstrap_base_day = f.state->current_date.to_raw_value() - 1;
+		first.home_site = f.site;
+		persons::exact_population::cell_descriptor second = first;
+		second.source_population_cell = 9101;
+		if(reverse_insertion) {
+			REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, second).result
+				== persons::exact_population::status::created);
+			REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, first).result
+				== persons::exact_population::status::created);
+		} else {
+			REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, first).result
+				== persons::exact_population::status::created);
+			REQUIRE(persons::exact_population::register_synthetic_population_cell(*f.state, second).result
+				== persons::exact_population::status::created);
+		}
+		person_key const a{9100, 0};
+		person_key const b{9101, 0};
+		f.state->world.commodity_set_cost(f.output, 10.0f);
+		auto account_a = economy::exact_person_economy::open_account(*f.state,
+			reverse_insertion ? b : a, f.settlement);
+		auto account_b = economy::exact_person_economy::open_account(*f.state,
+			reverse_insertion ? a : b, f.settlement);
+		REQUIRE(economy::exact_person_economy::set_balance(*f.state, account_a, 10.0f));
+		REQUIRE(economy::exact_person_economy::set_balance(*f.state, account_b, 10.0f));
+		if(reverse_insertion) {
+			REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, b, f.output, 1.0f));
+			REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, a, f.output, 1.0f));
+		} else {
+			REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, a, f.output, 1.0f));
+			REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, b, f.output, 1.0f));
+		}
+		auto seller = f.state->world.create_economic_actor();
+		auto seller_account = economy::accounts::open_account(*f.state, seller, f.settlement);
+		REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, seller_account, 0.0f));
+		REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.output, 2.0f, seller)
+			== Approx(2.0f));
+		REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, f.site,
+			f.market, f.output, 2.0f, 10.0f, {}));
+		economy::physical::exact_person_goods::process_daily(*f.state);
+		REQUIRE(economy::physical::exact_person_goods::validate_canonical_household_economy(*f.state));
+		REQUIRE(economy::accounts::balance(*f.state, seller_account) == Approx(20.0f));
+		REQUIRE(economy::physical::exact_person_goods::consumed_this_period(*f.state, a, f.output)
+			== Approx(1.0f));
+		REQUIRE(economy::physical::exact_person_goods::consumed_this_period(*f.state, b, f.output)
+			== Approx(1.0f));
+		return economy::physical::exact_person_goods::canonical_household_checksum(*f.state);
+	};
+	REQUIRE(run(false) == run(true));
+}
+
+TEST_CASE("daily exact household state replays identically across normal save and load",
+	"[economy][exact][goods][serialization][determinism]") {
+	auto initialize = [](individual_concrete_labor_tests::fixture& f) {
+		auto person = exact_person_goods_tests::worker(f);
+		auto offer = f.offer(1, 20.0f);
+		REQUIRE(economy::exact_person_economy::submit_application(*f.state, person,
+			offer, f.state->current_date));
+		economy::physical::job_market::process_pending_applications(*f.state);
+		REQUIRE(economy::exact_person_economy::person_has_active_contract(*f.state, person));
+		f.state->world.commodity_set_cost(f.output, 10.0f);
+		REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, person,
+			f.output, 1.0f));
+		return person;
+	};
+	auto advance_one_day = [](individual_concrete_labor_tests::fixture& f,
+		persons::person_key person) {
+		f.state->current_date += 1;
+		(void)economy::payroll::settle_factory(*f.state, f.factory, 1.0f, 1.0f);
+		REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.output,
+			1.0f, f.employer) == Approx(1.0f));
+		REQUIRE(economy::physical::concrete_market::post_ask(*f.state, f.employer,
+			f.site, f.market, f.output, 1.0f, 10.0f, {}));
+		economy::physical::exact_person_goods::process_daily(*f.state);
+		REQUIRE(economy::physical::exact_person_goods::validate_canonical_household_economy(*f.state));
+		REQUIRE(economy::physical::exact_person_goods::consumed_this_period(*f.state,
+			person, f.output) == Approx(1.0f));
+	};
+
+	individual_concrete_labor_tests::fixture uninterrupted;
+	individual_concrete_labor_tests::fixture split;
+	auto uninterrupted_person = initialize(uninterrupted);
+	auto split_person = initialize(split);
+	for(int day = 0; day < 90; ++day) {
+		advance_one_day(uninterrupted, uninterrupted_person);
+		advance_one_day(split, split_person);
+		REQUIRE(economy::physical::exact_person_goods::canonical_household_checksum(
+			*uninterrupted.state) == economy::physical::exact_person_goods::canonical_household_checksum(*split.state));
+	}
+
+	exact_person_goods_tests::initialize_runtime_for_save_test(*uninterrupted.state);
+	exact_person_goods_tests::initialize_runtime_for_save_test(*split.state);
+	std::vector<uint8_t> bytes(sys::sizeof_save_section(*split.state));
+	auto const* end = sys::write_save_section(bytes.data(), *split.state);
+	REQUIRE(end == bytes.data() + bytes.size());
+	individual_concrete_labor_tests::fixture loaded;
+	exact_person_goods_tests::initialize_runtime_for_save_test(*loaded.state);
+	auto const* loaded_end = sys::read_save_section(bytes.data(), end, *loaded.state);
+	REQUIRE(loaded_end == end);
+	REQUIRE(economy::physical::exact_person_goods::validate_canonical_household_economy(*loaded.state));
+	REQUIRE(economy::physical::exact_person_goods::canonical_household_checksum(*split.state)
+		== economy::physical::exact_person_goods::canonical_household_checksum(*loaded.state));
+	for(int day = 0; day < 90; ++day) {
+		advance_one_day(uninterrupted, uninterrupted_person);
+		advance_one_day(loaded, split_person);
+		REQUIRE(economy::physical::exact_person_goods::canonical_household_checksum(
+			*uninterrupted.state) == economy::physical::exact_person_goods::canonical_household_checksum(*loaded.state));
+	}
 }
 
 TEST_CASE("exact purchase selects only a seller-compatible settlement account", "[economy][exact][goods][settlement]") {

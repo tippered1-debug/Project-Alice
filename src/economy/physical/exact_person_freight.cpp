@@ -307,7 +307,6 @@ bool import_snapshot(sys::state& state, freight_snapshot const& snapshot) {
 	for(auto record : snapshot.requests) {
 		if(!record.id || !persons::exists(state, record.requester) || !record.source || !record.destination || !state.world.site_is_valid(record.source) || !state.world.site_is_valid(record.destination) || record.source == record.destination || !record.commodity || !state.world.commodity_is_valid(record.commodity) || !positive_finite(record.quantity) || !nonnegative_finite(record.cargo_units) || uint8_t(record.status) > uint8_t(request_status::canceled) || std::any_of(candidate->requests.begin(), candidate->requests.end(),
 				[&](auto const& existing) { return existing.id == record.id; })) return false;
-		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::freight_request);
 		if(record.causal_sequence == 0) return false;
 		causal_order::observe(state, record.causal_sequence);
 		candidate->requests.push_back(record); candidate->next_request_id = std::max(candidate->next_request_id, record.id + 1);

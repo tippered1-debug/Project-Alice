@@ -1,4 +1,6 @@
 #include "economy/price_level.hpp"
+#include "economy/physical/exact_person_goods.hpp"
+#include "persons/persons.hpp"
 
 #include <limits>
 
@@ -32,7 +34,7 @@ TEST_CASE("price-level helpers sanitize invalid and degenerate inputs",
 	REQUIRE(prices::calculate_real_wage(nan, 1.0f) == Approx(0.0f));
 }
 
-TEST_CASE("market CPI follows a local POP basket and deflates local wages",
+TEST_CASE("market CPI follows the canonical person need basket and deflates local wages",
 		"[economy][prices][integration]") {
 	auto state = std::make_unique<sys::state>();
 	auto const money = state->world.create_commodity();
@@ -45,11 +47,7 @@ TEST_CASE("market CPI follows a local POP basket and deflates local wages",
 	state->world.market_set_zone_from_local_market(market, local_state);
 	state->world.province_set_state_membership(province, local_state);
 
-	state->world.pop_type_resize_life_needs(state->world.commodity_size());
-	state->world.pop_type_resize_everyday_needs(state->world.commodity_size());
 	state->world.market_resize_price(state->world.commodity_size());
-	state->world.market_resize_life_needs_weights(state->world.commodity_size());
-	state->world.market_resize_everyday_needs_weights(state->world.commodity_size());
 	state->world.market_resize_aggregated_demand_history(state->world.commodity_size());
 	state->world.market_resize_aggregated_supply_history(state->world.commodity_size());
 	state->world.state_instance_resize_demographics(demographics::size(*state));
@@ -57,16 +55,24 @@ TEST_CASE("market CPI follows a local POP basket and deflates local wages",
 
 	state->world.commodity_set_cost(money, 1.0f);
 	state->world.commodity_set_cost(food, 2.0f);
-	state->world.pop_type_set_life_needs(workers, food, 1.0f);
-	state->world.market_set_life_needs_weights(market, food, 1.0f);
+	(void)workers;
 	state->world.state_instance_set_demographics(local_state, demographics::total, 100.0f);
-	state->world.state_instance_set_demographics(
-		local_state, demographics::to_key(*state, workers), 100.0f);
 	state->world.market_set_aggregated_demand_history(market, food, 120.0f);
 	state->world.market_set_aggregated_supply_history(market, food, 80.0f);
 	state->world.market_set_price(market, food, 2.0f);
 	state->world.province_set_labor_price(
 		province, economy::labor::no_education, 3.0f);
+	auto home = state->world.create_site();
+	state->world.force_create_site_location(home, province);
+	auto pop = state->world.create_pop();
+	state->world.force_create_pop_location(pop, province);
+	state->world.pop_set_size(pop, 0.25f);
+	state->world.pop_set_poptype(pop, workers);
+	REQUIRE(persons::register_population_cell(*state, pop, home));
+	if(!state->exact_person_goods)
+		economy::physical::exact_person_goods::initialize_empty_store(*state);
+	auto const person = persons::person_key{uint32_t(pop.index()) + 1u, 0};
+	REQUIRE(economy::physical::exact_person_goods::set_need(*state, person, food, 1.0f));
 
 	prices::begin_day(*state);
 	state->world.market_set_price(market, food, 3.0f);

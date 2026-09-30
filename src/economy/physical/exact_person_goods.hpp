@@ -74,6 +74,7 @@ struct goods_snapshot {
 	std::vector<need_record> needs;
 	std::vector<bid_record> bids;
 	std::vector<fill_record> fills;
+	std::vector<person_key> imported_need_profiles;
 };
 
 struct price_observation {
@@ -100,9 +101,14 @@ bool set_need(sys::state&, person_key, dcon::commodity_id, float desired_quantit
 float unmet_need(sys::state const&, person_key, dcon::commodity_id);
 float consumed_this_period(sys::state const&, person_key, dcon::commodity_id);
 void begin_period(sys::state&, sys::date period);
+float consume_stock(sys::state&, person_key, dcon::commodity_id, float quantity);
 float process_consumption(sys::state&, person_key, dcon::commodity_id);
 
 std::optional<need_record> need(sys::state const&, person_key, dcon::commodity_id);
+std::vector<dcon::commodity_id> needs_for_person(sys::state const&, person_key);
+bool need_profile_imported(sys::state const&, person_key);
+bool mark_need_profile_imported(sys::state&, person_key);
+void refresh_unmet_needs(sys::state&, person_key);
 std::optional<bid_record> bid(sys::state const&, uint64_t id);
 std::optional<fill_record> fill(sys::state const&, uint64_t id);
 uint64_t bid_count(sys::state const&);
@@ -119,6 +125,12 @@ void cancel_dead_person_orders(sys::state&);
 
 bool process_purchase_decision(sys::state&, person_key, dcon::commodity_id);
 void process_purchase_decisions(sys::state&, person_key);
+// Canonical sparse consumer phase. It advances needs, posts exact-person bids,
+// clears them through the concrete market, then consumes only delivered stock.
+void process_daily(sys::state&);
+
+bool validate_canonical_household_economy(sys::state const&);
+uint64_t canonical_household_checksum(sys::state const&);
 
 float observed_price(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);
 float concrete_reference_price(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);

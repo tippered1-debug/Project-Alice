@@ -383,7 +383,7 @@ TEST_CASE("exact labor wage can fund remote purchase, freight, arrival, and cons
 	REQUIRE(economy::physical::concrete_market::post_ask(*f.state, seller, remote, f.market, f.output,
 		1.0f, 10.0f, {}));
 	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, worker, f.output, 1.0f));
-	REQUIRE(economy::physical::exact_person_goods::process_purchase_decision(*f.state, worker, f.output));
+	economy::physical::exact_person_goods::process_daily(*f.state);
 	REQUIRE(economy::accounts::balance(*f.state, seller_account) == Approx(10.0f));
 	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, worker, remote, f.output)
 		== Approx(1.0f));
@@ -400,5 +400,6 @@ TEST_CASE("exact labor wage can fund remote purchase, freight, arrival, and cons
 	REQUIRE(economy::physical::exact_person_goods::process_consumption(*f.state, worker, f.output)
 		== Approx(1.0f * (1.0f - 0.0005f)));
 	REQUIRE(economy::physical::exact_person_goods::unmet_need(*f.state, worker, f.output) > 0.0f);
+	REQUIRE(economy::physical::exact_person_goods::validate_canonical_household_economy(*f.state));
 	REQUIRE_FALSE(persons::materialized_profile(*f.state, worker));
 }

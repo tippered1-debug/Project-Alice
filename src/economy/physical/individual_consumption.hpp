@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dcon_generated.hpp"
+#include "economy/exact_person_economy.hpp"
 
 namespace sys { class state; }
 
@@ -9,14 +10,14 @@ namespace economy::physical::individual_consumption {
 bool set_home_site(sys::state&, dcon::person_id, dcon::site_id);
 dcon::site_id home_site(sys::state const&, dcon::person_id);
 
-dcon::person_commodity_need_id set_need(sys::state&, dcon::person_id,
+bool set_need(sys::state&, dcon::person_id,
 	dcon::commodity_id, float desired_quantity_per_period);
-dcon::person_commodity_need_id add_need(sys::state&, dcon::person_id,
+bool add_need(sys::state&, dcon::person_id,
 	dcon::commodity_id, float quantity);
 float unmet_need(sys::state const&, dcon::person_id, dcon::commodity_id);
 void begin_period(sys::state&, sys::date);
 
-dcon::monetary_account_id spending_account(sys::state const&, dcon::person_id,
+economy::exact_person_economy::account_ref spending_account(sys::state const&, dcon::person_id,
 	dcon::commodity_id settlement);
 float spendable_cash(sys::state const&, dcon::person_id,
 	dcon::commodity_id settlement);

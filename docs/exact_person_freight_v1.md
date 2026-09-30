@@ -17,7 +17,9 @@ Physical ownership is explicit and conserved:
 `-> Exact stock at B`
 
 The exact consumer never receives a DCON Person, EconomicActor,
-MonetaryAccount, or PhysicalStock. The in-transit DCON Shipment has no fake
+MonetaryAccount, or PhysicalStock. Its consumer state is keyed by
+`persons::person_key`; `individual_consumption` only adapts existing DCON
+person callers to that state. The in-transit DCON Shipment has no fake
 exact-person owner relation; its sparse external mapping identifies the exact
 owner and contract.
 
@@ -43,11 +45,12 @@ Incoming exact quantity toward a destination is counted by purchase decisions
 so an in-transit purchase cannot be duplicated. Incoming quantity is not
 consumed or treated as home stock until arrival.
 
-The isolated snapshot boundary persists exact requests, contracts, and
-shipment ownership mappings with IDs and validates references. Normal save
-integration remains unwired. Restore ordering is:
+The snapshot boundary persists exact requests, contracts, and shipment
+ownership mappings with IDs and validates references. The normal `AOEX` save
+extension persists this state. Restore ordering is:
 
 `Exact Population -> Exact Person Economy -> Exact Person Goods -> DCON world shipments -> Exact Person Freight`.
 
-The remaining future work is outside this milestone: exact-person selling,
-households, credit, taxes, population-wide shopping, and migration.
+Exact people are the individual consumer agents in the current household
+kernel. Household pooling, credit, taxes, and family structure remain future
+layers.

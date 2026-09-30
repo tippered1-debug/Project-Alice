@@ -21,7 +21,33 @@ DCON writes are allowed only when they import authored scenario data, execute a 
 
 ## Load contract
 
-The current save header is version 57 and its exact-runtime extension is `AOEX` v13. Strategic Statecraft state is mandatory. A save load succeeds only when the population, labor, household, goods, freight, causality, and Statecraft records validate against the loaded world. Older aggregate save versions are unsupported; there is no reconstruction of individual histories from their POP totals.
+The current save header is version 55 and its exact-runtime extension is `AOEX` v14. Strategic Statecraft state is mandatory. A save load succeeds only when the population, labor, household, goods, freight, causality, and Statecraft records validate against the loaded world. Older aggregate save versions are unsupported; there is no reconstruction of individual histories from their POP totals.
+
+## Canonical household and consumer hard cut
+
+`persons::person_key` is the consumer identity. The sparse exact-person goods
+store owns need profiles, physical stock by site, active bids, fills, period
+consumption, and unmet quantities. Person accounts and all purchases use the
+exact-person account and transfer ledger. A daily sparse phase advances needs,
+accounts for home stock and incoming freight, places real bids in the concrete
+market, then consumes only physically delivered stock. Remote fills create
+freight requests; they do not credit home stock before arrival.
+
+`individual_consumption` is a compatibility facade for existing DCON person
+callers. The DCON person-need relation is not an authoritative store and is
+rejected by household validation. Static scenario POP-type needs may be copied
+once into exact-person profiles; after import, POP savings, needs satisfaction,
+market needs weights, and synthetic POP wages do not fund bids or determine
+consumption. POP cash is projected from live exact-person accounts for existing
+screens. POP-targeted cash mutations fail because an aggregate POP has no
+canonical recipient.
+
+`validate_canonical_household_economy` runs after scenario initialization and
+runtime restore. It checks canonical owners, balances, need/stock invariants,
+bid reservations, fill transfers and inventory deltas, freight ownership, and
+absence of legacy per-person needs. The household checksum includes sorted
+accounts, labor references, transactions, needs, stock, bids, fills, and
+freight state.
 
 New scenarios import authored POP rows, factory definitions, resource signals, and static geography before daily simulation begins. Each factory and resource deposit must also carry a canonical operator, asset, and complete ownership stakes. Initialization no longer invents replacement firms or ownership when those records are absent; such a scenario is rejected at startup. Canonical identities, sites, deposits, accounts, institutions, and Statecraft profiles are initialized before the game clock advances.
 

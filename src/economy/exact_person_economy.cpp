@@ -371,6 +371,19 @@ std::vector<account_ref> accounts_for_person(sys::state const& state, person_key
 	return result;
 }
 
+std::vector<person_key> account_owners(sys::state const& state) {
+	std::vector<person_key> result;
+	for(auto const& account : ensure_store(state)->accounts)
+		if(persons::exists(state, account.owner)) result.push_back(account.owner);
+	std::sort(result.begin(), result.end(), [](person_key left, person_key right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.ordinal < right.ordinal
+			: left.source_population_cell < right.source_population_cell;
+	});
+	result.erase(std::unique(result.begin(), result.end()), result.end());
+	return result;
+}
+
 transfer_result transfer_with_result(sys::state& state, account_ref source, account_ref destination, float amount,
 	relations::transaction_kind kind, sys::date timestamp) {
 	transfer_result result;
@@ -840,7 +853,6 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 			|| uint8_t(record.status) > uint8_t(application_status::withdrawn)) return false;
 		for(auto const& existing : candidate->applications)
 			if(existing.id == record.id) return false;
-		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::job_application);
 		if(record.causal_sequence == 0) return false;
 		causal_order::observe(state, record.causal_sequence);
 		candidate->applications.push_back(record);
@@ -873,7 +885,6 @@ bool import_snapshot(sys::state& state, economy_snapshot const& snapshot) {
 		for(auto const& existing : candidate->contracts)
 			if(existing.id == record.id || (existing.worker == record.worker && existing.status == contract_status::active
 				&& record.status == contract_status::active)) return false;
-		if(record.causal_sequence == 0) record.causal_sequence = causal_order::allocate(state, causal_order::event_kind::labor_contract);
 		if(record.causal_sequence == 0) return false;
 		if(record.unpaid_wages > epsilon && !record.arrears_since) record.arrears_since = record.start_date;
 		causal_order::observe(state, record.causal_sequence);

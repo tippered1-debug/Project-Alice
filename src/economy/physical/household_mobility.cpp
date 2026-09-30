@@ -4,10 +4,8 @@
 #include "economy/advanced_province_buildings.hpp"
 #include "economy/demographics.hpp"
 #include "economy/exact_person_economy.hpp"
-#include "economy/physical/concrete_market.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/inventory.hpp"
-#include "economy/physical/individual_consumption.hpp"
 #include "governance/governance.hpp"
 #include "persons/persons.hpp"
 #include "provinces/province.hpp"
@@ -19,8 +17,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include <optional>
-#include <unordered_set>
 #include <vector>
 
 namespace economy::physical::household_mobility {
@@ -29,13 +27,6 @@ constexpr float epsilon = 1.0e-5f;
 constexpr float long_commute_km = 90.0f;
 constexpr float maximum_commute_penalty = 0.45f;
 constexpr float commute_penalty_per_km = 0.003f;
-constexpr float household_consumption_share = 0.80f;
-
-struct need_item {
-	dcon::commodity_id commodity{};
-	float quantity = 0.0f;
-	float price = 0.0f;
-};
 
 dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 	if(!site || !state.world.site_is_valid(site)) return {};
@@ -137,67 +128,22 @@ void move_exact_household_stock(sys::state& state, persons::person_key person,
 	});
 }
 
-std::vector<need_item> consumption_profile(sys::state const& state,
-	dcon::pop_type_id type, dcon::market_id market, float daily_income) {
-	std::vector<need_item> life, everyday, luxury;
-	float life_cost = 0.0f, everyday_cost = 0.0f, luxury_cost = 0.0f;
-	if(!type || !state.world.pop_type_is_valid(type) || !market || !std::isfinite(daily_income) || daily_income <= epsilon) return {};
-	state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-		auto life_qty = std::max(0.0f, state.world.pop_type_get_life_needs(type, commodity));
-		auto everyday_qty = std::max(0.0f, state.world.pop_type_get_everyday_needs(type, commodity));
-		auto luxury_qty = std::max(0.0f, state.world.pop_type_get_luxury_needs(type, commodity));
-		if(life_qty <= epsilon && everyday_qty <= epsilon && luxury_qty <= epsilon) return;
-		auto fallback = std::max(0.01f, state.world.commodity_get_cost(commodity));
-		auto price = concrete_market::canonical_reference_price(state, market, commodity,
-			state.current_date, fallback);
-		if(!std::isfinite(price) || price <= epsilon) return;
-		if(life_qty > epsilon) { life.push_back({commodity, life_qty, price}); life_cost += life_qty * price; }
-		if(everyday_qty > epsilon) { everyday.push_back({commodity, everyday_qty, price}); everyday_cost += everyday_qty * price; }
-		if(luxury_qty > epsilon) { luxury.push_back({commodity, luxury_qty, price}); luxury_cost += luxury_qty * price; }
-	});
-	// Low income first protects life needs; everyday and luxury baskets only
-	// enter once the preceding tier is affordable at current market prices.
-	auto remaining_income = daily_income * household_consumption_share;
-	auto life_scale = life_cost > epsilon
-		? std::clamp(remaining_income / life_cost, 0.0f, 1.0f) : 0.0f;
-	remaining_income = std::max(0.0f, remaining_income - life_cost * life_scale);
-	auto everyday_scale = everyday_cost > epsilon
-		? std::clamp(remaining_income / everyday_cost, 0.0f, 1.0f) : 0.0f;
-	remaining_income = std::max(0.0f, remaining_income - everyday_cost * everyday_scale);
-	auto luxury_scale = luxury_cost > epsilon
-		? std::clamp(remaining_income / luxury_cost, 0.0f, 1.0f) : 0.0f;
-	std::vector<need_item> result;
-	result.reserve(life.size() + everyday.size() + luxury.size());
-	for(auto item : life) { item.quantity *= life_scale; if(item.quantity > epsilon) result.push_back(item); }
-	for(auto item : everyday) { item.quantity *= everyday_scale; if(item.quantity > epsilon) result.push_back(item); }
-	for(auto item : luxury) { item.quantity *= luxury_scale; if(item.quantity > epsilon) result.push_back(item); }
-	std::sort(result.begin(), result.end(), [](auto const& left, auto const& right) {
-		return left.commodity.index() < right.commodity.index();
-	});
-	std::vector<need_item> consolidated;
-	for(auto const& item : result) {
-		if(!consolidated.empty() && consolidated.back().commodity == item.commodity)
-			consolidated.back().quantity += item.quantity;
-		else consolidated.push_back(item);
+void import_scenario_need_profile_once(sys::state& state, persons::person_key person,
+	std::vector<std::pair<dcon::commodity_id, float>> const& profile) {
+	if(!persons::exists(state, person) || !persons::alive(state, person)
+		|| exact_person_goods::need_profile_imported(state, person)) return;
+	if(!exact_person_goods::needs_for_person(state, person).empty()) {
+		(void)exact_person_goods::mark_need_profile_imported(state, person);
+		return;
 	}
-	return consolidated;
-}
-
-void process_exact_household(sys::state& state, persons::person_key person,
-	dcon::pop_type_id type, dcon::site_id home, float daily_income,
-	std::unordered_set<uint32_t>& matched_markets) {
-	auto market = market_for_site(state, home);
-	if(!market) return;
-	auto market_key = uint32_t(market.index());
-	if(matched_markets.insert(market_key).second)
-		exact_person_goods::begin_period(state, state.current_date);
-	auto profile = consumption_profile(state, type, market, daily_income);
-	for(auto const& item : profile)
-		(void)exact_person_goods::set_need(state, person, item.commodity, item.quantity);
-	for(auto const& item : profile)
-		(void)exact_person_goods::process_purchase_decision(state, person, item.commodity);
-	for(auto const& item : profile)
-		(void)exact_person_goods::process_consumption(state, person, item.commodity);
+	// One-way scenario migration: the old static need definition is summed into
+	// the canonical profile once per person. Profiles are compiled once per POP
+	// type during this update, so importing sparse consumers does not scan every
+	// commodity separately for every person. Income, satisfaction, and market
+	// weights are not inputs to daily decisions.
+	for(auto const& [commodity, desired] : profile)
+		(void)exact_person_goods::set_need(state, person, commodity, desired);
+	(void)exact_person_goods::mark_need_profile_imported(state, person);
 }
 
 } // namespace
@@ -258,33 +204,59 @@ bool relocate_for_job(sys::state& state, persons::person_key person,
 }
 
 void update_employed_households(sys::state& state) {
-	std::unordered_set<uint32_t> matched_exact_markets;
+	std::vector<persons::person_key> consumers = exact_person_economy::account_owners(state);
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
 			auto record = exact_person_economy::contract(state, contract_id);
-			if(!record || !persons::alive(state, record->worker)) continue;
-			auto income = record->pay_period_days != 0
-				? record->wage_rate * record->labor_capacity / float(record->pay_period_days) : 0.0f;
-			process_exact_household(state, record->worker,
-				persons::pop_type(state, record->worker),
-				persons::home_site(state, record->worker), income,
-				matched_exact_markets);
+			if(record && persons::alive(state, record->worker)) consumers.push_back(record->worker);
 		}
 	});
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		for(auto institution : governance::institutions_of(state, nation)) {
 			for(auto contract_id : exact_person_economy::active_contracts_for_institution(state, institution)) {
 				auto record = exact_person_economy::contract(state, contract_id);
-				if(!record || !persons::alive(state, record->worker)) continue;
-				auto income = record->pay_period_days != 0
-					? record->wage_rate * record->labor_capacity / float(record->pay_period_days) : 0.0f;
-				process_exact_household(state, record->worker,
-					persons::pop_type(state, record->worker),
-					persons::home_site(state, record->worker), income,
-					matched_exact_markets);
+				if(record && persons::alive(state, record->worker)) consumers.push_back(record->worker);
 			}
 		}
 	});
+	std::sort(consumers.begin(), consumers.end(), [](auto left, auto right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.ordinal < right.ordinal
+			: left.source_population_cell < right.source_population_cell;
+	});
+	consumers.erase(std::unique(consumers.begin(), consumers.end()), consumers.end());
+	std::map<uint32_t, std::vector<std::pair<dcon::commodity_id, float>>> profiles;
+	for(auto person : consumers) {
+		if(!persons::alive(state, person)) continue;
+		auto contracts = exact_person_economy::active_contracts_for_person(state, person);
+		if(!contracts.empty()) {
+			if(auto contract = exact_person_economy::contract(state, contracts.front()))
+				(void)relocate_for_job(state, person, contract->workplace);
+		}
+		if(exact_person_goods::need_profile_imported(state, person)) continue;
+		if(!exact_person_goods::needs_for_person(state, person).empty()) {
+			(void)exact_person_goods::mark_need_profile_imported(state, person);
+			continue;
+		}
+		auto type = persons::pop_type(state, person);
+		auto profile = profiles.find(type ? uint32_t(type.index()) : 0u);
+		if(profile == profiles.end()) {
+			std::vector<std::pair<dcon::commodity_id, float>> compiled;
+			if(type && state.world.pop_type_is_valid(type)) {
+				state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+					auto life = std::max(0.0f, state.world.pop_type_get_life_needs(type, commodity));
+					auto everyday = std::max(0.0f, state.world.pop_type_get_everyday_needs(type, commodity));
+					auto luxury = std::max(0.0f, state.world.pop_type_get_luxury_needs(type, commodity));
+					auto desired = life + everyday + luxury;
+					if(std::isfinite(desired) && desired > epsilon)
+						compiled.emplace_back(commodity, desired);
+				});
+			}
+			profile = profiles.emplace(type ? uint32_t(type.index()) : 0u,
+				std::move(compiled)).first;
+		}
+		import_scenario_need_profile_once(state, person, profile->second);
+	}
 }
 
 } // namespace economy::physical::household_mobility

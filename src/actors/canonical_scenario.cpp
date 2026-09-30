@@ -4,6 +4,7 @@
 #include "actors/ownership.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/banking/banking.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
@@ -1940,6 +1941,11 @@ bool load(sys::state& state, simple_fs::directory const& common,
 		return false;
 	}
 	if(err.accumulated_errors.size() != initial_errors) {
+		err.fatal = true;
+		return false;
+	}
+	if(!economy::physical::exact_person_goods::validate_canonical_household_economy(state)) {
+		err.accumulated_errors += "canonical household economy invariant failed after scenario load\n";
 		err.fatal = true;
 		return false;
 	}

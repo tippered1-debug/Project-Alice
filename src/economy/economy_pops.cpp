@@ -1,4 +1,5 @@
 #include "economy_pops.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 #include "economy/payroll.hpp"
 #include "economy_production.hpp"
 #include "price.hpp"
@@ -13,10 +14,13 @@
 #include "advanced_province_buildings.hpp"
 #include "gamerule.hpp"
 #include "compat/technology_legacy_adapter.hpp"
+#include "persons/persons.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
+#include <limits>
 #include <vector>
 
 namespace economy {
@@ -1081,70 +1085,27 @@ vectorized_pops_budget<float> prepare_pop_budget(const sys::state& state, dcon::
 }
 
 float estimate_pops_consumption(sys::state const& state, dcon::commodity_id c, dcon::province_id p) {
-	auto zone = state.world.province_get_state_membership(p);
-	auto market = state.world.state_instance_get_market_from_local_market(zone);
-
-	auto satisfaction = state.world.market_get_actual_probability_to_buy(market, c);
-
-	auto nation = state.world.province_get_nation_from_province_ownership(p);
-
-	auto weight_life = state.world.market_get_life_needs_weights(market, c);
-	auto weight_everyday = state.world.market_get_everyday_needs_weights(market, c);
-	auto weight_luxury = state.world.market_get_luxury_needs_weights(market, c);
-
-	float life_mul[3] = {
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::poor_life_needs) + 1.0f,
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::middle_life_needs) + 1.0f,
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::rich_life_needs) + 1.0f
-	};
-	float everyday_mul[3] = {
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::poor_everyday_needs) + 1.0f,
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::middle_everyday_needs) + 1.0f,
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::rich_everyday_needs) + 1.0f
-	};
-	float luxury_mul[3] = {
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::poor_luxury_needs) + 1.0f,
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::middle_luxury_needs) + 1.0f,
-		state.world.nation_get_modifier_values(
-			nation, sys::national_mod_offsets::rich_luxury_needs) + 1.0f,
-	};
-
-	auto invention_count = 0.f;
-	state.world.for_each_invention([&](auto iid) {
-		invention_count += state.world.nation_get_active_inventions(nation, iid) ? 1.0f : 0.0f;
+	if(!p || !state.world.province_is_valid(p) || !c
+		|| !state.world.commodity_is_valid(c)) return 0.0f;
+	auto needs = economy::physical::exact_person_goods::export_snapshot(state).needs;
+	std::sort(needs.begin(), needs.end(), [](auto const& left, auto const& right) {
+		if(left.owner.source_population_cell != right.owner.source_population_cell)
+			return left.owner.source_population_cell < right.owner.source_population_cell;
+		if(left.owner.ordinal != right.owner.ordinal)
+			return left.owner.ordinal < right.owner.ordinal;
+		return left.commodity.index() < right.commodity.index();
 	});
-	auto invention_factor = state.defines.invention_impact_on_demand * invention_count + 1.f;
-
-	float total = 0.f;
-	state.world.province_for_each_pop_location(p, [&](auto location) {
-		dcon::pop_id pop = state.world.pop_location_get_pop(location);
-
-		auto pop_type = state.world.pop_get_poptype(pop);
-		auto strata = state.world.pop_type_get_strata(pop_type);
-
-		pops::vectorized_pops_budget<float> budget = pops::prepare_pop_budget(state, pop);
-
-		auto consumption_life = pops::estimate_pop_demand_internal_life(
-			state, c, pop, budget, life_mul, weight_life, invention_factor
-		);
-		auto consumption_everyday = pops::estimate_pop_demand_internal_everyday(
-			state, c, pop, budget, everyday_mul, weight_everyday, invention_factor
-		);
-		auto consumption_luxury = pops::estimate_pop_demand_internal_luxury(
-			state, c, pop, budget, luxury_mul, weight_luxury, invention_factor
-		);
-
-		total += consumption_life + consumption_everyday + consumption_luxury;
-	});
-
-	return total * satisfaction;
+	double total = 0.0;
+	for(auto const& need : needs) {
+		if(need.commodity != c || need.last_consumed_on != state.current_date
+			|| !persons::alive(state, need.owner)) continue;
+		auto home = persons::home_site(state, need.owner);
+		if(!home || !state.world.site_is_valid(home)
+			|| state.world.site_get_province_from_site_location(home) != p) continue;
+		if(std::isfinite(need.last_consumed_quantity) && need.last_consumed_quantity > 0.0f)
+			total += need.last_consumed_quantity;
+	}
+	return std::isfinite(total) && total <= double(std::numeric_limits<float>::max())
+		? float(total) : 0.0f;
 }
 }
