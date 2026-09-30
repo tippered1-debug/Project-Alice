@@ -56,6 +56,7 @@ struct technology_kernel_store;
 }
 
 namespace economy {
+struct capital_projects_store;
 struct exact_person_economy_store;
 struct causal_order_store;
 namespace physical {
@@ -1286,6 +1287,8 @@ struct alignas(64) state {
 		std::vector<dcon::province_id>& available_provinces,
 		std::array<uint8_t, sys::macro_builder_template::max_types>& current_distribution
 	);
+	std::shared_ptr<economy::capital_projects_store> capital_projects_runtime;
+
 };
 void selected_regiments_remove(sys::state& state, dcon::regiment_id reg);
 void selected_regiments_add(sys::state& state, dcon::regiment_id reg);

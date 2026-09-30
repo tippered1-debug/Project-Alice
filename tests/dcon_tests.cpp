@@ -332,8 +332,11 @@ TEST_CASE("capital_extraction_project_completes_with_initialized_owned_deposit",
 	auto project = ::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::extraction_site,
 		owner, responsible, site, settlement, {}, resource, 100.0f, 0.8f, 20.0f, 15.0f);
 	REQUIRE(project);
-	state->world.capital_project_set_progress(project, 1.0f);
-	REQUIRE(::economy::capital_projects::complete(*state, project));
+	auto requirement = ::economy::capital_projects::add_requirement(*state, project, resource, 5.0f);
+	REQUIRE(requirement);
+	auto yard = state->world.capital_project_get_site_from_capital_project_site(project);
+	REQUIRE(::economy::physical::inventory::add(*state, yard, resource, 5.0f, owner) == Approx(5.0f));
+	REQUIRE(::economy::capital_projects::consume(*state, requirement, 5.0f) == Approx(5.0f));
 	auto deposit = state->world.capital_project_get_resource_deposit_from_capital_project_deposit(project);
 	REQUIRE(deposit);
 	REQUIRE(state->world.resource_deposit_get_commodity(deposit) == resource);
@@ -395,15 +398,11 @@ TEST_CASE("capital_project_completion_failure_leaves_no_target_or_ownership", "[
 	auto factory_type = state->world.create_factory_type();
 	auto project = ::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::factory,
 		owner, responsible, site, settlement, factory_type, {});
-	REQUIRE(project);
-	state->world.capital_project_set_progress(project, 1.0f);
+	REQUIRE_FALSE(project);
 	auto deposits_before = state->world.resource_deposit_size();
 	auto assets_before = state->world.asset_size();
 	auto stakes_before = state->world.ownership_stake_size();
 	REQUIRE_FALSE(::economy::capital_projects::complete(*state, project));
-	REQUIRE(state->world.capital_project_get_status(project) != uint8_t(::economy::capital_projects::status::completed));
-	REQUIRE(state->world.capital_project_get_resource_deposit_from_capital_project_deposit(project) == dcon::resource_deposit_id{});
-	REQUIRE(state->world.capital_project_get_asset_from_capital_project_asset(project) == dcon::asset_id{});
 	REQUIRE(state->world.resource_deposit_size() == deposits_before);
 	REQUIRE(state->world.asset_size() == assets_before);
 	REQUIRE(state->world.ownership_stake_size() == stakes_before);

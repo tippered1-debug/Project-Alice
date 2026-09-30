@@ -15,4 +15,6 @@ Exact workers hold concrete contracts; payroll settles to their person-owned acc
 
 Legacy population, market, factory, and budget fields remain authored inputs where the scenario importer explicitly uses them, or read projections for existing consumers. They do not provide a second causal economy after the relevant canonical domain is active. The household consumer hard cut and its compatibility boundary are described in the [canonical runtime contract](../migrations/canonical-runtime.md); its completed audit is in the [archive](../archive/README.md).
 
+Construction uses sponsor-owned project accounts, isolated yards in shared inventory, concrete purchases and shipments. Completion checks every consumed material requirement. Legacy construction demand and purchased goods are UI projections; see the [construction hard cut](../migrations/canonical-construction.md).
+
 See [Actors](actors.md), [Banking](banking.md), [Ownership](ownership.md), [Logistics](logistics.md), and [Causality](causality.md) for domain details.

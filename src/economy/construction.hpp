@@ -84,8 +84,6 @@ float build_cost_multiplier(sys::state& state, dcon::province_id location, bool 
 float global_factory_construction_time_modifier(sys::state& state);
 float factory_building_construction_time(sys::state& state, dcon::factory_type_id ftid, bool is_upgrade);
 float factory_build_cost_multiplier(sys::state& state, dcon::nation_id n, dcon::province_id location, bool is_pop_project);
-void advance_construction(sys::state& state, dcon::nation_id n, float total_spent_on_construction);
-void emulate_construction_demand(sys::state& state, dcon::nation_id n);
 construction_spending_explanation explain_construction_spending_now(sys::state& state, dcon::nation_id n);
 economy::commodity_set calculate_factory_refit_goods_cost(sys::state& state, dcon::nation_id n, dcon::province_id pid, dcon::factory_type_id from, dcon::factory_type_id to);
 float calculate_factory_refit_money_cost(sys::state& state, dcon::nation_id n, dcon::province_id pid, dcon::factory_type_id from, dcon::factory_type_id to);

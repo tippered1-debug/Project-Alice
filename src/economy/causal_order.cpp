@@ -41,7 +41,8 @@ uint64_t allocate(sys::state& state, event_kind) {
 }
 
 uint64_t sequence_for_dcon(sys::state& state, event_kind kind, uint64_t stable_id) {
-	if(stable_id == 0) return 0;
+	// DCON registries use zero-based indices: the first bid/request is index 0.
+	// Only the allocated sequence uses zero as the missing-value sentinel.
 	auto store = ensure(state);
 	auto key = std::make_pair(uint8_t(kind), stable_id);
 	if(auto it = store->dcon_sequences.find(key); it != store->dcon_sequences.end()) return it->second;
@@ -87,7 +88,7 @@ bool import_snapshot(sys::state& state, snapshot const& value) {
 	uint64_t greatest_sequence = 0;
 	for(auto const& record : value.dcon_sequences) {
 		if(uint8_t(record.kind) > uint8_t(event_kind::labor_contract)
-			|| record.stable_id == 0 || record.sequence == 0
+			|| record.sequence == 0
 			|| !candidate->dcon_sequences.emplace(
 				std::make_pair(uint8_t(record.kind), record.stable_id), record.sequence).second
 			|| !sequences.insert(record.sequence).second) return false;

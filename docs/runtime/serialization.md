@@ -1,11 +1,12 @@
 # Serialization and continuity
 
-The current normal save is version 55. Its framed `AOEX` v14 extension stores runtime state that lives outside the DCON world:
+The current normal save is version 55. Its framed `AOEX` v15 extension stores runtime state that lives outside the DCON world:
 
 - exact-person identity catalog, active memberships, birth/death ranges, and transfers;
 - exact household accounts, transactions, job applications, contracts, and separations;
 - household goods, needs, purchases, freight requests, and shipment ownership;
-- labor history and deterministic causal ordering.
+- labor history and deterministic causal ordering;
+- construction request-to-project bindings and typed project results.
 
 Strategic Statecraft is serialized in its required versioned section. Loading succeeds only after the exact-person and Statecraft data validate against the loaded DCON world. Unsupported save headers, missing runtime records, and malformed snapshots are rejected; older aggregate POP saves are not reconstructed.
 

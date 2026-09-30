@@ -100,7 +100,12 @@ dcon::monetary_account_id treasury_account_for(sys::state const& state, dcon::in
 	state.world.institution_for_each_institution_treasury_account_as_institution(institution,
 		[&](dcon::institution_treasury_account_id relation) {
 			auto account = state.world.institution_treasury_account_get_monetary_account(relation);
-			if(account && economy::accounts::settlement_of(state, account) == settlement) result = account;
+			// Construction subaccounts retain fiscal ownership/authority, but are
+			// earmarked project cash, never the institution's spendable treasury.
+			bool project_account = false;
+			if(account) state.world.monetary_account_for_each_capital_project_account_as_monetary_account(account, [&](auto) { project_account = true; });
+			if(account && !project_account
+				&& economy::accounts::settlement_of(state, account) == settlement) result = account;
 		});
 	return result;
 }

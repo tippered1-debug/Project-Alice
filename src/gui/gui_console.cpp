@@ -1,3 +1,4 @@
+#include "economy/capital_projects.hpp"
 #include <string>
 #include <string_view>
 #include <variant>
@@ -810,18 +811,7 @@ int32_t* f_complete_construction(fif::state_stack& s, int32_t* p, fif::environme
 	to_nation.value = dcon::nation_id::value_base_t(s.main_data_back(0));
 	s.pop_main();
 
-	for(uint32_t i = state->world.province_building_construction_size(); i-- > 0;) {
-		dcon::province_building_construction_id c{ dcon::province_building_construction_id::value_base_t(i) };
-
-		if(state->world.province_building_construction_get_nation(c) != to_nation)
-			continue;
-
-		auto t = economy::province_building_type(state->world.province_building_construction_get_type(c));
-		auto const& base_cost = state->economy_definitions.building_definitions[int32_t(t)].cost;
-		auto& current_purchased = state->world.province_building_construction_get_purchased_goods(c);
-		for(uint32_t j = 0; j < economy::commodity_set::set_size; ++j)
-			current_purchased.commodity_amounts[j] = base_cost.commodity_amounts[j] * 2.f;
-	}
+	economy::capital_projects::process_projects(*state);
 
 	return p + 2;
 }

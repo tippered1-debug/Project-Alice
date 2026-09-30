@@ -1,4 +1,5 @@
 #include "concrete_market.hpp"
+#include "economy/capital_projects.hpp"
 
 #include "accounts/accounts.hpp"
 #include "economy/causal_order.hpp"
@@ -31,6 +32,15 @@ float reserved_inventory(sys::state const& state, dcon::economic_actor_id seller
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		if(state.world.concrete_market_ask_get_status(ask) != active || state.world.concrete_market_ask_get_concrete_ask_seller(ask) && state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask) != seller || state.world.concrete_market_ask_get_concrete_ask_site(ask) && state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask) != source || state.world.concrete_market_ask_get_concrete_ask_commodity(ask) && state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != commodity) return;
 		result += std::max(0.0f, state.world.concrete_market_ask_get_reserved_quantity(ask));
+	});
+	// Paid cargo waiting for a carrier is still physically at its origin, but
+	// it has already been committed to delivery and cannot be offered again.
+	state.world.for_each_freight_request([&](auto request) {
+		if(state.world.freight_request_get_status(request) == 0
+			&& state.world.freight_request_get_economic_actor_from_freight_request_requester(request) == seller
+			&& state.world.freight_request_get_site_from_freight_request_source(request) == source
+			&& state.world.freight_request_get_commodity_from_freight_request_commodity(request) == commodity)
+			result += std::max(0.0f, state.world.freight_request_get_quantity(request));
 	});
 	return result;
 }
@@ -132,7 +142,8 @@ dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id
 dcon::concrete_market_ask_id post_ask(sys::state& state, dcon::economic_actor_id seller,
 	dcon::site_id source, dcon::market_id market, dcon::commodity_id commodity,
 	float quantity, float minimum_price, order_purpose purpose, dcon::factory_id factory) {
-	if(!seller || !source || !market || !commodity || !valid(quantity) || !valid(minimum_price)) return {};
+	if(!seller || !source || !market || !commodity || !valid(quantity) || !valid(minimum_price)
+		|| capital_projects::is_construction_site(state, source)) return {};
 	auto available = inventory::quantity(state, source, commodity, seller) - reserved_inventory(state, seller, source, commodity);
 	if(!std::isfinite(available) || available + epsilon < quantity) return {};
 	auto ask = state.world.create_concrete_market_ask();

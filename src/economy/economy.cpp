@@ -1095,7 +1095,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		::economy::physical::freight_market::process_pending_requests(state);
 		::economy::physical::shipments::process_arrivals(state);
 		governance::public_administration::deliver_public_services(state);
-		::economy::capital_projects::process_factory_expansions(state);
+		::economy::capital_projects::process_projects(state);
 	}
 
 	update_factories_production(state);
@@ -1412,7 +1412,7 @@ float government_consumption(sys::state& state, dcon::nation_id n, dcon::commodi
 			);
 		total = total + state.world.market_get_army_demand(market, c);
 		total = total + state.world.market_get_navy_demand(market, c);
-		total = total + state.world.market_get_construction_demand(market, c);
+
 	});
 
 	return total + o_adjust;
@@ -1683,88 +1683,23 @@ float estimate_subject_payments_received(sys::state& state, dcon::nation_id o) {
 }
 
 construction_status province_building_construction(sys::state& state, dcon::province_id p, province_building_type t) {
-	assert(0 <= int32_t(t) && int32_t(t) < int32_t(economy::max_building_types));
-	for(auto pb_con : state.world.province_get_province_building_construction(p)) {
-		if(pb_con.get_type() == uint8_t(t)) {
-			float modifier = build_cost_multiplier(state, p, pb_con.get_is_pop_project());
-			float total = 0.0f;
-			float purchased = 0.0f;
-			for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
-				auto current = pb_con.get_purchased_goods().commodity_amounts[i];
-				auto required = state.economy_definitions.building_definitions[int32_t(t)].cost.commodity_amounts[i]
-					* modifier;
-
-				total += required;
-				purchased += std::min(current, required);
-			}
-			return construction_status{ total > 0.0f ? purchased / total : 0.0f, true };
-		}
-	}
-	return construction_status{ 0.0f, false };
+	for(auto row : state.world.province_get_province_building_construction(p)) if(row.get_type() == uint8_t(t))
+		return {capital_projects::material_progress(state, capital_projects::project_for(state, row.id)), true};
+	return {0.0f, false};
 }
-
 construction_status factory_upgrade(sys::state& state, dcon::factory_id f) {
-	auto in_prov = ::compat::alice::province_for_factory(state, f);
-	auto fac_type = state.world.factory_get_building_type(f);
-
-	for(auto st_con : state.world.province_get_factory_construction(in_prov)) {
-		if(st_con.get_type() == fac_type) {
-			float modifier = factory_build_cost_multiplier(state, st_con.get_nation(), st_con.get_province(), st_con.get_is_pop_project());
-			float total = 0.0f;
-			float purchased = 0.0f;
-			auto& goods = state.world.factory_type_get_construction_costs(fac_type);
-			for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
-				total += goods.commodity_amounts[i] * modifier;
-				purchased += st_con.get_purchased_goods().commodity_amounts[i];
-			}
-			return construction_status{ total > 0.0f ? purchased / total : 0.0f, true };
-		}
-	}
-
-	return construction_status{ 0.0f, false };
+	construction_status result{0.0f, false};
+	state.world.for_each_capital_project([&](auto p) {
+		if(state.world.capital_project_get_factory_from_capital_project_target_factory(p) == f
+			&& state.world.capital_project_get_status(p) < uint8_t(capital_projects::status::completed))
+			result = {capital_projects::material_progress(state, p), true};
+	});
+	return result;
 }
-
-float unit_construction_progress(sys::state& state, dcon::province_land_construction_id c) {
-	auto pop = state.world.province_land_construction_get_pop(c);
-	auto province = state.world.pop_get_province_from_pop_location(pop);
-	float cost_factor = economy::build_cost_multiplier(state, province, false);
-
-	auto& goods = state.military_definitions.unit_base_definitions[state.world.province_land_construction_get_type(c)].build_cost;
-	auto& cgoods = state.world.province_land_construction_get_purchased_goods(c);
-
-	float total = 0.0f;
-	float purchased = 0.0f;
-
-	for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
-		total += goods.commodity_amounts[i] * cost_factor;
-		purchased += cgoods.commodity_amounts[i];
-	}
-
-	auto construction_time = state.military_definitions.unit_base_definitions[state.world.province_land_construction_get_type(c)].build_time;
-	auto time_progress = (float) sys::days_difference(state.world.province_land_construction_get_start_date(c).to_ymd(state.start_date), state.current_date.to_ymd(state.start_date)) / (float) construction_time;
-
-	return std::min(time_progress, purchased / total);
-}
-
+float unit_construction_progress(sys::state&, dcon::province_land_construction_id) { return 0.0f; }
 float unit_construction_progress(sys::state& state, dcon::province_naval_construction_id c) {
-	auto province = state.world.province_naval_construction_get_province(c);
-	float cost_factor = economy::build_cost_multiplier(state, province, false);
-
-	auto& goods = state.military_definitions.unit_base_definitions[state.world.province_naval_construction_get_type(c)].build_cost;
-	auto& cgoods = state.world.province_naval_construction_get_purchased_goods(c);
-
-	float total = 0.0f;
-	float purchased = 0.0f;
-
-	for(uint32_t i = 0; i < commodity_set::set_size; ++i) {
-		total += goods.commodity_amounts[i] * cost_factor;
-		purchased += cgoods.commodity_amounts[i];
-	}
-
-	return total > 0.0f ? purchased / total : 0.0f;
+	return capital_projects::material_progress(state, capital_projects::project_for(state, c));
 }
-
-
 
 // This is used specifically in AI calculations, and omits subject income calculation because that requires iterating over all subjects and calculating their tax income seperately, will will cause OOS when parallelized over nations in ai::update_budget
 float estimate_daily_income_ai(sys::state& state, dcon::nation_id n) {

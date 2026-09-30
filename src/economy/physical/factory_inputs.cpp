@@ -1,4 +1,5 @@
 #include "factory_inputs.hpp"
+#include "economy/capital_projects.hpp"
 
 #include "inventory.hpp"
 #include "deposits.hpp"
@@ -173,6 +174,7 @@ void fulfill(sys::state& state) {
 				auto stock_commodity = state.world.physical_stock_get_commodity_from_physical_stock_commodity(stock);
 				if(stock_commodity != commodity) return;
 				auto site = state.world.physical_stock_get_site_from_physical_stock_site(stock);
+				if(capital_projects::is_construction_site(state, site)) return;
 				auto owner_relation = state.world.physical_stock_get_physical_stock_owner(stock);
 				auto seller = owner_relation
 					? state.world.physical_stock_owner_get_economic_actor(owner_relation)

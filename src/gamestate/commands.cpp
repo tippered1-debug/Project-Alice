@@ -1,3 +1,4 @@
+#include "economy/capital_projects.hpp"
 #include "commands.hpp"
 #include "demographics.hpp"
 #include "economy_templates.hpp"
@@ -557,22 +558,10 @@ void execute_begin_province_building_construction(sys::state& state, dcon::natio
 			si.set_naval_base_is_taken(true);
 	}
 
-	if(type != economy::province_building_type::fort && type != economy::province_building_type::naval_base && source != state.world.province_get_nation_from_province_ownership(p)) {
-		float amount = 0.0f;
-		auto& base_cost = state.economy_definitions.building_definitions[int32_t(type)].cost;
-		for(uint32_t j = 0; j < economy::commodity_set::set_size; ++j) {
-			if(base_cost.commodity_type[j]) {
-				amount += base_cost.commodity_amounts[j] * state.world.commodity_get_cost(base_cost.commodity_type[j]); //base cost
-			} else {
-				break;
-			}
-		}
-		nations::adjust_foreign_investment(state, source, state.world.province_get_nation_from_province_ownership(p), amount);
-	}
-
 	auto new_rr = fatten(state.world, state.world.force_create_province_building_construction(p, source));
 	new_rr.set_is_pop_project(false);
 	new_rr.set_type(uint8_t(type));
+	economy::capital_projects::adopt_legacy_requests(state);
 }
 
 
@@ -670,6 +659,7 @@ void execute_start_naval_unit_construction(sys::state& state, dcon::nation_id so
 	c.set_type(type);
 	c.set_start_date(state.current_date);
 	c.set_template_province(template_province);
+	economy::capital_projects::adopt_legacy_requests(state);
 }
 
 void start_land_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type, dcon::province_id template_province) {
@@ -684,51 +674,14 @@ void start_land_unit_construction(sys::state& state, dcon::nation_id source, dco
 
 template <bool VALIDATE>
 bool can_start_land_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type, dcon::province_id template_province) {
-	if(military::land_forces::initialized(state)) return false;
-	/*
-	The province must be owned and controlled by the building nation, without an ongoing siege.
-	The unit type must be available from start / unlocked by the nation
-	*/
-	if(!state.current_scene.game_in_progress) {
-		return assertive_identity<VALIDATE>(false);
-	}
-
-	if(state.world.province_get_nation_from_province_ownership(location) != source)
-		return assertive_identity<VALIDATE>(false);
-	if(state.world.province_get_nation_from_province_control(location) != source)
-		return assertive_identity<VALIDATE>(false);
-	if(state.world.nation_get_active_unit(source, type) == false && state.military_definitions.unit_base_definitions[type].active == false)
-		return assertive_identity<VALIDATE>(false);
-	if(state.military_definitions.unit_base_definitions[type].primary_culture && soldier_culture != state.world.nation_get_primary_culture(source) && state.world.nation_get_accepted_cultures(source, soldier_culture) == false) {
-		return assertive_identity<VALIDATE>(false);
-	}
-	auto disarm = state.world.nation_get_disarmed_until(source);
-	if(disarm && state.current_date < disarm)
-		return assertive_identity<VALIDATE>(false);
-
-	if(state.military_definitions.unit_base_definitions[type].is_land) {
-		/*
-		Each soldier pop can only support so many regiments (including under construction and rebel regiments)
-		If the unit is culturally restricted, there must be an available primary culture/accepted culture soldier pop with space
-		*/
-		auto soldier = military::find_available_soldier(state, location, soldier_culture);
-		return assertive_identity<VALIDATE>(bool(soldier));
-	} else {
-		return assertive_identity<VALIDATE>(false);
-	}
+	return false;
 }
 template bool can_start_land_unit_construction<true>(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type, dcon::province_id template_province);
 template bool can_start_land_unit_construction<false>(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type, dcon::province_id template_province);
 
 
 void execute_start_land_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type, dcon::province_id template_province) {
-	if(military::land_forces::initialized(state)) return;
-	auto soldier = military::find_available_soldier(state, location, soldier_culture);
-
-	auto c = fatten(state.world, state.world.try_create_province_land_construction(soldier, source));
-	c.set_start_date(state.current_date);
-	c.set_type(type);
-	c.set_template_province(template_province);
+	// Personnel comes from the exact land-force kernel; procure equipment with capital_projects.
 }
 
 void cancel_naval_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::unit_type_id type) {
@@ -755,7 +708,9 @@ void execute_cancel_naval_unit_construction(sys::state& state, dcon::nation_id s
 			c = lc.id;
 		}
 	}
+	if(auto project = economy::capital_projects::project_for(state, c)) economy::capital_projects::cancel(state, project);
 	state.world.delete_province_naval_construction(c);
+	economy::capital_projects::adopt_legacy_requests(state);
 }
 
 void cancel_land_unit_construction(sys::state& state, dcon::nation_id source, dcon::province_id location, dcon::culture_id soldier_culture, dcon::unit_type_id type) {
