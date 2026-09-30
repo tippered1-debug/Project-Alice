@@ -11,6 +11,7 @@
 #include "economy/accounts/accounts.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "technology/technology_kernel.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -99,6 +100,14 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
 	if(!type || !province || !site || !owner) {
 		assert(false && "canonical factory requires a recipe, site, and firm operator");
+		return 0.0f;
+	}
+	if(technology::kernel::canonical_runtime_active(state)
+		&& technology::kernel::factory_process_has_canonical_requirement(state, type)
+		&& !technology::kernel::organization_can_operate_factory_type(state,
+			actors::organizations::organization_for_actor(state, owner), type)) {
+		state.world.factory_set_actual_utilization(factory, 0.0f);
+		state.world.factory_set_output(factory, 0.0f);
 		return 0.0f;
 	}
 	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));

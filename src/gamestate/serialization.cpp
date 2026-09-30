@@ -11,6 +11,7 @@
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
 #include "military/land_forces.hpp"
+#include "technology/technology_kernel.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -61,7 +62,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 11;
+constexpr uint16_t exact_runtime_save_version = 12;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -74,6 +75,7 @@ struct exact_runtime_snapshot {
 	economy::physical::labor_dynamics::snapshot labor;
 	economy::causal_order::snapshot causal_order;
 	military::land_forces::snapshot land_forces;
+	technology::kernel::snapshot technology;
 	uint16_t extension_version = 0;
 	bool extension_found = false;
 	bool present = false;
@@ -197,6 +199,86 @@ bool read_person_key_vector(uint8_t const*& ptr, uint8_t const* end,
 	return true;
 }
 
+std::size_t technology_snapshot_size(technology::kernel::snapshot const& value) {
+	return sizeof(value.version) + sizeof(value.canonical_runtime_active)
+		+ pod_vector_size(value.capabilities) + pod_vector_size(value.prerequisites)
+		+ pod_vector_size(value.factory_processes) + pod_vector_size(value.organizations)
+		+ pod_vector_size(value.holders) + pod_vector_size(value.programs)
+		+ sizeof(uint32_t) + value.assignments.size() * (sizeof(uint64_t) + sizeof(uint32_t) + sizeof(uint64_t) + 2 * sizeof(float))
+		+ pod_vector_size(value.adoptions) + pod_vector_size(value.transfers);
+}
+
+uint8_t* write_technology_snapshot(uint8_t* ptr, technology::kernel::snapshot const& source) {
+	auto value = source;
+	std::sort(value.capabilities.begin(), value.capabilities.end(), [](auto const& a, auto const& b) { return a.id < b.id; });
+	std::sort(value.prerequisites.begin(), value.prerequisites.end(), [](auto const& a, auto const& b) {
+		return std::tie(a.capability, a.prerequisite) < std::tie(b.capability, b.prerequisite);
+	});
+	std::sort(value.factory_processes.begin(), value.factory_processes.end(), [](auto const& a, auto const& b) {
+		return std::tie(a.process, a.capability) < std::tie(b.process, b.capability);
+	});
+	std::sort(value.organizations.begin(), value.organizations.end(), [](auto const& a, auto const& b) { return a.id < b.id; });
+	std::sort(value.holders.begin(), value.holders.end(), [](auto const& a, auto const& b) {
+		return std::tie(a.organization, a.capability) < std::tie(b.organization, b.capability);
+	});
+	std::sort(value.programs.begin(), value.programs.end(), [](auto const& a, auto const& b) { return a.id < b.id; });
+	std::sort(value.assignments.begin(), value.assignments.end(), [](auto const& a, auto const& b) {
+		return std::tie(a.program, a.person.source_population_cell, a.person.ordinal)
+			< std::tie(b.program, b.person.source_population_cell, b.person.ordinal);
+	});
+	std::sort(value.adoptions.begin(), value.adoptions.end(), [](auto const& a, auto const& b) {
+		return std::tie(a.organization, a.capability) < std::tie(b.organization, b.capability);
+	});
+	std::sort(value.transfers.begin(), value.transfers.end(), [](auto const& a, auto const& b) { return a.id < b.id; });
+	ptr = memcpy_serialize(ptr, value.version);
+	ptr = memcpy_serialize(ptr, value.canonical_runtime_active);
+	ptr = write_pod_vector(ptr, value.capabilities);
+	ptr = write_pod_vector(ptr, value.prerequisites);
+	ptr = write_pod_vector(ptr, value.factory_processes);
+	ptr = write_pod_vector(ptr, value.organizations);
+	ptr = write_pod_vector(ptr, value.holders);
+	ptr = write_pod_vector(ptr, value.programs);
+	ptr = memcpy_serialize(ptr, uint32_t(value.assignments.size()));
+	for(auto const& assignment : value.assignments) {
+		ptr = memcpy_serialize(ptr, assignment.program);
+		ptr = write_person_key(ptr, assignment.person);
+		ptr = memcpy_serialize(ptr, assignment.allocation_fraction);
+		ptr = memcpy_serialize(ptr, assignment.productivity_input);
+	}
+	ptr = write_pod_vector(ptr, value.adoptions);
+	ptr = write_pod_vector(ptr, value.transfers);
+	return ptr;
+}
+
+bool read_technology_snapshot(uint8_t const*& ptr, uint8_t const* end,
+	technology::kernel::snapshot& value) {
+	if(std::size_t(end - ptr) < sizeof(value.version) + sizeof(value.canonical_runtime_active)) return false;
+	ptr = memcpy_deserialize(ptr, value.version);
+	ptr = memcpy_deserialize(ptr, value.canonical_runtime_active);
+	if(value.version != 1 || value.canonical_runtime_active > 1) return false;
+	if(!read_pod_vector(ptr, end, value.capabilities)
+		|| !read_pod_vector(ptr, end, value.prerequisites)
+		|| !read_pod_vector(ptr, end, value.factory_processes)
+		|| !read_pod_vector(ptr, end, value.organizations)
+		|| !read_pod_vector(ptr, end, value.holders)
+		|| !read_pod_vector(ptr, end, value.programs)) return false;
+	if(std::size_t(end - ptr) < sizeof(uint32_t)) return false;
+	uint32_t assignment_count = 0;
+	ptr = memcpy_deserialize(ptr, assignment_count);
+	auto const assignment_size = sizeof(uint64_t) + sizeof(uint32_t) + sizeof(uint64_t) + 2 * sizeof(float);
+	if(assignment_count > exact_runtime_max_records
+		|| std::size_t(end - ptr) < std::size_t(assignment_count) * assignment_size) return false;
+	value.assignments.resize(assignment_count);
+	for(auto& assignment : value.assignments) {
+		ptr = memcpy_deserialize(ptr, assignment.program);
+		if(!read_person_key(ptr, end, assignment.person)) return false;
+		ptr = memcpy_deserialize(ptr, assignment.allocation_fraction);
+		ptr = memcpy_deserialize(ptr, assignment.productivity_input);
+	}
+	return read_pod_vector(ptr, end, value.adoptions)
+		&& read_pod_vector(ptr, end, value.transfers);
+}
+
 std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	auto const& population = snapshot.population;
 	auto const& economy = snapshot.economy;
@@ -205,6 +287,7 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	auto const& labor = snapshot.labor;
 	auto const& causal = snapshot.causal_order;
 	auto const& land_forces = snapshot.land_forces;
+	auto const& technology = snapshot.technology;
 	std::size_t size = 6 * sizeof(uint32_t);
 	size += pod_vector_size(population.cells) + pod_vector_size(population.bridges)
 		+ pod_vector_size(population.source_bindings)
@@ -236,6 +319,7 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 		+ pod_vector_size(land_forces.consumables) + pod_vector_size(land_forces.stockpiles)
 		+ pod_vector_size(land_forces.shipments) + pod_vector_size(land_forces.person_losses)
 		+ pod_vector_size(land_forces.equipment_losses) + pod_vector_size(land_forces.casualty_events);
+	size += technology_snapshot_size(technology);
 	return size;
 }
 
@@ -248,6 +332,7 @@ exact_runtime_snapshot capture_exact_runtime_snapshot(sys::state const& state) {
 	result.labor = economy::physical::labor_dynamics::export_snapshot(state);
 	result.causal_order = economy::causal_order::export_snapshot(state);
 	result.land_forces = military::land_forces::export_snapshot(state);
+	result.technology = technology::kernel::export_snapshot(state);
 	result.present = true;
 	return result;
 }
@@ -276,6 +361,7 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	auto const& labor = snapshot.labor;
 	auto const& causal = snapshot.causal_order;
 	auto const& land_forces = snapshot.land_forces;
+	auto const& technology = snapshot.technology;
 	ptr = memcpy_serialize(ptr, population.bootstrap_version);
 	ptr = write_pod_vector(ptr, population.cells);
 	ptr = memcpy_serialize(ptr, uint32_t(population.overrides.size()));
@@ -345,6 +431,7 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = write_pod_vector(ptr, land_forces.person_losses);
 	ptr = write_pod_vector(ptr, land_forces.equipment_losses);
 	ptr = write_pod_vector(ptr, land_forces.casualty_events);
+	ptr = write_technology_snapshot(ptr, technology);
 	assert(std::size_t(ptr - payload_start) == payload_size);
 	return ptr;
 }
@@ -498,6 +585,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 				return true;
 			});
 	} else if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.casualty_events);
+	if(valid && version >= 12) valid = read_technology_snapshot(ptr, payload_end, result.technology);
 	valid = valid && ptr == payload_end;
 	if(valid) result.present = true;
 	else {
@@ -518,6 +606,7 @@ void clear_exact_runtime_state(sys::state& state) {
 	economy::physical::labor_dynamics::clear_store(state);
 	economy::causal_order::clear_store(state);
 	military::land_forces::clear_store(state);
+	technology::kernel::clear_store(state);
 }
 
 bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
@@ -531,6 +620,12 @@ bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const
 		&& economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
 		&& economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor);
 	if(restored) restored = military::land_forces::import_snapshot(state, snapshot.land_forces);
+	if(restored && snapshot.extension_version >= 12)
+		restored = technology::kernel::import_snapshot(state, snapshot.technology);
+	if(restored) {
+		std::vector<std::string> technology_errors;
+		restored = technology::kernel::validate_canonical_technology_state(state, technology_errors);
+	}
 	if(!restored) clear_on_failure();
 	return restored;
 }
@@ -1186,6 +1281,9 @@ uint8_t const* read_handwritten_scenario_section(uint8_t const* ptr_in, uint8_t 
 		ptr_in = deserialize(ptr_in, state.untrans_key_to_text_sequence);
 	}
 	ptr_in = memcpy_deserialize(ptr_in, state.hardcoded_gamerules);
+	technology::kernel::snapshot technology_snapshot;
+	if(!read_technology_snapshot(ptr_in, section_end, technology_snapshot)) return section_end;
+	technology::kernel::load_snapshot_unvalidated(state, technology_snapshot);
 
 	if(!exclude_local_handwritten_fields){ // ui definitions
 		ptr_in = deserialize(ptr_in, state.ui_defs.gfx);
@@ -1205,6 +1303,8 @@ uint8_t const* read_scenario_section(uint8_t const* ptr_in, uint8_t const* secti
 	dcon::load_record loaded;
 	std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 	state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded);
+	std::vector<std::string> technology_errors;
+	if(!technology::kernel::validate_canonical_technology_state(state, technology_errors)) std::abort();
 
 	return section_end;
 }
@@ -1390,6 +1490,7 @@ uint8_t* write_handwritten_scenario_section(uint8_t* ptr_in, sys::state& state, 
 		ptr_in = serialize(ptr_in, state.untrans_key_to_text_sequence);
 	}
 	ptr_in = memcpy_serialize(ptr_in, state.hardcoded_gamerules);
+	ptr_in = write_technology_snapshot(ptr_in, technology::kernel::export_snapshot(state));
 
 	if(!exclude_local_handwritten_fields){ // ui definitions
 		ptr_in = serialize(ptr_in, state.ui_defs.gfx);
@@ -1593,6 +1694,7 @@ size_t sizeof_handwritten_scenario_section(sys::state& state, bool exclude_local
 		sz += serialize_size(state.untrans_key_to_text_sequence);
 	}
 	sz += sizeof(state.hardcoded_gamerules);
+	sz += technology_snapshot_size(technology::kernel::export_snapshot(state));
 
 	if(!exclude_local_handwritten_fields){ // ui definitions
 		sz += serialize_size(state.ui_defs.gfx);
@@ -1719,11 +1821,13 @@ bool validate_strategic_statecraft_world_state(sys::state& state) {
 
 bool canonical_runtime_loaded(sys::state const& state) {
 	std::vector<std::string> banking_errors;
+	std::vector<std::string> technology_errors;
 	return economy::banking::validate_canonical_banking_state(state, banking_errors)
 		&& bool(state.exact_population) && bool(state.exact_person_economy)
 		&& bool(state.exact_person_goods) && bool(state.exact_person_freight)
 		&& bool(state.labor_dynamics) && bool(state.causal_order)
 		&& military::land_forces::initialized(state)
+		&& technology::kernel::validate_canonical_technology_state(state, technology_errors)
 		&& state.strategic_statecraft_initialized
 		&& state.strategic_interests.size() == state.world.nation_size()
 		&& state.transformation_government_state.size() == state.world.nation_size()

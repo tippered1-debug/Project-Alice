@@ -28,6 +28,7 @@
 #include "gui_message_window.hpp"
 #include "gui_diplomacy_request_templates.hpp"
 #include "gui_message_settings_window.hpp"
+#include "compat/technology_legacy_adapter.hpp"
 #include "gui_combat.hpp"
 #include "validation.hpp"
 #include "compat/alice/legacy_bridge.hpp"
@@ -270,6 +271,7 @@ void start_research(sys::state& state, dcon::nation_id source, dcon::technology_
 }
 
 bool can_start_research(sys::state& state, dcon::nation_id source, dcon::technology_id tech) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return false;
 	/* Nations can only start researching technologies if, they are not uncivilized, the tech
 		 activation date is past by, and all the previous techs (if any) of the same folder index
 		 are already researched fully. And they are not already researched. */
@@ -298,6 +300,7 @@ bool can_start_research(sys::state& state, dcon::nation_id source, dcon::technol
 }
 
 void execute_start_research(sys::state& state, dcon::nation_id source, dcon::technology_id tech) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	if(state.world.nation_get_current_research(source))
 		state.world.nation_set_research_points(source, 0.0f);
 	state.world.nation_set_current_research(source, tech);

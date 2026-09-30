@@ -43,3 +43,5 @@ Opening equity is derived from the complete balance sheet after reserves, deposi
 ## Stable identity and validation
 
 Stable IDs are deterministic 64-bit hashes of the authored keys and are saved on firms, actors, accounts, sites, factories, deposits, assets, ownership stakes, institutions, and obligations. Entity creation is sorted by authored ID. Entities created later by a capital project receive stable runtime IDs from their entity type, creation date, and DCON index. The runtime checks that every factory and deposit has one operator, one distinct asset, a complete owner graph, and stable identity. A failure names the DCON factory/deposit and site IDs and stops scenario generation. Legacy province producer debt and ownership shares are excluded from simulation, and factory subsidy state is cleared and ignored; none of these fields fill missing canonical rows.
+
+Canonical research and factory-process capability tables are documented in [Canonical Research and Technology Kernel v1](../canonical_research_technology_kernel_v1.md). The presence of `capabilities.csv` activates that data-driven runtime and requires all technology tables.

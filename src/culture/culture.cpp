@@ -5,6 +5,7 @@
 #include "prng.hpp"
 #include "province_templates.hpp"
 #include "system_state.hpp"
+#include "compat/technology_legacy_adapter.hpp"
 #include "triggers.hpp"
 
 #include <cassert>
@@ -174,6 +175,7 @@ void clear_existing_tech_effects(sys::state& state) {
 }
 
 void repopulate_technology_effects(sys::state& state) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	state.world.for_each_technology([&](dcon::technology_id t_id) {
 		auto tech_id = fatten(state.world, t_id);
 
@@ -276,6 +278,7 @@ void repopulate_technology_effects(sys::state& state) {
 }
 
 void repopulate_invention_effects(sys::state& state) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	state.world.for_each_invention([&](dcon::invention_id i_id) {
 		auto inv_id = fatten(state.world, i_id);
 
@@ -428,6 +431,7 @@ void repopulate_invention_effects(sys::state& state) {
 }
 
 void apply_technology(sys::state& state, dcon::nation_id target_nation, dcon::technology_id t_id) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	auto tech_id = fatten(state.world, t_id);
 
 	state.world.nation_set_active_technologies(target_nation, t_id, true);
@@ -509,6 +513,7 @@ void apply_technology(sys::state& state, dcon::nation_id target_nation, dcon::te
 }
 
 void remove_technology(sys::state& state, dcon::nation_id target_nation, dcon::technology_id t_id) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	auto tech_id = fatten(state.world, t_id);
 
 	state.world.nation_set_active_technologies(target_nation, t_id, false);
@@ -589,6 +594,7 @@ void remove_technology(sys::state& state, dcon::nation_id target_nation, dcon::t
 }
 
 void apply_invention(sys::state& state, dcon::nation_id target_nation, dcon::invention_id i_id) { //  TODO: shared prestige effect
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	auto inv_id = fatten(state.world, i_id);
 
 	state.world.nation_set_active_inventions(target_nation, i_id, true);
@@ -710,6 +716,7 @@ void apply_invention(sys::state& state, dcon::nation_id target_nation, dcon::inv
 
 void remove_invention(sys::state& state, dcon::nation_id target_nation,
 		dcon::invention_id i_id) { //  TODO: shared prestige effect
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	auto inv_id = fatten(state.world, i_id);
 
 	state.world.nation_set_active_inventions(target_nation, i_id, false);
@@ -1106,6 +1113,7 @@ float effective_technology_rp_cost(sys::state& state, uint32_t current_year, dco
 }
 
 void update_research(sys::state& state, uint32_t current_year) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	for(auto n : state.world.in_nation) {
 		if(n.get_owned_province_count() != 0 && n.get_current_research()) {
 			if(n.get_active_technologies(n.get_current_research())) {
@@ -1138,6 +1146,7 @@ void update_research(sys::state& state, uint32_t current_year) {
 }
 
 void discover_inventions(sys::state& state) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	/*
 	Inventions have a chance to be discovered on the 1st of every month. The invention chance modifier is computed additively, and
 	the result is the chance out of 100 that the invention will be discovered. When an invention with shared prestige is

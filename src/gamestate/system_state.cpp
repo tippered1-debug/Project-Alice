@@ -50,6 +50,7 @@
 #include "economy/causal_order.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/exact_person_freight.hpp"
+#include "technology/technology_kernel.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 
@@ -3427,6 +3428,7 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	::economy::physical::exact_person_goods::initialize_empty_store(*this);
 	::economy::physical::exact_person_freight::initialize_empty_store(*this);
 	::economy::physical::labor_dynamics::initialize_empty_store(*this);
+	::technology::kernel::initialize_empty_store(*this);
 	::military::land_forces::initialize_empty_store(*this);
 	auto const population_bootstrap = persons::exact_population::bootstrap_from_current_pops(*this);
 	assert(population_bootstrap.complete && "canonical exact population bootstrap failed");
@@ -4569,7 +4571,10 @@ void state::single_game_tick() {
 		province::update_colonization(*this);
 		military::update_cbs(*this); // may add/remove cbs to a nation
 
-		culture::update_research(*this, uint32_t(ymd_date.year));
+		if(::technology::kernel::canonical_runtime_active(*this))
+			::technology::kernel::update_daily(*this);
+		else
+			culture::update_research(*this, uint32_t(ymd_date.year));
 
 		nations::update_industrial_scores(*this);
 		nations::update_military_scores(*this); // depends on ship score, land unit average

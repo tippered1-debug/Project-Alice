@@ -30,6 +30,7 @@
 #include "economy_constants.hpp"
 #include "economy_factory_view.hpp"
 #include "compat/alice/legacy_bridge.hpp"
+#include "compat/technology_legacy_adapter.hpp"
 #include "events.hpp"
 #include "commands.hpp"
 #include "land_ownership.hpp"
@@ -1260,14 +1261,15 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			state.world.execute_serial_over_nation([&](auto nations) {
 				invention_count.set(nations, 0.f);
 			});
-			state.world.for_each_invention([&](auto iid) {
-				state.world.execute_serial_over_nation([&](auto nations) {
-					auto count =
-						invention_count.get(nations)
-						+ ve::select(state.world.nation_get_active_inventions(nations, iid), ve::fp_vector(1.0f), ve::fp_vector(0.0f));
-					invention_count.set(nations, count);
+			if(compat::technology::legacy_national_technology_causality_enabled(state)) {
+				state.world.for_each_invention([&](auto iid) {
+					state.world.execute_serial_over_nation([&](auto nations) {
+						auto count = invention_count.get(nations)
+							+ ve::select(state.world.nation_get_active_inventions(nations, iid), ve::fp_vector(1.0f), ve::fp_vector(0.0f));
+						invention_count.set(nations, count);
+					});
 				});
-			});
+			}
 		}
 	);
 

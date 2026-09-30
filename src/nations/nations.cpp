@@ -6,6 +6,7 @@
 #include "politics.hpp"
 #include "culture/transformation_politics.hpp"
 #include "system_state.hpp"
+#include "compat/technology_legacy_adapter.hpp"
 #include "governance/finance/finance.hpp"
 #include "governance/public_administration.hpp"
 #include "economy/money.hpp"
@@ -1162,6 +1163,7 @@ void update_administrative_efficiency(sys::state& state) {
 }
 
 float daily_research_points(sys::state& state, dcon::nation_id n) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return 0.0f;
 	/*
 	Let pop-sum = for each pop type (research-points-from-type x 1^(fraction of population / optimal fraction))
 	Then, the daily research points earned by a nation is: (national-modifier-research-points-modifier + tech-research-modifier +
@@ -1217,6 +1219,15 @@ float priority_private(sys::state& state, dcon::nation_id n, dcon::factory_type_
 }
 
 void update_research_points(sys::state& state) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) {
+		state.world.execute_serial_over_nation([&](auto ids) {
+			state.world.for_each_factory_type([&](auto factory_type_id) {
+				auto experience = state.world.nation_get_factory_type_experience(ids, factory_type_id);
+				state.world.nation_set_factory_type_experience(ids, factory_type_id, ve::max(0.0f, experience * 0.999f));
+			});
+		});
+		return;
+	}
 	/*
 	Let pop-sum = for each pop type (research-points-from-type x 1^(fraction of population / optimal fraction))
 	Then, the daily research points earned by a nation is: (national-modifier-research-points-modifier + tech-research-modifier +
@@ -1700,6 +1711,7 @@ float colonial_points_from_naval_bases(sys::state& state, dcon::nation_id n) {
 }
 
 float colonial_points_from_technology(sys::state& state, dcon::nation_id n) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return 0.0f;
 	float points = 0.f;
 	state.world.for_each_technology([&](dcon::technology_id t) {
 		if(state.world.nation_get_active_technologies(n, t))
@@ -2160,12 +2172,14 @@ void create_nation_based_on_template(sys::state& state, dcon::nation_id n, dcon:
 	state.world.nation_set_prestige(n, 0.0f);
 	state.world.nation_set_infamy(n, 0.0f);
 	state.world.nation_set_revanchism(n, 0.0f);
-	state.world.for_each_technology([&](dcon::technology_id t) {
-		state.world.nation_set_active_technologies(n, t, state.world.nation_get_active_technologies(base, t));
-	});
-	state.world.for_each_invention([&](dcon::invention_id t) {
-		state.world.nation_set_active_inventions(n, t, state.world.nation_get_active_inventions(base, t));
-	});
+	if(compat::technology::legacy_national_technology_causality_enabled(state)) {
+		state.world.for_each_technology([&](dcon::technology_id t) {
+			state.world.nation_set_active_technologies(n, t, state.world.nation_get_active_technologies(base, t));
+		});
+		state.world.for_each_invention([&](dcon::invention_id t) {
+			state.world.nation_set_active_inventions(n, t, state.world.nation_get_active_inventions(base, t));
+		});
+	}
 	state.world.for_each_issue(
 			[&](dcon::issue_id t) { state.world.nation_set_issues(n, t, state.world.nation_get_issues(base, t)); });
 	if(!state.world.nation_get_is_civilized(base)) {
@@ -2183,35 +2197,35 @@ void create_nation_based_on_template(sys::state& state, dcon::nation_id n, dcon:
 	//for(int32_t i = 0; i < state.national_definitions.num_allocated_national_variables; ++i) {
 	//	state.world.nation_set_variables(n, dcon::national_variable_id{dcon::national_variable_id::value_base_t(i)}, 0.0f);
 	//}
-	state.world.for_each_commodity([&](dcon::commodity_id t) {
-		state.world.nation_set_rgo_goods_output(n, t, state.world.nation_get_rgo_goods_output(base, t));
-		state.world.nation_set_factory_goods_output(n, t, state.world.nation_get_factory_goods_output(base, t));
-		state.world.nation_set_rgo_size(n, t, state.world.nation_get_rgo_size(base, t));
-		state.world.nation_set_factory_goods_throughput(n, t, state.world.nation_get_factory_goods_throughput(base, t));
-	});
-	state.world.for_each_rebel_type([&](dcon::rebel_type_id t) {
-		state.world.nation_set_rebel_org_modifier(n, t, state.world.nation_get_rebel_org_modifier(base, t));
-	});
-	for(uint32_t i = 0; i < state.military_definitions.unit_base_definitions.size(); ++i) {
-		state.world.nation_set_unit_stats(n, dcon::unit_type_id{dcon::unit_type_id::value_base_t(i)},
-				state.world.nation_get_unit_stats(base, dcon::unit_type_id{dcon::unit_type_id::value_base_t(i)}));
-		state.world.nation_set_active_unit(n, dcon::unit_type_id{dcon::unit_type_id::value_base_t(i)},
-				state.world.nation_get_active_unit(base, dcon::unit_type_id{dcon::unit_type_id::value_base_t(i)}));
-	}
-	for(uint32_t i = 0; i < state.culture_definitions.crimes.size(); ++i) {
-		state.world.nation_set_active_crime(n, dcon::crime_id{dcon::crime_id::value_base_t(i)},
-				state.world.nation_get_active_crime(base, dcon::crime_id{dcon::crime_id::value_base_t(i)}));
-	}
-	state.world.for_each_factory_type([&](dcon::factory_type_id t) {
-		state.world.nation_set_active_building(n, t, state.world.nation_get_active_building(base, t));
-	});
-	state.world.for_each_commodity([&](dcon::commodity_id t) {
-		state.world.nation_set_unlocked_commodities(n, t, state.world.nation_get_unlocked_commodities(base, t));
-	});
-	state.world.nation_set_has_gas_attack(n, state.world.nation_get_has_gas_attack(base));
-	state.world.nation_set_has_gas_defense(n, state.world.nation_get_has_gas_defense(base));
-	for(auto t = economy::province_building_type::railroad; t != economy::province_building_type::last; t = economy::province_building_type(uint8_t(t) + 1)) {
-		state.world.nation_set_max_building_level(n, uint8_t(t), state.world.nation_get_max_building_level(base, uint8_t(t)));
+	if(compat::technology::legacy_national_technology_causality_enabled(state)) {
+		state.world.for_each_commodity([&](dcon::commodity_id t) {
+			state.world.nation_set_rgo_goods_output(n, t, state.world.nation_get_rgo_goods_output(base, t));
+			state.world.nation_set_factory_goods_output(n, t, state.world.nation_get_factory_goods_output(base, t));
+			state.world.nation_set_rgo_size(n, t, state.world.nation_get_rgo_size(base, t));
+			state.world.nation_set_factory_goods_throughput(n, t, state.world.nation_get_factory_goods_throughput(base, t));
+		});
+		state.world.for_each_rebel_type([&](dcon::rebel_type_id t) {
+			state.world.nation_set_rebel_org_modifier(n, t, state.world.nation_get_rebel_org_modifier(base, t));
+		});
+		for(uint32_t i = 0; i < state.military_definitions.unit_base_definitions.size(); ++i) {
+			auto unit = dcon::unit_type_id{dcon::unit_type_id::value_base_t(i)};
+			state.world.nation_set_unit_stats(n, unit, state.world.nation_get_unit_stats(base, unit));
+			state.world.nation_set_active_unit(n, unit, state.world.nation_get_active_unit(base, unit));
+		}
+		for(uint32_t i = 0; i < state.culture_definitions.crimes.size(); ++i) {
+			auto crime = dcon::crime_id{dcon::crime_id::value_base_t(i)};
+			state.world.nation_set_active_crime(n, crime, state.world.nation_get_active_crime(base, crime));
+		}
+		state.world.for_each_factory_type([&](dcon::factory_type_id t) {
+			state.world.nation_set_active_building(n, t, state.world.nation_get_active_building(base, t));
+		});
+		state.world.for_each_commodity([&](dcon::commodity_id t) {
+			state.world.nation_set_unlocked_commodities(n, t, state.world.nation_get_unlocked_commodities(base, t));
+		});
+		state.world.nation_set_has_gas_attack(n, state.world.nation_get_has_gas_attack(base));
+		state.world.nation_set_has_gas_defense(n, state.world.nation_get_has_gas_defense(base));
+		for(auto t = economy::province_building_type::railroad; t != economy::province_building_type::last; t = economy::province_building_type(uint8_t(t) + 1))
+			state.world.nation_set_max_building_level(n, uint8_t(t), state.world.nation_get_max_building_level(base, uint8_t(t)));
 	}
 	state.world.nation_set_election_ends(n, sys::date{0});
 	state.world.nation_set_education_spending(n, int8_t(100));

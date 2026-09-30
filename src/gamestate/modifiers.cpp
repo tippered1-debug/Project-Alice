@@ -8,6 +8,7 @@
 #include "triggers.hpp"
 #include "ve_scalar_extensions.hpp"
 #include "economy.hpp"
+#include "compat/technology_legacy_adapter.hpp"
 
 namespace sys {
 
@@ -280,20 +281,22 @@ void recreate_national_modifiers(sys::state& state) {
 			apply_modifier_values_to_nation(state, n, mpr.mod_id);
 		}
 	}
-	state.world.for_each_technology([&](dcon::technology_id t) {
-		auto tmod = state.world.technology_get_modifier(t);
-		if(tmod) {
-			bulk_apply_masked_modifier_to_nations(state, tmod,
-					[&](auto ids) { return state.world.nation_get_active_technologies(ids, t); });
-		}
-	});
-	state.world.for_each_invention([&](dcon::invention_id i) {
-		auto tmod = state.world.invention_get_modifier(i);
-		if(tmod) {
-			bulk_apply_masked_modifier_to_nations(state, tmod,
-					[&](auto ids) { return state.world.nation_get_active_inventions(ids, i); });
-		}
-	});
+	if(compat::technology::legacy_national_technology_causality_enabled(state)) {
+		state.world.for_each_technology([&](dcon::technology_id t) {
+			auto tmod = state.world.technology_get_modifier(t);
+			if(tmod) {
+				bulk_apply_masked_modifier_to_nations(state, tmod,
+						[&](auto ids) { return state.world.nation_get_active_technologies(ids, t); });
+			}
+		});
+		state.world.for_each_invention([&](dcon::invention_id i) {
+			auto tmod = state.world.invention_get_modifier(i);
+			if(tmod) {
+				bulk_apply_masked_modifier_to_nations(state, tmod,
+						[&](auto ids) { return state.world.nation_get_active_inventions(ids, i); });
+			}
+		});
+	}
 	state.world.for_each_issue([&](dcon::issue_id i) {
 		for(auto n : state.world.in_nation) {
 			auto iopt = state.world.nation_get_issues(n, i);

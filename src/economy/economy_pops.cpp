@@ -12,6 +12,7 @@
 #include "policy_execution.hpp"
 #include "advanced_province_buildings.hpp"
 #include "gamerule.hpp"
+#include "compat/technology_legacy_adapter.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -79,6 +80,15 @@ namespace {
 	inline void wage_abort_after_log() {
 		std::fflush(stderr);
 		std::abort();
+	}
+
+	float legacy_invention_demand_factor(sys::state const& state, dcon::nation_id nation) {
+		if(!compat::technology::legacy_national_technology_causality_enabled(state)) return 1.0f;
+		float invention_count = 0.0f;
+		state.world.for_each_invention([&](auto invention) {
+			invention_count += state.world.nation_get_active_inventions(nation, invention) ? 1.0f : 0.0f;
+		});
+		return state.defines.invention_impact_on_demand * invention_count + 1.0f;
 	}
 }
 #ifndef NDEBUG
@@ -995,11 +1005,7 @@ float estimate_pop_spending_life(sys::state const& state, dcon::pop_id pop, dcon
 	auto zone = state.world.province_get_state_membership(pid);
 	auto market = state.world.state_instance_get_market_from_local_market(zone);
 	auto budget = prepare_pop_budget(state, pop);
-	auto invention_count = 0.f;
-	state.world.for_each_invention([&](auto iid) {
-		invention_count += state.world.nation_get_active_inventions(nation, iid) ? 1.0f : 0.0f;
-	});
-	auto invention_factor = state.defines.invention_impact_on_demand * invention_count + 1.f;
+	auto invention_factor = legacy_invention_demand_factor(state, nation);
 	auto weight = state.world.market_get_life_needs_weights(market, cid);
 	float mul[3] = {
 		state.world.nation_get_modifier_values(
@@ -1024,11 +1030,7 @@ float estimate_pop_spending_everyday(sys::state const& state, dcon::pop_id pop, 
 	auto zone = state.world.province_get_state_membership(pid);
 	auto market = state.world.state_instance_get_market_from_local_market(zone);
 	auto budget = prepare_pop_budget(state, pop);
-	auto invention_count = 0.f;
-	state.world.for_each_invention([&](auto iid) {
-		invention_count += state.world.nation_get_active_inventions(nation, iid) ? 1.0f : 0.0f;
-	});
-	auto invention_factor = state.defines.invention_impact_on_demand * invention_count + 1.f;
+	auto invention_factor = legacy_invention_demand_factor(state, nation);
 	auto weight = state.world.market_get_everyday_needs_weights(market, cid);
 	float mul[3] = {
 		state.world.nation_get_modifier_values(
@@ -1053,11 +1055,7 @@ float estimate_pop_spending_luxury(sys::state const& state, dcon::pop_id pop, dc
 	auto zone = state.world.province_get_state_membership(pid);
 	auto market = state.world.state_instance_get_market_from_local_market(zone);
 	auto budget = prepare_pop_budget(state, pop);
-	auto invention_count = 0.f;
-	state.world.for_each_invention([&](auto iid) {
-		invention_count += state.world.nation_get_active_inventions(nation, iid) ? 1.0f : 0.0f;
-	});
-	auto invention_factor = state.defines.invention_impact_on_demand * invention_count + 1.f;
+	auto invention_factor = legacy_invention_demand_factor(state, nation);
 	auto weight = state.world.market_get_luxury_needs_weights(market, cid);
 	float mul[3] = {
 		state.world.nation_get_modifier_values(

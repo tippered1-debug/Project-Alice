@@ -3,6 +3,7 @@
 #include "ai_types.hpp"
 #include "prng.hpp"
 #include "system_state.hpp"
+#include "compat/technology_legacy_adapter.hpp"
 #include "commands.hpp"
 
 namespace ai {
@@ -115,6 +116,7 @@ void update_ai_general_status(sys::state& state) {
 
 // MP compliant
 void update_ai_research(sys::state& state) {
+	if(!compat::technology::legacy_national_technology_causality_enabled(state)) return;
 	auto ymd_date = state.current_date.to_ymd(state.start_date);
 	auto year = uint32_t(ymd_date.year);
 	concurrency::parallel_for(uint32_t(0), state.world.nation_size(), [&](uint32_t id) {

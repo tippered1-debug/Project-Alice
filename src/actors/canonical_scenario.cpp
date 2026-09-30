@@ -14,6 +14,7 @@
 #include "persons/persons.hpp"
 #include "persons/exact_population.hpp"
 #include "system_state.hpp"
+#include "technology/technology_kernel.hpp"
 #include "world/spatial_runtime.hpp"
 
 #include <algorithm>
@@ -1512,6 +1513,340 @@ void clear_legacy_producer_support(sys::state& state) {
 	});
 }
 
+bool load_canonical_technology(sys::state& state, simple_fs::directory const& common,
+	parsers::scenario_building_context& context, parsers::error_handler& err,
+	std::vector<firm_record> const& firms, std::vector<asset_record> const& assets) {
+	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
+	auto capability_file = simple_fs::open_file(canonical, NATIVE("capabilities.csv"));
+	if(!capability_file) return true; // Legacy scenarios remain in the isolated compatibility mode.
+
+	static constexpr std::array<std::string_view, 5> capabilities_header = {
+		"capability_id", "domain", "research_effort", "codified", "transferable"
+	};
+	static constexpr std::array<std::string_view, 2> prerequisites_header = { "capability_id", "prerequisite_id" };
+	static constexpr std::array<std::string_view, 2> processes_header = { "capability_id", "factory_type" };
+	static constexpr std::array<std::string_view, 2> research_sites_header = { "site_id", "province_id" };
+	static constexpr std::array<std::string_view, 5> research_organizations_header = {
+		"research_organization_id", "firm_id", "site_id", "role", "effectiveness"
+	};
+	static constexpr std::array<std::string_view, 6> research_funding_header = {
+		"funding_id", "source_firm_id", "research_organization_id", "settlement", "amount", "date"
+	};
+	static constexpr std::array<std::string_view, 3> holders_header = { "firm_id", "capability_id", "maturity" };
+	static constexpr std::array<std::string_view, 7> programs_header = {
+		"program_id", "research_organization_id", "capability_id", "status", "start_date", "opening_effort", "cost_per_effort"
+	};
+	static constexpr std::array<std::string_view, 4> assignments_header = {
+		"program_id", "person", "allocation_fraction", "productivity_input"
+	};
+	static constexpr std::array<std::string_view, 3> adoptions_header = { "firm_id", "capability_id", "date" };
+	static constexpr std::array<std::string_view, 6> transfers_header = {
+		"transfer_id", "source_firm_id", "destination_firm_id", "capability_id", "date", "authorized_relation"
+	};
+
+	auto before = err.accumulated_errors.size();
+	table capability_table;
+	{
+		auto content = simple_fs::view_contents(*capability_file);
+		std::string_view input(content.data, content.file_size);
+		if(input.size() >= 3 && uint8_t(input[0]) == 0xEF && uint8_t(input[1]) == 0xBB && uint8_t(input[2]) == 0xBF)
+			input.remove_prefix(3);
+		err.file_name = "common/canonical_runtime/capabilities.csv";
+		uint32_t line_number = 0;
+		bool header_seen = false;
+		while(!input.empty()) {
+			auto newline = input.find('\n');
+			auto line = trim(input.substr(0, newline));
+			if(newline == std::string_view::npos) input = {};
+			else input.remove_prefix(newline + 1);
+			++line_number;
+			if(line.empty() || line.front() == '#') continue;
+			auto cells = split_row(line);
+			if(!header_seen) {
+				header_seen = true;
+				if(cells.size() != capabilities_header.size()) {
+					err.accumulated_errors += err.file_name + ":1: header has wrong column count\n";
+					break;
+				}
+				for(size_t i = 0; i < cells.size(); ++i) if(cells[i] != capabilities_header[i]) {
+					err.accumulated_errors += err.file_name + ":1: column " + std::to_string(i + 1)
+						+ " must be '" + std::string(capabilities_header[i]) + "'\n";
+					break;
+				}
+				continue;
+			}
+			if(cells.size() != capabilities_header.size()) {
+				err.accumulated_errors += err.file_name + ":" + std::to_string(line_number) + ": wrong column count\n";
+				continue;
+			}
+			capability_table.rows.push_back({std::move(cells), line_number});
+		}
+		if(!header_seen) err.accumulated_errors += err.file_name + ": missing required header\n";
+	}
+	auto read = [&](char const* name, auto const& header) -> std::optional<table> {
+		return read_table(canonical, name, header, err);
+	};
+	auto prerequisites = read("capability_prerequisites.csv", prerequisites_header);
+	auto processes = read("capability_processes.csv", processes_header);
+	auto research_sites = read("research_sites.csv", research_sites_header);
+	auto organizations = read("research_organizations.csv", research_organizations_header);
+	auto research_funding = read("research_funding.csv", research_funding_header);
+	auto holders = read("capability_holders.csv", holders_header);
+	auto programs = read("research_programs.csv", programs_header);
+	auto assignments = read("research_assignments.csv", assignments_header);
+	auto adoptions = read("capability_adoptions.csv", adoptions_header);
+	auto transfers = read("capability_transfers.csv", transfers_header);
+	if(!prerequisites || !processes || !research_sites || !organizations || !research_funding || !holders || !programs
+		|| !assignments || !adoptions || !transfers || err.accumulated_errors.size() != before) return false;
+
+	using namespace technology::kernel;
+	snapshot value;
+	value.canonical_runtime_active = 1;
+	std::unordered_map<std::string, technology::kernel::stable_id> capability_ids;
+	std::unordered_map<technology::kernel::stable_id, std::string> capability_hashes;
+	for(auto const& source : capability_table.rows) {
+		auto const& id = source.cells[0];
+		auto const& domain = source.cells[1];
+		float effort = 0.0f;
+		uint32_t codified = 0, transferable = 0;
+		if(!valid_key(id) || !valid_key(domain)) add_row_error(err, "capabilities.csv", source.line, "capability_id and domain must be nonempty stable keys");
+		if(!parse_float(source.cells[2], effort) || effort <= 0.0f) add_row_error(err, "capabilities.csv", source.line, "research_effort must be finite and positive");
+		if(!parse_integer(source.cells[3], codified) || codified > 1) add_row_error(err, "capabilities.csv", source.line, "codified must be 0 or 1");
+		if(!parse_integer(source.cells[4], transferable) || transferable > 1) add_row_error(err, "capabilities.csv", source.line, "transferable must be 0 or 1");
+		auto stable = stable_id_for("capability", id);
+		if(capability_ids.contains(id)) add_row_error(err, "capabilities.csv", source.line, "duplicate capability_id '" + id + "'");
+		if(auto [it, inserted] = capability_hashes.emplace(stable, id); !inserted && it->second != id)
+			add_row_error(err, "capabilities.csv", source.line, "capability stable ID hash collision");
+		capability_ids.emplace(id, stable);
+		value.capabilities.push_back({stable, stable_id_for("technology-domain", domain), effort,
+			uint8_t(codified), uint8_t(transferable)});
+	}
+	auto lookup_capability = [&](std::string const& id, char const* file, uint32_t line) -> technology::kernel::stable_id {
+		auto it = capability_ids.find(id);
+		if(it == capability_ids.end()) {
+			add_row_error(err, file, line, "capability_id '" + id + "' is missing from capabilities.csv");
+			return 0;
+		}
+		return it->second;
+	};
+	for(auto const& source : prerequisites->rows) {
+		auto capability = lookup_capability(source.cells[0], "capability_prerequisites.csv", source.line);
+		auto prerequisite = lookup_capability(source.cells[1], "capability_prerequisites.csv", source.line);
+		if(capability && prerequisite) value.prerequisites.push_back({capability, prerequisite});
+	}
+	std::unordered_map<technology::kernel::stable_id, std::string> process_ids;
+	for(auto const& source : processes->rows) {
+		auto capability = lookup_capability(source.cells[0], "capability_processes.csv", source.line);
+		auto process_id = stable_id_for("factory-process", source.cells[1]);
+		auto [process_it, process_inserted] = process_ids.emplace(process_id, source.cells[1]);
+		if(!process_inserted && process_it->second != source.cells[1])
+			add_row_error(err, "capability_processes.csv", source.line, "factory process stable ID hash collision");
+		auto factory = context.map_of_factory_names.find(source.cells[1]);
+		if(factory == context.map_of_factory_names.end())
+			add_row_error(err, "capability_processes.csv", source.line, "factory_type '" + source.cells[1] + "' is missing");
+		else if(capability) value.factory_processes.push_back({capability,
+			process_id, factory->second});
+	}
+
+	std::unordered_map<std::string, firm_record const*> firm_by_id;
+	for(auto const& firm : firms) firm_by_id.emplace(firm.id, &firm);
+	std::unordered_map<std::string, dcon::site_id> site_by_id;
+	for(auto const& asset : assets) {
+		auto [it, inserted] = site_by_id.emplace(asset.site_key, asset.site);
+		if(!inserted && it->second != asset.site)
+			add_row_error(err, "research_organizations.csv", 0, "site_id resolves to multiple physical sites");
+	}
+	std::unordered_set<std::string> research_site_ids;
+	for(auto const& source : research_sites->rows) {
+		if(!valid_key(source.cells[0]) || !research_site_ids.insert(source.cells[0]).second) {
+			add_row_error(err, "research_sites.csv", source.line, "site_id must be a valid unique stable key");
+			continue;
+		}
+		uint32_t original_province = 0;
+		if(!parse_integer(source.cells[1], original_province) || original_province == 0) {
+			add_row_error(err, "research_sites.csv", source.line, "province_id must be a nonzero original scenario province ID");
+			continue;
+		}
+		auto province = province_from_original_id(state, context, original_province);
+		if(!province) {
+			add_row_error(err, "research_sites.csv", source.line, "province_id does not resolve in this scenario");
+			continue;
+		}
+		if(auto existing = site_by_id.find(source.cells[0]); existing != site_by_id.end()) {
+			if(state.world.site_get_province_from_site_location(existing->second) != province)
+				add_row_error(err, "research_sites.csv", source.line, "site_id conflicts with an asset site in another province");
+			continue;
+		}
+		auto site = state.world.create_site();
+		state.world.force_create_site_location(site, province);
+		state.world.site_set_canonical_id(site, stable_id_for("site", source.cells[0]));
+		site_by_id.emplace(source.cells[0], site);
+	}
+	std::unordered_map<std::string, technology::kernel::stable_id> research_ids;
+	std::unordered_map<std::string, technology::kernel::stable_id> firm_stable_ids;
+	for(auto const& [firm_id, firm] : firm_by_id)
+		firm_stable_ids.emplace(firm_id, state.world.organization_get_canonical_id(firm->organization));
+	for(auto const& source : organizations->rows) {
+		auto const& id = source.cells[0];
+		auto firm = firm_by_id.find(source.cells[1]);
+		auto site = site_by_id.find(source.cells[2]);
+		if(!valid_key(id) || research_ids.contains(id)) add_row_error(err, "research_organizations.csv", source.line, "research_organization_id must be valid and unique");
+		if(firm == firm_by_id.end()) add_row_error(err, "research_organizations.csv", source.line, "firm_id '" + source.cells[1] + "' is missing");
+		if(site == site_by_id.end()) add_row_error(err, "research_organizations.csv", source.line, "site_id '" + source.cells[2] + "' is missing");
+		research_role role = research_role::other;
+		if(source.cells[3] == "university") role = research_role::university;
+		else if(source.cells[3] == "public_laboratory") role = research_role::public_laboratory;
+		else if(source.cells[3] == "corporate_rd") role = research_role::corporate_rd;
+		else if(source.cells[3] == "military_government") role = research_role::military_government;
+		else if(source.cells[3] != "other") add_row_error(err, "research_organizations.csv", source.line, "unknown research role '" + source.cells[3] + "'");
+		float effectiveness = 0.0f;
+		if(!parse_float(source.cells[4], effectiveness) || effectiveness < 0.0f || effectiveness > 1.0f)
+			add_row_error(err, "research_organizations.csv", source.line, "effectiveness must be between 0 and 1");
+		auto research_id = stable_id_for("research-organization", id);
+		research_ids.emplace(id, research_id);
+		if(firm != firm_by_id.end()) {
+			auto account = economy::accounts::find_account(state, firm->second->actor, firm->second->settlement);
+			if(!account) add_row_error(err, "research_organizations.csv", source.line, "firm has no funding account");
+			if(site != site_by_id.end() && account)
+				value.organizations.push_back({research_id, firm->second->organization, site->second, account, role, effectiveness});
+		}
+	}
+	for(auto const& source : holders->rows) {
+		auto firm = firm_stable_ids.find(source.cells[0]);
+		if(firm == firm_stable_ids.end()) add_row_error(err, "capability_holders.csv", source.line, "firm_id '" + source.cells[0] + "' is missing");
+		auto capability = lookup_capability(source.cells[1], "capability_holders.csv", source.line);
+		float maturity = 0.0f;
+		if(!parse_float(source.cells[2], maturity) || maturity < 0.0f || maturity > 1.0f)
+			add_row_error(err, "capability_holders.csv", source.line, "maturity must be between 0 and 1");
+		if(firm != firm_stable_ids.end() && capability) value.holders.push_back({firm->second, capability, maturity});
+	}
+	std::unordered_map<std::string, technology::kernel::stable_id> program_ids;
+	for(auto const& source : programs->rows) {
+		auto const& id = source.cells[0];
+		auto research_org = research_ids.find(source.cells[1]);
+		auto capability = lookup_capability(source.cells[2], "research_programs.csv", source.line);
+		if(!valid_key(id) || program_ids.contains(id)) add_row_error(err, "research_programs.csv", source.line, "program_id must be valid and unique");
+		if(research_org == research_ids.end()) add_row_error(err, "research_programs.csv", source.line, "research_organization_id '" + source.cells[1] + "' is missing");
+		program_status status = program_status::planned;
+		if(source.cells[3] == "active") status = program_status::active;
+		else if(source.cells[3] == "paused") status = program_status::paused;
+		else if(source.cells[3] == "completed") status = program_status::completed;
+		else if(source.cells[3] == "cancelled") status = program_status::cancelled;
+		else if(source.cells[3] != "planned") add_row_error(err, "research_programs.csv", source.line, "unknown program status '" + source.cells[3] + "'");
+		auto start = parse_iso_date(source.cells[4]);
+		if(!start) add_row_error(err, "research_programs.csv", source.line, "start_date must use YYYY-MM-DD");
+		float opening_effort = 0.0f, cost_per_effort = 0.0f;
+		if(!parse_float(source.cells[5], opening_effort) || opening_effort < 0.0f)
+			add_row_error(err, "research_programs.csv", source.line, "opening_effort must be finite and nonnegative");
+		if(!parse_float(source.cells[6], cost_per_effort) || cost_per_effort <= 0.0f)
+			add_row_error(err, "research_programs.csv", source.line, "cost_per_effort must be finite and positive");
+		float required_effort = 0.0f;
+		if(capability) for(auto const& definition : value.capabilities)
+			if(definition.id == capability) required_effort = definition.research_effort;
+		if(opening_effort > required_effort) add_row_error(err, "research_programs.csv", source.line, "opening_effort cannot exceed capability research_effort");
+		auto program_id = stable_id_for("research-program", id);
+		program_ids.emplace(id, program_id);
+		if(research_org != research_ids.end() && capability && start)
+			value.programs.push_back({program_id, research_org->second, capability, status,
+				sys::date(*start, state.start_date), opening_effort, required_effort, cost_per_effort});
+	}
+	for(auto const& source : assignments->rows) {
+		auto program = program_ids.find(source.cells[0]);
+		if(program == program_ids.end()) add_row_error(err, "research_assignments.csv", source.line, "program_id '" + source.cells[0] + "' is missing");
+		auto separator = source.cells[1].find(':');
+		persons::person_key person{};
+		bool valid_person = separator != std::string::npos
+			&& source.cells[1].find(':', separator + 1) == std::string::npos
+			&& parse_integer(std::string_view(source.cells[1]).substr(0, separator), person.source_population_cell)
+			&& parse_integer(std::string_view(source.cells[1]).substr(separator + 1), person.ordinal)
+			&& persons::exists(state, person) && persons::alive(state, person);
+		if(!valid_person) add_row_error(err, "research_assignments.csv", source.line, "person must reference an existing living exact person as source_population_cell:ordinal");
+		float allocation = 0.0f, productivity = 0.0f;
+		if(!parse_float(source.cells[2], allocation) || allocation <= 0.0f || allocation > 1.0f)
+			add_row_error(err, "research_assignments.csv", source.line, "allocation_fraction must be greater than 0 and at most 1");
+		if(!parse_float(source.cells[3], productivity) || productivity < 0.0f || productivity > 1.0f)
+			add_row_error(err, "research_assignments.csv", source.line, "productivity_input must be 0 (derive) or between 0 and 1");
+		if(program != program_ids.end() && valid_person)
+			value.assignments.push_back({program->second, person, allocation, productivity});
+	}
+
+	if(err.accumulated_errors.size() != before) return false;
+	if(!install_scenario_state(state, value)) {
+		add_row_error(err, "capabilities.csv", 0, "canonical technology state failed invariants; check organization, site, staff, holder, prerequisite, and program references");
+		return false;
+	}
+	std::unordered_set<std::string> funding_ids;
+	for(auto const& source : research_funding->rows) {
+		auto firm = firm_by_id.find(source.cells[1]);
+		auto research_org = research_ids.find(source.cells[2]);
+		if(!valid_key(source.cells[0]) || !funding_ids.insert(source.cells[0]).second)
+			add_row_error(err, "research_funding.csv", source.line, "funding_id must be a valid unique stable key");
+		if(firm == firm_by_id.end()) add_row_error(err, "research_funding.csv", source.line, "source_firm_id is missing");
+		if(research_org == research_ids.end()) add_row_error(err, "research_funding.csv", source.line, "research_organization_id is missing");
+		auto settlement = context.map_of_commodity_names.find(source.cells[3]);
+		if(settlement == context.map_of_commodity_names.end()) add_row_error(err, "research_funding.csv", source.line, "settlement commodity is missing");
+		float amount = 0.0f;
+		if(!parse_float(source.cells[4], amount) || amount <= 0.0f) add_row_error(err, "research_funding.csv", source.line, "amount must be finite and positive");
+		auto date = parse_iso_date(source.cells[5]);
+		if(!date) add_row_error(err, "research_funding.csv", source.line, "date must use YYYY-MM-DD");
+		if(firm == firm_by_id.end() || research_org == research_ids.end()
+			|| settlement == context.map_of_commodity_names.end() || !date || amount <= 0.0f) continue;
+		auto target = std::find_if(value.organizations.begin(), value.organizations.end(), [&](auto const& record) {
+			return record.id == research_org->second;
+		});
+		if(target == value.organizations.end()
+			|| economy::accounts::settlement_of(state, target->funding_account) != settlement->second) {
+			add_row_error(err, "research_funding.csv", source.line, "funding settlement must match the research organization's account");
+			continue;
+		}
+		auto funding_date = sys::date(*date, state.start_date);
+		if(state.current_date && funding_date > state.current_date) {
+			add_row_error(err, "research_funding.csv", source.line, "opening funding date cannot be after scenario start");
+			continue;
+		}
+		auto source_account = economy::accounts::find_account(state, firm->second->actor, settlement->second);
+		auto transfer_kind = firm->second->kind == ownership::actor_kind::state_entity
+			? economy::relations::transaction_kind::public_spending : economy::relations::transaction_kind::transfer;
+		if(!source_account || !economy::accounts::transfer(state, source_account, target->funding_account,
+			amount, transfer_kind, funding_date))
+			add_row_error(err, "research_funding.csv", source.line, "funding transfer failed because the source account lacks available funds");
+	}
+	for(auto const& source : transfers->rows) {
+		auto source_firm = firm_stable_ids.find(source.cells[1]);
+		auto destination_firm = firm_stable_ids.find(source.cells[2]);
+		auto capability = lookup_capability(source.cells[3], "capability_transfers.csv", source.line);
+		auto date = parse_iso_date(source.cells[4]);
+		if(source_firm == firm_stable_ids.end()) add_row_error(err, "capability_transfers.csv", source.line, "source firm is missing");
+		if(destination_firm == firm_stable_ids.end()) add_row_error(err, "capability_transfers.csv", source.line, "destination firm is missing");
+		if(!valid_key(source.cells[0]) || !valid_key(source.cells[5])) add_row_error(err, "capability_transfers.csv", source.line, "transfer_id and authorized_relation must be stable keys");
+		if(!date) add_row_error(err, "capability_transfers.csv", source.line, "date must use YYYY-MM-DD");
+		if(date && state.current_date && sys::date(*date, state.start_date) > state.current_date)
+			add_row_error(err, "capability_transfers.csv", source.line, "transfer date cannot be after scenario start");
+		if(source_firm != firm_stable_ids.end() && destination_firm != firm_stable_ids.end() && capability && date) {
+			auto ok = transfer_capability(state, source_firm->second, destination_firm->second, capability,
+				sys::date(*date, state.start_date), stable_id_for("technology-authorization", source.cells[5]),
+				stable_id_for("capability-transfer", source.cells[0]));
+			if(!ok) add_row_error(err, "capability_transfers.csv", source.line, "transfer is unauthorized, duplicated, nontransferable, or lacks a source holder");
+		}
+	}
+	for(auto const& source : adoptions->rows) {
+		auto firm = firm_stable_ids.find(source.cells[0]);
+		auto capability = lookup_capability(source.cells[1], "capability_adoptions.csv", source.line);
+		auto date = parse_iso_date(source.cells[2]);
+		if(firm == firm_stable_ids.end()) add_row_error(err, "capability_adoptions.csv", source.line, "firm_id '" + source.cells[0] + "' is missing");
+		if(!date) add_row_error(err, "capability_adoptions.csv", source.line, "date must use YYYY-MM-DD");
+		if(date && state.current_date && sys::date(*date, state.start_date) > state.current_date)
+			add_row_error(err, "capability_adoptions.csv", source.line, "adoption date cannot be after scenario start");
+		if(firm != firm_stable_ids.end() && capability && date
+			&& !adopt_capability(state, firm->second, capability, sys::date(*date, state.start_date)))
+			add_row_error(err, "capability_adoptions.csv", source.line, "adoption requires local holder knowledge and resolved prerequisites");
+	}
+	std::vector<std::string> validation_errors;
+	if(!validate_canonical_technology_state(state, validation_errors))
+		for(auto const& message : validation_errors) add_row_error(err, "capabilities.csv", 0, message);
+	return err.accumulated_errors.size() == before;
+}
+
 } // namespace
 
 bool load(sys::state& state, simple_fs::directory const& common,
@@ -1567,6 +1902,10 @@ bool load(sys::state& state, simple_fs::directory const& common,
 			assets_by_id, stake_ids)
 			|| !load_loans(state, err, firms, assets, loans, obligation_ids)
 		|| !load_land_forces(state, context, common, err)) {
+		err.fatal = true;
+		return false;
+	}
+	if(!load_canonical_technology(state, common, context, err, firms, assets)) {
 		err.fatal = true;
 		return false;
 	}

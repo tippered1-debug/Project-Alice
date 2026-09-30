@@ -18,6 +18,7 @@
 #include "relations/relations.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
+#include "technology/technology_kernel.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -137,6 +138,10 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 	auto market = province ? state.world.state_instance_get_market_from_local_market(
 		state.world.province_get_state_membership(province)) : dcon::market_id{};
 	if(!type || !province || !site || !owner || !market) return result;
+	if(technology::kernel::canonical_runtime_active(state)
+		&& technology::kernel::factory_process_has_canonical_requirement(state, type)
+		&& !technology::kernel::organization_can_operate_factory_type(state,
+			actors::organizations::organization_for_actor(state, owner), type)) return result;
 	auto capacity = finite_nonnegative(state.world.factory_get_productive_capacity(factory));
 	auto productivity = std::max(0.0f, finite_nonnegative(state.world.factory_get_productivity_factor(factory), 1.0f));
 	auto output_commodity = state.world.factory_type_get_output(type);

@@ -51,6 +51,10 @@ namespace military {
 struct land_force_store;
 }
 
+namespace technology {
+struct technology_kernel_store;
+}
+
 namespace economy {
 struct exact_person_economy_store;
 struct causal_order_store;
@@ -770,6 +774,9 @@ struct alignas(64) state {
 	// Sparse labor-separation history and events. This does not allocate one
 	// DCON object per logical exact person.
 	mutable std::shared_ptr<economy::physical::labor_dynamics_store> labor_dynamics;
+	// Canonical organization-held capabilities, funded research programs, exact
+	// Person Kernel assignments, adoption, and explicit transfer history.
+	mutable std::shared_ptr<technology::technology_kernel_store> technology_kernel;
 
 	// scenario data
 
