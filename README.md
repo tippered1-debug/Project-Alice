@@ -2,7 +2,7 @@
 
 Project Alice is a continuation / rewrite of the Open V2 codebase (an open source "retro clone" of Victoria 2).
 
-Join us on [discord](https://discord.gg/QUJExr4mRn) or visit our [documentation pages](https://github.com/schombert/Project-Alice/blob/main/docs/)
+Join us on [discord](https://discord.gg/QUJExr4mRn) or visit our [documentation map](docs/README.md)
 
 ## How to install and play
 - [Download the latest release here](https://github.com/schombert/Project-Alice/releases)
@@ -10,23 +10,23 @@ Join us on [discord](https://discord.gg/QUJExr4mRn) or visit our [documentation 
 - IF YOU INSTALLED A PREVIOUS DEMO OR RELEASE: I suggest that you delete it and the old assets folder before copying over the new one, as an extra precaution.
 - Start the game by running launch_alice.exe.
 - Mods may or may not run with more or less problems (see the October update and the compatibility patches channel in the discord for more information about particular mods).
-- Read up the [User and multiplayer guide](https://github.com/schombert/Project-Alice/blob/main/docs/user_guide.md) for further information and troubleshooting
+- Read up the [User and multiplayer guide](docs/legacy-alice/user_guide.md) for further information and troubleshooting
 
 ### For Linux users
 - [Download the AppImage version in Github Actions](https://github.com/schombert/Project-Alice/actions)
 - Uncompress the archive and move the executable files and the assets folder into your main Victoria 2 directory. **AppImage file and assets should in the same folder as v2game.exe**.
 - Make the AppImage executable (e.g. Project_Alice.AppImage) by running `chmod +x Project_Alice.AppImage`.
 - Start the game by running `./Project_Alice.AppImage`.
-- Read up the [User and multiplayer guide](https://github.com/schombert/Project-Alice/blob/main/docs/user_guide.md#linux) for parameters.
+- Read up the [User and multiplayer guide](docs/legacy-alice/user_guide.md#linux) for parameters.
 
 ## Contributing
-- Please, [visit this page](https://github.com/schombert/Project-Alice/blob/main/docs/contributing.md) ([简中](https://github.com/schombert/Project-Alice/blob/main/docs/zh-cn/contributing.md), [Español](https://github.com/schombert/Project-Alice/blob/main/docs/es-es/contributing.md), [Deutsch](https://github.com/schombert/Project-Alice/blob/main/docs/de-de/contributing.md), [Português](https://github.com/schombert/Project-Alice/blob/main/docs/pt/contributing.md))
+- Please, [visit this page](docs/legacy-alice/contributing.md) ([简中](docs/legacy-alice/zh-cn/contributing.md), [Español](docs/legacy-alice/es-es/contributing.md), [Deutsch](docs/legacy-alice/de-de/contributing.md), [Português](docs/legacy-alice/pt/contributing.md))
 
 ## Updates
-- [v1.2.2](docs/Devlogs/v1.2.2/README.md) [中文](docs/Devlogs/v1.2.2/cn.md)
-- [v1.2.1](docs/Devlogs/v1.2.1/README.md) [中文](docs/Devlogs/v1.2.1/README_cn.md)
-- [PA 1.2 PlayGuide](https://sneakbug8.com/project-alice) [简中](docs/zh-cn/PA%201.2%20玩法指南.md)
-- [2024 04](docs/Devlogs/2024-04/log_en.md), [简中](docs/Devlogs/2024-04/log_cn.md)
+- [v1.2.2](docs/legacy-alice/Devlogs/v1.2.2/README.md) [中文](docs/legacy-alice/Devlogs/v1.2.2/cn.md)
+- [v1.2.1](docs/legacy-alice/Devlogs/v1.2.1/README.md) [中文](docs/legacy-alice/Devlogs/v1.2.1/README_cn.md)
+- [PA 1.2 PlayGuide](https://sneakbug8.com/project-alice) [简中](docs/legacy-alice/zh-cn/PA%201.2%20玩法指南.md)
+- [2024 04](docs/legacy-alice/Devlogs/2024-04/log_en.md), [简中](docs/legacy-alice/Devlogs/2024-04/log_cn.md)
 - [2024 02](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2024-02/log_en.md), [简中](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2024-02/log_cn.md)
 - [January 2024 update](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2024-01/log_en.md) ([简中](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2024-01/log_cn.md), [Español](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2024-01/log_es.md), [Português](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2024-01/log_pt.md))
 - [December 2023 update](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2023-12/log_en.md) ([简中](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2023-12/log_cn.md), [Español](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2023-12/log_es.md), [Português](https://github.com/schombert/Project-Alice/blob/main/docs/Devlogs/2023-12/log_pt.md))
@@ -42,7 +42,7 @@ Join us on [discord](https://discord.gg/QUJExr4mRn) or visit our [documentation 
 
 ## About Project Alice (translated)
 
-- [简中介绍](./docs/zh-cn/about.md)
-- [Versión en español](./docs/es-es/about.md)
-- [Deutsche Version](./docs/de-de/about.md)
-- [Versão em português](./docs/pt/about.md)
+- [简中介绍](./docs/legacy-alice/zh-cn/about.md)
+- [Versión en español](./docs/legacy-alice/es-es/about.md)
+- [Deutsche Version](./docs/legacy-alice/de-de/about.md)
+- [Versão em português](./docs/legacy-alice/pt/about.md)
