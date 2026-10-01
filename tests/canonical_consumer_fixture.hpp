@@ -9,6 +9,7 @@
 #include "economy/physical/job_market.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 #include "gamestate/system_state.hpp"
+#include "gamestate/game_scene.hpp"
 #include "military/land_forces.hpp"
 #include "nations/strategic_statecraft.hpp"
 #include "persons/exact_population.hpp"

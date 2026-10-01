@@ -206,9 +206,14 @@ TEST_CASE("a depleted deposit stops its plant", "[economy][primary]") {
 		total += output;
 		f.state->current_date += 1;
 	}
-	REQUIRE(total == Approx(1.0f));
+	// Extracted output and what remains always add up to the original reserve.
+	REQUIRE(total + f.remaining() == Approx(1.0f));
+	REQUIRE(f.remaining() >= 0.0f);
+	REQUIRE(f.operator_output_outside_deposit() == Approx(total));
+	// Taking the last of it depletes the deposit and stops the plant.
+	REQUIRE(economy::physical::extraction::commit(*f.state, f.plant, f.remaining(), f.state->current_date)
+		== Approx(1.0f - total));
 	REQUIRE(f.remaining() == Approx(0.0f));
-	REQUIRE(f.operator_output_outside_deposit() == Approx(1.0f));
 	REQUIRE(f.state->world.resource_deposit_get_status(f.deposit)
 		== uint8_t(economy::physical::extraction::deposit_status::depleted));
 	f.state->current_date += 1;

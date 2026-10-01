@@ -1,5 +1,5 @@
 #include "catch.hpp"
-#include <canonical_consumer_fixture.hpp>
+#include "canonical_consumer_fixture.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/extraction.hpp"
