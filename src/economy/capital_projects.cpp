@@ -491,7 +491,11 @@ dcon::capital_project_id public_request(sys::state& s, dcon::nation_id nation, d
 	if(!settlement) return {};
 	auto location = s.world.create_site();
 	s.world.force_create_site_location(location, province);
+	// A public contractor belongs to the state that commissions it, so its
+	// earnings have an owner.
 	auto contractor = actors::organizations::create_company(s);
+	if(!contractor || !actors::ownership::create_stake(s, owner,
+		actors::organizations::equity_asset_for_organization(s, contractor), 1.0f, 1.0f, 1.0f)) return {};
 	auto p = create(s, kind, owner, contractor, location, settlement, type);
 	if(p) s.world.force_create_institution_treasury_account(
 		s.world.capital_project_get_monetary_account_from_capital_project_account(p), authority);

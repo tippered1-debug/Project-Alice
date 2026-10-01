@@ -18,6 +18,8 @@
 #include "economy/physical/extraction.cpp"
 #include "economy/physical/land.cpp"
 #include "economy/households.cpp"
+#include "economy/wallets.cpp"
+#include "economy/dividends.cpp"
 #include "economy/physical/inventory.cpp"
 #include "economy/physical/shipments.cpp"
 #include "economy/physical/freight_market.cpp"

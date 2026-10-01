@@ -28,6 +28,7 @@
 #include "province.hpp"
 #include "economy/physical/land.hpp"
 #include "economy/households.hpp"
+#include "economy/dividends.hpp"
 #include "money.hpp"
 #include "economy_constants.hpp"
 #include "economy_factory_view.hpp"
@@ -1082,6 +1083,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	{
 		::economy::firm_agency::update_decisions(state);
 		::economy::industrial_dynamics::process(state);
+		::economy::dividends::process(state);
 	}
 
 	// produce goods and services

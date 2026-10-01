@@ -12,6 +12,7 @@
 #include "economy/physical/extraction.hpp"
 #include "economy/physical/land.hpp"
 #include "economy/households.hpp"
+#include "economy/wallets.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/relations/relations.hpp"
@@ -228,18 +229,9 @@ void close_factory(sys::state& state, dcon::factory_id factory) {
 	for(auto contract : exact_person_economy::active_contracts_for_factory(state, factory))
 		(void)exact_person_economy::end_contract(state, contract,
 			exact_person_economy::contract_status::terminated, state.current_date);
-	if(site && owner) {
-		std::vector<std::pair<dcon::commodity_id, float>> stocks;
-		state.world.site_for_each_physical_stock_site_as_site(site, [&](dcon::physical_stock_site_id relation) {
-			auto stock = state.world.physical_stock_site_get_physical_stock(relation);
-			auto owner_relation = state.world.physical_stock_get_physical_stock_owner(stock);
-			if(!owner_relation || state.world.physical_stock_owner_get_economic_actor(owner_relation) != owner) return;
-			stocks.emplace_back(state.world.physical_stock_get_commodity_from_physical_stock_commodity(stock),
-				std::max(0.0f, state.world.physical_stock_get_quantity(stock)));
-		});
-		for(auto const& [commodity, quantity] : stocks)
-			if(commodity && quantity > epsilon) (void)physical::inventory::remove(state, site, commodity, quantity, owner);
-	}
+	// Goods at a closed plant stay the operator's property; closing a plant
+	// destroys nothing.
+	(void)site;
 	auto account = owner ? accounts::find_account(state, owner,
 		state.world.factory_get_payroll_settlement(factory)) : dcon::monetary_account_id{};
 	if(account) (void)service_factory_claims(state, factory, account,
@@ -321,13 +313,12 @@ void attempt_external_recapitalization(sys::state& state, dcon::factory_id facto
 	auto firm_account = actor_account(state, firm, settlement);
 	if(!firm_account) return;
 	dcon::economic_actor_id selected{};
-	dcon::monetary_account_id selected_account{};
+	wallets::account_ref selected_account{};
 	float selected_amount = 0.0f;
 	state.world.for_each_economic_actor([&](dcon::economic_actor_id investor) {
 		if(investor == firm || !eligible_investor(state, investor)) return;
-		auto account = accounts::find_account(state, investor, settlement);
-		auto available = unreserved_cash(state, account);
-		auto amount = std::min(need, available * 0.10f);
+		auto account = wallets::account_for(state, investor, settlement);
+		auto amount = std::min(need, wallets::spendable(state, account) * 0.10f);
 		if(amount > selected_amount) {
 			selected = investor;
 			selected_account = account;
@@ -335,8 +326,8 @@ void attempt_external_recapitalization(sys::state& state, dcon::factory_id facto
 		}
 	});
 	if(!selected || selected_amount <= epsilon
-		|| !accounts::transfer(state, selected_account, firm_account, selected_amount,
-			relations::transaction_kind::equity_contribution, state.current_date)) return;
+		|| !wallets::pay(state, selected_account, wallets::account_ref::from_dcon(firm_account), selected_amount,
+			relations::transaction_kind::equity_contribution)) return;
 	(void)actors::ownership::issue_equity(state,
 		actors::organizations::equity_asset_for_organization(state, organization), selected,
 		selected_amount, std::max(1.0f, factory_value(state, factory)));
@@ -569,11 +560,15 @@ acquisition_opportunity best_acquisition(sys::state const& state, dcon::economic
 }
 
 bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor,
-	dcon::monetary_account_id source, dcon::commodity_id settlement,
+	wallets::account_ref wallet, dcon::commodity_id settlement,
 	project_opportunity const& opportunity) {
-	if(!opportunity.site || !opportunity.type || !source) return false;
+	if(!opportunity.site || !opportunity.type || !wallet) return false;
 	auto required = opportunity.project_budget + opportunity.working_capital;
-	auto available = unreserved_cash(state, source);
+	auto available = wallets::spendable(state, wallet);
+	// Only an organization finances a project from its own operating account;
+	// a person founds a company and funds it from their own ledger.
+	dcon::monetary_account_id source = wallet.kind == economy::exact_person_economy::account_kind::dcon
+		? wallet.dcon_account : dcon::monetary_account_id{};
 	auto organization = actors::organizations::organization_for_actor(state, investor);
 	auto sponsor = investor;
 	dcon::economic_actor_id founder{};
@@ -587,8 +582,8 @@ bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor,
 	if(founder) {
 		if(available < required) return false;
 		auto startup_account = actor_account(state, sponsor, settlement);
-		if(!startup_account || !accounts::transfer(state, source, startup_account, required,
-			relations::transaction_kind::equity_contribution, state.current_date)) return false;
+		if(!startup_account || !wallets::pay(state, wallet, wallets::account_ref::from_dcon(startup_account), required,
+			relations::transaction_kind::equity_contribution)) return false;
 		if(!actors::ownership::issue_equity(state,
 			actors::organizations::equity_asset_for_organization(state, organization), founder,
 			required, 0.0f)) return false;
@@ -639,18 +634,18 @@ bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor,
 }
 
 bool execute_acquisition(sys::state& state, dcon::economic_actor_id investor,
-	dcon::monetary_account_id account, dcon::commodity_id settlement,
+	wallets::account_ref wallet, dcon::commodity_id settlement,
 	acquisition_opportunity const& opportunity) {
 	auto organization = actors::organizations::organization_for_actor(state, investor);
 	if(organization) return acquire_factory(state, investor, organization,
 		opportunity.factory, opportunity.price);
-	if(!account || unreserved_cash(state, account) < opportunity.price) return false;
+	if(!wallet || wallets::spendable(state, wallet) < opportunity.price) return false;
 	organization = actors::organizations::create_company(state);
 	if(!organization) return false;
 	auto company = actors::organizations::actor_for_organization(state, organization);
 	auto company_account = actor_account(state, company, settlement);
-	if(!company_account || !accounts::transfer(state, account, company_account,
-		opportunity.price, relations::transaction_kind::equity_contribution, state.current_date)) return false;
+	if(!company_account || !wallets::pay(state, wallet, wallets::account_ref::from_dcon(company_account),
+		opportunity.price, relations::transaction_kind::equity_contribution)) return false;
 	if(!actors::ownership::issue_equity(state,
 		actors::organizations::equity_asset_for_organization(state, organization), investor,
 		opportunity.price, 0.0f)) return false;
@@ -667,8 +662,8 @@ void process_investor(sys::state& state, dcon::economic_actor_id investor,
 		state.world.economic_actor_set_industrial_last_decision_date(investor, state.current_date);
 		return;
 	}
-	auto account = accounts::find_account(state, investor, settlement);
-	auto available = unreserved_cash(state, account);
+	auto account = wallets::account_for(state, investor, settlement);
+	auto available = wallets::spendable(state, account);
 	if(!account || available <= 1.0f) {
 		state.world.economic_actor_set_industrial_last_decision_date(investor, state.current_date);
 		return;

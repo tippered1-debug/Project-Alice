@@ -1,4 +1,5 @@
 #include "ownership.hpp"
+#include "economy/wallets.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/physical/concrete_market.hpp"
@@ -198,16 +199,18 @@ float contribute_equity_to_factory(sys::state& state, dcon::factory_id factory,
 			auto owner = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
 			auto share = state.world.ownership_stake_get_economic_fraction(stake);
 			if(!owner || owner == firm || share <= 0.0f || !funded_owners.insert(owner.index()).second) return;
-			auto account = economy::accounts::find_account(state, owner, settlement);
+			// The owner's own ledger: a person's exact account, a treasury, or an
+			// organization's operating account.
+			auto account = economy::wallets::account_for(state, owner, settlement);
 			if(!account) return;
-			auto cash = std::max(0.0f, economy::accounts::balance(state, account)
-				- economy::physical::concrete_market::reserved_bid_amount(state, account));
+			auto cash = economy::wallets::spendable(state, account);
 			// Owners put in real cash, pro-rata to their equity and subject to a
 			// liquidity cap. A company does not inject into itself as its own owner.
 			auto contribution = std::min({requested_amount - contributed,
 				requested_amount * std::clamp(share, 0.0f, 1.0f), cash * 0.20f});
-			if(contribution > 1.0e-5f && economy::accounts::transfer(state, account, firm_account,
-				contribution, economy::relations::transaction_kind::equity_contribution, state.current_date))
+			if(contribution > 1.0e-5f && economy::wallets::pay(state, account,
+				economy::wallets::account_ref::from_dcon(firm_account), contribution,
+				economy::relations::transaction_kind::equity_contribution))
 				contributed += contribution;
 		});
 	};

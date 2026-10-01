@@ -9,6 +9,7 @@
 #include "economy/physical/extraction.hpp"
 #include "economy/physical/land.hpp"
 #include "economy/households.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "economy/money.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
@@ -816,6 +817,20 @@ bool load_capital_owners(sys::state& state, parsers::scenario_building_context& 
 			[&](uint64_t id) { state.world.economic_actor_set_canonical_id(owner.actor, id); },
 			canonical_actor_key, actor_ids, error);
 		if(!error.empty()) add_row_error(err, "capital_owners.csv", owner.line, error);
+		// A person's cash lives in their exact account, the same ledger they
+		// consume from and receive dividends into.
+		if(owner.kind == "person") {
+			auto key = persons::canonical_key(state, owner.person);
+			if(economy::exact_person_economy::find_account(state, key, owner.settlement)) {
+				add_row_error(err, "capital_owners.csv", owner.line, "owner '" + owner.id + "' already has an account for settlement '" + owner.settlement_key + "'");
+				continue;
+			}
+			auto exact = economy::exact_person_economy::open_account(state, key, owner.settlement);
+			if(!exact || !economy::exact_person_economy::set_balance(state, exact, owner.opening_cash))
+				add_row_error(err, "capital_owners.csv", owner.line, "could not create opening cash account for owner '" + owner.id + "'");
+			owners_by_id.emplace(owner.id, owner_binding{ owner.actor, false, true });
+			continue;
+		}
 		if(economy::accounts::find_account(state, owner.actor, owner.settlement)) {
 			add_row_error(err, "capital_owners.csv", owner.line, "owner '" + owner.id + "' already has an account for settlement '" + owner.settlement_key + "'");
 			continue;

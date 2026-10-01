@@ -5,6 +5,7 @@
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "economy/wallets.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -212,15 +213,11 @@ void settle_rents(sys::state& state) {
 		auto owner = owner_of(state, title);
 		float paid = 0.0f;
 		if(due > 0.0f && tenant && owner) {
-			auto source = economy::accounts::find_account(state, tenant, settlement);
-			auto destination = economy::accounts::find_account(state, owner, settlement);
-			if(!destination) destination = economy::accounts::open_account(state, owner, settlement);
-			if(source && destination) {
-				auto free = economy::accounts::balance(state, source) - concrete_market::reserved_bid_amount(state, source);
-				auto amount = std::min(due, std::max(0.0f, free));
-				if(amount > 0.0f && economy::accounts::transfer(state, source, destination, amount,
-					relations::transaction_kind::rent, state.current_date)) paid = amount;
-			}
+			auto source = economy::wallets::account_for(state, tenant, settlement);
+			auto destination = economy::wallets::open_for(state, owner, settlement);
+			auto amount = std::min(due, economy::wallets::spendable(state, source));
+			if(amount > 0.0f && economy::wallets::pay(state, source, destination, amount, relations::transaction_kind::rent))
+				paid = amount;
 		}
 		state.world.land_lease_set_unpaid_rent(lease, std::max(0.0f, due - paid));
 		state.world.land_lease_set_last_settled(lease, end);
