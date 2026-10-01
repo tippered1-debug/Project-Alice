@@ -231,6 +231,38 @@ std::vector<dcon::commodity_id> needs_for_person(sys::state const& state, person
 	return result;
 }
 
+bool release_to(sys::state& state, person_key owner, dcon::economic_actor_id recipient) {
+	if(!persons::exists(state, owner) || !recipient || !state.world.economic_actor_is_valid(recipient)) return false;
+	auto store = ensure_store(state);
+	for(auto const& stock : store->stocks) {
+		if(!(stock.owner == owner)) continue;
+		if(exact_person_freight::reserved_source_quantity(state, owner, stock.site, stock.commodity) > epsilon) return false;
+	}
+	bool incoming = false;
+	auto home = persons::home_site(state, owner);
+	if(home) state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+		if(exact_person_freight::incoming_quantity(state, owner, home, commodity) > epsilon) incoming = true;
+	});
+	if(incoming) return false;
+	for(auto& bid : store->bids)
+		if(bid.buyer == owner && bid.status == order_status::active) {
+			bid.status = order_status::canceled;
+			bid.reserved_amount = 0.0f;
+		}
+	std::vector<stock_record> owned;
+	for(auto const& stock : store->stocks) if(stock.owner == owner) owned.push_back(stock);
+	for(auto const& stock : owned) {
+		auto removed = remove_stock(state, owner, stock.site, stock.commodity, stock.quantity);
+		if(removed > 0.0f) inventory::add(state, stock.site, stock.commodity, removed, recipient);
+	}
+	store->needs.erase(std::remove_if(store->needs.begin(), store->needs.end(),
+		[&](auto const& need) { return need.owner == owner; }), store->needs.end());
+	auto& imported = store->imported_need_profiles;
+	imported.erase(std::remove(imported.begin(), imported.end(), owner), imported.end());
+	invalidate_consumption_projection(state);
+	return true;
+}
+
 bool need_profile_imported(sys::state const& state, person_key owner) {
 	auto const& imported = ensure_store(state)->imported_need_profiles;
 	return std::find(imported.begin(), imported.end(), owner) != imported.end();

@@ -204,7 +204,15 @@ bool relocate_for_job(sys::state& state, persons::person_key person,
 }
 
 void update_employed_households(sys::state& state) {
-	std::vector<persons::person_key> consumers = exact_person_economy::account_owners(state);
+	// Individual consumers are workers under contract and people living on their
+	// own cash. An emptied account of someone who rejoined a cohort is neither.
+	std::vector<persons::person_key> consumers;
+	for(auto owner : exact_person_economy::account_owners(state)) {
+		bool funded = false;
+		for(auto account : exact_person_economy::accounts_for_person(state, owner))
+			if(exact_person_economy::balance(state, account) > 0.0f) funded = true;
+		if(funded) consumers.push_back(owner);
+	}
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
 			auto record = exact_person_economy::contract(state, contract_id);

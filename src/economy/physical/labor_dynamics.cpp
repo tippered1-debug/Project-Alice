@@ -1,4 +1,5 @@
 #include "labor_dynamics.hpp"
+#include "economy/households.hpp"
 
 #include "economy/exact_person_economy.hpp"
 #include "economy/causal_order.hpp"
@@ -163,6 +164,8 @@ void process_displaced_job_search(sys::state& state) {
 		exact_person_economy::process_job_search_for_exact_person(state, worker);
 		if(exact_person_economy::person_has_active_contract(state, worker))
 			exact_person_economy::remove_displaced_worker(state, worker);
+		// A rural worker who stays without a job goes home to the cohort.
+		else (void)households::rejoin(state, worker);
 	}
 }
 

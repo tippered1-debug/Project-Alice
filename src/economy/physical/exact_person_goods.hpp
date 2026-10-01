@@ -108,6 +108,11 @@ float process_consumption(sys::state&, person_key, dcon::commodity_id);
 std::optional<need_record> need(sys::state const&, person_key, dcon::commodity_id);
 std::vector<dcon::commodity_id> needs_for_person(sys::state const&, person_key);
 bool need_profile_imported(sys::state const&, person_key);
+// Ends a person's individual consumption when they rejoin a household cohort:
+// active bids are canceled, owned stock passes to the recipient at the same
+// sites, and the person's needs and profile marker are removed. Fails without
+// change while freight to or from the person is still pending.
+bool release_to(sys::state&, person_key, dcon::economic_actor_id recipient);
 bool mark_need_profile_imported(sys::state&, person_key);
 void refresh_unmet_needs(sys::state&, person_key);
 std::optional<bid_record> bid(sys::state const&, uint64_t id);

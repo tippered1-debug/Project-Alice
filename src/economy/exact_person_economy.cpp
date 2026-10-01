@@ -781,6 +781,12 @@ bool separated_on_date(sys::state const& state, person_key worker, sys::date dat
 	return false;
 }
 
+std::optional<sys::date> last_separation_date(sys::state const& state, person_key worker) {
+	for(auto const& [key, separated] : ensure_store(state)->last_separation_dates)
+		if(key == worker) return separated;
+	return std::nullopt;
+}
+
 void note_separation(sys::state& state, person_key worker, sys::date date) {
 	if(!persons::exists(state, worker) || !date) return;
 	for(auto& [key, separated] : ensure_store(state)->last_separation_dates)

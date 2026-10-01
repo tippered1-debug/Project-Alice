@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dcon_generated.hpp"
+#include "persons/persons.hpp"
 
 #include <array>
 #include <cstdint>
@@ -53,6 +54,11 @@ float self_employed_labor(sys::state const&, dcon::factory_id);
 void refresh_membership(sys::state&);
 // Gathers produce and rent home, consumes own stock, sells surplus, buys the rest.
 void process_daily(sys::state&);
+
+// A displaced worker who found no job for this many days returns to the cohort
+// of their role in their home province, bringing their cash and goods.
+inline constexpr int32_t days_before_rejoining = 30;
+bool rejoin(sys::state&, persons::person_key);
 
 // Adds each cohort's desired and consumed quantities, by life/everyday/luxury,
 // to the per-population totals used for the POP satisfaction projection.

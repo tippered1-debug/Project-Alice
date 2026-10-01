@@ -14,6 +14,7 @@
 #include "governance/finance/finance.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
+#include "world/spatial_runtime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,7 @@ constexpr uint8_t general_occupation = 0;
 constexpr uint8_t skilled_occupation = 1;
 constexpr uint8_t professional_occupation = 2;
 constexpr float voluntary_quit_wage_gain = 1.12f;
+constexpr float reservation_premium = 1.1f;
 
 sys::date normalized_date(sys::state const& state, sys::date date) {
 	if(date) return date;
@@ -354,6 +356,14 @@ void recruit_local_applicants(sys::state& state) {
 			if(needed == 0) break;
 			auto cell = persons::source_population_cell_for_population(state, population);
 			if(cell == 0) continue;
+			// Cohort members leave their household's land only for a wage worth more
+			// than what a worker produces at home.
+			if(auto cohort = economy::households::household_for(state, province,
+				economy::households::role_for_pop_type(state, state.world.pop_get_poptype(population)))) {
+				auto offered = household_mobility::commute_adjusted_daily_wage(state,
+					world::spatial_runtime::site_for_province(state, province), offer);
+				if(!(offered > reservation_premium * economy::households::reservation_wage(state, cohort))) continue;
+			}
 			auto count = persons::exact_population::literal_count_for_cell(state, cell);
 			// Anchors are the working members of the source cell; ordinals between
 			// them are their dependents.

@@ -84,17 +84,17 @@ The first slice covers only finite commercial extraction:
 - Leases (`leases.csv`) let a tenant farm a title, with cash rent every 30 days and the owner's output share delivered in kind. A leased title is farmed only by its tenant; otherwise only by its owner.
 - Firms neither build greenfield farms nor acquire them, and generic factory projects reject farm recipes.
 - Household cohorts (`households.csv`) are organizations of kind `household` for the peasant and landed people of a province. Membership is the residual of living people of the role without individual needs or military service, recounted daily; no per-person storage exists. A peasant cohort works its farms with unpaid labor split by land, keeps its harvest at home, consumes it first, keeps 60 days of needs, sells the surplus through ordinary asks, and buys the rest with ordinary bids. A landed cohort owns titles, collects rent in kind and cash, and runs demesne farms with hired labor. Cohort satisfaction projects onto member POPs. Household farms are exempt from firm finance and insolvency.
+- Labor coupling: a cohort's reservation wage is the smoothed daily value of its own production per worker. Local recruitment draws cohort members only for offers whose commute-adjusted wage exceeds 1.1 times that wage. A displaced rural worker still without a job 30 days after separation rejoins the cohort of their role in their home province: their cash and goods pass to the cohort and their individual needs end, so the person is a member again. Individual consumers are workers under contract and people with cash of their own.
 
 Capital projects follow the same boundary: `create_extraction_plant` builds a plant on an existing deposit whose operator or right holder is the operating company. Construction never creates a deposit, reserves, or grade.
 
 Deferred, in this order:
-1. land titles and agriculture;
-2. renewable stocks;
-3. household cohorts with in-kind consumption and the labor return path;
-4. `use_right` rent and subsoil law;
-5. splitting money from gold;
-6. POP roles as projections;
-7. removal of legacy RGO fields and GUI;
-8. artisans as household establishments.
+1. renewable stocks (fishing, forestry);
+2. bonded labor (slaves and serfs outside free cohorts);
+3. subsoil law and concessions with royalties;
+4. splitting money from gold;
+5. POP roles as projections;
+6. removal of legacy RGO fields and GUI;
+7. artisans and urban self-employment as household establishments.
 
 A tool to author canonical CSV data from content is a separate prerequisite for full-world runs.

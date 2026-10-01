@@ -375,3 +375,58 @@ TEST_CASE("a landed cohort receives rent in kind from its tenants", "[economy][r
 	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, landed_actor) == Approx(0.5f * output));
 	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, f.cohort_actor) == Approx(0.5f * output));
 }
+
+TEST_CASE("cohort members take a job only above their reservation wage", "[economy][rural][households][labor]") {
+	rural_economy_tests::cohort_fixture f;
+	economy::households::refresh_membership(*f.state);
+	f.state->world.organization_set_household_reservation_wage(f.cohort, 10.0f);
+	auto low = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
+		f.site, 0, 1.0f, 5.0f, 1, f.estate_account, 1, f.state->current_date);
+	REQUIRE(low);
+	economy::physical::job_market::recruit_local_applicants(*f.state);
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	REQUIRE(economy::exact_person_economy::active_contracts_for_factory(*f.state, f.farm).empty());
+	auto high = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
+		f.site, 0, 1.0f, 20.0f, 1, f.estate_account, 1, f.state->current_date);
+	REQUIRE(high);
+	economy::physical::job_market::recruit_local_applicants(*f.state);
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	auto hired = economy::exact_person_economy::active_contracts_for_factory(*f.state, f.farm);
+	REQUIRE(hired.size() == 1);
+	REQUIRE(persons::current_population(*f.state, economy::exact_person_economy::contract(*f.state, hired.front())->worker) == f.peasants);
+}
+
+TEST_CASE("a displaced rural worker without a job returns to the cohort with their cash", "[economy][rural][households][labor]") {
+	rural_economy_tests::cohort_fixture f;
+	persons::person_key worker{f.peasant_cell, 0};
+	auto offer = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
+		f.site, 0, 1.0f, 1.0f, 1, f.estate_account, 1, f.state->current_date);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, worker, offer, f.state->current_date));
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	economy::physical::household_mobility::update_employed_households(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_goods::needs_for_person(*f.state, worker).empty());
+	auto contract = economy::exact_person_economy::active_contracts_for_person(*f.state, worker).front();
+	auto account = economy::exact_person_economy::contract(*f.state, contract)->worker_account_id;
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state,
+		economy::exact_person_economy::account_ref::from_exact(account), 50.0f));
+	REQUIRE(economy::exact_person_economy::end_contract(*f.state, contract,
+		economy::exact_person_economy::contract_status::terminated, f.state->current_date));
+	economy::exact_person_economy::note_separation(*f.state, worker, f.state->current_date);
+	economy::exact_person_economy::enqueue_displaced_worker(*f.state, worker);
+
+	// Too early: the worker is still looking for a job.
+	f.state->current_date += 10;
+	REQUIRE_FALSE(economy::households::rejoin(*f.state, worker));
+	f.state->current_date += 21;
+	REQUIRE(economy::households::rejoin(*f.state, worker));
+	REQUIRE(economy::accounts::balance(*f.state, f.cohort_account) == Approx(50.0f));
+	REQUIRE(economy::exact_person_economy::balance(*f.state,
+		economy::exact_person_economy::account_ref::from_exact(account)) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::needs_for_person(*f.state, worker).empty());
+	REQUIRE(economy::exact_person_economy::displaced_workers(*f.state).empty());
+	// An emptied account does not make them an individual consumer again.
+	economy::physical::household_mobility::update_employed_households(*f.state);
+	REQUIRE(economy::physical::exact_person_goods::needs_for_person(*f.state, worker).empty());
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f));
+}

@@ -178,6 +178,7 @@ wage_settlement settle_current_contract_wage_only(sys::state&, uint64_t contract
 bool end_contract(sys::state&, uint64_t contract_id, contract_status, sys::date end_date);
 
 bool separated_on_date(sys::state const&, person_key, sys::date);
+std::optional<sys::date> last_separation_date(sys::state const&, person_key);
 void note_separation(sys::state&, person_key, sys::date);
 void enqueue_displaced_worker(sys::state&, person_key);
 void remove_displaced_worker(sys::state&, person_key);

@@ -4,6 +4,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "actors/ownership.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/exact_person_goods.hpp"
@@ -330,6 +331,35 @@ void process_daily(sys::state& state) {
 	}
 	for(auto index : traded)
 		(void)market_ns::match_all(state, dcon::commodity_id{ dcon::commodity_id::value_base_t(index) }, state.current_date);
+}
+
+bool rejoin(sys::state& state, persons::person_key person) {
+	using namespace economy::exact_person_economy;
+	if(!persons::alive(state, person) || person_has_active_contract(state, person)
+		|| persons::exact_population::has_military_assignment(state, person)) return false;
+	auto separated = last_separation_date(state, person);
+	if(!separated || state.current_date.to_raw_value() - separated->to_raw_value() < days_before_rejoining) return false;
+	auto population = persons::current_population(state, person);
+	auto home = persons::home_site(state, person);
+	auto province = home ? state.world.site_get_province_from_site_location(home) : dcon::province_id{};
+	auto cohort_role = population ? role_for_pop_type(state, state.world.pop_get_poptype(population)) : role::none;
+	auto household = household_for(state, province, cohort_role);
+	if(!household) return false;
+	auto actor = actors::organizations::actor_for_organization(state, household);
+	// Goods first: release fails without change while freight is pending.
+	if(!economy::physical::exact_person_goods::release_to(state, person, actor)) return false;
+	(void)withdraw_pending_applications(state, person);
+	for(auto account : accounts_for_person(state, person)) {
+		auto cash = balance(state, account);
+		if(!(cash > 0.0f)) continue;
+		auto settlement = settlement_of(state, account);
+		auto destination = economy::accounts::find_account(state, actor, settlement);
+		if(!destination) destination = economy::accounts::open_account(state, actor, settlement);
+		if(destination) (void)transfer(state, account, account_ref::from_dcon(destination), cash,
+			relations::transaction_kind::transfer, state.current_date);
+	}
+	remove_displaced_worker(state, person);
+	return true;
 }
 
 void add_population_totals(sys::state const& state, std::map<uint32_t, std::array<double, 6>>& totals) {
