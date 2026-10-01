@@ -297,14 +297,18 @@ TEST_CASE("a cohort's members are the rural people without individual records", 
 	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f));
 	REQUIRE(economy::households::workers(*f.state, f.cohort) == Approx(5.0f));
 
-	// A hired member becomes an individual consumer and leaves the cohort.
+	// A hired member becomes an individual consumer and leaves the cohort with
+	// the dependents of their family.
 	auto offer = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
 		f.site, 0, 1.0f, 1.0f, 1, f.estate_account, 1, f.state->current_date);
 	REQUIRE(economy::exact_person_economy::submit_application(*f.state, {f.peasant_cell, 0}, offer, f.state->current_date));
 	economy::exact_person_economy::process_pending_applications(*f.state);
 	economy::physical::household_mobility::update_employed_households(*f.state);
 	economy::households::refresh_membership(*f.state);
-	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(19.0f));
+	auto family = economy::households::family_size(*f.state, {f.peasant_cell, 0},
+		economy::households::individual_consumers(*f.state));
+	REQUIRE(family == 4);
+	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f - float(family)));
 }
 
 TEST_CASE("a peasant cohort works its own land unpaid and keeps its harvest", "[economy][rural][households]") {
