@@ -100,7 +100,7 @@ SVGLinearGradientAttributes SVGLinearGradientElement::collectGradientAttributes(
         }
 
         auto targetElement = current->getTargetElement(document());
-        if(!targetElement || !targetElement->id() == ElementID::LinearGradient || targetElement->id() == ElementID::RadialGradient)
+        if(!targetElement || !(targetElement->id() == ElementID::LinearGradient || targetElement->id() == ElementID::RadialGradient))
             break;
         processedGradients.insert(current);
         current = static_cast<const SVGGradientElement*>(targetElement);
@@ -142,7 +142,7 @@ bool SVGLinearGradientElement::applyPaint(SVGRenderState& state, float opacity) 
     auto y1 = lengthContext.valueForLength(attributes.y1());
     auto x2 = lengthContext.valueForLength(attributes.x2());
     auto y2 = lengthContext.valueForLength(attributes.y2());
-    if(gradientStops.size() == 1 || x1 == x2 && y1 == y2) {
+    if(gradientStops.size() == 1 || (x1 == x2 && y1 == y2)) {
         const auto& lastStop = gradientStops.back();
         state->setColor(lastStop.color.r, lastStop.color.g, lastStop.color.b, lastStop.color.a);
         return true;
@@ -230,7 +230,7 @@ SVGRadialGradientAttributes SVGRadialGradientElement::collectGradientAttributes(
         }
 
         auto targetElement = current->getTargetElement(document());
-        if(!targetElement || !targetElement->id() == ElementID::LinearGradient || targetElement->id() == ElementID::RadialGradient)
+        if(!targetElement || !(targetElement->id() == ElementID::LinearGradient || targetElement->id() == ElementID::RadialGradient))
             break;
         processedGradients.insert(current);
         current = static_cast<const SVGGradientElement*>(targetElement);

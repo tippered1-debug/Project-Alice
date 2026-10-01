@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace text {
 enum class text_color : uint8_t {
 	black,

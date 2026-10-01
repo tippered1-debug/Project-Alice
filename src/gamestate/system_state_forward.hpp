@@ -1,3 +1,5 @@
+#include <cstdint>
+
 namespace sys {
 struct state;
 }
