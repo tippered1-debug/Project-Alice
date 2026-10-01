@@ -39,21 +39,19 @@ std::vector<dcon::organization_id> all_households(sys::state const& state) {
 }
 
 // People of one population row who are not cohort members: individual
-// consumers and serving soldiers.
+// consumers with the dependents in their family budget, and serving soldiers.
 struct exclusions {
 	std::unordered_map<uint32_t, float> by_population;
 };
 
 exclusions count_exclusions(sys::state const& state) {
 	exclusions result;
-	if(state.exact_person_goods) {
-		std::set<std::pair<uint32_t, uint64_t>> seen;
-		for(auto const& need : economy::physical::exact_person_goods::need_records(state)) {
-			if(!seen.emplace(need.owner.source_population_cell, need.owner.ordinal).second) continue;
-			if(!persons::alive(state, need.owner)) continue;
-			if(auto population = persons::current_population(state, need.owner))
-				result.by_population[population.index()] += 1.0f;
-		}
+	auto individuals = individual_consumers(state);
+	for(auto const& [cell, ordinal] : individuals) {
+		persons::person_key person{ cell, ordinal };
+		if(!persons::alive(state, person)) continue;
+		if(auto population = persons::current_population(state, person))
+			result.by_population[population.index()] += float(family_size(state, person, individuals));
 	}
 	if(state.exact_population) {
 		for(auto const& range : persons::exact_population::all_military_assignments(state)) {
@@ -114,13 +112,31 @@ dcon::monetary_account_id account_for(sys::state& state, dcon::economic_actor_id
 	return result ? result : economy::accounts::open_account(state, actor, economy::money);
 }
 
-std::vector<dcon::factory_id> farms_of(sys::state const& state, dcon::organization_id household) {
-	std::vector<dcon::factory_id> result;
-	for(auto factory : actors::organizations::factories_operated_by(state, household))
-		if(economy::physical::land::farms_land(state, factory)) result.push_back(factory);
-	std::sort(result.begin(), result.end(), [](auto left, auto right) { return left.index() < right.index(); });
+}
+
+std::set<std::pair<uint32_t, uint64_t>> individual_consumers(sys::state const& state) {
+	std::set<std::pair<uint32_t, uint64_t>> result;
+	if(state.exact_person_goods)
+		for(auto const& need : economy::physical::exact_person_goods::need_records(state))
+			result.emplace(need.owner.source_population_cell, need.owner.ordinal);
 	return result;
 }
+
+int32_t family_size(sys::state const& state, persons::person_key person,
+	std::set<std::pair<uint32_t, uint64_t>> const& individuals) {
+	if(!persons::alive(state, person)) return 0;
+	int32_t result = 1;
+	if(!persons::is_source_workforce_anchor(state, person)) return result;
+	auto population = persons::current_population(state, person);
+	for(uint64_t offset = 1; offset < uint64_t(persons_per_family); ++offset) {
+		persons::person_key dependent{ person.source_population_cell, person.ordinal + offset };
+		if(!persons::exists(state, dependent) || !persons::alive(state, dependent)
+			|| persons::current_population(state, dependent) != population
+			|| individuals.contains({ dependent.source_population_cell, dependent.ordinal })
+			|| persons::exact_population::has_military_assignment(state, dependent)) continue;
+		++result;
+	}
+	return result;
 }
 
 dcon::organization_id create(sys::state& state, dcon::province_id home, role cohort_role, dcon::commodity_id settlement) {
@@ -167,10 +183,11 @@ dcon::organization_id household_for(sys::state const& state, dcon::province_id p
 }
 
 role role_for_pop_type(sys::state const& state, dcon::pop_type_id type) {
-	if(!type) return role::none;
+	if(!type || !state.world.pop_type_is_valid(type)) return role::none;
 	if(type == state.culture_definitions.farmers || type == state.culture_definitions.laborers) return role::peasant;
 	if(type == state.culture_definitions.aristocrat) return role::landed;
-	return role::none;
+	if(type == state.culture_definitions.slaves) return role::none;
+	return role::urban;
 }
 
 float members(sys::state const& state, dcon::organization_id organization) {
@@ -187,16 +204,76 @@ float reservation_wage(sys::state const& state, dcon::organization_id organizati
 }
 
 bool self_working_operator(sys::state const& state, dcon::factory_id factory) {
-	return role_of(state, actors::organizations::operator_organization_for_factory(state, factory)) == role::peasant;
+	auto cohort_role = role_of(state, actors::organizations::operator_organization_for_factory(state, factory));
+	return cohort_role == role::peasant || cohort_role == role::urban;
 }
 
 float self_employed_labor(sys::state const& state, dcon::factory_id factory) {
-	if(!self_working_operator(state, factory) || !economy::physical::land::farms_land(state, factory)) return 0.0f;
-	auto household = actors::organizations::operator_organization_for_factory(state, factory);
-	float total = 0.0f;
-	for(auto farm : farms_of(state, household)) total += economy::physical::land::reference_labor(state, farm);
-	auto own = economy::physical::land::reference_labor(state, factory);
-	return total > 0.0f ? workers(state, household) * own / total : 0.0f;
+	if(!self_working_operator(state, factory)) return 0.0f;
+	auto value = state.world.factory_get_self_employed_labor(factory);
+	return std::isfinite(value) ? std::max(0.0f, value) : 0.0f;
+}
+
+bool is_craft(sys::state const& state, dcon::factory_type_id type) {
+	return type && state.world.factory_type_is_valid(type) && state.world.factory_type_get_household_craft(type);
+}
+
+dcon::factory_id create_workshop(sys::state& state, dcon::site_id site, dcon::factory_type_id type,
+	dcon::organization_id operator_organization) {
+	auto province = site && state.world.site_is_valid(site) ? state.world.site_get_province_from_site_location(site) : dcon::province_id{};
+	auto workforce = is_craft(state, type) ? state.world.factory_type_get_base_workforce(type) : 0;
+	if(!province || workforce <= 0 || !state.world.factory_type_get_output(type)
+		|| !operator_organization || !state.world.organization_is_valid(operator_organization)) return {};
+	auto workshop = state.world.create_factory();
+	state.world.factory_set_building_type(workshop, type);
+	state.world.factory_set_size(workshop, float(workforce));
+	state.world.factory_set_productive_capacity(workshop, 1.0f);
+	state.world.factory_set_productivity_factor(workshop, 1.0f);
+	state.world.force_create_factory_location(workshop, province);
+	state.world.force_create_factory_site(workshop, site);
+	if(!actors::organizations::bind_factory_operator(state, operator_organization, workshop)) {
+		state.world.delete_factory(workshop);
+		return {};
+	}
+	return workshop;
+}
+
+namespace {
+float reference_price(sys::state const& state, dcon::market_id market, dcon::commodity_id commodity) {
+	return market ? economy::physical::concrete_market::concrete_reference_price(state, market, commodity,
+		state.current_date, std::max(0.01f, state.world.commodity_get_cost(commodity))) : 0.0f;
+}
+
+// Value of a unit of the recipe's labor net of its inputs, at local prices.
+float unit_margin(sys::state const& state, dcon::factory_id factory, dcon::market_id market) {
+	auto type = state.world.factory_get_building_type(factory);
+	auto productivity = state.world.factory_get_productivity_factor(factory);
+	auto margin = state.world.factory_type_get_output_amount(type) * (productivity > 0.0f ? productivity : 1.0f)
+		* reference_price(state, market, state.world.factory_type_get_output(type));
+	auto const& inputs = state.world.factory_type_get_inputs(type);
+	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+		if(!inputs.commodity_type[i]) break;
+		margin -= inputs.commodity_amounts[i] * reference_price(state, market, inputs.commodity_type[i]);
+	}
+	return std::isfinite(margin) ? margin : 0.0f;
+}
+
+// Yesterday's value added: output at local prices less the inputs it used.
+float value_added(sys::state const& state, dcon::factory_id factory, dcon::market_id market) {
+	auto type = state.world.factory_get_building_type(factory);
+	auto output = std::max(0.0f, state.world.factory_get_output(factory));
+	auto value = output * reference_price(state, market, state.world.factory_type_get_output(type));
+	auto per_unit = state.world.factory_type_get_output_amount(type) * std::max(0.0f, state.world.factory_get_productivity_factor(factory));
+	if(!economy::physical::land::farms_land(state, factory) && per_unit > 0.0f) {
+		auto units = output / per_unit;
+		auto const& inputs = state.world.factory_type_get_inputs(type);
+		for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+			if(!inputs.commodity_type[i]) break;
+			value -= units * inputs.commodity_amounts[i] * reference_price(state, market, inputs.commodity_type[i]);
+		}
+	}
+	return std::isfinite(value) ? value : 0.0f;
+}
 }
 
 void refresh_membership(sys::state& state) {
@@ -207,25 +284,77 @@ void refresh_membership(sys::state& state) {
 		auto previous_workers = workers(state, household);
 		state.world.organization_set_household_members(household, count);
 		state.world.organization_set_household_workers(household, count * workers_per_member);
-		// What a worker gives up by leaving: yesterday's own production per worker,
-		// valued at market reference prices.
 		auto site = home_site(state, household);
 		auto market = site ? economy::physical::concrete_market::market_for_site(state, site) : dcon::market_id{};
+		auto establishments = actors::organizations::factories_operated_by(state, household);
+		std::sort(establishments.begin(), establishments.end(), [](auto left, auto right) { return left.index() < right.index(); });
+
+		// What a worker gives up by leaving: yesterday's own value added per worker.
 		float value = 0.0f;
-		for(auto farm : farms_of(state, household)) {
-			auto type = state.world.factory_get_building_type(farm);
-			auto output = state.world.factory_type_get_output(type);
-			auto price = market ? economy::physical::concrete_market::concrete_reference_price(state, market, output,
-				state.current_date, std::max(0.01f, state.world.commodity_get_cost(output))) : 0.0f;
-			value += std::max(0.0f, state.world.factory_get_output(farm)) * price;
-		}
+		for(auto factory : establishments) value += value_added(state, factory, market);
 		if(previous_workers > epsilon) {
-			auto today = value / previous_workers;
+			auto today = std::max(0.0f, value) / previous_workers;
 			auto current = reservation_wage(state, household);
 			auto next = current > 0.0f ? current + reservation_smoothing * (today - current) : today;
 			state.world.organization_set_household_reservation_wage(household, std::isfinite(next) ? std::max(0.0f, next) : 0.0f);
 		}
+
+		// Allocate the members' own labor: peasants work their farms by land;
+		// urban members work only crafts that pay more than their inputs cost.
+		auto available = count * workers_per_member;
+		auto cohort_role = role_of(state, household);
+		float land = 0.0f;
+		std::vector<dcon::factory_id> paying;
+		for(auto factory : establishments) {
+			state.world.factory_set_self_employed_labor(factory, 0.0f);
+			if(cohort_role == role::peasant && economy::physical::land::farms_land(state, factory))
+				land += economy::physical::land::reference_labor(state, factory);
+			if(cohort_role == role::urban && is_craft(state, state.world.factory_get_building_type(factory))
+				&& unit_margin(state, factory, market) > 0.0f)
+				paying.push_back(factory);
+		}
+		for(auto factory : establishments) {
+			if(cohort_role == role::peasant && land > 0.0f && economy::physical::land::farms_land(state, factory))
+				state.world.factory_set_self_employed_labor(factory, available * economy::physical::land::reference_labor(state, factory) / land);
+		}
+		for(auto factory : paying) state.world.factory_set_self_employed_labor(factory, available / float(paying.size()));
 	}
+}
+
+coverage audit(sys::state const& state) {
+	coverage result;
+	if(!state.exact_population) return result;
+	auto individuals = individual_consumers(state);
+	std::unordered_map<uint32_t, float> individual_by_population;
+	for(auto const& [cell, ordinal] : individuals) {
+		persons::person_key person{ cell, ordinal };
+		if(!persons::alive(state, person)) continue;
+		if(auto population = persons::current_population(state, person))
+			individual_by_population[population.index()] += float(family_size(state, person, individuals));
+	}
+	std::unordered_map<uint32_t, float> military_by_population;
+	for(auto const& range : persons::exact_population::all_military_assignments(state)) {
+		auto population = persons::population_for_source_cell(state, range.source_population_cell);
+		if(population) military_by_population[population.index()] += float(persons::exact_population::living_people_in_person_range(
+			state, range.source_population_cell, range.first_ordinal, range.count, range.ordinal_stride));
+	}
+	state.world.for_each_pop([&](dcon::pop_id pop) {
+		auto cell = persons::source_population_cell_for_population(state, pop);
+		if(cell == 0) return;
+		auto living = double(persons::living_people_in_population_cell(state, cell));
+		auto individual = double(individual_by_population.contains(pop.index()) ? individual_by_population.at(pop.index()) : 0.0f);
+		auto military = double(military_by_population.contains(pop.index()) ? military_by_population.at(pop.index()) : 0.0f);
+		auto rest = std::max(0.0, living - individual - military);
+		result.living += living;
+		result.individual += individual;
+		result.military += military;
+		auto cohort_role = role_for_pop_type(state, state.world.pop_get_poptype(pop));
+		auto province = state.world.pop_get_province_from_pop_location(pop);
+		if(cohort_role == role::none) result.bonded += rest;
+		else if(household_for(state, province, cohort_role)) result.in_cohorts += rest;
+		else result.uncovered += rest;
+	});
+	return result;
 }
 
 void process_daily(sys::state& state) {
@@ -247,7 +376,7 @@ void process_daily(sys::state& state) {
 
 		// 1. Bring harvests and rent in kind home.
 		std::vector<dcon::site_id> sources;
-		for(auto farm : farms_of(state, household)) sources.push_back(state.world.factory_get_site_from_factory_site(farm));
+		for(auto factory : actors::organizations::factories_operated_by(state, household)) sources.push_back(state.world.factory_get_site_from_factory_site(factory));
 		if(auto it = titles_by_owner.find(actor.index()); it != titles_by_owner.end())
 			for(auto title : it->second) sources.push_back(state.world.land_title_get_site_from_land_title_site(title));
 		std::sort(sources.begin(), sources.end(), [](auto left, auto right) { return left.index() < right.index(); });
@@ -263,6 +392,16 @@ void process_daily(sys::state& state) {
 		// 2. Consume own stock first: life, then everyday, then luxury.
 		auto populations = member_populations(state, household, excluded);
 		auto needs = needs_for(state, populations);
+		// A day of inputs for the cohort's own workshops is not eaten.
+		std::vector<float> workshop_inputs(needs.size(), 0.0f);
+		for(auto factory : actors::organizations::factories_operated_by(state, household)) {
+			auto labor = self_employed_labor(state, factory);
+			auto const& inputs = state.world.factory_type_get_inputs(state.world.factory_get_building_type(factory));
+			for(uint32_t i = 0; i < economy::commodity_set::set_size && labor > 0.0f; ++i) {
+				if(!inputs.commodity_type[i]) break;
+				workshop_inputs[inputs.commodity_type[i].index()] += labor * inputs.commodity_amounts[i];
+			}
+		}
 		double desired[3] = {};
 		double consumed[3] = {};
 		std::vector<float> daily_need(needs.size(), 0.0f);
@@ -272,8 +411,8 @@ void process_daily(sys::state& state) {
 			daily_need[commodity.index()] = total;
 			for(int i = 0; i < 3; ++i) desired[i] += row[i];
 			if(total <= epsilon) return;
-			auto taken = economy::physical::inventory::remove(state, home, commodity,
-				std::min(total, economy::physical::inventory::quantity(state, home, commodity, actor)), actor);
+			auto usable = economy::physical::inventory::quantity(state, home, commodity, actor) - workshop_inputs[commodity.index()];
+			auto taken = usable > 0.0f ? economy::physical::inventory::remove(state, home, commodity, std::min(total, usable), actor) : 0.0f;
 			for(int i = 0; i < 3 && taken > 0.0f; ++i) {
 				auto part = std::min(taken, row[i]);
 				consumed[i] += part;
@@ -286,7 +425,7 @@ void process_daily(sys::state& state) {
 
 		// 3. Keep a season of own needs; sell the rest through the common ask path.
 		std::vector<bool> selling(needs.size(), false);
-		auto farms = farms_of(state, household);
+		auto farms = actors::organizations::factories_operated_by(state, household);
 		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
 			auto stock = economy::physical::inventory::quantity(state, home, commodity, actor);
 			auto surplus = stock - daily_need[commodity.index()] * retention_days;

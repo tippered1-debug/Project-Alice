@@ -87,7 +87,8 @@ bool plan_factory_inputs(sys::state& state, dcon::factory_id factory, dcon::prov
 		return false;
 	}
 	auto decision = firm_agency::decide_factory(state, factory);
-	auto desired = decision.desired_units;
+	// A cohort's own establishment buys inputs for the labor its members put in.
+	auto desired = households::self_working_operator(state, factory) ? labor_units(state, factory) : decision.desired_units;
 	auto reliability = state.world.factory_get_agency_expected_input_reliability(factory);
 	if(!std::isfinite(reliability) || reliability <= 0.0f) reliability = 0.85f;
 	// Reserve modest cover for firms that have learned procurement is unreliable.
@@ -140,6 +141,10 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	}
 	auto ratio = available.physical_ratio;
 	if(!std::isfinite(ratio)) ratio = 0.0f;
+	// Self-employed members are bounded by their own labor and their land, not
+	// by a plant's installed capacity.
+	if(households::self_working_operator(state, factory) && !physical::land::farms_land(state, factory))
+		capacity = std::max(capacity, planned);
 	auto actual_units = std::clamp(planned * std::clamp(ratio, 0.0f, 1.0f), 0.0f, capacity);
 	firm_agency::observe_production(state, factory, planned, actual_units);
 	// A farm's output follows diminishing returns to labor on its fixed land.
@@ -160,6 +165,8 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 			physical::inventory::add(state, site, state.world.factory_type_get_output(type), actual_output - share, owner);
 		else if(actual_output - share > 0.0f)
 			physical::factory_output::materialize_and_dispatch(state, factory, actual_output - share);
+	} else if(actual_output > 0.0f && households::is_household(state, owner)) {
+		physical::inventory::add(state, site, state.world.factory_type_get_output(type), actual_output, owner);
 	} else if(actual_output > 0.0f) {
 		physical::factory_output::materialize_and_dispatch(state, factory, actual_output);
 		if(extracts) {

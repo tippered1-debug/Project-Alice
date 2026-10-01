@@ -1,6 +1,6 @@
 # Canonical Scenario Firms and Ownership
 
-Every scenario must provide twelve firm, household, ownership, banking, resource, and land tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `households.csv`, `deposits.csv`, `assets.csv`, `land_titles.csv`, `farms.csv`, `leases.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The canonical land-force tables are also required; see [Canonical Land Forces](../architecture/military.md) for their schemas and validation rules. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
+Every scenario must provide thirteen firm, household, ownership, banking, resource, land, and workshop tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `households.csv`, `deposits.csv`, `assets.csv`, `land_titles.csv`, `farms.csv`, `leases.csv`, `workshops.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The canonical land-force tables are also required; see [Canonical Land Forces](../architecture/military.md) for their schemas and validation rules. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
 
 ## Firms
 
@@ -10,7 +10,7 @@ Example row: `steel_co;company;money;12000;4500;8000`.
 
 ## Capital owners
 
-`capital_owners.csv` has columns `owner_id;kind;reference;settlement;opening_cash`. Supported kinds are `government` and `person`. Government references are active three-letter country tags and resolve to the already bootstrapped central-government institution. Person references use `source_population_cell:ordinal` and must resolve to a live exact person already materialized by the scenario. The loader does not create a substitute owner. One row per government or person reference is allowed.
+`capital_owners.csv` has columns `owner_id;kind;reference;settlement;opening_cash`. Supported kinds are `government` and `person`. Government references are active three-letter country tags and resolve to the already bootstrapped central-government institution. Person references use `source_population_cell:ordinal` and must resolve to a live exact person already materialized by the scenario. A person's opening cash is placed in their exact account, the single ledger they consume, invest, and receive dividends from. The loader does not create a substitute owner. One row per government or person reference is allowed.
 
 Example rows: `usa_treasury;government;USA;money;40000` and `founder_1;person;17:0;money;2500`.
 
@@ -32,9 +32,13 @@ Example factory row: `us_pittsburgh_steel;factory;pittsburgh;steel_co;253;steel_
 
 ## Households
 
-`households.csv` has columns `household_id;province_id;role;settlement;opening_cash`. A household is the shared budget of the rural people of one province: role `peasant` covers farmers and labourers, role `landed` covers aristocrats. Members are not listed. Every living person of the role in the province belongs to the household unless that person holds individual economic records (a hired worker, for example) or serves in a military formation. A province can declare one household per role, and every province with living people of a role must declare its household. A household has no shareholders; it can own land, operate farms, and hold leases.
+`households.csv` has columns `household_id;province_id;role;settlement;opening_cash`. A household is the shared budget of the people of one province and role: `peasant` covers farmers and labourers, `landed` covers aristocrats, and `urban` covers every other free POP type. Slaves belong to no household. Members are not listed. Every living person of the role in the province belongs to the household unless that person holds individual economic records (a hired worker, for example) or serves in a military formation. A province can declare one household per role, and every province with living people of a role must declare its household. A household has no shareholders; it can own land, operate farms, and hold leases.
 
-Example rows: `pa_peasants;253;peasant;money;0` and `pa_gentry;253;landed;money;2500`.
+Example rows: `pa_peasants;253;peasant;money;0`, `pa_gentry;253;landed;money;2500`, and `pa_town;253;urban;money;300`.
+
+`workshops.csv` has columns `workshop_id;province_id;production_type;operator_type;operator_id;opening_value`. Each row creates a workshop, an ordinary factory for a craft production type (content `type = artisan`) at the province's site. `operator_type` is `firm` or `household`; an urban household works its workshops with its members' own labor and buys their inputs like any factory. `workshop_id` is an asset ID owned through `ownership.csv`.
+
+Example row: `pa_tailors;253;artisan_regular_clothes;household;pa_town;200`.
 
 ## Land, farms, and leases
 

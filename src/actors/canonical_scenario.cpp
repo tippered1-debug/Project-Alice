@@ -351,7 +351,7 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 bool read_and_parse_tables(simple_fs::directory const& common,
 	parsers::error_handler& err, table& firms, table& owners, table& assets,
 	table& ownerships, table& loans, table& banks, table& bank_deposits, table& deposits,
-	table& land_titles, table& farms, table& leases, table& households) {
+	table& land_titles, table& farms, table& leases, table& households, table& workshops) {
 	static constexpr std::array<std::string_view, 6> firms_header = {
 		"firm_id", "kind", "settlement", "opening_cash", "retained_earnings", "paid_in_equity"
 	};
@@ -388,6 +388,9 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	static constexpr std::array<std::string_view, 5> households_header = {
 		"household_id", "province_id", "role", "settlement", "opening_cash"
 	};
+	static constexpr std::array<std::string_view, 6> workshops_header = {
+		"workshop_id", "province_id", "production_type", "operator_type", "operator_id", "opening_value"
+	};
 	static constexpr std::array<std::string_view, 9> leases_header = {
 		"lease_id", "title_id", "tenant_type", "tenant_id", "settlement", "cash_rent_per_hectare_year",
 		"output_share", "valid_from", "valid_until"
@@ -406,7 +409,8 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	auto m = read_table(canonical, "farms.csv", farms_header, err);
 	auto e = read_table(canonical, "leases.csv", leases_header, err);
 	auto h = read_table(canonical, "households.csv", households_header, err);
-	if(!f || !o || !a || !s || !l || !b || !d || !r || !t || !m || !e || !h || err.accumulated_errors.size() != before) return false;
+	auto w = read_table(canonical, "workshops.csv", workshops_header, err);
+	if(!f || !o || !a || !s || !l || !b || !d || !r || !t || !m || !e || !h || !w || err.accumulated_errors.size() != before) return false;
 	firms = std::move(*f);
 	owners = std::move(*o);
 	assets = std::move(*a);
@@ -419,6 +423,7 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	farms = std::move(*m);
 	leases = std::move(*e);
 	households = std::move(*h);
+	workshops = std::move(*w);
 	return true;
 }
 
@@ -1192,11 +1197,12 @@ bool load_households(sys::state& state, parsers::scenario_building_context& cont
 		float cash = 0.0f;
 		auto province = parse_integer(source.cells[1], province_id) ? province_from_original_id(state, context, province_id) : dcon::province_id{};
 		auto cohort_role = source.cells[2] == "peasant" ? economy::households::role::peasant
-			: source.cells[2] == "landed" ? economy::households::role::landed : economy::households::role::none;
+			: source.cells[2] == "landed" ? economy::households::role::landed
+			: source.cells[2] == "urban" ? economy::households::role::urban : economy::households::role::none;
 		auto settlement = find_commodity(context, source.cells[3]);
 		if(!valid_key(id) || households_by_id.contains(id) || !province || cohort_role == economy::households::role::none
 			|| !settlement || !parse_float(source.cells[4], cash) || cash < 0.0f) {
-			add_row_error(err, "households.csv", source.line, "household needs a unique id, a resolving province, role 'peasant' or 'landed', a settlement, and nonnegative opening_cash");
+			add_row_error(err, "households.csv", source.line, "household needs a unique id, a resolving province, role 'peasant', 'landed', or 'urban', a settlement, and nonnegative opening_cash");
 			continue;
 		}
 		auto household = economy::households::create(state, province, cohort_role, settlement);
@@ -1229,7 +1235,8 @@ bool load_households(sys::state& state, parsers::scenario_building_context& cont
 		auto province = state.world.pop_get_province_from_pop_location(pop);
 		if(province && !economy::households::household_for(state, province, cohort_role))
 			add_row_error(err, "households.csv", 0, "province " + std::to_string(context.prov_id_to_original_id_map[province].id)
-				+ " has living " + std::string(cohort_role == economy::households::role::peasant ? "peasant" : "landed")
+				+ " has living " + std::string(cohort_role == economy::households::role::peasant ? "peasant"
+					: cohort_role == economy::households::role::landed ? "landed" : "urban")
 				+ " people but declares no household for them");
 	});
 	return err.accumulated_errors.size() == initial_errors;
@@ -1332,6 +1339,49 @@ bool load_land(sys::state& state, parsers::scenario_building_context& context, p
 		if(!error.empty()) add_row_error(err, "farms.csv", source.line, error);
 		state.world.asset_set_appraised_value(asset, value);
 		state.world.force_create_factory_asset(farm, asset);
+		assets_by_id.emplace(id, asset);
+	}
+	return err.accumulated_errors.size() == initial_errors;
+}
+
+// A workshop is an ordinary factory for a craft recipe at a province's site,
+// operated by an urban household (self-employment) or a firm.
+bool load_workshops(sys::state& state, parsers::scenario_building_context& context, parsers::error_handler& err,
+	table const& workshop_table, actor_lookup const& actors,
+	std::unordered_map<uint64_t, std::string>& asset_ids,
+	std::unordered_map<std::string, dcon::asset_id>& assets_by_id) {
+	auto initial_errors = err.accumulated_errors.size();
+	std::vector<row> rows(workshop_table.rows.begin(), workshop_table.rows.end());
+	std::sort(rows.begin(), rows.end(), [](auto const& a, auto const& b) { return a.cells[0] < b.cells[0]; });
+	for(auto const& source : rows) {
+		auto const& id = source.cells[0];
+		uint32_t province_id = 0;
+		float value = 0.0f;
+		auto province = parse_integer(source.cells[1], province_id) ? province_from_original_id(state, context, province_id) : dcon::province_id{};
+		auto type = context.map_of_factory_names.find(source.cells[2]);
+		auto organization = actors.organization(source.cells[3], source.cells[4]);
+		if(!valid_key(id) || assets_by_id.contains(id) || !province || type == context.map_of_factory_names.end()
+			|| !economy::households::is_craft(state, type->second) || !organization
+			|| !parse_float(source.cells[5], value) || value < 0.0f) {
+			add_row_error(err, "workshops.csv", source.line, "workshop needs a unique id, a resolving province, a craft production type, a declared operator, and a nonnegative opening_value");
+			continue;
+		}
+		auto workshop = economy::households::create_workshop(state, world::spatial_runtime::site_for_province(state, province),
+			type->second, organization);
+		if(!workshop) {
+			add_row_error(err, "workshops.csv", source.line, "could not create the workshop at the province site");
+			continue;
+		}
+		std::string error;
+		assign_id(state.world.factory_get_canonical_id(workshop), [&](uint64_t v) { state.world.factory_set_canonical_id(workshop, v); },
+			"factory:workshop:" + id, asset_ids, error);
+		if(!error.empty()) add_row_error(err, "workshops.csv", source.line, error);
+		auto asset = state.world.create_asset();
+		assign_id(state.world.asset_get_canonical_id(asset), [&](uint64_t v) { state.world.asset_set_canonical_id(asset, v); },
+			"asset:workshop:" + id, asset_ids, error);
+		if(!error.empty()) add_row_error(err, "workshops.csv", source.line, error);
+		state.world.asset_set_appraised_value(asset, value);
+		state.world.force_create_factory_asset(workshop, asset);
 		assets_by_id.emplace(id, asset);
 	}
 	return err.accumulated_errors.size() == initial_errors;
@@ -2229,9 +2279,10 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	table farm_table;
 	table lease_table;
 	table household_table;
+	table workshop_table;
 	if(!read_and_parse_tables(common, err, firm_table, owner_table, asset_table,
 		ownership_table, loan_table, bank_table, bank_deposit_table, deposit_table,
-		land_title_table, farm_table, lease_table, household_table)) {
+		land_title_table, farm_table, lease_table, household_table, workshop_table)) {
 		err.fatal = true;
 		return false;
 	}
@@ -2277,6 +2328,7 @@ bool load(sys::state& state, simple_fs::directory const& common,
 			households_by_id)
 		|| !load_land(state, context, err, land_title_table, farm_table, lookup, asset_ids, site_ids,
 			assets_by_id, titles_by_id)
+		|| !load_workshops(state, context, err, workshop_table, lookup, asset_ids, assets_by_id)
 		|| !load_ownership(state, err, firms, owners, assets, stakes, owners_by_id,
 			assets_by_id, stake_ids, lookup)
 		|| !load_leases(state, context, err, lease_table, lookup, titles_by_id, obligation_ids)

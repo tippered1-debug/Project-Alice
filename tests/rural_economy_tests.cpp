@@ -522,3 +522,108 @@ TEST_CASE("a displaced worker keeps an individual budget through the job-search 
 	economy::households::release_idle_consumers(*f.state);
 	REQUIRE(economy::physical::exact_person_goods::needs_for_person(*f.state, worker).empty());
 }
+
+namespace rural_economy_tests {
+dcon::pop_id add_population(fixture& f, dcon::pop_type_id type, float size) {
+	auto pop = f.state->world.create_pop();
+	f.state->world.force_create_pop_location(pop, f.province);
+	f.state->world.pop_set_poptype(pop, type);
+	f.state->world.pop_set_culture(pop, f.state->world.create_culture());
+	f.state->world.pop_set_religion(pop, f.state->world.create_religion());
+	f.state->world.pop_set_size(pop, size);
+	REQUIRE(persons::exact_population::register_population_cell(*f.state, pop, f.site).result
+		== persons::exact_population::status::created);
+	return pop;
+}
+} // namespace rural_economy_tests
+
+TEST_CASE("every living person belongs to exactly one budget", "[economy][households][budgets]") {
+	rural_economy_tests::cohort_fixture f;
+	auto craftsmen = f.state->world.create_pop_type();
+	auto slaves = f.state->world.create_pop_type();
+	f.state->culture_definitions.slaves = slaves;
+	(void)rural_economy_tests::add_population(f, craftsmen, 2.0f); // eight townspeople
+	(void)rural_economy_tests::add_population(f, slaves, 1.0f);    // four bonded people
+	REQUIRE(economy::households::role_for_pop_type(*f.state, craftsmen) == economy::households::role::urban);
+	REQUIRE(economy::households::role_for_pop_type(*f.state, slaves) == economy::households::role::none);
+	// Townspeople without a cohort are outside every budget.
+	auto before = economy::households::audit(*f.state);
+	REQUIRE(before.uncovered == Approx(8.0));
+	REQUIRE(economy::households::create(*f.state, f.province, economy::households::role::urban, f.settlement));
+	// A hired peasant takes their family into an individual budget.
+	auto offer = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
+		f.site, 0, 1.0f, 1.0f, 1, f.estate_account, 1, f.state->current_date);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, {f.peasant_cell, 0}, offer, f.state->current_date));
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	economy::physical::household_mobility::update_employed_households(*f.state);
+	auto after = economy::households::audit(*f.state);
+	REQUIRE(after.uncovered == Approx(0.0));
+	REQUIRE(after.bonded == Approx(4.0));
+	REQUIRE(after.individual + after.in_cohorts + after.military + after.bonded == Approx(after.living));
+	REQUIRE(after.living == Approx(20.0 + 8.0 + 4.0));
+}
+
+TEST_CASE("a hired worker's family leaves the cohort with them and shares their wage", "[economy][households][budgets]") {
+	rural_economy_tests::cohort_fixture f;
+	persons::person_key worker{ f.peasant_cell, 0 };
+	auto offer = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
+		f.site, 0, 1.0f, 1.0f, 1, f.estate_account, 1, f.state->current_date);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, worker, offer, f.state->current_date));
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	economy::physical::household_mobility::update_employed_households(*f.state);
+	auto individuals = economy::households::individual_consumers(*f.state);
+	auto family = economy::households::family_size(*f.state, worker, individuals);
+	REQUIRE(family >= 1);
+	REQUIRE(family <= 4);
+	// The worker's grain need covers the whole family.
+	REQUIRE(economy::physical::exact_person_goods::need(*f.state, worker, f.grain)->desired_quantity_per_period
+		== Approx(1.0f * float(family)));
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f - float(family)));
+}
+
+TEST_CASE("an urban cohort works only crafts that pay and buys their inputs", "[economy][households][crafts]") {
+	rural_economy_tests::cohort_fixture f;
+	auto craftsmen = f.state->world.create_pop_type();
+	(void)rural_economy_tests::add_population(f, craftsmen, 2.0f); // eight people, two workers
+	auto town = economy::households::create(*f.state, f.province, economy::households::role::urban, f.settlement);
+	auto town_actor = actors::organizations::actor_for_organization(*f.state, town);
+	auto bread = f.state->world.create_commodity();
+	auto cloth = f.state->world.create_commodity();
+	f.state->world.commodity_set_cost(bread, 10.0f);
+	f.state->world.commodity_set_cost(cloth, 0.5f);
+	f.state->world.market_resize_price(f.state->world.commodity_size());
+	f.state->world.land_title_resize_suitability(f.state->world.commodity_size());
+	f.state->world.pop_type_resize_life_needs(f.state->world.commodity_size());
+	f.state->world.pop_type_resize_everyday_needs(f.state->world.commodity_size());
+	f.state->world.pop_type_resize_luxury_needs(f.state->world.commodity_size());
+	auto make_craft = [&](dcon::commodity_id output, dcon::commodity_id input, float amount) {
+		auto type = f.state->world.create_factory_type();
+		f.state->world.factory_type_set_output(type, output);
+		f.state->world.factory_type_set_output_amount(type, 1.0f);
+		f.state->world.factory_type_set_base_workforce(type, 1);
+		f.state->world.factory_type_set_household_craft(type, true);
+		economy::commodity_set recipe;
+		recipe.commodity_type[0] = input;
+		recipe.commodity_amounts[0] = amount;
+		f.state->world.factory_type_set_inputs(type, recipe);
+		return type;
+	};
+	// Baking pays (10 out, 2 x 2 grain in); weaving does not (0.5 out, 2 grain in).
+	auto bakery = economy::households::create_workshop(*f.state, f.site, make_craft(bread, f.grain, 2.0f), town);
+	auto loom = economy::households::create_workshop(*f.state, f.site, make_craft(cloth, f.grain, 2.0f), town);
+	REQUIRE(bakery);
+	REQUIRE(loom);
+	f.state->world.factory_set_payroll_settlement(bakery, f.settlement);
+	f.state->world.factory_set_payroll_settlement(loom, f.settlement);
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::households::self_working_operator(*f.state, bakery));
+	REQUIRE(economy::households::self_employed_labor(*f.state, bakery) == Approx(2.0f));
+	REQUIRE(economy::households::self_employed_labor(*f.state, loom) == Approx(0.0f));
+	// With its inputs at hand the bakery turns members' labor into bread kept at home.
+	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.grain, 4.0f, town_actor) == Approx(4.0f));
+	auto output = economy::industrial_production::produce_factory(*f.state, bakery);
+	REQUIRE(output == Approx(2.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, bread, town_actor) == Approx(2.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, town_actor) == Approx(0.0f));
+}

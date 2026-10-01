@@ -526,6 +526,11 @@ object {
 		tag{ scenario }
 	}
 	property{
+		name{ household_craft }
+		type{ bitfield }
+		tag{ scenario }
+	}
+	property{
 		name{ inputs }
 		type{ economy::commodity_set }
 		tag{ scenario }
@@ -6128,6 +6133,7 @@ object {
 	property{ name{ target_utilization } type{ float } tag{ save } }
 	property{ name{ actual_utilization } type{ float } tag{ save } }
 	property{ name{ payroll_settlement } type{ commodity_id } tag{ save } }
+	property{ name{ self_employed_labor } type{ float } tag{ save } }
 	property{ name{ last_payroll_date } type{ sys::date } tag{ save } }
 	property{ name{ payroll_initialized } type{ uint8_t } tag{ save } }
 	property{ name{ agency_planned_units } type{ float } tag{ save } }

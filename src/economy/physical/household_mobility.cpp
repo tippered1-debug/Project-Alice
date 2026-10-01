@@ -1,4 +1,5 @@
 #include "household_mobility.hpp"
+#include "economy/households.hpp"
 
 #include "accounts/accounts.hpp"
 #include "economy/advanced_province_buildings.hpp"
@@ -234,19 +235,7 @@ void update_employed_households(sys::state& state) {
 	});
 	consumers.erase(std::unique(consumers.begin(), consumers.end()), consumers.end());
 	std::map<uint32_t, std::vector<std::pair<dcon::commodity_id, float>>> profiles;
-	for(auto person : consumers) {
-		if(!persons::alive(state, person)) continue;
-		auto contracts = exact_person_economy::active_contracts_for_person(state, person);
-		if(!contracts.empty()) {
-			if(auto contract = exact_person_economy::contract(state, contracts.front()))
-				(void)relocate_for_job(state, person, contract->workplace);
-		}
-		if(exact_person_goods::need_profile_imported(state, person)) continue;
-		if(!exact_person_goods::needs_for_person(state, person).empty()) {
-			(void)exact_person_goods::mark_need_profile_imported(state, person);
-			continue;
-		}
-		auto type = persons::pop_type(state, person);
+	auto profile_for = [&](dcon::pop_type_id type) -> std::vector<std::pair<dcon::commodity_id, float>> const& {
 		auto profile = profiles.find(type ? uint32_t(type.index()) : 0u);
 		if(profile == profiles.end()) {
 			std::vector<std::pair<dcon::commodity_id, float>> compiled;
@@ -260,10 +249,40 @@ void update_employed_households(sys::state& state) {
 						compiled.emplace_back(commodity, desired);
 				});
 			}
-			profile = profiles.emplace(type ? uint32_t(type.index()) : 0u,
-				std::move(compiled)).first;
+			profile = profiles.emplace(type ? uint32_t(type.index()) : 0u, std::move(compiled)).first;
 		}
-		import_scenario_need_profile_once(state, person, profile->second);
+		return profile->second;
+	};
+	// An individual budget feeds the person's family: a worker's needs are the
+	// per-capita profile times the living dependents who rely on them.
+	auto individuals = economy::households::individual_consumers(state);
+	for(auto person : consumers) individuals.emplace(person.source_population_cell, person.ordinal);
+	auto family_profile = [&](persons::person_key person) {
+		auto family = float(std::max(1, economy::households::family_size(state, person, individuals)));
+		auto scaled = profile_for(persons::pop_type(state, person));
+		for(auto& [commodity, desired] : scaled) desired *= family;
+		return scaled;
+	};
+	for(auto person : consumers) {
+		if(!persons::alive(state, person)) continue;
+		auto contracts = exact_person_economy::active_contracts_for_person(state, person);
+		if(!contracts.empty()) {
+			if(auto contract = exact_person_economy::contract(state, contracts.front()))
+				(void)relocate_for_job(state, person, contract->workplace);
+		}
+		if(exact_person_goods::need_profile_imported(state, person)) {
+			// Families change through births, deaths, and members taking their own
+			// budget; refresh each consumer's family needs once per month.
+			if((state.current_date.to_raw_value() + int32_t(person.ordinal % 30)) % 30 == 0)
+				for(auto const& [commodity, desired] : family_profile(person))
+					(void)exact_person_goods::set_need(state, person, commodity, desired);
+			continue;
+		}
+		if(!exact_person_goods::needs_for_person(state, person).empty()) {
+			(void)exact_person_goods::mark_need_profile_imported(state, person);
+			continue;
+		}
+		import_scenario_need_profile_once(state, person, family_profile(person));
 	}
 }
 

@@ -10,6 +10,8 @@ This is the entry point for the architecture that describes the current runtime.
 | Persons | Stable human identity, lifecycle, and current membership. | [Persons](persons.md) |
 | Actors | Organizations and economic agents that hold accounts, assets, and obligations. | [Actors](actors.md) |
 | Economy | Labor, household exchange, production, and market activity. | [Economy](economy.md) |
+| Households and income | Budgets of every living person, transitions, dividends, inheritance. | [Households and income](households-and-income.md) |
+| Primary production | Deposits, land, farms, extraction, and leases. | [Primary production](primary-production.md) |
 | Banking | Operating money, reserves, deposits, loans, and settlement. | [Banking](banking.md) |
 | Ownership | Explicit owners and stakes in productive assets and firms. | [Ownership](ownership.md) |
 | Government | Public institutions, treasury, and account-backed public activity. | [Government](government.md) |

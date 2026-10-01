@@ -250,6 +250,23 @@ void make_production_type(std::string_view name, token_generator& gen, error_han
 		});
 		context.outer_context.state.world.commodity_set_artisan_inputs(pt.output_goods_, cset);
 		context.outer_context.state.world.commodity_set_artisan_output_amount(pt.output_goods_, pt.value);
+		// A craft is produced by an ordinary workshop; an urban household works it
+		// with its own members and buys its inputs like any factory.
+		auto& world = context.outer_context.state.world;
+		auto& names = context.outer_context.map_of_factory_names;
+		if(names.find(std::string(name)) != names.end()) {
+			err.accumulated_errors += "Craft production type " + std::string(name) + " collides with a building name (" + err.file_name + ")\n";
+		} else {
+			auto type = world.create_factory_type();
+			names.insert_or_assign(std::string(name), type);
+			world.factory_type_set_name(type, text::find_or_add_key(context.outer_context.state, name, false));
+			world.factory_type_set_description(type, text::find_or_add_key(context.outer_context.state, std::string(name) + "_desc", false));
+			world.factory_type_set_inputs(type, cset);
+			world.factory_type_set_output(type, pt.output_goods_);
+			world.factory_type_set_output_amount(type, pt.value);
+			world.factory_type_set_base_workforce(type, pt.workforce);
+			world.factory_type_set_household_craft(type, true);
+		}
 	} else if(pt.type_ == production_type_enum::factory) {
 		if(auto it = context.outer_context.map_of_production_types.find(std::string(name));
 				it != context.outer_context.map_of_production_types.end()) {

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -18,10 +19,14 @@ namespace economy::households {
 // person of the cohort's role in its province belongs to it unless that person
 // has individual needs (an exact consumer, such as a hired worker) or serves in
 // a military formation. Every member has an identical per-capita share.
-enum class role : uint8_t { none = 0, peasant = 1, landed = 2 };
+// peasant: farmers and labourers; landed: aristocrats; urban: every other free
+// role. Slaves are bonded labor and belong to no free cohort.
+enum class role : uint8_t { none = 0, peasant = 1, landed = 2, urban = 3 };
 
 // One worker in four people, matching the source workforce unit of POP sizes.
 inline constexpr float workers_per_member = 0.25f;
+// A source workforce anchor and the three ordinals after it form one family.
+inline constexpr int32_t persons_per_family = 4;
 // Days of the members' own needs a cohort keeps of its own produce before selling.
 inline constexpr float retention_days = 60.0f;
 inline constexpr float purchase_markup = 1.05f;
@@ -39,15 +44,39 @@ dcon::organization_id household_for(sys::state const&, dcon::province_id, role);
 // The role whose cohort a population row of this type belongs to.
 role role_for_pop_type(sys::state const&, dcon::pop_type_id);
 
+// People with an individual budget: exact consumers with needs of their own.
+std::set<std::pair<uint32_t, uint64_t>> individual_consumers(sys::state const&);
+// An individual budget covers the person and, for a workforce anchor, the
+// living dependents of their family who share their population and have no
+// individual budget or military service of their own.
+int32_t family_size(sys::state const&, persons::person_key, std::set<std::pair<uint32_t, uint64_t>> const& individuals);
+
 float members(sys::state const&, dcon::organization_id);
 float workers(sys::state const&, dcon::organization_id);
 // Daily value of the cohort's own production per worker: what a member gives
 // up by leaving the cohort for a wage.
 float reservation_wage(sys::state const&, dcon::organization_id);
 
-// A peasant cohort works its own farms with its members' labor, unpaid.
+// A peasant or urban cohort works its own farms and workshops with its
+// members' labor, unpaid.
 bool self_working_operator(sys::state const&, dcon::factory_id);
 float self_employed_labor(sys::state const&, dcon::factory_id);
+bool is_craft(sys::state const&, dcon::factory_type_id);
+// Creates a workshop for a craft recipe at a site. Its labor is the members'
+// own work; its inputs are bought like any factory's.
+dcon::factory_id create_workshop(sys::state&, dcon::site_id, dcon::factory_type_id, dcon::organization_id operator_organization);
+
+// Where every living person's budget is: a cohort, an individual budget (with
+// family), military service, bonded labor, or nowhere.
+struct coverage {
+	double living = 0.0;
+	double in_cohorts = 0.0;
+	double individual = 0.0;
+	double military = 0.0;
+	double bonded = 0.0;
+	double uncovered = 0.0;
+};
+coverage audit(sys::state const&);
 
 // Recounts every cohort's members and workers and updates reservation wages.
 // Runs before production so the day's self-employed labor is current.

@@ -94,7 +94,8 @@ Deferred, in this order:
 3. subsoil law and concessions with royalties;
 4. splitting money from gold;
 5. POP roles as projections;
-6. removal of legacy RGO fields and GUI;
-7. artisans and urban self-employment as household establishments.
+6. removal of legacy RGO fields and GUI.
+
+Artisans and urban self-employment are covered in [Households and income](households-and-income.md).
 
 A tool to author canonical CSV data from content is a separate prerequisite for full-world runs.
