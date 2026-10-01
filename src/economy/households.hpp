@@ -59,6 +59,14 @@ void process_daily(sys::state&);
 // of their role in their home province, bringing their cash and goods.
 inline constexpr int32_t days_before_rejoining = 30;
 bool rejoin(sys::state&, persons::person_key);
+// Ends a living person's individual budget and makes them a cohort member
+// again: their goods and cash pass to the cohort of their role in their home
+// province. Fails without change for a person under contract, in military
+// service, without such a cohort, or with freight still pending.
+bool return_to_household(sys::state&, persons::person_key);
+// Returns every individual consumer who has no contract and no cash of their
+// own, except displaced workers still inside their job-search window.
+void release_idle_consumers(sys::state&);
 
 // Adds each cohort's desired and consumed quantities, by life/everyday/luxury,
 // to the per-population totals used for the POP satisfaction projection.

@@ -14,6 +14,9 @@
 #include "economy/physical/labor_dynamics.hpp"
 #include "economy/physical/land.hpp"
 #include "economy/households.hpp"
+#include "economy/estates.hpp"
+#include "governance/governance.hpp"
+#include "governance/finance/finance.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/household_mobility.hpp"
 #include "persons/persons.hpp"
@@ -429,4 +432,93 @@ TEST_CASE("a displaced rural worker without a job returns to the cohort with the
 	REQUIRE(economy::physical::exact_person_goods::needs_for_person(*f.state, worker).empty());
 	economy::households::refresh_membership(*f.state);
 	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f));
+}
+
+namespace rural_economy_tests {
+double total_money(sys::state const& state) {
+	double total = 0.0;
+	state.world.for_each_monetary_account([&](dcon::monetary_account_id account) {
+		total += double(state.world.monetary_account_get_balance(account));
+	});
+	for(auto const& account : economy::exact_person_economy::export_snapshot(state).accounts) total += double(account.balance);
+	return total;
+}
+} // namespace rural_economy_tests
+
+TEST_CASE("a dead person's cash, goods, and stakes pass to their cohort", "[economy][rural][households][estates]") {
+	rural_economy_tests::cohort_fixture f;
+	persons::person_key person{ f.peasant_cell, 4 };
+	auto ledger = economy::exact_person_economy::open_account(*f.state, person, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, ledger, 100.0f));
+	REQUIRE(economy::physical::exact_person_goods::add_stock(*f.state, person, f.site, f.grain, 5.0f) == Approx(5.0f));
+	auto actor = persons::actor_for_person(*f.state, persons::materialize_profile(*f.state, person));
+	REQUIRE(actor);
+	auto holding = f.state->world.create_asset();
+	REQUIRE(actors::ownership::create_stake(*f.state, actor, holding, 1.0f, 1.0f, 1.0f));
+	auto money_before = rural_economy_tests::total_money(*f.state);
+	auto cohort_cash = economy::accounts::balance(*f.state, f.cohort_account);
+
+	REQUIRE(persons::kill_person(*f.state, person, f.state->current_date, persons::death_cause::natural));
+	economy::estates::process(*f.state);
+	REQUIRE(economy::exact_person_economy::balance(*f.state, ledger) == Approx(0.0f));
+	REQUIRE(economy::accounts::balance(*f.state, f.cohort_account) == Approx(cohort_cash + 100.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, person, f.site, f.grain) == Approx(0.0f));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, f.cohort_actor) == Approx(5.0f));
+	dcon::economic_actor_id holder{};
+	f.state->world.asset_for_each_ownership_stake_asset_as_asset(holding, [&](auto relation) {
+		holder = f.state->world.ownership_stake_get_economic_actor_from_ownership_stake_owner(
+			f.state->world.ownership_stake_asset_get_ownership_stake(relation));
+	});
+	REQUIRE(holder == f.cohort_actor);
+	REQUIRE(rural_economy_tests::total_money(*f.state) == Approx(money_before));
+}
+
+TEST_CASE("without a cohort an estate escheats to the state", "[economy][rural][households][estates]") {
+	rural_economy_tests::cohort_fixture f;
+	auto government = governance::central_government_for(*f.state, f.nation);
+	persons::person_key person{ 700, 8 }; // a resident with no cohort role
+	auto ledger = economy::exact_person_economy::open_account(*f.state, person, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, ledger, 40.0f));
+	REQUIRE(persons::kill_person(*f.state, person, f.state->current_date, persons::death_cause::natural));
+	REQUIRE(economy::estates::heir_for(*f.state, person) == governance::actor_for_institution(*f.state, government));
+	economy::estates::process(*f.state);
+	REQUIRE(economy::accounts::balance(*f.state,
+		governance::finance::treasury_account_for(*f.state, government, f.settlement)) == Approx(40.0f));
+}
+
+TEST_CASE("an individual consumer with no contract and no cash returns to the cohort", "[economy][rural][households]") {
+	rural_economy_tests::cohort_fixture f;
+	persons::person_key person{ f.peasant_cell, 0 };
+	auto ledger = economy::exact_person_economy::open_account(*f.state, person, f.settlement);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, ledger, 10.0f));
+	economy::physical::household_mobility::update_employed_households(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_goods::needs_for_person(*f.state, person).empty());
+	economy::households::release_idle_consumers(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_goods::needs_for_person(*f.state, person).empty()); // still has cash
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, ledger, 0.0f));
+	economy::households::release_idle_consumers(*f.state);
+	REQUIRE(economy::physical::exact_person_goods::needs_for_person(*f.state, person).empty());
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f));
+}
+
+TEST_CASE("a displaced worker keeps an individual budget through the job-search window", "[economy][rural][households]") {
+	rural_economy_tests::cohort_fixture f;
+	persons::person_key worker{ f.peasant_cell, 0 };
+	auto offer = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
+		f.site, 0, 1.0f, 1.0f, 1, f.estate_account, 1, f.state->current_date);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, worker, offer, f.state->current_date));
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	economy::physical::household_mobility::update_employed_households(*f.state);
+	auto contract = economy::exact_person_economy::active_contracts_for_person(*f.state, worker).front();
+	REQUIRE(economy::exact_person_economy::end_contract(*f.state, contract,
+		economy::exact_person_economy::contract_status::terminated, f.state->current_date));
+	economy::exact_person_economy::note_separation(*f.state, worker, f.state->current_date);
+	economy::exact_person_economy::enqueue_displaced_worker(*f.state, worker);
+	f.state->current_date += 5;
+	economy::households::release_idle_consumers(*f.state);
+	REQUIRE_FALSE(economy::physical::exact_person_goods::needs_for_person(*f.state, worker).empty());
+	f.state->current_date += 30;
+	economy::households::release_idle_consumers(*f.state);
+	REQUIRE(economy::physical::exact_person_goods::needs_for_person(*f.state, worker).empty());
 }

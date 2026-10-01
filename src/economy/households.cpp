@@ -333,12 +333,10 @@ void process_daily(sys::state& state) {
 		(void)market_ns::match_all(state, dcon::commodity_id{ dcon::commodity_id::value_base_t(index) }, state.current_date);
 }
 
-bool rejoin(sys::state& state, persons::person_key person) {
+bool return_to_household(sys::state& state, persons::person_key person) {
 	using namespace economy::exact_person_economy;
 	if(!persons::alive(state, person) || person_has_active_contract(state, person)
 		|| persons::exact_population::has_military_assignment(state, person)) return false;
-	auto separated = last_separation_date(state, person);
-	if(!separated || state.current_date.to_raw_value() - separated->to_raw_value() < days_before_rejoining) return false;
 	auto population = persons::current_population(state, person);
 	auto home = persons::home_site(state, person);
 	auto province = home ? state.world.site_get_province_from_site_location(home) : dcon::province_id{};
@@ -360,6 +358,34 @@ bool rejoin(sys::state& state, persons::person_key person) {
 	}
 	remove_displaced_worker(state, person);
 	return true;
+}
+
+bool rejoin(sys::state& state, persons::person_key person) {
+	auto separated = economy::exact_person_economy::last_separation_date(state, person);
+	if(!separated || state.current_date.to_raw_value() - separated->to_raw_value() < days_before_rejoining) return false;
+	return return_to_household(state, person);
+}
+
+void release_idle_consumers(sys::state& state) {
+	if(!state.exact_person_goods || !state.exact_person_economy) return;
+	std::set<std::pair<uint32_t, uint64_t>> consumers;
+	for(auto const& need : economy::physical::exact_person_goods::need_records(state))
+		consumers.emplace(need.owner.source_population_cell, need.owner.ordinal);
+	auto displaced = economy::exact_person_economy::displaced_workers(state);
+	for(auto const& [cell, ordinal] : consumers) {
+		persons::person_key person{ cell, ordinal };
+		if(!persons::alive(state, person) || economy::exact_person_economy::person_has_active_contract(state, person)) continue;
+		bool funded = false;
+		for(auto account : economy::exact_person_economy::accounts_for_person(state, person))
+			if(economy::exact_person_economy::balance(state, account) > 0.0f) funded = true;
+		if(funded) continue;
+		// A displaced worker keeps searching for the whole job-search window.
+		if(std::find(displaced.begin(), displaced.end(), person) != displaced.end()) {
+			(void)rejoin(state, person);
+			continue;
+		}
+		(void)return_to_household(state, person);
+	}
 }
 
 void add_population_totals(sys::state const& state, std::map<uint32_t, std::array<double, 6>>& totals) {
