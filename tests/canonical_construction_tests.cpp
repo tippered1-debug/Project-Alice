@@ -1,6 +1,9 @@
 #include "catch.hpp"
 #include <canonical_consumer_fixture.hpp>
 #include "economy/capital_projects.hpp"
+#include "economy/physical/deposits.hpp"
+#include "economy/physical/extraction.hpp"
+#include "actors/ownership.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/shipments.hpp"
@@ -109,11 +112,25 @@ TEST_CASE("delivery pays from project cash and cannot complete before physical a
 TEST_CASE("daily project processing supports deposits infrastructure expansion and military equipment", "[construction-cut]") {
  fixture f; auto company=actors::organizations::operator_organization_for_factory(*f.state,f.factory);
  SECTION("extraction") {
-  auto p=project(f,capital_projects::project_kind::extraction_site); REQUIRE(p);
-  REQUIRE(capital_projects::add_requirement(*f.state,p,f.output,5));
+  // The plant is built on an authored deposit; construction never creates one.
+  auto ore=f.state->world.create_commodity();
+  auto mine=f.state->world.create_factory_type();
+  f.state->world.factory_type_set_output(mine,ore);
+  f.state->world.factory_type_set_output_amount(mine,1.0f);
+  f.state->world.factory_type_set_base_workforce(mine,1);
+  f.state->world.factory_type_set_extracts_deposit(mine,true);
+  auto& bill=f.state->world.factory_type_get_construction_costs(mine); bill.commodity_type[0]=f.output; bill.commodity_amounts[0]=5;
+  auto deposit=physical::deposits::create_deposit(*f.state,f.site,ore,50,50,1,2,2,0); REQUIRE(deposit);
+  REQUIRE(actors::organizations::bind_deposit_operator(*f.state,company,deposit));
+  auto subsoil=f.state->world.create_asset(); f.state->world.force_create_resource_deposit_asset(deposit,subsoil);
+  REQUIRE(actors::ownership::create_stake(*f.state,f.employer,subsoil,1,1,1));
+  auto deposits_before=f.state->world.resource_deposit_size();
+  auto p=capital_projects::create_extraction_plant(*f.state,f.employer,company,deposit,mine,f.settlement); REQUIRE(p);
   REQUIRE(inventory::add(*f.state,yard(f,p),f.output,5,f.employer) == 5);
   capital_projects::process_projects(*f.state);
-  REQUIRE(f.state->world.capital_project_get_resource_deposit_from_capital_project_deposit(p));
+  auto plant=f.state->world.capital_project_get_factory_from_capital_project_factory(p); REQUIRE(plant);
+  REQUIRE(physical::extraction::deposit_for_enterprise(*f.state,plant)==deposit);
+  REQUIRE(f.state->world.resource_deposit_size()==deposits_before);
  }
  SECTION("infrastructure") {
   auto& recipe=f.state->economy_definitions.building_definitions[0].cost; recipe.commodity_type[0]=f.output; recipe.commodity_amounts[0]=5;

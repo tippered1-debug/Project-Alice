@@ -131,6 +131,15 @@ dcon::factory_id create_enterprise(sys::state& state, dcon::resource_deposit_id 
 	return factory;
 }
 
+bool may_operate(sys::state const& state, dcon::resource_deposit_id deposit,
+	dcon::economic_actor_id actor, sys::date date) {
+	if(!deposit || !state.world.resource_deposit_is_valid(deposit) || !actor
+		|| state.world.resource_deposit_get_status(deposit) != uint8_t(deposit_status::active)
+		|| !has_owner(state, actors::ownership::asset_for_deposit(state, deposit))) return false;
+	return actors::ownership::operator_for_deposit(state, deposit) == actor
+		|| bool(active_right_for(state, deposit, actor, date));
+}
+
 float output_grade(sys::state const& state, dcon::factory_id factory) {
 	if(!extracts_deposit(state, factory)) return 1.0f;
 	auto deposit = deposit_for_enterprise(state, factory);
@@ -140,18 +149,14 @@ float output_grade(sys::state const& state, dcon::factory_id factory) {
 
 float daily_ceiling(sys::state const& state, dcon::factory_id factory, sys::date date) {
 	auto deposit = deposit_for_enterprise(state, factory);
-	if(!deposit || !extracts_deposit(state, factory)
-		|| state.world.resource_deposit_get_status(deposit) != uint8_t(deposit_status::active)) return 0.0f;
 	auto operator_actor = actors::organizations::operator_actor_for_factory(state, factory);
-	if(!operator_actor || !has_owner(state, actors::ownership::asset_for_deposit(state, deposit))) return 0.0f;
+	if(!extracts_deposit(state, factory) || !may_operate(state, deposit, operator_actor, date)) return 0.0f;
 	auto limit = state.world.resource_deposit_get_daily_extraction_capacity(deposit);
-	// The deposit's operator controls extraction. Anyone else needs an active
-	// right, which also caps the daily quantity.
-	if(actors::ownership::operator_for_deposit(state, deposit) != operator_actor) {
-		auto right = active_right_for(state, deposit, operator_actor, date);
-		if(!right) return 0.0f;
-		limit = std::min(limit, state.world.resource_extraction_right_get_max_daily_quantity(right));
-	}
+	// The deposit's operator extracts up to capacity; a right holder is also
+	// capped by the right's daily quantity.
+	if(actors::ownership::operator_for_deposit(state, deposit) != operator_actor)
+		limit = std::min(limit, state.world.resource_extraction_right_get_max_daily_quantity(
+			active_right_for(state, deposit, operator_actor, date)));
 	auto remaining = state.world.resource_deposit_get_remaining_recoverable_reserves(deposit);
 	auto result = std::min(limit, remaining);
 	return std::isfinite(result) ? std::max(0.0f, result) : 0.0f;

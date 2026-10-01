@@ -6,6 +6,7 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/deposits.hpp"
+#include "economy/physical/extraction.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/exchange.hpp"
@@ -48,20 +49,18 @@ void refresh(sys::state& s, dcon::capital_project_id p) {
 
 dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic_actor_id owner,
 	dcon::organization_id responsible, dcon::site_id project_site, dcon::commodity_id settlement, dcon::factory_type_id type, dcon::commodity_id target_commodity,
-	float planned_reserves, float planned_grade, float planned_daily_capacity, float planned_target_daily_extraction) {
+	float planned_daily_capacity) {
 	if(!owner || !responsible || !project_site || !settlement || !s.world.economic_actor_is_valid(owner)
 		|| !s.world.organization_is_valid(responsible) || !s.world.site_is_valid(project_site)
 		|| !s.world.commodity_is_valid(settlement)
 		|| uint8_t(kind) > uint8_t(project_kind::naval_construction)
 		|| ((kind == project_kind::factory || kind == project_kind::factory_expansion) && !type)
 		|| (type && !s.world.factory_type_is_valid(type))
-		|| (kind == project_kind::extraction_site && !target_commodity)
+		// An extraction recipe needs a deposit; only create_extraction_plant binds one.
+		|| ((kind == project_kind::factory || kind == project_kind::extraction_plant)
+			&& physical::extraction::extracts_deposit(s, type) != (kind == project_kind::extraction_plant))
 		|| (target_commodity && !s.world.commodity_is_valid(target_commodity))
-		|| !std::isfinite(planned_reserves) || planned_reserves < 0.0f
-		|| !std::isfinite(planned_grade) || planned_grade < 0.0f
-		|| !std::isfinite(planned_daily_capacity) || planned_daily_capacity < 0.0f
-		|| !std::isfinite(planned_target_daily_extraction) || planned_target_daily_extraction < 0.0f
-		|| (kind == project_kind::extraction_site && planned_reserves <= 0.0f)) return {};
+		|| !std::isfinite(planned_daily_capacity) || planned_daily_capacity < 0.0f) return {};
 	// A project owns a dedicated yard in the shared inventory. Two orders by
 	// the same sponsor in the same province must never consume each other's stock.
 	auto province = s.world.site_get_province_from_site_location(project_site);
@@ -80,10 +79,7 @@ dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic
 	s.world.capital_project_set_state_funded(p, 0);
 	s.world.capital_project_set_factory_type(p, type);
 	s.world.capital_project_set_target_commodity(p, target_commodity);
-	s.world.capital_project_set_planned_reserves(p, planned_reserves);
-	s.world.capital_project_set_planned_grade(p, planned_grade);
 	s.world.capital_project_set_planned_daily_capacity(p, planned_daily_capacity);
-	s.world.capital_project_set_planned_target_daily_extraction(p, planned_target_daily_extraction);
 	s.world.force_create_capital_project_sponsor(p, owner);
 	s.world.force_create_capital_project_responsible(p, responsible);
 	s.world.force_create_capital_project_site(p, yard);
@@ -239,7 +235,6 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 	if(!valid(s,p) || !requirements_satisfied(s,p) || s.world.capital_project_get_status(p) == uint8_t(status::suspended)
 		|| s.world.capital_project_get_status(p) >= uint8_t(status::completed)) return false;
 	if(s.world.capital_project_get_factory_from_capital_project_factory(p)
-		|| s.world.capital_project_get_resource_deposit_from_capital_project_deposit(p)
 		|| s.world.capital_project_get_asset_from_capital_project_asset(p)) return false;
 	auto project_site = site(s, p);
 	auto responsible = s.world.capital_project_get_organization_from_capital_project_responsible(p);
@@ -284,31 +279,37 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		}
 		s.world.force_create_capital_project_factory(p, f);
 		s.world.force_create_capital_project_asset(p, asset);
-	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::extraction_site)) {
-		auto d = physical::deposits::create_deposit(s, site(s,p), s.world.capital_project_get_target_commodity(p),
-			s.world.capital_project_get_planned_reserves(p), s.world.capital_project_get_planned_reserves(p),
-			s.world.capital_project_get_planned_grade(p), s.world.capital_project_get_planned_daily_capacity(p),
-			s.world.capital_project_get_planned_target_daily_extraction(p));
-		if(!d) return false;
-		actors::ownership::assign_runtime_canonical_id(s, site(s, p));
-		actors::ownership::assign_runtime_canonical_id(s, d);
+	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::extraction_plant)) {
+		// The plant is capital built on an existing deposit; the deposit itself
+		// is never created here. Access is checked again at completion because
+		// operator control or a right may have lapsed while the project was built.
+		auto deposit = s.world.capital_project_get_resource_deposit_from_capital_project_target_deposit(p);
+		auto type = s.world.capital_project_get_factory_type(p);
+		if(!deposit || physical::extraction::enterprise_for_deposit(s, deposit)
+			|| !physical::extraction::may_operate(s, deposit,
+				actors::organizations::actor_for_organization(s, responsible), s.current_date)) return false;
+		auto f = physical::extraction::create_enterprise(s, deposit, type, responsible);
+		if(!f) return false;
+		s.world.factory_set_target_utilization(f, 1.0f);
+		s.world.factory_set_actual_utilization(f, 0.0f);
+		s.world.factory_set_payroll_settlement(f,
+			s.world.monetary_account_get_commodity_from_monetary_account_settlement(
+				s.world.capital_project_get_monetary_account_from_capital_project_account(p)));
+		actors::ownership::assign_runtime_canonical_id(s, s.world.factory_get_site_from_factory_site(f));
 		actors::ownership::assign_runtime_canonical_id(s, responsible);
 		actors::ownership::assign_runtime_canonical_id(s, sponsor(s, p));
-		if(!actors::organizations::bind_deposit_operator(s, responsible, d)) {
-			s.world.delete_resource_deposit(d);
-			return false;
-		}
+		actors::ownership::assign_runtime_canonical_id(s, f);
 		auto asset = s.world.create_asset();
 		actors::ownership::assign_runtime_canonical_id(s, asset);
-		auto stake = actors::ownership::create_stake(s, sponsor(s,p), asset, 1.0f, 1.0f, 1.0f);
+		s.world.force_create_factory_asset(f, asset);
+		auto stake = actors::ownership::create_stake(s, sponsor(s, p), asset, 1.0f, 1.0f, 1.0f);
 		actors::ownership::assign_runtime_canonical_id(s, stake);
 		if(!stake) {
-			s.world.delete_resource_deposit(d);
+			s.world.delete_factory(f);
 			s.world.delete_asset(asset);
 			return false;
 		}
-		s.world.force_create_resource_deposit_asset(d, asset);
-		s.world.force_create_capital_project_deposit(p, d);
+		s.world.force_create_capital_project_factory(p, f);
 		s.world.force_create_capital_project_asset(p, asset);
 	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::factory_expansion)) {
 		auto factory = s.world.capital_project_get_factory_from_capital_project_target_factory(p);
@@ -383,8 +384,45 @@ dcon::capital_project_id create_factory_expansion(sys::state& s, dcon::factory_i
 	if(!settlement) settlement = physical::exchange::settlement_for_purchase(s, owner);
 	if(!owner || !responsible || !project_site || !type || !settlement) return {};
 	auto project = create(s, project_kind::factory_expansion, owner, responsible, project_site,
-		settlement, type, {}, 0.0f, 0.0f, added_capacity, 0.0f);
+		settlement, type, {}, added_capacity);
 	if(project) s.world.force_create_capital_project_target_factory(project, factory);
+	return project;
+}
+
+dcon::capital_project_id create_extraction_plant(sys::state& s, dcon::economic_actor_id sponsor_actor,
+	dcon::organization_id operator_company, dcon::resource_deposit_id deposit, dcon::factory_type_id type,
+	dcon::commodity_id settlement) {
+	if(!deposit || !s.world.resource_deposit_is_valid(deposit) || !operator_company
+		|| !physical::extraction::extracts_deposit(s, type)
+		|| s.world.factory_type_get_output(type) != s.world.resource_deposit_get_commodity(deposit)
+		|| physical::extraction::enterprise_for_deposit(s, deposit)
+		|| !physical::extraction::may_operate(s, deposit,
+			actors::organizations::actor_for_organization(s, operator_company), s.current_date)) return {};
+	auto deposit_site = s.world.resource_deposit_get_site_from_resource_deposit_site(deposit);
+	auto project = create(s, project_kind::extraction_plant, sponsor_actor, operator_company, deposit_site,
+		settlement, type, s.world.resource_deposit_get_commodity(deposit));
+	if(!project) return {};
+	s.world.force_create_capital_project_target_deposit(project, deposit);
+	// Materials scale with the plant's capacity exactly as for a greenfield
+	// factory. A recipe without a construction bill cannot be built.
+	auto per_unit = s.world.factory_type_get_output_amount(type) * s.world.resource_deposit_get_grade_or_quality(deposit);
+	auto units = per_unit > 0.0f ? s.world.resource_deposit_get_daily_extraction_capacity(deposit) / per_unit : 0.0f;
+	auto const& construction = s.world.factory_type_get_construction_costs(type);
+	bool added_any = false;
+	for(uint32_t i = 0; i < economy::commodity_set::set_size && std::isfinite(units) && units > 0.0f; ++i) {
+		auto commodity = construction.commodity_type[i];
+		if(!commodity) break;
+		if(!physical::factory_inputs::ordinary_physical_input(s, commodity)) continue;
+		auto amount = std::max(0.0f, construction.commodity_amounts[i]) * units * 0.5f;
+		if(amount > 1.0e-5f) {
+			if(!add_requirement(s, project, commodity, amount)) {
+				(void)cancel(s, project);
+				return {};
+			}
+			added_any = true;
+		}
+	}
+	if(!added_any) { cancel(s, project); return {}; }
 	return project;
 }
 
@@ -394,7 +432,7 @@ dcon::capital_project_id create_greenfield_factory(sys::state& s, dcon::economic
 	if(!type || !s.world.factory_type_is_valid(type) || !std::isfinite(planned_capacity)
 		|| planned_capacity <= 0.0f) return {};
 	auto project = create(s, project_kind::factory, sponsor_actor, operator_company, project_site,
-		settlement, type, {}, 0.0f, 0.0f, planned_capacity, 0.0f);
+		settlement, type, {}, planned_capacity);
 	if(!project) return {};
 	auto const& construction = s.world.factory_type_get_construction_costs(type);
 	bool added_any = false;
@@ -565,7 +603,7 @@ dcon::capital_project_id create_infrastructure(sys::state& s, dcon::economic_act
 dcon::capital_project_id create_military_production(sys::state& s, dcon::economic_actor_id owner, dcon::organization_id company,
 	dcon::site_id location, dcon::commodity_id settlement, dcon::commodity_id output, float quantity, economy::commodity_set const& recipe) {
 	if(!valid_recipe(s, recipe) || !physical::factory_inputs::ordinary_physical_input(s, output) || !std::isfinite(quantity) || quantity <= 0.0f) return {};
-	auto p = create(s, project_kind::military_production, owner, company, location, settlement, {}, output, 0.0f, 0.0f, quantity, 0.0f);
+	auto p = create(s, project_kind::military_production, owner, company, location, settlement, {}, output, quantity);
 	if(p && !add_recipe(s, p, recipe)) { cancel(s, p); return {}; }
 	return p;
 }

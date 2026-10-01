@@ -77,6 +77,8 @@ The first slice covers only finite commercial extraction:
 - Open job offers recruit unemployed, work-eligible exact persons who live in the workplace province. This is the population's entry into the labor market for every employer.
 - `process_rgo_output`, `update_rgo_production`, standalone `extract_resource`, and the RGO-seeded deposit bootstrap are deleted.
 
+Capital projects follow the same boundary: `create_extraction_plant` builds a plant on an existing deposit whose operator or right holder is the operating company. Construction never creates a deposit, reserves, or grade.
+
 Deferred, in this order:
 1. land titles and agriculture;
 2. renewable stocks;
@@ -84,8 +86,7 @@ Deferred, in this order:
 4. `use_right` rent and subsoil law;
 5. splitting money from gold;
 6. POP roles as projections;
-7. capital-project extraction on existing assets;
-8. removal of legacy RGO fields and GUI;
-9. artisans as household establishments.
+7. removal of legacy RGO fields and GUI;
+8. artisans as household establishments.
 
 A tool to author canonical CSV data from content is a separate prerequisite for full-world runs.

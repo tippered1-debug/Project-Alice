@@ -1,6 +1,6 @@
 # Canonical construction hard cut
 
-`economy::capital_projects::process_projects` is the daily construction authority for factories, expansions, extraction sites, infrastructure, military equipment production, and naval orders.
+`economy::capital_projects::process_projects` is the daily construction authority for factories, expansions, extraction plants, infrastructure, military equipment production, and naval orders.
 
 ## Physical and financial contract
 
@@ -15,7 +15,7 @@ Suspension/cancellation releases open bids and their cash reservations. Paid car
 ## Results and request adapters
 
 - Factory completion creates the factory, operator binding, asset, and sponsor stake. Expansion changes target factory capacity exactly once.
-- Extraction creates a deposit with authored reserves, grade and capacity, its operator, asset and stake.
+- `create_extraction_plant` builds an extraction plant on an existing authored deposit; construction never creates reserves or deposits. The operating company must be the deposit's operator or hold an active extraction right when the project is created and again at completion. Materials come from the recipe's construction bill scaled by plant capacity, as for a greenfield factory; a recipe without one cannot be built. Completion creates the plant, its binding to the deposit, the sponsor's asset and stake. The generic factory path rejects extraction recipes.
 - Typed infrastructure completion changes the provincial building level and associates the infrastructure node. Railroad completion updates existing edge types and effective route capacity.
 - `create_military_production` consumes an explicit physical recipe and emits the requested equipment commodity into shared inventory. It creates no people or regiments.
 - Naval requests capture their unit type and nation and create a ship once, after physical consumption.

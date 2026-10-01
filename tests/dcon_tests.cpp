@@ -320,36 +320,66 @@ TEST_CASE("canonical_deposit_creation_rejects_incomplete_values", "[economy][phy
 	REQUIRE(state->world.resource_deposit_size() == before);
 }
 
-TEST_CASE("capital_extraction_project_completes_with_initialized_owned_deposit", "[economy][capital][physical]") {
+TEST_CASE("capital_extraction_project_builds_plant_on_existing_deposit", "[economy][capital][physical]") {
 	auto state = std::make_unique<sys::state>();
 	auto province = state->world.create_province();
 	auto site = state->world.create_site();
 	state->world.force_create_site_location(site, province);
 	auto settlement = state->world.create_commodity();
-	auto resource = state->world.create_commodity();
+	auto ore = state->world.create_commodity();
+	auto timber = state->world.create_commodity();
+	auto mine = state->world.create_factory_type();
+	state->world.factory_type_set_output(mine, ore);
+	state->world.factory_type_set_output_amount(mine, 2.0f);
+	state->world.factory_type_set_base_workforce(mine, 4);
+	state->world.factory_type_set_extracts_deposit(mine, true);
+	auto& bill = state->world.factory_type_get_construction_costs(mine);
+	bill.commodity_type[0] = timber;
+	bill.commodity_amounts[0] = 2.0f;
+	auto deposit = ::economy::physical::deposits::create_deposit(*state, site, ore, 100.0f, 100.0f, 0.8f, 8.0f, 8.0f, 0);
+	REQUIRE(deposit);
 	auto owner = state->world.create_economic_actor();
 	auto responsible = ::actors::organizations::create_company(*state);
-	auto project = ::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::extraction_site,
-		owner, responsible, site, settlement, {}, resource, 100.0f, 0.8f, 20.0f, 15.0f);
+	REQUIRE(::actors::organizations::bind_deposit_operator(*state, responsible, deposit));
+	auto subsoil = state->world.create_asset();
+	state->world.force_create_resource_deposit_asset(deposit, subsoil);
+	REQUIRE(::actors::ownership::create_stake(*state, owner, subsoil, 1.0f, 1.0f, 1.0f));
+
+	// Construction cannot bind an extraction recipe through the generic factory path.
+	REQUIRE_FALSE(::economy::capital_projects::create(*state, ::economy::capital_projects::project_kind::factory,
+		owner, responsible, site, settlement, mine));
+	// A company that neither operates the deposit nor holds a right cannot build on it.
+	auto outsider = ::actors::organizations::create_company(*state);
+	REQUIRE_FALSE(::economy::capital_projects::create_extraction_plant(*state, owner, outsider, deposit, mine, settlement));
+
+	auto deposits_before = state->world.resource_deposit_size();
+	auto project = ::economy::capital_projects::create_extraction_plant(*state, owner, responsible, deposit, mine, settlement);
 	REQUIRE(project);
-	auto requirement = ::economy::capital_projects::add_requirement(*state, project, resource, 5.0f);
+	REQUIRE(state->world.capital_project_get_resource_deposit_from_capital_project_target_deposit(project) == deposit);
+	dcon::capital_project_requirement_id requirement{};
+	state->world.capital_project_for_each_capital_project_requirement_project_as_capital_project(project, [&](auto relation) {
+		requirement = state->world.capital_project_requirement_project_get_capital_project_requirement(relation);
+	});
 	REQUIRE(requirement);
+	auto required = state->world.capital_project_requirement_get_required_quantity(requirement);
+	REQUIRE(required == Approx(2.0f * (8.0f / (2.0f * 0.8f)) * 0.5f));
 	auto yard = state->world.capital_project_get_site_from_capital_project_site(project);
-	REQUIRE(::economy::physical::inventory::add(*state, yard, resource, 5.0f, owner) == Approx(5.0f));
-	REQUIRE(::economy::capital_projects::consume(*state, requirement, 5.0f) == Approx(5.0f));
-	auto deposit = state->world.capital_project_get_resource_deposit_from_capital_project_deposit(project);
-	REQUIRE(deposit);
-	REQUIRE(state->world.resource_deposit_get_commodity(deposit) == resource);
-	REQUIRE(state->world.resource_deposit_get_original_recoverable_reserves(deposit) == Approx(100.0f));
-	REQUIRE(state->world.resource_deposit_get_remaining_recoverable_reserves(deposit) == Approx(100.0f));
-	REQUIRE(state->world.resource_deposit_get_grade_or_quality(deposit) == Approx(0.8f));
-	REQUIRE(state->world.resource_deposit_get_daily_extraction_capacity(deposit) == Approx(20.0f));
-	REQUIRE(state->world.resource_deposit_get_target_daily_extraction(deposit) == Approx(15.0f));
-	REQUIRE(state->world.resource_deposit_get_status(deposit) == 0);
-	REQUIRE(state->world.resource_deposit_get_organization_from_resource_deposit_operator(deposit) == responsible);
-	REQUIRE(::actors::ownership::asset_for_deposit(*state, deposit));
-	REQUIRE(state->world.capital_project_get_asset_from_capital_project_asset(project));
+	REQUIRE(::economy::physical::inventory::add(*state, yard, timber, required, owner) == Approx(required));
+	REQUIRE(::economy::capital_projects::consume(*state, requirement, required) == Approx(required));
 	REQUIRE(state->world.capital_project_get_status(project) == uint8_t(::economy::capital_projects::status::completed));
+
+	auto plant = state->world.capital_project_get_factory_from_capital_project_factory(project);
+	REQUIRE(plant);
+	REQUIRE(::economy::physical::extraction::deposit_for_enterprise(*state, plant) == deposit);
+	REQUIRE(::actors::organizations::operator_organization_for_factory(*state, plant) == responsible);
+	REQUIRE(state->world.factory_get_site_from_factory_site(plant) == site);
+	REQUIRE(state->world.capital_project_get_asset_from_capital_project_asset(project) == ::actors::ownership::asset_for_factory(*state, plant));
+	// Nature is untouched: no deposit was created and reserves did not move.
+	REQUIRE(state->world.resource_deposit_size() == deposits_before);
+	REQUIRE(state->world.resource_deposit_get_remaining_recoverable_reserves(deposit) == Approx(100.0f));
+	REQUIRE(::actors::ownership::asset_for_deposit(*state, deposit) == subsoil);
+	// One deposit hosts one plant.
+	REQUIRE_FALSE(::economy::capital_projects::create_extraction_plant(*state, owner, responsible, deposit, mine, settlement));
 }
 
 TEST_CASE("capital_project_delivery_rolls_back_all_legs_on_cash_failure", "[economy][capital][physical]") {

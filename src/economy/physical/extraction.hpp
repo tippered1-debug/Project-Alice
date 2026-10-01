@@ -28,6 +28,9 @@ dcon::factory_id enterprise_for_deposit(sys::state const&, dcon::resource_deposi
 // deposit's daily capacity. Nothing is created unless every binding holds.
 dcon::factory_id create_enterprise(sys::state&, dcon::resource_deposit_id,
 	dcon::factory_type_id, dcon::organization_id operator_organization);
+// Whether an actor may operate a plant on the deposit: the deposit is active
+// and owned, and the actor is its operator or holds an active right.
+bool may_operate(sys::state const&, dcon::resource_deposit_id, dcon::economic_actor_id, sys::date);
 // Output multiplier from ore grade; 1 for an ordinary factory.
 float output_grade(sys::state const&, dcon::factory_id);
 // Daily output the operator may legally and physically extract, before
