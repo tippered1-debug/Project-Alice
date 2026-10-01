@@ -83,6 +83,7 @@ The first slice covers only finite commercial extraction:
 - Farms are factories bound to one title (`farms.csv`) with output `A * s * L^0.6 * T^0.4`. Recipes come from content production types with `farm = yes`, calibrated from farmer life needs.
 - Leases (`leases.csv`) let a tenant farm a title, with cash rent every 30 days and the owner's output share delivered in kind. A leased title is farmed only by its tenant; otherwise only by its owner.
 - Firms neither build greenfield farms nor acquire them, and generic factory projects reject farm recipes.
+- Household cohorts (`households.csv`) are organizations of kind `household` for the peasant and landed people of a province. Membership is the residual of living people of the role without individual needs or military service, recounted daily; no per-person storage exists. A peasant cohort works its farms with unpaid labor split by land, keeps its harvest at home, consumes it first, keeps 60 days of needs, sells the surplus through ordinary asks, and buys the rest with ordinary bids. A landed cohort owns titles, collects rent in kind and cash, and runs demesne farms with hired labor. Cohort satisfaction projects onto member POPs. Household farms are exempt from firm finance and insolvency.
 
 Capital projects follow the same boundary: `create_extraction_plant` builds a plant on an existing deposit whose operator or right holder is the operating company. Construction never creates a deposit, reserves, or grade.
 

@@ -11,6 +11,7 @@
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/extraction.hpp"
 #include "economy/physical/land.hpp"
+#include "economy/households.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/relations/relations.hpp"
@@ -369,6 +370,8 @@ bool restructure_defaulted_factory(sys::state& state, dcon::factory_id factory) 
 
 void process_insolvency(sys::state& state, dcon::factory_id factory) {
 	if(!factory || !state.world.factory_is_valid(factory)) return;
+	// A household's farm is its livelihood, not a firm that can be liquidated.
+	if(households::is_household(state, actors::organizations::operator_organization_for_factory(state, factory))) return;
 	auto defaulted = has_defaulted_factory_loan(state, factory);
 	auto status = state.world.factory_get_agency_lifecycle_status(factory);
 	if(defaulted && status < lifecycle_bankrupt) {

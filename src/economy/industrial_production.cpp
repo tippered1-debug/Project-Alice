@@ -6,6 +6,8 @@
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/extraction.hpp"
 #include "economy/physical/land.hpp"
+#include "economy/physical/inventory.hpp"
+#include "economy/households.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "world/site.hpp"
@@ -24,7 +26,9 @@ float finite_nonnegative(float value, float fallback = 0.0f) {
 	return std::isfinite(value) && value >= 0.0f ? value : fallback;
 }
 float labor_units(sys::state const& state, dcon::factory_id factory) {
-	return std::max(0.0f, exact_person_economy::labor_supplied_to_factory(state, factory));
+	// Hired exact workers plus the unpaid labor of a peasant cohort on its own farm.
+	return std::max(0.0f, exact_person_economy::labor_supplied_to_factory(state, factory))
+		+ households::self_employed_labor(state, factory);
 }
 }
 
@@ -124,7 +128,10 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 		capacity = output_per_unit > 0.0f ? std::min(capacity, available / output_per_unit) : 0.0f;
 	}
 	auto desired = firm_agency::decide_factory(state, factory).desired_units;
-	auto planned = std::min(desired, labor_units(state, factory));
+	// A peasant cohort works all of its members' labor on its land; hiring firms
+	// plan against expected sales.
+	auto planned = households::self_working_operator(state, factory)
+		? labor_units(state, factory) : std::min(desired, labor_units(state, factory));
 	auto market = state.world.state_instance_get_market_from_local_market(state.world.province_get_state_membership(province));
 	auto available = physical::factory_inputs::evaluate(state, site, owner, state.world.factory_type_get_inputs(type), market, planned);
 	if(!available.active) {
@@ -148,7 +155,10 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 		// A tenant owes the owner's share of the harvest in kind before selling.
 		auto share = actual_output * physical::land::output_share_owed(state, factory, state.current_date);
 		if(share > 0.0f) physical::land::deliver_output_share(state, factory, share, state.current_date);
-		if(actual_output - share > 0.0f)
+		// A household keeps its harvest; its daily budget decides what to eat and sell.
+		if(actual_output - share > 0.0f && households::is_household(state, owner))
+			physical::inventory::add(state, site, state.world.factory_type_get_output(type), actual_output - share, owner);
+		else if(actual_output - share > 0.0f)
 			physical::factory_output::materialize_and_dispatch(state, factory, actual_output - share);
 	} else if(actual_output > 0.0f) {
 		physical::factory_output::materialize_and_dispatch(state, factory, actual_output);

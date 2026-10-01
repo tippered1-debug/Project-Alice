@@ -4,6 +4,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/households.hpp"
 #include "economy/economy_stats.hpp"
 #include "economy/price.hpp"
 #include "household_mobility.hpp"
@@ -185,6 +186,8 @@ std::vector<dcon::job_offer_id> open_offers_for_factory(sys::state const& state,
 
 void process_factory_vacancies(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id factory) {
+		// A peasant cohort staffs its own farm with its members.
+		if(economy::households::self_working_operator(state, factory)) return;
 		auto employer = actors::organizations::operator_actor_for_factory(state, factory);
 		auto settlement = state.world.factory_get_payroll_settlement(factory);
 		auto payer = settlement ? accounts::find_account(state, employer, settlement) : dcon::monetary_account_id{};

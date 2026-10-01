@@ -13,6 +13,10 @@
 #include "economy/physical/job_market.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 #include "economy/physical/land.hpp"
+#include "economy/households.hpp"
+#include "economy/physical/concrete_market.hpp"
+#include "economy/physical/household_mobility.hpp"
+#include "persons/persons.hpp"
 #include "gamestate/system_state.hpp"
 #include "military/land_forces.hpp"
 #include "nations/strategic_statecraft.hpp"
@@ -68,6 +72,8 @@ struct fixture {
 		hub = state->world.create_site();
 		state->world.force_create_site_location(hub, province);
 		state->world.force_create_market_hub_site(market, hub);
+		auto node = state->world.create_infrastructure_node();
+		state->world.force_create_infrastructure_node_location(node, province);
 
 		settlement = state->world.create_commodity();
 		grain = state->world.create_commodity();
@@ -230,4 +236,142 @@ TEST_CASE("construction cannot create a farm without land", "[economy][rural]") 
 	REQUIRE_FALSE(economy::capital_projects::create(*f.state, economy::capital_projects::project_kind::factory,
 		f.estate_actor, f.estate, f.site, f.settlement, f.grain_farm));
 	REQUIRE_FALSE(economy::physical::land::create_farm(*f.state, f.title, f.grain_farm, f.estate));
+}
+
+namespace rural_economy_tests {
+
+struct cohort_fixture : fixture {
+	dcon::pop_type_id farmers{};
+	dcon::pop_id peasants{};
+	uint32_t peasant_cell = 0;
+	dcon::organization_id cohort{};
+	dcon::economic_actor_id cohort_actor{};
+	dcon::monetary_account_id cohort_account{};
+	dcon::factory_id cohort_farm{};
+
+	cohort_fixture() {
+		farmers = state->world.create_pop_type();
+		state->culture_definitions.farmers = farmers;
+		state->world.pop_type_resize_life_needs(state->world.commodity_size());
+		state->world.pop_type_resize_everyday_needs(state->world.commodity_size());
+		state->world.pop_type_resize_luxury_needs(state->world.commodity_size());
+		state->world.pop_type_set_life_needs(farmers, grain, 1.0f);
+		peasants = state->world.create_pop();
+		state->world.force_create_pop_location(peasants, province);
+		state->world.pop_set_poptype(peasants, farmers);
+		state->world.pop_set_culture(peasants, state->world.create_culture());
+		state->world.pop_set_religion(peasants, state->world.create_religion());
+		state->world.pop_set_size(peasants, 5.0f); // twenty people, five workers
+		REQUIRE(persons::exact_population::register_population_cell(*state, peasants, site).result
+			== persons::exact_population::status::created);
+		peasant_cell = persons::source_population_cell_for_population(*state, peasants);
+
+		cohort = economy::households::create(*state, province, economy::households::role::peasant, settlement);
+		REQUIRE(cohort);
+		cohort_actor = actors::organizations::actor_for_organization(*state, cohort);
+		cohort_account = economy::accounts::find_account(*state, cohort_actor, settlement);
+		REQUIRE(cohort_account);
+		// The cohort holds its own smallholding next to the estate.
+		auto holding = economy::physical::land::create_title(*state, site, 50.0f);
+		REQUIRE(economy::physical::land::set_suitability(*state, holding, grain, 1.0f));
+		auto holding_asset = state->world.create_asset();
+		state->world.force_create_land_title_asset(holding, holding_asset);
+		REQUIRE(actors::ownership::create_stake(*state, cohort_actor, holding_asset, 1.0f, 1.0f, 1.0f));
+		cohort_farm = economy::physical::land::create_farm(*state, holding, grain_farm, cohort);
+		REQUIRE(cohort_farm);
+		state->world.factory_set_payroll_settlement(cohort_farm, settlement);
+	}
+};
+
+} // namespace rural_economy_tests
+
+TEST_CASE("a cohort's members are the rural people without individual records", "[economy][rural][households]") {
+	rural_economy_tests::cohort_fixture f;
+	REQUIRE(economy::households::household_for(*f.state, f.province, economy::households::role::peasant) == f.cohort);
+	REQUIRE(economy::households::home_site(*f.state, f.cohort) == f.site);
+	REQUIRE_FALSE(economy::households::create(*f.state, f.province, economy::households::role::peasant, f.settlement));
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f));
+	REQUIRE(economy::households::workers(*f.state, f.cohort) == Approx(5.0f));
+
+	// A hired member becomes an individual consumer and leaves the cohort.
+	auto offer = economy::physical::job_market::post_job_offer(*f.state, f.estate_actor, f.farm,
+		f.site, 0, 1.0f, 1.0f, 1, f.estate_account, 1, f.state->current_date);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, {f.peasant_cell, 0}, offer, f.state->current_date));
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	economy::physical::household_mobility::update_employed_households(*f.state);
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(19.0f));
+}
+
+TEST_CASE("a peasant cohort works its own land unpaid and keeps its harvest", "[economy][rural][households]") {
+	rural_economy_tests::cohort_fixture f;
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::households::self_working_operator(*f.state, f.cohort_farm));
+	REQUIRE(economy::households::self_employed_labor(*f.state, f.cohort_farm) == Approx(5.0f));
+	economy::physical::job_market::process_factory_vacancies(*f.state);
+	REQUIRE(economy::physical::job_market::open_offers_for_factory(*f.state, f.cohort_farm).empty());
+	auto output = economy::industrial_production::produce_factory(*f.state, f.cohort_farm);
+	REQUIRE(output == Approx(3.0f * std::pow(5.0f, 0.6f) * std::pow(10.0f, 0.4f)).epsilon(1.0e-4));
+	// The harvest stays home; no shipment leaves for the market by itself.
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, f.cohort_actor) == Approx(output));
+	REQUIRE(f.state->world.shipment_size() == 0);
+	REQUIRE(economy::accounts::balance(*f.state, f.cohort_account) == Approx(0.0f));
+}
+
+TEST_CASE("a cohort eats its own produce, keeps a season, and sells the rest", "[economy][rural][households]") {
+	rural_economy_tests::cohort_fixture f;
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::physical::inventory::add(*f.state, f.site, f.grain, 5000.0f, f.cohort_actor) == Approx(5000.0f));
+	economy::households::process_daily(*f.state);
+	REQUIRE(f.state->world.organization_get_household_life_satisfaction(f.cohort) == Approx(1.0f));
+	// Twenty people eat twenty; sixty days of that stays home; the rest leaves for the hub.
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, f.cohort_actor) == Approx(1200.0f));
+	float shipped = 0.0f;
+	f.state->world.for_each_shipment([&](dcon::shipment_id shipment) {
+		if(f.state->world.shipment_get_commodity(shipment) == f.grain) shipped += f.state->world.shipment_get_remaining_quantity(shipment);
+	});
+	REQUIRE(shipped == Approx(3780.0f));
+	// Members share the cohort's satisfaction in the POP view.
+	economy::physical::exact_person_goods::invalidate_consumption_projection(*f.state);
+	REQUIRE(economy::physical::exact_person_goods::population_consumption_satisfaction(*f.state, f.peasants)[0] == Approx(1.0f));
+}
+
+TEST_CASE("a hungry cohort with cash bids for what it lacks", "[economy][rural][households]") {
+	rural_economy_tests::cohort_fixture f;
+	economy::households::refresh_membership(*f.state);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, f.cohort_account, 1000.0f));
+	auto bids_before = f.state->world.concrete_market_bid_size();
+	economy::households::process_daily(*f.state);
+	REQUIRE(f.state->world.organization_get_household_life_satisfaction(f.cohort) == Approx(0.0f));
+	REQUIRE(f.state->world.concrete_market_bid_size() == bids_before + 1);
+	REQUIRE(economy::physical::concrete_market::reserved_bid_amount(*f.state, f.cohort_account) > 0.0f);
+	economy::physical::exact_person_goods::invalidate_consumption_projection(*f.state);
+	REQUIRE(economy::physical::exact_person_goods::population_consumption_satisfaction(*f.state, f.peasants)[0] == Approx(0.0f));
+}
+
+TEST_CASE("a landed cohort receives rent in kind from its tenants", "[economy][rural][households]") {
+	rural_economy_tests::cohort_fixture f;
+	auto aristocrats = f.state->world.create_pop_type();
+	f.state->culture_definitions.aristocrat = aristocrats;
+	auto landed = economy::households::create(*f.state, f.province, economy::households::role::landed, f.settlement);
+	REQUIRE(landed);
+	auto landed_actor = actors::organizations::actor_for_organization(*f.state, landed);
+	auto manor = economy::physical::land::create_title(*f.state, f.site, 50.0f);
+	REQUIRE(economy::physical::land::set_suitability(*f.state, manor, f.grain, 1.0f));
+	auto manor_asset = f.state->world.create_asset();
+	f.state->world.force_create_land_title_asset(manor, manor_asset);
+	REQUIRE(actors::ownership::create_stake(*f.state, landed_actor, manor_asset, 1.0f, 1.0f, 1.0f));
+	// The peasant cohort farms the manor on a sharecropping lease.
+	auto tenancy = economy::physical::land::create_farm(*f.state, manor, f.grain_farm, f.cohort);
+	REQUIRE(tenancy);
+	REQUIRE(economy::physical::land::create_lease(*f.state, manor, f.cohort_actor, f.settlement, 0.0f, 0.5f,
+		f.state->current_date, f.state->current_date + 365));
+	economy::households::refresh_membership(*f.state);
+	// Members split their labor across both farms by land.
+	REQUIRE(economy::households::self_employed_labor(*f.state, tenancy) == Approx(2.5f));
+	auto output = economy::industrial_production::produce_factory(*f.state, tenancy);
+	REQUIRE(output > 0.0f);
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, landed_actor) == Approx(0.5f * output));
+	REQUIRE(economy::physical::inventory::quantity(*f.state, f.site, f.grain, f.cohort_actor) == Approx(0.5f * output));
 }

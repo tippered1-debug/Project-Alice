@@ -81,11 +81,14 @@ bool has_organization_graph(sys::state const& state, dcon::organization_id organ
 		|| state.world.organization_get_canonical_id(organization) == 0) return false;
 	auto actor = organizations::actor_for_organization(state, organization);
 	auto equity_asset = organizations::equity_asset_for_organization(state, organization);
-	return organizations::is_economic_kind(actor_kind(state.world.organization_get_kind(organization)))
+	auto kind = actor_kind(state.world.organization_get_kind(organization));
+	bool const identity = organizations::is_economic_kind(kind)
 		&& actor && state.world.economic_actor_is_valid(actor)
 		&& state.world.economic_actor_get_canonical_id(actor) != 0
-		&& actor_kind(state.world.economic_actor_get_kind(actor))
-			== actor_kind(state.world.organization_get_kind(organization))
+		&& actor_kind(state.world.economic_actor_get_kind(actor)) == kind;
+	// A household cohort's members are its residual claimants; it has no equity.
+	if(kind == actor_kind::household) return identity && !equity_asset;
+	return identity
 		&& equity_asset && state.world.asset_is_valid(equity_asset)
 		&& state.world.asset_get_canonical_id(equity_asset) != 0
 		&& asset_has_complete_ownership(state, equity_asset);

@@ -27,6 +27,7 @@
 #include "commodities.hpp"
 #include "province.hpp"
 #include "economy/physical/land.hpp"
+#include "economy/households.hpp"
 #include "money.hpp"
 #include "economy_constants.hpp"
 #include "economy_factory_view.hpp"
@@ -1099,6 +1100,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		::economy::capital_projects::process_projects(state);
 	}
 
+	::economy::households::refresh_membership(state);
 	update_factories_production(state);
 	::economy::physical::land::settle_rents(state);
 	::economy::firm_agency::post_output_asks(state);
@@ -1107,6 +1109,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	{
 		governance::public_administration::settle_public_payroll(state);
 		::economy::physical::household_mobility::update_employed_households(state);
+		::economy::households::process_daily(state);
 		::economy::physical::exact_person_goods::process_daily(state);
 #ifndef NDEBUG
 		assert(::economy::physical::exact_person_goods::validate_canonical_household_economy(state)

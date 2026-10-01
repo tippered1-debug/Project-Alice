@@ -5097,6 +5097,13 @@ object{
 	size{ 30000 }
 	tag{ save }
 	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
+	property{ name{ household_role } type{ uint8_t } tag{ save } }
+	property{ name{ household_members } type{ float } tag{ save } }
+	property{ name{ household_workers } type{ float } tag{ save } }
+	property{ name{ household_reservation_wage } type{ float } tag{ save } }
+	property{ name{ household_life_satisfaction } type{ float } tag{ save } }
+	property{ name{ household_everyday_satisfaction } type{ float } tag{ save } }
+	property{ name{ household_luxury_satisfaction } type{ float } tag{ save } }
 	property{ name{ retained_earnings } type{ float } tag{ save } }
 	property{ name{ paid_in_equity } type{ float } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
@@ -6235,6 +6242,13 @@ relationship{
 	tag{ save }
 	link{ object{ factory } name{ factory } type{ unique } }
 	link{ object{ resource_deposit } name{ resource_deposit } type{ unique } }
+}
+
+relationship{
+	name{ household_home }
+	tag{ save }
+	link{ object{ organization } name{ organization } type{ unique } }
+	link{ object{ province } name{ province } type{ many } index_storage{ array } }
 }
 
 relationship{

@@ -13,6 +13,7 @@
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/extraction.hpp"
 #include "economy/physical/land.hpp"
+#include "economy/households.hpp"
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/economy_stats.hpp"
@@ -303,6 +304,8 @@ void update_decisions(sys::state& state) {
 
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		if(state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
+		// A peasant cohort's farm is not a firm: no working-capital finance or planning.
+		if(households::self_working_operator(state, factory)) return;
 		auto type = state.world.factory_get_building_type(factory);
 		auto province = compat::alice::province_for_factory(state, factory);
 		auto site = world::site::site_for_factory(state, factory);
@@ -576,6 +579,8 @@ void update_decisions(sys::state& state) {
 
 void post_output_asks(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id factory) {
+		// Households sell through their own daily budget.
+		if(households::is_household(state, actors::organizations::operator_organization_for_factory(state, factory))) return;
 		auto type = state.world.factory_get_building_type(factory);
 		auto province = compat::alice::province_for_factory(state, factory);
 		auto owner = actors::organizations::operator_actor_for_factory(state, factory);

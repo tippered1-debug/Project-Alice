@@ -8,6 +8,7 @@
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/extraction.hpp"
 #include "economy/physical/land.hpp"
+#include "economy/households.hpp"
 #include "economy/money.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
@@ -349,7 +350,7 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 bool read_and_parse_tables(simple_fs::directory const& common,
 	parsers::error_handler& err, table& firms, table& owners, table& assets,
 	table& ownerships, table& loans, table& banks, table& bank_deposits, table& deposits,
-	table& land_titles, table& farms, table& leases) {
+	table& land_titles, table& farms, table& leases, table& households) {
 	static constexpr std::array<std::string_view, 6> firms_header = {
 		"firm_id", "kind", "settlement", "opening_cash", "retained_earnings", "paid_in_equity"
 	};
@@ -383,6 +384,9 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	static constexpr std::array<std::string_view, 6> farms_header = {
 		"farm_id", "title_id", "production_type", "operator_type", "operator_id", "opening_value"
 	};
+	static constexpr std::array<std::string_view, 5> households_header = {
+		"household_id", "province_id", "role", "settlement", "opening_cash"
+	};
 	static constexpr std::array<std::string_view, 9> leases_header = {
 		"lease_id", "title_id", "tenant_type", "tenant_id", "settlement", "cash_rent_per_hectare_year",
 		"output_share", "valid_from", "valid_until"
@@ -400,7 +404,8 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	auto t = read_table(canonical, "land_titles.csv", land_titles_header, err);
 	auto m = read_table(canonical, "farms.csv", farms_header, err);
 	auto e = read_table(canonical, "leases.csv", leases_header, err);
-	if(!f || !o || !a || !s || !l || !b || !d || !r || !t || !m || !e || err.accumulated_errors.size() != before) return false;
+	auto h = read_table(canonical, "households.csv", households_header, err);
+	if(!f || !o || !a || !s || !l || !b || !d || !r || !t || !m || !e || !h || err.accumulated_errors.size() != before) return false;
 	firms = std::move(*f);
 	owners = std::move(*o);
 	assets = std::move(*a);
@@ -412,6 +417,7 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	land_titles = std::move(*t);
 	farms = std::move(*m);
 	leases = std::move(*e);
+	households = std::move(*h);
 	return true;
 }
 
@@ -540,8 +546,8 @@ bool parse_tables(sys::state& state, parsers::scenario_building_context& context
 			add_row_error(err, "ownership.csv", source.line, "voting fraction must be finite and between 0 and 1");
 		if(!parse_float(source.cells[5], value.economic) || !ownership::valid_fraction(value.economic))
 			add_row_error(err, "ownership.csv", source.line, "economic fraction must be finite and between 0 and 1");
-		if(value.owner_type != "firm" && value.owner_type != "capital_owner")
-			add_row_error(err, "ownership.csv", source.line, "owner_type must be 'firm' or 'capital_owner'");
+		if(value.owner_type != "firm" && value.owner_type != "capital_owner" && value.owner_type != "household")
+			add_row_error(err, "ownership.csv", source.line, "owner_type must be 'firm', 'capital_owner', or 'household'");
 		if(!valid_key(value.owner_id)) add_row_error(err, "ownership.csv", source.line, "owner_id must use ASCII letters, digits, '.', '_' or '-'");
 		stakes.push_back(std::move(value));
 	}
@@ -1122,10 +1128,16 @@ bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 // Land titles are natural assets; farms are factories bound to one title. Both
 // join assets_by_id so ownership.csv gives them owners like any productive asset.
 struct actor_lookup {
+	sys::state const& state_ref;
 	std::vector<firm_record> const& firms;
 	std::unordered_map<std::string, size_t> const& firm_by_id;
 	std::unordered_map<std::string, owner_binding> const& owners_by_id;
+	std::unordered_map<std::string, dcon::organization_id> const& households_by_id;
 	dcon::economic_actor_id actor(std::string const& type, std::string const& id) const {
+		if(type == "household") {
+			auto it = households_by_id.find(id);
+			return it == households_by_id.end() ? dcon::economic_actor_id{} : ownership::actor_for_organization(state_ref, it->second);
+		}
 		if(type == "firm") {
 			auto it = firm_by_id.find(id);
 			return it == firm_by_id.end() ? dcon::economic_actor_id{} : firms[it->second].actor;
@@ -1137,6 +1149,10 @@ struct actor_lookup {
 		return {};
 	}
 	dcon::organization_id organization(std::string const& type, std::string const& id) const {
+		if(type == "household") {
+			auto it = households_by_id.find(id);
+			return it == households_by_id.end() ? dcon::organization_id{} : it->second;
+		}
 		if(type == "firm") {
 			auto it = firm_by_id.find(id);
 			return it == firm_by_id.end() ? dcon::organization_id{} : firms[it->second].organization;
@@ -1144,6 +1160,65 @@ struct actor_lookup {
 		return {};
 	}
 };
+
+// A household cohort is the shared budget of the rural people of one province
+// and role. Every province whose rural people are alive must declare one, so no
+// rural person is left outside a budget.
+bool load_households(sys::state& state, parsers::scenario_building_context& context, parsers::error_handler& err,
+	table const& household_table, std::unordered_map<uint64_t, std::string>& organization_ids,
+	std::unordered_map<uint64_t, std::string>& actor_ids, std::unordered_map<uint64_t, std::string>& account_ids,
+	std::unordered_map<std::string, dcon::organization_id>& households_by_id) {
+	auto initial_errors = err.accumulated_errors.size();
+	std::vector<row> rows(household_table.rows.begin(), household_table.rows.end());
+	std::sort(rows.begin(), rows.end(), [](auto const& a, auto const& b) { return a.cells[0] < b.cells[0]; });
+	for(auto const& source : rows) {
+		auto const& id = source.cells[0];
+		uint32_t province_id = 0;
+		float cash = 0.0f;
+		auto province = parse_integer(source.cells[1], province_id) ? province_from_original_id(state, context, province_id) : dcon::province_id{};
+		auto cohort_role = source.cells[2] == "peasant" ? economy::households::role::peasant
+			: source.cells[2] == "landed" ? economy::households::role::landed : economy::households::role::none;
+		auto settlement = find_commodity(context, source.cells[3]);
+		if(!valid_key(id) || households_by_id.contains(id) || !province || cohort_role == economy::households::role::none
+			|| !settlement || !parse_float(source.cells[4], cash) || cash < 0.0f) {
+			add_row_error(err, "households.csv", source.line, "household needs a unique id, a resolving province, role 'peasant' or 'landed', a settlement, and nonnegative opening_cash");
+			continue;
+		}
+		auto household = economy::households::create(state, province, cohort_role, settlement);
+		if(!household) {
+			add_row_error(err, "households.csv", source.line, "a province may declare only one household per role");
+			continue;
+		}
+		auto actor = ownership::actor_for_organization(state, household);
+		auto account = economy::accounts::find_account(state, actor, settlement);
+		std::string error;
+		assign_id(state.world.organization_get_canonical_id(household), [&](uint64_t v) { state.world.organization_set_canonical_id(household, v); },
+			"household:" + id, organization_ids, error);
+		if(!error.empty()) add_row_error(err, "households.csv", source.line, error);
+		assign_id(state.world.economic_actor_get_canonical_id(actor), [&](uint64_t v) { state.world.economic_actor_set_canonical_id(actor, v); },
+			"actor:household:" + id, actor_ids, error);
+		if(!error.empty()) add_row_error(err, "households.csv", source.line, error);
+		assign_id(state.world.monetary_account_get_canonical_id(account), [&](uint64_t v) { state.world.monetary_account_set_canonical_id(account, v); },
+			"account:household:" + id, account_ids, error);
+		if(!error.empty()) add_row_error(err, "households.csv", source.line, error);
+		if(!account || !economy::accounts::bootstrap_set_balance(state, account, cash))
+			add_row_error(err, "households.csv", source.line, "could not open the household's opening account");
+		households_by_id.emplace(id, household);
+	}
+	// Coverage: every living rural person must belong to a cohort.
+	state.world.for_each_pop([&](dcon::pop_id pop) {
+		auto cohort_role = economy::households::role_for_pop_type(state, state.world.pop_get_poptype(pop));
+		if(cohort_role == economy::households::role::none) return;
+		auto cell = persons::source_population_cell_for_population(state, pop);
+		if(cell == 0 || persons::living_people_in_population_cell(state, cell) == 0) return;
+		auto province = state.world.pop_get_province_from_pop_location(pop);
+		if(province && !economy::households::household_for(state, province, cohort_role))
+			add_row_error(err, "households.csv", 0, "province " + std::to_string(context.prov_id_to_original_id_map[province].id)
+				+ " has living " + std::string(cohort_role == economy::households::role::peasant ? "peasant" : "landed")
+				+ " people but declares no household for them");
+	});
+	return err.accumulated_errors.size() == initial_errors;
+}
 
 bool load_land(sys::state& state, parsers::scenario_building_context& context, parsers::error_handler& err,
 	table const& title_table, table const& farm_table, actor_lookup const& actors,
@@ -1287,7 +1362,7 @@ bool load_ownership(sys::state& state, parsers::error_handler& err,
 	std::vector<asset_record> const& assets, std::vector<stake_record>& stakes,
 	std::unordered_map<std::string, owner_binding> const& owners_by_id,
 	std::unordered_map<std::string, dcon::asset_id>& assets_by_id,
-	std::unordered_map<uint64_t, std::string>& stake_ids) {
+	std::unordered_map<uint64_t, std::string>& stake_ids, actor_lookup const& household_actors) {
 	auto initial_errors = err.accumulated_errors.size();
 	std::sort(stakes.begin(), stakes.end(), [](auto const& left, auto const& right) {
 		if(left.asset_id != right.asset_id) return left.asset_id < right.asset_id;
@@ -1312,6 +1387,8 @@ bool load_ownership(sys::state& state, parsers::error_handler& err,
 		if(stake.owner_type == "firm") {
 			auto firm = actor_by_firm.find(stake.owner_id);
 			if(firm != actor_by_firm.end()) owner = firm->second;
+		} else if(stake.owner_type == "household") {
+			owner = household_actors.actor("household", stake.owner_id);
 		} else {
 			auto capital_owner = owners_by_id.find(stake.owner_id);
 			if(capital_owner != owners_by_id.end()) {
@@ -2136,9 +2213,10 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	table land_title_table;
 	table farm_table;
 	table lease_table;
+	table household_table;
 	if(!read_and_parse_tables(common, err, firm_table, owner_table, asset_table,
 		ownership_table, loan_table, bank_table, bank_deposit_table, deposit_table,
-		land_title_table, farm_table, lease_table)) {
+		land_title_table, farm_table, lease_table, household_table)) {
 		err.fatal = true;
 		return false;
 	}
@@ -2170,7 +2248,8 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	std::unordered_map<std::string, dcon::asset_id> assets_by_id;
 	std::unordered_map<std::string, size_t> asset_row_by_id;
 	std::unordered_map<std::string, dcon::land_title_id> titles_by_id;
-	actor_lookup lookup{ firms, firm_by_id, owners_by_id };
+	std::unordered_map<std::string, dcon::organization_id> households_by_id;
+	actor_lookup lookup{ state, firms, firm_by_id, owners_by_id, households_by_id };
 	if(!load_firms(state, context, err, firms, firm_by_id, actor_ids, organization_ids,
 		asset_ids, account_ids, assets_by_id)
 		|| !load_capital_owners(state, context, err, owners, owners_by_id,
@@ -2179,10 +2258,12 @@ bool load(sys::state& state, simple_fs::directory const& common,
 		|| !load_deposits(state, context, err, deposit_table)
 		|| !load_assets(state, context, err, assets, firms, firm_by_id, asset_ids, site_ids,
 			assets_by_id, asset_row_by_id)
+		|| !load_households(state, context, err, household_table, organization_ids, actor_ids, account_ids,
+			households_by_id)
 		|| !load_land(state, context, err, land_title_table, farm_table, lookup, asset_ids, site_ids,
 			assets_by_id, titles_by_id)
 		|| !load_ownership(state, err, firms, owners, assets, stakes, owners_by_id,
-			assets_by_id, stake_ids)
+			assets_by_id, stake_ids, lookup)
 		|| !load_leases(state, context, err, lease_table, lookup, titles_by_id, obligation_ids)
 			|| !load_loans(state, err, firms, assets, loans, obligation_ids)
 		|| !load_land_forces(state, context, common, err)) {

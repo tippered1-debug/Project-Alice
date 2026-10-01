@@ -1,4 +1,5 @@
 #include "exact_person_goods.hpp"
+#include "economy/households.hpp"
 
 #include "accounts/accounts.hpp"
 #include "economy/causal_order.hpp"
@@ -1046,6 +1047,8 @@ std::array<float, 3> population_consumption_satisfaction(sys::state const& state
 				t[i+3] += double(n->consumption_period_start == state.current_date ? n->consumed_this_period : 0.0f) * shares[i];
 			}
 		}
+		// Cohort members share their household's satisfaction.
+		economy::households::add_population_totals(state, totals);
 		store->population_consumption.clear();
 		for(auto const& [id, t] : totals) {
 			auto& ratios = store->population_consumption[id];
