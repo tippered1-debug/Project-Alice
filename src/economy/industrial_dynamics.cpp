@@ -10,6 +10,7 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/extraction.hpp"
+#include "economy/physical/land.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/relations/relations.hpp"
@@ -482,7 +483,8 @@ std::vector<project_opportunity> greenfield_opportunities(sys::state const& stat
 			auto output = state.world.factory_type_get_output(type);
 			// An extraction plant exists only on a deposit its operator controls;
 			// a greenfield site has none.
-			if(!output || physical::extraction::extracts_deposit(state, type)) return;
+			if(!output || physical::extraction::extracts_deposit(state, type)
+				|| physical::land::farms_land(state, type)) return;
 			auto type_entry = existing_types.find(province.index());
 			if(type_entry != existing_types.end() && type_entry->second.contains(type.index())) return;
 			auto unit_output = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * 0.5f;
@@ -544,8 +546,8 @@ acquisition_opportunity best_acquisition(sys::state const& state, dcon::economic
 	acquisition_opportunity best{};
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		if(actors::organizations::operator_actor_for_factory(state, factory) == buyer) return;
-		// Buying the plant would not transfer control of its deposit.
-		if(physical::extraction::extracts_deposit(state, factory)) return;
+		// Buying the plant would not transfer control of its deposit or land.
+		if(physical::extraction::extracts_deposit(state, factory) || physical::land::farms_land(state, factory)) return;
 		if(state.world.factory_get_payroll_settlement(factory)
 			&& state.world.factory_get_payroll_settlement(factory) != settlement) return;
 		auto lifecycle = state.world.factory_get_agency_lifecycle_status(factory);

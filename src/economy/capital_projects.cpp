@@ -7,6 +7,7 @@
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/extraction.hpp"
+#include "economy/physical/land.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/exchange.hpp"
@@ -59,6 +60,8 @@ dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic
 		// An extraction recipe needs a deposit; only create_extraction_plant binds one.
 		|| ((kind == project_kind::factory || kind == project_kind::extraction_plant)
 			&& physical::extraction::extracts_deposit(s, type) != (kind == project_kind::extraction_plant))
+		// A farm recipe needs a land title; construction does not create farms.
+		|| physical::land::farms_land(s, type)
 		|| (target_commodity && !s.world.commodity_is_valid(target_commodity))
 		|| !std::isfinite(planned_daily_capacity) || planned_daily_capacity < 0.0f) return {};
 	// A project owns a dedicated yard in the shared inventory. Two orders by

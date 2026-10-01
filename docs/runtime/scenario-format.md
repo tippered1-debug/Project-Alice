@@ -1,6 +1,6 @@
 # Canonical Scenario Firms and Ownership
 
-Every scenario must provide eight firm, ownership, banking, and resource tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `deposits.csv`, `assets.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The canonical land-force tables are also required; see [Canonical Land Forces](../architecture/military.md) for their schemas and validation rules. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
+Every scenario must provide eleven firm, ownership, banking, resource, and land tables under `common/canonical_runtime/`: `firms.csv`, `capital_owners.csv`, `deposits.csv`, `assets.csv`, `land_titles.csv`, `farms.csv`, `leases.csv`, `ownership.csv`, `loans.csv`, `banks.csv`, and `bank_deposits.csv`. The canonical land-force tables are also required; see [Canonical Land Forces](../architecture/military.md) for their schemas and validation rules. The files are required even when a table has no rows; an empty table contains its header only. Rows use UTF-8, semicolon separators, one header row, and `#` comment lines. Quoting is not supported. IDs use ASCII letters, digits, `_`, `-`, and `.`. A scenario with a missing file, missing actor, missing owner, or invalid ownership graph is rejected before simulation starts.
 
 ## Firms
 
@@ -29,6 +29,16 @@ An `extraction` row creates an extraction plant on the deposit selected by `prov
 Example rows: `us_pa_coal;deposit;pittsburgh;steel_co;253;;;coal;9000` and `us_pa_coal_mine;extraction;pittsburgh;steel_co;253;coal_mine;;coal;4000`.
 
 Example factory row: `us_pittsburgh_steel;factory;pittsburgh;steel_co;253;steel_factory;1;;18000`.
+
+## Land, farms, and leases
+
+`land_titles.csv` has columns `title_id;site_id;province_id;area_hectares;suitability;opening_value`. Each row creates one land title, a natural asset at the province's site. `suitability` lists `commodity=factor` pairs separated by commas (for example `grain=1,cattle=0.6`); a title must suit at least one commodity. `title_id` is an asset ID: `ownership.csv` gives the title its owners, and the holder of a majority voting stake is its owner.
+
+`farms.csv` has columns `farm_id;title_id;production_type;operator_type;operator_id;opening_value`. Each row creates a farm: an ordinary factory bound to one title, using a content production type with `farm = yes`. `operator_type` is `firm`. A title hosts one farm. `farm_id` is an asset ID owned through `ownership.csv`. Output follows `A * suitability * L^0.6 * T^0.4`, where `T` is the area in reference holdings of 5 hectares per worker. Farm recipes are calibrated at load so that a worker on a reference holding yields 1.5 times the value of the farmer life needs of the four people one worker represents.
+
+`leases.csv` has columns `lease_id;title_id;tenant_type;tenant_id;settlement;cash_rent_per_hectare_year;output_share;valid_from;valid_until`. A lease lets its tenant farm the title instead of the owner. Cash rent is paid every 30 days from the tenant's account, and what the tenant cannot pay accrues as unpaid rent. `output_share` (from 0 to 1) is the owner's share of each harvest, delivered in kind at the farm site. Leases on one title cannot overlap, and the tenant cannot be the owner.
+
+Example rows: `pa_wheat_land;pittsburgh;253;400;grain=1,cattle=0.5;6000`, `pa_wheat;pa_wheat_land;grain_farm;firm;penn_estate;1500`, and `pa_wheat_lease;pa_wheat_land;firm;penn_tenants;money;2;0.25;1836-01-01;1846-01-01`.
 
 ## Ownership graph
 

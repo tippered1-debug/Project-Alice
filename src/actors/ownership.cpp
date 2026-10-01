@@ -371,6 +371,20 @@ void collect_canonical_ownership_errors(sys::state const& state, std::vector<std
 		if(!asset_has_complete_ownership(state, asset))
 			errors.push_back(label + " asset has no unique, complete owner stake graph totaling 1.0");
 	});
+	state.world.for_each_land_title([&](dcon::land_title_id title) {
+		auto label = "land title dcon:" + std::to_string(title.index());
+		auto asset = state.world.land_title_get_asset_from_land_title_asset(title);
+		if(state.world.land_title_get_canonical_id(title) == 0)
+			errors.push_back(label + " has no deterministic stable ID");
+		if(!asset || !state.world.asset_is_valid(asset)) {
+			errors.push_back(label + " has no canonical asset record");
+			return;
+		}
+		if(!productive_assets.insert(asset.index()).second)
+			errors.push_back(label + " shares its asset record with another productive asset");
+		if(!asset_has_complete_ownership(state, asset))
+			errors.push_back(label + " asset has no unique, complete owner stake graph totaling 1.0");
+	});
 }
 
 bool canonical_ownership_is_valid(sys::state const& state) {

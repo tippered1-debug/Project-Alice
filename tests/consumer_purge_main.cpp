@@ -4,3 +4,4 @@
 #define ALICE_NO_ENTRY_POINT 1
 #include "main.cpp"
 #include "primary_production_tests.cpp"
+#include "rural_economy_tests.cpp"

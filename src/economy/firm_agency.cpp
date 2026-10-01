@@ -12,6 +12,7 @@
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/extraction.hpp"
+#include "economy/physical/land.hpp"
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/economy_stats.hpp"
@@ -154,6 +155,13 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 		capacity = output_per_unit > epsilon
 			? std::min(capacity, physical::extraction::daily_ceiling(state, factory, state.current_date) / output_per_unit)
 			: 0.0f;
+	// A farm plans with the average product of a worker at the reference ratio
+	// on its land; it cannot plan at all on land it may not work.
+	if(physical::land::farms_land(state, factory)) {
+		auto title = physical::land::title_for_farm(state, factory);
+		output_per_unit *= physical::land::suitability(state, title, output_commodity);
+		if(!physical::land::may_operate(state, title, owner, state.current_date)) capacity = 0.0f;
+	}
 	if(capacity <= epsilon || !output_commodity || output_per_unit <= epsilon) return result;
 	auto output_price = state.world.factory_get_agency_expected_selling_price(factory);
 	if(!std::isfinite(output_price) || output_price <= epsilon)

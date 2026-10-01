@@ -84,8 +84,8 @@ inline std::vector<dcon::factory_type_id> ranked_factory_builds(sys::state& stat
 
 	std::vector<dcon::factory_type_id> types;
 	for(auto type : state.world.in_factory_type) {
-		// Extraction plants are only created on a controlled deposit.
-		if(!type.get_extracts_deposit())
+		// Extraction plants and farms exist only on a controlled deposit or title.
+		if(!type.get_extracts_deposit() && !type.get_farms_land())
 			types.push_back(type);
 	}
 

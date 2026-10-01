@@ -133,6 +133,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "pathfinding_tests.cpp"
 #include "land_forces_tests.cpp"
 #include "primary_production_tests.cpp"
+#include "rural_economy_tests.cpp"
 
 TEST_CASE("Dummy test", "[dummy test instance]") {
 	REQUIRE(1 + 1 == 2);

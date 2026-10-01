@@ -77,6 +77,13 @@ The first slice covers only finite commercial extraction:
 - Open job offers recruit unemployed, work-eligible exact persons who live in the workplace province. This is the population's entry into the labor market for every employer.
 - `process_rgo_output`, `update_rgo_production`, standalone `extract_resource`, and the RGO-seeded deposit bootstrap are deleted.
 
+## Rural hard cut (implemented)
+
+- Land titles are natural assets with area and per-commodity suitability, owned through ownership stakes (`land_titles.csv`).
+- Farms are factories bound to one title (`farms.csv`) with output `A * s * L^0.6 * T^0.4`. Recipes come from content production types with `farm = yes`, calibrated from farmer life needs.
+- Leases (`leases.csv`) let a tenant farm a title, with cash rent every 30 days and the owner's output share delivered in kind. A leased title is farmed only by its tenant; otherwise only by its owner.
+- Firms neither build greenfield farms nor acquire them, and generic factory projects reject farm recipes.
+
 Capital projects follow the same boundary: `create_extraction_plant` builds a plant on an existing deposit whose operator or right holder is the operating company. Construction never creates a deposit, reserves, or grade.
 
 Deferred, in this order:

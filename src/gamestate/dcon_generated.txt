@@ -521,6 +521,11 @@ object {
 		tag{ scenario }
 	}
 	property{
+		name{ farms_land }
+		type{ bitfield }
+		tag{ scenario }
+	}
+	property{
 		name{ inputs }
 		type{ economy::commodity_set }
 		tag{ scenario }
@@ -5040,6 +5045,32 @@ object{
 }
 
 object{
+	name{ land_title }
+	storage_type{ erasable }
+	size{ 30000 }
+	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
+	property{ name{ area_hectares } type{ float } tag{ save } }
+	property{ name{ suitability } type{ array{commodity_id}{float} } tag{ save } }
+}
+
+object{
+	name{ land_lease }
+	storage_type{ erasable }
+	size{ 30000 }
+	tag{ save }
+	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
+	property{ name{ valid_from } type{ sys::date } tag{ save } }
+	property{ name{ valid_until } type{ sys::date } tag{ save } }
+	property{ name{ settlement } type{ commodity_id } tag{ save } }
+	property{ name{ cash_rent_per_hectare_year } type{ float } tag{ save } }
+	property{ name{ output_share } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ last_settled } type{ sys::date } tag{ save } }
+	property{ name{ unpaid_rent } type{ float } tag{ save } }
+}
+
+object{
 	name{ resource_extraction_right }
 	storage_type{ erasable }
 	size{ 50000 }
@@ -6204,6 +6235,41 @@ relationship{
 	tag{ save }
 	link{ object{ factory } name{ factory } type{ unique } }
 	link{ object{ resource_deposit } name{ resource_deposit } type{ unique } }
+}
+
+relationship{
+	name{ land_title_site }
+	tag{ save }
+	link{ object{ land_title } name{ land_title } type{ unique } }
+	link{ object{ site } name{ site } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ land_title_asset }
+	tag{ save }
+	link{ object{ land_title } name{ land_title } type{ unique } }
+	link{ object{ asset } name{ asset } type{ unique } }
+}
+
+relationship{
+	name{ factory_land_title }
+	tag{ save }
+	link{ object{ factory } name{ factory } type{ unique } }
+	link{ object{ land_title } name{ land_title } type{ unique } }
+}
+
+relationship{
+	name{ land_lease_title }
+	tag{ save }
+	link{ object{ land_lease } name{ land_lease } type{ unique } }
+	link{ object{ land_title } name{ land_title } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ land_lease_tenant }
+	tag{ save }
+	link{ object{ land_lease } name{ land_lease } type{ unique } }
+	link{ object{ economic_actor } name{ economic_actor } type{ many } index_storage{ array } }
 }
 
 relationship{

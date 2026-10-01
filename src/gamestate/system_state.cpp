@@ -52,6 +52,7 @@
 #include "technology/technology_kernel.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/labor_dynamics.hpp"
+#include "economy/physical/land.hpp"
 
 namespace sys {
 
@@ -2710,6 +2711,7 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 			// sized. No technology activates them; the new entries stay zero.
 			world.technology_resize_activate_building(world.factory_type_size());
 			world.invention_resize_activate_building(world.factory_type_size());
+			::economy::physical::land::calibrate_farm_recipes(*this, culture_definitions.farmers);
 
 			for(const auto ft : world.in_factory_type) {
 				if(!bool(world.factory_type_get_output(ft))) {

@@ -5,6 +5,7 @@
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/factory_output.hpp"
 #include "economy/physical/extraction.hpp"
+#include "economy/physical/land.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "world/site.hpp"
@@ -134,12 +135,22 @@ float produce_factory(sys::state& state, dcon::factory_id factory) {
 	if(!std::isfinite(ratio)) ratio = 0.0f;
 	auto actual_units = std::clamp(planned * std::clamp(ratio, 0.0f, 1.0f), 0.0f, capacity);
 	firm_agency::observe_production(state, factory, planned, actual_units);
-	auto actual_output = actual_units * output_per_unit;
+	// A farm's output follows diminishing returns to labor on its fixed land.
+	auto const farms = physical::land::farms_land(state, factory);
+	auto actual_output = farms
+		? physical::land::output_for_labor(state, factory, actual_units, state.current_date)
+		: actual_units * output_per_unit;
 	if(!std::isfinite(actual_units) || !std::isfinite(actual_output) || actual_units < 0.0f || actual_output < 0.0f) return 0.0f;
 	if(actual_units > 0.0f && !physical::factory_inputs::consume(state, site, owner, state.world.factory_type_get_inputs(type), actual_units, 1.0f)) return 0.0f;
 	state.world.factory_set_actual_utilization(factory, capacity > 0.0f ? std::clamp(actual_units / capacity, 0.0f, 1.0f) : 0.0f);
 	state.world.factory_set_output(factory, actual_output);
-	if(actual_output > 0.0f) {
+	if(actual_output > 0.0f && farms) {
+		// A tenant owes the owner's share of the harvest in kind before selling.
+		auto share = actual_output * physical::land::output_share_owed(state, factory, state.current_date);
+		if(share > 0.0f) physical::land::deliver_output_share(state, factory, share, state.current_date);
+		if(actual_output - share > 0.0f)
+			physical::factory_output::materialize_and_dispatch(state, factory, actual_output - share);
+	} else if(actual_output > 0.0f) {
 		physical::factory_output::materialize_and_dispatch(state, factory, actual_output);
 		if(extracts) {
 			[[maybe_unused]] auto const committed = physical::extraction::commit(state, factory, actual_output, state.current_date);

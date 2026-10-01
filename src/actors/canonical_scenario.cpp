@@ -7,6 +7,7 @@
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/extraction.hpp"
+#include "economy/physical/land.hpp"
 #include "economy/money.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
@@ -347,7 +348,8 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 
 bool read_and_parse_tables(simple_fs::directory const& common,
 	parsers::error_handler& err, table& firms, table& owners, table& assets,
-	table& ownerships, table& loans, table& banks, table& bank_deposits, table& deposits) {
+	table& ownerships, table& loans, table& banks, table& bank_deposits, table& deposits,
+	table& land_titles, table& farms, table& leases) {
 	static constexpr std::array<std::string_view, 6> firms_header = {
 		"firm_id", "kind", "settlement", "opening_cash", "retained_earnings", "paid_in_equity"
 	};
@@ -375,6 +377,16 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	static constexpr std::array<std::string_view, 6> deposits_header = {
 		"province_id", "commodity_id", "original_reserves", "remaining_reserves", "grade", "daily_capacity"
 	};
+	static constexpr std::array<std::string_view, 6> land_titles_header = {
+		"title_id", "site_id", "province_id", "area_hectares", "suitability", "opening_value"
+	};
+	static constexpr std::array<std::string_view, 6> farms_header = {
+		"farm_id", "title_id", "production_type", "operator_type", "operator_id", "opening_value"
+	};
+	static constexpr std::array<std::string_view, 9> leases_header = {
+		"lease_id", "title_id", "tenant_type", "tenant_id", "settlement", "cash_rent_per_hectare_year",
+		"output_share", "valid_from", "valid_until"
+	};
 	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
 	auto before = err.accumulated_errors.size();
 	auto f = read_table(canonical, "firms.csv", firms_header, err);
@@ -385,7 +397,10 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	auto b = read_table(canonical, "banks.csv", banks_header, err);
 	auto d = read_table(canonical, "bank_deposits.csv", bank_deposits_header, err);
 	auto r = read_table(canonical, "deposits.csv", deposits_header, err);
-	if(!f || !o || !a || !s || !l || !b || !d || !r || err.accumulated_errors.size() != before) return false;
+	auto t = read_table(canonical, "land_titles.csv", land_titles_header, err);
+	auto m = read_table(canonical, "farms.csv", farms_header, err);
+	auto e = read_table(canonical, "leases.csv", leases_header, err);
+	if(!f || !o || !a || !s || !l || !b || !d || !r || !t || !m || !e || err.accumulated_errors.size() != before) return false;
 	firms = std::move(*f);
 	owners = std::move(*o);
 	assets = std::move(*a);
@@ -394,6 +409,9 @@ bool read_and_parse_tables(simple_fs::directory const& common,
 	banks = std::move(*b);
 	bank_deposits = std::move(*d);
 	deposits = std::move(*r);
+	land_titles = std::move(*t);
+	farms = std::move(*m);
+	leases = std::move(*e);
 	return true;
 }
 
@@ -1098,6 +1116,169 @@ bool load_assets(sys::state& state, parsers::scenario_building_context& context,
 		add_row_error(err, "assets.csv", 0, "resource deposit dcon:" + std::to_string(deposit.index())
 			+ " at site dcon:" + std::to_string(site.index()) + " has no explicit canonical asset and operator row");
 	});
+	return err.accumulated_errors.size() == initial_errors;
+}
+
+// Land titles are natural assets; farms are factories bound to one title. Both
+// join assets_by_id so ownership.csv gives them owners like any productive asset.
+struct actor_lookup {
+	std::vector<firm_record> const& firms;
+	std::unordered_map<std::string, size_t> const& firm_by_id;
+	std::unordered_map<std::string, owner_binding> const& owners_by_id;
+	dcon::economic_actor_id actor(std::string const& type, std::string const& id) const {
+		if(type == "firm") {
+			auto it = firm_by_id.find(id);
+			return it == firm_by_id.end() ? dcon::economic_actor_id{} : firms[it->second].actor;
+		}
+		if(type == "capital_owner") {
+			auto it = owners_by_id.find(id);
+			return it == owners_by_id.end() ? dcon::economic_actor_id{} : it->second.actor;
+		}
+		return {};
+	}
+	dcon::organization_id organization(std::string const& type, std::string const& id) const {
+		if(type == "firm") {
+			auto it = firm_by_id.find(id);
+			return it == firm_by_id.end() ? dcon::organization_id{} : firms[it->second].organization;
+		}
+		return {};
+	}
+};
+
+bool load_land(sys::state& state, parsers::scenario_building_context& context, parsers::error_handler& err,
+	table const& title_table, table const& farm_table, actor_lookup const& actors,
+	std::unordered_map<uint64_t, std::string>& asset_ids, std::unordered_map<uint64_t, std::string>& site_ids,
+	std::unordered_map<std::string, dcon::asset_id>& assets_by_id,
+	std::unordered_map<std::string, dcon::land_title_id>& titles_by_id) {
+	auto initial_errors = err.accumulated_errors.size();
+	state.world.land_title_resize_suitability(state.world.commodity_size());
+	std::vector<row> title_rows(title_table.rows.begin(), title_table.rows.end());
+	std::sort(title_rows.begin(), title_rows.end(), [](auto const& a, auto const& b) { return a.cells[0] < b.cells[0]; });
+	for(auto const& source : title_rows) {
+		auto const& id = source.cells[0];
+		uint32_t province_id = 0;
+		float area = 0.0f;
+		float value = 0.0f;
+		auto province = parse_integer(source.cells[2], province_id) ? province_from_original_id(state, context, province_id) : dcon::province_id{};
+		if(!valid_key(id) || !valid_key(source.cells[1]) || assets_by_id.contains(id) || titles_by_id.contains(id)) {
+			add_row_error(err, "land_titles.csv", source.line, "title_id and site_id must be valid keys and title_id must be unique among assets");
+			continue;
+		}
+		if(!province || !parse_float(source.cells[3], area) || area <= 0.0f || !parse_float(source.cells[5], value) || value < 0.0f) {
+			add_row_error(err, "land_titles.csv", source.line, "province_id must resolve, area_hectares must be positive, opening_value nonnegative");
+			continue;
+		}
+		auto site = world::spatial_runtime::site_for_province(state, province);
+		auto title = economy::physical::land::create_title(state, site, area);
+		if(!title) {
+			add_row_error(err, "land_titles.csv", source.line, "could not create the title at the province site");
+			continue;
+		}
+		// suitability is commodity=value pairs separated by commas.
+		bool any = false;
+		std::string_view list = source.cells[4];
+		while(!list.empty()) {
+			auto comma = list.find(',');
+			auto pair = trim(list.substr(0, comma));
+			list = comma == std::string_view::npos ? std::string_view{} : list.substr(comma + 1);
+			auto equals = pair.find('=');
+			float factor = 0.0f;
+			auto commodity = equals == std::string_view::npos ? dcon::commodity_id{} : find_commodity(context, std::string(trim(pair.substr(0, equals))));
+			if(!commodity || !parse_float(pair.substr(equals + 1), factor) || factor < 0.0f
+				|| !economy::physical::land::set_suitability(state, title, commodity, factor)) {
+				add_row_error(err, "land_titles.csv", source.line, "suitability must be commodity=factor pairs with known commodities and nonnegative factors");
+				continue;
+			}
+			any = any || factor > 0.0f;
+		}
+		if(!any) add_row_error(err, "land_titles.csv", source.line, "a title must be suitable for at least one commodity");
+		std::string error;
+		assign_id(state.world.land_title_get_canonical_id(title), [&](uint64_t v) { state.world.land_title_set_canonical_id(title, v); },
+			"land:" + id, asset_ids, error);
+		if(!error.empty()) add_row_error(err, "land_titles.csv", source.line, error);
+		assign_id(state.world.site_get_canonical_id(site), [&](uint64_t v) { state.world.site_set_canonical_id(site, v); },
+			"site:" + source.cells[1], site_ids, error);
+		if(!error.empty()) add_row_error(err, "land_titles.csv", source.line, error);
+		auto asset = state.world.create_asset();
+		assign_id(state.world.asset_get_canonical_id(asset), [&](uint64_t v) { state.world.asset_set_canonical_id(asset, v); },
+			"asset:land:" + id, asset_ids, error);
+		if(!error.empty()) add_row_error(err, "land_titles.csv", source.line, error);
+		state.world.asset_set_appraised_value(asset, value);
+		state.world.force_create_land_title_asset(title, asset);
+		assets_by_id.emplace(id, asset);
+		titles_by_id.emplace(id, title);
+	}
+
+	std::vector<row> farm_rows(farm_table.rows.begin(), farm_table.rows.end());
+	std::sort(farm_rows.begin(), farm_rows.end(), [](auto const& a, auto const& b) { return a.cells[0] < b.cells[0]; });
+	for(auto const& source : farm_rows) {
+		auto const& id = source.cells[0];
+		float value = 0.0f;
+		auto title = titles_by_id.find(source.cells[1]);
+		auto type = context.map_of_factory_names.find(source.cells[2]);
+		auto organization = actors.organization(source.cells[3], source.cells[4]);
+		if(!valid_key(id) || assets_by_id.contains(id)) {
+			add_row_error(err, "farms.csv", source.line, "farm_id must be a valid key unique among assets");
+			continue;
+		}
+		if(title == titles_by_id.end() || type == context.map_of_factory_names.end()
+			|| !economy::physical::land::farms_land(state, type->second) || !organization
+			|| !parse_float(source.cells[5], value) || value < 0.0f) {
+			add_row_error(err, "farms.csv", source.line, "farm needs a declared title, a farm production type, a declared operator, and a nonnegative opening_value");
+			continue;
+		}
+		auto farm = economy::physical::land::create_farm(state, title->second, type->second, organization);
+		if(!farm) {
+			add_row_error(err, "farms.csv", source.line, "could not create the farm: the title already has one or is not suitable for '" + source.cells[2] + "'");
+			continue;
+		}
+		std::string error;
+		assign_id(state.world.factory_get_canonical_id(farm), [&](uint64_t v) { state.world.factory_set_canonical_id(farm, v); },
+			"factory:farm:" + id, asset_ids, error);
+		if(!error.empty()) add_row_error(err, "farms.csv", source.line, error);
+		auto asset = state.world.create_asset();
+		assign_id(state.world.asset_get_canonical_id(asset), [&](uint64_t v) { state.world.asset_set_canonical_id(asset, v); },
+			"asset:farm:" + id, asset_ids, error);
+		if(!error.empty()) add_row_error(err, "farms.csv", source.line, error);
+		state.world.asset_set_appraised_value(asset, value);
+		state.world.force_create_factory_asset(farm, asset);
+		assets_by_id.emplace(id, asset);
+	}
+	return err.accumulated_errors.size() == initial_errors;
+}
+
+bool load_leases(sys::state& state, parsers::scenario_building_context& context, parsers::error_handler& err,
+	table const& lease_table, actor_lookup const& actors,
+	std::unordered_map<std::string, dcon::land_title_id> const& titles_by_id,
+	std::unordered_map<uint64_t, std::string>& obligation_ids) {
+	auto initial_errors = err.accumulated_errors.size();
+	std::vector<row> rows(lease_table.rows.begin(), lease_table.rows.end());
+	std::sort(rows.begin(), rows.end(), [](auto const& a, auto const& b) { return a.cells[0] < b.cells[0]; });
+	for(auto const& source : rows) {
+		auto title = titles_by_id.find(source.cells[1]);
+		auto tenant = actors.actor(source.cells[2], source.cells[3]);
+		auto settlement = find_commodity(context, source.cells[4]);
+		float rate = 0.0f;
+		float share = 0.0f;
+		auto from = parse_iso_date(source.cells[7]);
+		auto until = parse_iso_date(source.cells[8]);
+		if(!valid_key(source.cells[0]) || title == titles_by_id.end() || !tenant || !settlement
+			|| !parse_float(source.cells[5], rate) || rate < 0.0f || !parse_float(source.cells[6], share)
+			|| share < 0.0f || share > 1.0f || !from || !until) {
+			add_row_error(err, "leases.csv", source.line, "lease needs a valid id, declared title and tenant, settlement, nonnegative rent, a share in [0, 1], and YYYY-MM-DD dates");
+			continue;
+		}
+		auto lease = economy::physical::land::create_lease(state, title->second, tenant, settlement, rate, share,
+			sys::date(*from, state.start_date), sys::date(*until, state.start_date));
+		if(!lease) {
+			add_row_error(err, "leases.csv", source.line, "could not create the lease: the title needs a majority owner other than the tenant, valid_from < valid_until, and no overlapping lease");
+			continue;
+		}
+		std::string error;
+		assign_id(state.world.land_lease_get_canonical_id(lease), [&](uint64_t v) { state.world.land_lease_set_canonical_id(lease, v); },
+			"lease:" + source.cells[0], obligation_ids, error);
+		if(!error.empty()) add_row_error(err, "leases.csv", source.line, error);
+	}
 	return err.accumulated_errors.size() == initial_errors;
 }
 
@@ -1952,8 +2133,12 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	table bank_table;
 	table bank_deposit_table;
 	table deposit_table;
+	table land_title_table;
+	table farm_table;
+	table lease_table;
 	if(!read_and_parse_tables(common, err, firm_table, owner_table, asset_table,
-		ownership_table, loan_table, bank_table, bank_deposit_table, deposit_table)) {
+		ownership_table, loan_table, bank_table, bank_deposit_table, deposit_table,
+		land_title_table, farm_table, lease_table)) {
 		err.fatal = true;
 		return false;
 	}
@@ -1984,6 +2169,8 @@ bool load(sys::state& state, simple_fs::directory const& common,
 	std::unordered_map<std::string, owner_binding> owners_by_id;
 	std::unordered_map<std::string, dcon::asset_id> assets_by_id;
 	std::unordered_map<std::string, size_t> asset_row_by_id;
+	std::unordered_map<std::string, dcon::land_title_id> titles_by_id;
+	actor_lookup lookup{ firms, firm_by_id, owners_by_id };
 	if(!load_firms(state, context, err, firms, firm_by_id, actor_ids, organization_ids,
 		asset_ids, account_ids, assets_by_id)
 		|| !load_capital_owners(state, context, err, owners, owners_by_id,
@@ -1992,8 +2179,11 @@ bool load(sys::state& state, simple_fs::directory const& common,
 		|| !load_deposits(state, context, err, deposit_table)
 		|| !load_assets(state, context, err, assets, firms, firm_by_id, asset_ids, site_ids,
 			assets_by_id, asset_row_by_id)
+		|| !load_land(state, context, err, land_title_table, farm_table, lookup, asset_ids, site_ids,
+			assets_by_id, titles_by_id)
 		|| !load_ownership(state, err, firms, owners, assets, stakes, owners_by_id,
 			assets_by_id, stake_ids)
+		|| !load_leases(state, context, err, lease_table, lookup, titles_by_id, obligation_ids)
 			|| !load_loans(state, err, firms, assets, loans, obligation_ids)
 		|| !load_land_forces(state, context, common, err)) {
 		err.fatal = true;

@@ -214,6 +214,25 @@ void make_production_type(std::string_view name, token_generator& gen, error_han
 				world.factory_type_set_extracts_deposit(type, true);
 			}
 		}
+		// A crop, herd, or plantation is produced by an ordinary establishment
+		// bound to one land title. Its output per worker is calibrated from the
+		// content's needs once every production type is known.
+		if(pt.farm) {
+			auto& world = context.outer_context.state.world;
+			auto& names = context.outer_context.map_of_factory_names;
+			if(names.find(std::string(name)) != names.end()) {
+				err.accumulated_errors += "Farm production type " + std::string(name) + " collides with a building name (" + err.file_name + ")\n";
+			} else {
+				auto type = world.create_factory_type();
+				names.insert_or_assign(std::string(name), type);
+				world.factory_type_set_name(type, text::find_or_add_key(context.outer_context.state, name, false));
+				world.factory_type_set_description(type, text::find_or_add_key(context.outer_context.state, std::string(name) + "_desc", false));
+				world.factory_type_set_output(type, pt.output_goods_);
+				world.factory_type_set_output_amount(type, pt.value);
+				world.factory_type_set_base_workforce(type, pt.workforce);
+				world.factory_type_set_farms_land(type, true);
+			}
+		}
 	} else if(pt.type_ == production_type_enum::artisan) {
 		economy::commodity_set cset;
 		uint32_t added = 0;
