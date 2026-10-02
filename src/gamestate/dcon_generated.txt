@@ -8263,6 +8263,12 @@ relationship{
 	link{ object{ monetary_account } name{ monetary_account } type{ many } index_storage{ array } }
 }
 relationship{
+	name{ concrete_bid_deposit }
+	tag{ save }
+	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }
+	link{ object{ deposit_account } name{ deposit_account } type{ many } index_storage{ array } }
+}
+relationship{
 	name{ concrete_bid_destination }
 	tag{ save }
 	link{ object{ concrete_market_bid } name{ concrete_market_bid } type{ unique } }

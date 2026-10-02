@@ -35,6 +35,7 @@ Every actor holds cash in one ledger per settlement (`economy::wallets`): a pers
 - **Owner contributions and investment**: owners recapitalize firms and found companies from their own ledger.
 - **Public contractors** are owned by the commissioning government.
 - **Closed plants** keep their goods as the operator's property.
+- **Savings** sit in bank deposits under the liquidity policy and return to wallets as needed; deposits also pay market purchases directly. See [Banking](banking.md).
 
 ## Outside the canonical economy
 

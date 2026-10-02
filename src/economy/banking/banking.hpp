@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dcon_generated.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "date_interface.hpp"
 
 #include <cstdint>
@@ -87,6 +88,27 @@ dcon::obligation_id originate_loan_with_consent(sys::state&, dcon::organization_
 
 bool transfer_deposit(sys::state&, dcon::deposit_account_id source,
 	dcon::deposit_account_id destination, float amount, sys::date timestamp);
+
+// The owner's deposit account in a settlement, preferring one at `bank`.
+dcon::deposit_account_id deposit_account_for(sys::state const&, dcon::economic_actor_id owner,
+	dcon::commodity_id settlement, dcon::organization_id bank = {});
+// A deposit's owner moves operating cash into it: the cash leaves their wallet
+// for the bank's reserves, and the bank owes them the same amount.
+float deposit_cash(sys::state&, dcon::deposit_account_id, economy::exact_person_economy::account_ref wallet,
+	float amount, sys::date timestamp);
+// A deposit's owner draws cash: the bank pays it out of its reserves into the
+// owner's wallet and owes that much less. A bank pays no more than its reserves
+// hold; the returned amount is what was actually paid.
+float withdraw_cash(sys::state&, dcon::deposit_account_id, economy::exact_person_economy::account_ref wallet,
+	float amount, sys::date timestamp);
+// Pays from a deposit with immediate settlement: to a deposit at the same bank
+// (reserves do not move), to a deposit at another bank (reserves move from the
+// payer's bank to the payee's), or to an operating wallet (reserves leave the
+// payer's bank). Fails without change when the payer's balance or, for an
+// external payment, the payer bank's reserves cannot cover it.
+dcon::transaction_id pay_from_deposit(sys::state&, dcon::deposit_account_id source,
+	dcon::deposit_account_id destination_deposit, economy::exact_person_economy::account_ref destination_wallet,
+	float amount, relations::transaction_kind, sys::date timestamp);
 bool queue_interbank_payment(sys::state&, dcon::deposit_account_id source,
 	dcon::deposit_account_id destination, float amount, sys::date timestamp,
 	uint64_t stable_transaction_key);

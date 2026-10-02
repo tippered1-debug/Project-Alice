@@ -144,6 +144,15 @@ bool transfer(sys::state&, account_ref source, account_ref destination, float am
 	relations::transaction_kind, sys::date timestamp);
 transfer_result transfer_with_result(sys::state&, account_ref source, account_ref destination,
 	float amount, relations::transaction_kind, sys::date timestamp);
+// Banking settlement between a bank's reserve account and a customer's
+// operating ledger (DCON or exact). Base money moves and the transaction is
+// recorded. A positive amount pays out of reserves into the wallet; a negative
+// amount moves wallet cash into reserves. The recorded counterparty is the
+// bank unless `counterparty` names the customer paying through it. Only banking
+// calls this.
+transfer_result settle_with_reserve(sys::state&, dcon::monetary_account_id reserve, account_ref wallet,
+	float amount, relations::transaction_kind, sys::date timestamp,
+	dcon::economic_actor_id counterparty = {});
 uint64_t transaction_count(sys::state const&);
 std::vector<transaction_record> const& transaction_records(sys::state const&);
 std::optional<transaction_record> latest_transaction(sys::state const&);

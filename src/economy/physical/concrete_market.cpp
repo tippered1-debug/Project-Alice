@@ -1,5 +1,6 @@
 #include "concrete_market.hpp"
 #include "economy/capital_projects.hpp"
+#include "economy/banking/banking.hpp"
 
 #include "accounts/accounts.hpp"
 #include "economy/causal_order.hpp"
@@ -45,10 +46,24 @@ float reserved_inventory(sys::state const& state, dcon::economic_actor_id seller
 	return result;
 }
 
+// A bid reserves money from the instrument that funds it: its buyer's wallet,
+// or a bank deposit when one is attached.
 float reserved_funds(sys::state const& state, dcon::monetary_account_id account) {
 	float result = 0.0f;
 	state.world.for_each_concrete_market_bid([&](auto bid) {
-		if(state.world.concrete_market_bid_get_status(bid) == active && state.world.concrete_market_bid_get_concrete_bid_account(bid) && state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) == account)
+		if(state.world.concrete_market_bid_get_status(bid) == active && state.world.concrete_market_bid_get_concrete_bid_account(bid)
+			&& !state.world.concrete_market_bid_get_deposit_account_from_concrete_bid_deposit(bid)
+			&& state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) == account)
+			result += std::max(0.0f, state.world.concrete_market_bid_get_reserved_amount(bid));
+	});
+	return result;
+}
+
+float reserved_deposit_funds(sys::state const& state, dcon::deposit_account_id deposit) {
+	float result = 0.0f;
+	state.world.for_each_concrete_market_bid([&](auto bid) {
+		if(state.world.concrete_market_bid_get_status(bid) == active
+			&& state.world.concrete_market_bid_get_deposit_account_from_concrete_bid_deposit(bid) == deposit)
 			result += std::max(0.0f, state.world.concrete_market_bid_get_reserved_amount(bid));
 	});
 	return result;
@@ -102,6 +117,10 @@ float landed_unit_cost(sys::state& state, dcon::site_id origin, dcon::site_id de
 	return goods_price + transport + goods_price * expected_spoilage;
 }
 
+float reserved_deposit_amount(sys::state const& state, dcon::deposit_account_id deposit) {
+	return reserved_deposit_funds(state, deposit);
+}
+
 float reserved_bid_amount(sys::state const& state, dcon::monetary_account_id account) {
 	return reserved_funds(state, account);
 }
@@ -120,7 +139,16 @@ dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id
 	dcon::monetary_account_id account, dcon::site_id destination, dcon::market_id market,
 	dcon::commodity_id commodity, float quantity, float limit_price, order_purpose purpose) {
 	if(!buyer || !account || accounts::owner_of(state, account) != buyer || !destination || !market || !commodity || !state.world.commodity_is_valid(accounts::settlement_of(state, account)) || !valid(quantity) || !valid(limit_price)) return {};
-	if(accounts::balance(state, account) + epsilon < reserved_funds(state, account) + quantity * limit_price) return {};
+	// A buyer whose wallet cannot cover the order pays from their bank deposit
+	// instead, as long as their bank is not insolvent.
+	dcon::deposit_account_id funding{};
+	if(accounts::balance(state, account) + epsilon < reserved_funds(state, account) + quantity * limit_price) {
+		funding = economy::banking::deposit_account_for(state, buyer, accounts::settlement_of(state, account));
+		if(!funding || economy::banking::status_of(state, state.world.deposit_account_get_organization_from_deposit_account_bank(funding))
+				== economy::banking::bank_status::insolvent
+			|| economy::banking::deposit_balance(state, funding) + epsilon < reserved_deposit_funds(state, funding) + quantity * limit_price)
+			return {};
+	}
 	auto bid = state.world.create_concrete_market_bid();
 	state.world.concrete_market_bid_set_original_quantity(bid, quantity);
 	state.world.concrete_market_bid_set_remaining_quantity(bid, quantity);
@@ -133,6 +161,7 @@ dcon::concrete_market_bid_id post_bid(sys::state& state, dcon::economic_actor_id
 		uint64_t(bid.index()))) return {};
 	state.world.force_create_concrete_bid_buyer(bid, buyer);
 	state.world.force_create_concrete_bid_account(bid, account);
+	if(funding) state.world.force_create_concrete_bid_deposit(bid, funding);
 	state.world.force_create_concrete_bid_destination(bid, destination);
 	state.world.force_create_concrete_bid_market(bid, market);
 	state.world.force_create_concrete_bid_commodity(bid, commodity);
@@ -256,13 +285,18 @@ std::vector<dcon::concrete_trade_fill_id> match_impl(sys::state& state,
 			if(ranked.landed_price > bid_limit) break;
 			auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
 			auto account = state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid);
+			auto funding = state.world.concrete_market_bid_get_deposit_account_from_concrete_bid_deposit(bid);
 			auto quantity = std::min(state.world.concrete_market_bid_get_remaining_quantity(bid), state.world.concrete_market_ask_get_remaining_quantity(ask));
 			quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
-			quantity = std::min(quantity, std::max(0.0f, (accounts::balance(state, account)
-				- reserved_funds(state, account) + state.world.concrete_market_bid_get_reserved_amount(bid))
+			auto free_funds = funding
+				? economy::banking::deposit_balance(state, funding) - reserved_deposit_funds(state, funding)
+				: accounts::balance(state, account) - reserved_funds(state, account);
+			quantity = std::min(quantity, std::max(0.0f, (free_funds + state.world.concrete_market_bid_get_reserved_amount(bid))
 				/ std::max(ranked.landed_price, price)));
 			if(!valid(quantity)) continue;
-			auto transaction = exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
+			auto transaction = funding
+				? exchange::purchase_with_deposit(state, source, commodity, seller, buyer, funding, quantity, price, date)
+				: exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
 			if(!transaction) continue;
 			state.world.concrete_market_bid_set_remaining_quantity(bid, std::max(0.0f, state.world.concrete_market_bid_get_remaining_quantity(bid) - quantity));
 			state.world.concrete_market_bid_set_reserved_amount(bid, state.world.concrete_market_bid_get_remaining_quantity(bid) * state.world.concrete_market_bid_get_limit_price(bid));

@@ -30,6 +30,7 @@
 #include "economy/households.hpp"
 #include "economy/dividends.hpp"
 #include "economy/estates.hpp"
+#include "economy/liquidity.hpp"
 #include "money.hpp"
 #include "economy_constants.hpp"
 #include "economy_factory_view.hpp"
@@ -1105,6 +1106,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 	::economy::estates::process(state);
 	::economy::households::release_idle_consumers(state);
+	::economy::liquidity::process(state);
 	::economy::households::refresh_membership(state);
 	update_factories_production(state);
 	::economy::physical::land::settle_rents(state);

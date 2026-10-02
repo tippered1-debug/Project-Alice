@@ -1,4 +1,5 @@
 #include "banking.hpp"
+#include "persons/persons.hpp"
 
 #include "actors/organizations/organizations.hpp"
 #include "economy/accounts/accounts.hpp"
@@ -528,6 +529,120 @@ bool transfer_deposit(sys::state& state, dcon::deposit_account_id source,
 	state.world.deposit_account_set_balance(source, deposit_balance(state, source) - amount);
 	state.world.deposit_account_set_balance(destination, deposit_balance(state, destination) + amount);
 	return true;
+}
+
+namespace {
+// The wallet belongs to the deposit's owner: the same DCON actor, or the exact
+// person whose profile actor owns the deposit.
+bool wallet_of_owner(sys::state const& state, dcon::deposit_account_id deposit,
+	economy::exact_person_economy::account_ref wallet) {
+	auto owner = state.world.deposit_account_get_economic_actor_from_deposit_account_owner(deposit);
+	if(!owner || !wallet) return false;
+	if(wallet.kind == economy::exact_person_economy::account_kind::dcon)
+		return accounts::owner_of(state, wallet.dcon_account) == owner;
+	auto profile = state.world.economic_actor_get_person_from_person_actor(owner);
+	return profile && persons::canonical_key(state, profile) == economy::exact_person_economy::owner_of(state, wallet);
+}
+
+bool deposit_usable(sys::state const& state, dcon::deposit_account_id deposit) {
+	if(!deposit || !state.world.deposit_account_is_valid(deposit)) return false;
+	auto bank = state.world.deposit_account_get_organization_from_deposit_account_bank(deposit);
+	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(deposit);
+	return policy_configured(state, bank) && settlement
+		&& settlement == state.world.organization_get_bank_settlement_currency(bank)
+		&& reserve_account_for(state, bank, settlement);
+}
+}
+
+dcon::deposit_account_id deposit_account_for(sys::state const& state, dcon::economic_actor_id owner,
+	dcon::commodity_id settlement, dcon::organization_id bank) {
+	dcon::deposit_account_id result{};
+	if(!owner || !settlement) return result;
+	state.world.economic_actor_for_each_deposit_account_owner_as_economic_actor(owner, [&](auto relation) {
+		auto account = state.world.deposit_account_owner_get_deposit_account(relation);
+		if(state.world.deposit_account_get_commodity_from_deposit_account_settlement(account) != settlement) return;
+		auto at_bank = state.world.deposit_account_get_organization_from_deposit_account_bank(account) == bank;
+		auto current_at_bank = result && state.world.deposit_account_get_organization_from_deposit_account_bank(result) == bank;
+		if(!result || (at_bank && !current_at_bank) || (at_bank == current_at_bank && account.index() < result.index()))
+			result = account;
+	});
+	return result;
+}
+
+float deposit_cash(sys::state& state, dcon::deposit_account_id deposit, economy::exact_person_economy::account_ref wallet,
+	float amount, sys::date timestamp) {
+	if(!deposit_usable(state, deposit) || !wallet_of_owner(state, deposit, wallet) || !valid_positive_amount(amount)) return 0.0f;
+	auto bank = state.world.deposit_account_get_organization_from_deposit_account_bank(deposit);
+	if(status_of(state, bank) == bank_status::insolvent) return 0.0f;
+	auto reserve = reserve_account_for(state, bank, state.world.organization_get_bank_settlement_currency(bank));
+	auto projected = double(deposit_balance(state, deposit)) + double(amount);
+	if(projected > std::numeric_limits<float>::max()) return 0.0f;
+	if(!economy::exact_person_economy::settle_with_reserve(state, reserve, wallet, -amount,
+		relations::transaction_kind::deposit_placement, timestamp).success) return 0.0f;
+	state.world.deposit_account_set_balance(deposit, float(projected));
+	refresh_bank_state(state, bank);
+	return amount;
+}
+
+float withdraw_cash(sys::state& state, dcon::deposit_account_id deposit, economy::exact_person_economy::account_ref wallet,
+	float amount, sys::date timestamp) {
+	if(!deposit_usable(state, deposit) || !wallet_of_owner(state, deposit, wallet) || !valid_positive_amount(amount)) return 0.0f;
+	auto bank = state.world.deposit_account_get_organization_from_deposit_account_bank(deposit);
+	auto reserve = reserve_account_for(state, bank, state.world.organization_get_bank_settlement_currency(bank));
+	// A bank cannot pay out more base money than it holds.
+	auto paid = std::min({amount, deposit_balance(state, deposit), std::max(0.0f, accounts::balance(state, reserve))});
+	if(!valid_positive_amount(paid)) return 0.0f;
+	if(!economy::exact_person_economy::settle_with_reserve(state, reserve, wallet, paid,
+		relations::transaction_kind::withdrawal, timestamp).success) return 0.0f;
+	state.world.deposit_account_set_balance(deposit, std::max(0.0f, deposit_balance(state, deposit) - paid));
+	refresh_bank_state(state, bank);
+	return paid;
+}
+
+dcon::transaction_id pay_from_deposit(sys::state& state, dcon::deposit_account_id source,
+	dcon::deposit_account_id destination_deposit, economy::exact_person_economy::account_ref destination_wallet,
+	float amount, relations::transaction_kind kind, sys::date timestamp) {
+	if(!deposit_usable(state, source) || !valid_positive_amount(amount)
+		|| deposit_balance(state, source) + balance_tolerance < amount) return {};
+	auto source_bank = state.world.deposit_account_get_organization_from_deposit_account_bank(source);
+	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(source);
+	auto source_owner = state.world.deposit_account_get_economic_actor_from_deposit_account_owner(source);
+	auto source_reserve = reserve_account_for(state, source_bank, settlement);
+	if(status_of(state, source_bank) == bank_status::insolvent || !source_owner) return {};
+	if(destination_deposit) {
+		if(destination_deposit == source || !deposit_usable(state, destination_deposit)
+			|| state.world.deposit_account_get_commodity_from_deposit_account_settlement(destination_deposit) != settlement) return {};
+		auto destination_bank = state.world.deposit_account_get_organization_from_deposit_account_bank(destination_deposit);
+		auto destination_owner = state.world.deposit_account_get_economic_actor_from_deposit_account_owner(destination_deposit);
+		auto projected = double(deposit_balance(state, destination_deposit)) + double(amount);
+		if(!destination_owner || projected > std::numeric_limits<float>::max()) return {};
+		dcon::monetary_account_id destination_reserve{};
+		if(destination_bank != source_bank) {
+			// Gross settlement: the payer's bank pays the payee's bank in reserves now.
+			destination_reserve = reserve_account_for(state, destination_bank, settlement);
+			if(!destination_reserve || accounts::balance(state, source_reserve) + balance_tolerance < amount) return {};
+		}
+		auto transaction = relations::record_transaction(state, source_owner, destination_owner, amount, settlement, kind, timestamp);
+		if(!transaction) return {};
+		state.world.deposit_account_set_balance(source, std::max(0.0f, deposit_balance(state, source) - amount));
+		state.world.deposit_account_set_balance(destination_deposit, float(projected));
+		if(destination_reserve) {
+			state.world.monetary_account_set_balance(source_reserve, accounts::balance(state, source_reserve) - amount);
+			state.world.monetary_account_set_balance(destination_reserve, accounts::balance(state, destination_reserve) + amount);
+			refresh_bank_state(state, destination_bank);
+		}
+		refresh_bank_state(state, source_bank);
+		return transaction;
+	}
+	if(!destination_wallet || accounts::balance(state, source_reserve) + balance_tolerance < amount) return {};
+	// Paying a wallet takes base money out of the payer's bank.
+	// The ledger entry names the depositor as payer; the bank only settles.
+	auto settled = economy::exact_person_economy::settle_with_reserve(state, source_reserve, destination_wallet,
+		amount, kind, timestamp, source_owner);
+	if(!settled.success) return {};
+	state.world.deposit_account_set_balance(source, std::max(0.0f, deposit_balance(state, source) - amount));
+	refresh_bank_state(state, source_bank);
+	return settled.dcon_transaction_id;
 }
 
 bool queue_interbank_payment(sys::state& state, dcon::deposit_account_id source,

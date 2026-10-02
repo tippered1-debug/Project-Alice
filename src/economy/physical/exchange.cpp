@@ -1,4 +1,5 @@
 #include "exchange.hpp"
+#include "economy/banking/banking.hpp"
 #include "inventory.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/relations/relations.hpp"
@@ -66,6 +67,29 @@ dcon::transaction_id purchase_with_account(sys::state& state, dcon::site_id site
 	if(!inventory::transfer(state, site, commodity, seller, buyer, quantity)) return {};
 	auto transaction = accounts::transfer(state, buyer_account, seller_account, cost,
 		relations::transaction_kind::purchase, timestamp);
+	if(transaction) return transaction;
+	inventory::transfer(state, site, commodity, buyer, seller, quantity);
+	return {};
+}
+
+dcon::transaction_id purchase_with_deposit(sys::state& state, dcon::site_id site,
+	dcon::commodity_id commodity, dcon::economic_actor_id seller, dcon::economic_actor_id buyer,
+	dcon::deposit_account_id buyer_deposit, float quantity, float unit_price, sys::date timestamp) {
+	if(!site || !commodity || !seller || !buyer || seller == buyer || !buyer_deposit
+		|| state.world.deposit_account_get_economic_actor_from_deposit_account_owner(buyer_deposit) != buyer
+		|| !std::isfinite(quantity) || quantity <= 0.0f || !std::isfinite(unit_price) || unit_price <= 0.0f) return {};
+	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(buyer_deposit);
+	auto bank = state.world.deposit_account_get_organization_from_deposit_account_bank(buyer_deposit);
+	auto cost = quantity * unit_price;
+	if(!std::isfinite(cost) || economy::banking::deposit_balance(state, buyer_deposit) < cost
+		|| inventory::quantity(state, site, commodity, seller) < quantity) return {};
+	auto payee_deposit = economy::banking::deposit_account_for(state, seller, settlement, bank);
+	auto payee_wallet = accounts::find_account(state, seller, settlement);
+	if(!payee_deposit && !payee_wallet) return {};
+	if(!inventory::transfer(state, site, commodity, seller, buyer, quantity)) return {};
+	auto transaction = economy::banking::pay_from_deposit(state, buyer_deposit, payee_deposit,
+		payee_deposit ? economy::exact_person_economy::account_ref{} : economy::exact_person_economy::account_ref::from_dcon(payee_wallet),
+		cost, relations::transaction_kind::purchase, timestamp);
 	if(transaction) return transaction;
 	inventory::transfer(state, site, commodity, buyer, seller, quantity);
 	return {};

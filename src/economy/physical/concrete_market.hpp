@@ -35,6 +35,8 @@ float canonical_reference_price(sys::state const&, dcon::market_id, dcon::commod
 float concrete_reference_price(sys::state const&, dcon::market_id, dcon::commodity_id,
 	sys::date, float fallback = 0.0f);
 float reserved_bid_amount(sys::state const&, dcon::monetary_account_id);
+// Amount held for active bids that a bank deposit funds.
+float reserved_deposit_amount(sys::state const&, dcon::deposit_account_id);
 float active_factory_bid_quantity(sys::state const&, dcon::factory_id,
 	dcon::site_id, dcon::commodity_id);
 void expire(sys::state&, sys::date);

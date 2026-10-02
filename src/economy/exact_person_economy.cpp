@@ -441,6 +441,51 @@ transfer_result transfer_with_result(sys::state& state, account_ref source, acco
 	return result;
 }
 
+transfer_result settle_with_reserve(sys::state& state, dcon::monetary_account_id reserve, account_ref wallet,
+	float amount, relations::transaction_kind kind, sys::date timestamp, dcon::economic_actor_id counterparty) {
+	transfer_result result;
+	monetary::ontology::account_view reserve_view;
+	if(!reserve || !valid_account_ref(state, wallet) || !std::isfinite(amount) || amount == 0.0f
+		|| !monetary::ontology::describe(state, monetary::ontology::account_ref::from_monetary(reserve), reserve_view)
+		|| reserve_view.instrument != monetary::ontology::instrument_kind::base_money_reserve
+		|| reserve_view.settlement != settlement_of(state, wallet)) return result;
+	if(wallet.kind == account_kind::dcon) {
+		monetary::ontology::account_view view;
+		if(!monetary::ontology::describe(state, monetary::ontology::account_ref::from_monetary(wallet.dcon_account), view)
+			|| view.instrument != monetary::ontology::instrument_kind::operating_account) return result;
+	}
+	auto magnitude = std::abs(amount);
+	auto reserve_balance = accounts::balance(state, reserve);
+	auto wallet_balance = balance(state, wallet);
+	auto const payout = amount > 0.0f;
+	if((payout ? reserve_balance : wallet_balance) < magnitude
+		|| magnitude > std::numeric_limits<float>::max() - (payout ? wallet_balance : reserve_balance)) return result;
+	state.world.monetary_account_set_balance(reserve, reserve_balance + (payout ? -magnitude : magnitude));
+	if(wallet.kind == account_kind::exact) {
+		exact_account(state, wallet.exact_account_id)->balance += payout ? magnitude : -magnitude;
+		auto store = ensure_store(state);
+		auto transaction_id = next_id(store->next_transaction_id);
+		transaction_record record;
+		record.id = transaction_id;
+		record.source = payout ? account_ref::from_dcon(reserve) : wallet;
+		record.destination = payout ? wallet : account_ref::from_dcon(reserve);
+		record.amount = magnitude;
+		record.settlement = reserve_view.settlement;
+		record.kind = kind;
+		record.timestamp = timestamp;
+		store->transactions.push_back(record);
+		result.exact_transaction_id = transaction_id;
+	} else {
+		state.world.monetary_account_set_balance(wallet.dcon_account, wallet_balance + (payout ? magnitude : -magnitude));
+		auto bank_actor = counterparty ? counterparty : accounts::owner_of(state, reserve);
+		auto customer = accounts::owner_of(state, wallet.dcon_account);
+		result.dcon_transaction_id = relations::record_transaction(state, payout ? bank_actor : customer,
+			payout ? customer : bank_actor, magnitude, reserve_view.settlement, kind, timestamp);
+	}
+	result.success = true;
+	return result;
+}
+
 bool transfer(sys::state& state, account_ref source, account_ref destination, float amount,
 	relations::transaction_kind kind, sys::date timestamp) {
 	return transfer_with_result(state, source, destination, amount, kind, timestamp).success;
