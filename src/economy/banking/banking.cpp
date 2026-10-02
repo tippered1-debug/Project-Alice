@@ -184,7 +184,7 @@ void refresh_bank_state(sys::state& state, dcon::organization_id bank) {
 		|| sheet.settlement_assets + balance_tolerance < sheet.required_liquidity;
 	state.world.organization_set_bank_status(bank, uint8_t(capital_breach || liquidity_breach
 		? bank_status::constrained : bank_status::solvent));
-	if(!capital_breach && !liquidity_breach)
+	if(!capital_breach)
 		state.world.organization_set_bank_capital_breach_days(bank, 0);
 }
 
@@ -1349,9 +1349,13 @@ void update_bank_statuses(sys::state& state, sys::date today) {
 			< std::max(state.world.organization_get_bank_liquidity_target(bank),
 				state.world.organization_get_bank_reserve_requirement(bank))
 			|| sheet.settlement_assets + balance_tolerance < sheet.required_liquidity;
-		if(!capital_breach && !liquidity_breach) {
+		// Illiquidity is not insolvency. A reserve shortage leaves a bank
+		// constrained for as long as it lasts; only a capital shortfall that
+		// outlasts its grace period (or negative net worth, above) is insolvency.
+		if(!capital_breach) {
 			state.world.organization_set_bank_capital_breach_days(bank, 0);
-			state.world.organization_set_bank_status(bank, uint8_t(bank_status::solvent));
+			state.world.organization_set_bank_status(bank,
+				uint8_t(liquidity_breach ? bank_status::constrained : bank_status::solvent));
 			continue;
 		}
 		auto grace = state.world.organization_get_bank_capital_breach_grace_days(bank);

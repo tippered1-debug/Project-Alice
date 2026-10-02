@@ -3,6 +3,8 @@
 #include "canonical_consumer_fixture.hpp"
 #include "actors/ownership.hpp"
 #include "economy/banking/banking.hpp"
+#include "economy/consent/consent.hpp"
+#include "persons/persons.hpp"
 #include "economy/liquidity.hpp"
 #include "economy/wallets.hpp"
 #include "economy/physical/concrete_market.hpp"
@@ -208,4 +210,78 @@ TEST_CASE("depositors of a troubled bank take out what it can pay", "[economy][b
 	REQUIRE(economy::banking::deposit_balance(*f.state, f.employer_deposit) == Approx(0.0f));
 	REQUIRE(economy::accounts::balance(*f.state, f.payer) == Approx(10000.0f));
 	REQUIRE(economy::accounts::balance(*f.state, f.reserve_a) == Approx(1000.0f));
+}
+
+namespace deposit_payments_tests {
+// A bank customer as a DCON person with an operating wallet.
+dcon::economic_actor_id make_person(sys::state& state, dcon::person_id& person) {
+	person = persons::create_person(state, sys::date{1});
+	auto actor = persons::actor_for_person(state, person);
+	state.world.economic_actor_set_canonical_id(actor, 0x7100000000000000ULL + uint64_t(person.index()));
+	return actor;
+}
+
+dcon::obligation_id lend(sys::state& state, dcon::organization_id bank, dcon::person_id borrower_person,
+	dcon::deposit_account_id borrower_account, float principal) {
+	auto borrower = persons::actor_for_person(state, borrower_person);
+	auto settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(borrower_account);
+	auto lender = actors::organizations::actor_for_organization(state, bank);
+	auto officer = persons::create_person(state, sys::date{1});
+	if(!economy::consent::create_mandate(state, bank, officer, economy::consent::decision_kind::lend, state.current_date)) return {};
+	auto proposal = economy::consent::create_proposal(state, economy::consent::proposal_kind::loan,
+		lender, borrower, settlement, principal, state.current_date + 365, 0.1f, state.current_date);
+	if(!proposal
+		|| !economy::consent::accept_proposal(state, proposal, lender, officer, state.current_date)
+		|| !economy::consent::accept_proposal(state, proposal, borrower, borrower_person, state.current_date)) return {};
+	return economy::banking::originate_loan_with_consent(state, bank, borrower_account, principal,
+		state.current_date, state.current_date + 365, 0.1f, proposal);
+}
+} // namespace deposit_payments_tests
+
+TEST_CASE("an illiquid bank with good assets is constrained, not insolvent", "[economy][banking][deposits]") {
+	deposit_payments_tests::fixture f;
+	auto bank = f.make_bank(100.0f); // net worth 100
+	f.state->world.organization_set_bank_max_single_borrower_exposure(bank, 10.0f);
+	auto reserve = economy::banking::reserve_account_for(*f.state, bank, f.settlement);
+	dcon::person_id borrower_person{};
+	auto borrower = deposit_payments_tests::make_person(*f.state, borrower_person);
+	auto wallet = economy::accounts::open_account(*f.state, borrower, f.settlement);
+	auto deposit = economy::banking::open_deposit_account(*f.state, bank, borrower, f.settlement);
+	REQUIRE(deposit);
+	REQUIRE(deposit_payments_tests::lend(*f.state, bank, borrower_person, deposit, 500.0f));
+	REQUIRE(economy::banking::deposit_balance(*f.state, deposit) == Approx(500.0f));
+	// The borrower wants all 500 in cash; the bank holds 100 in reserves.
+	REQUIRE(economy::banking::withdraw_cash(*f.state, deposit, account_ref::from_dcon(wallet), 500.0f, f.state->current_date) == Approx(100.0f));
+	REQUIRE(economy::accounts::balance(*f.state, reserve) == Approx(0.0f));
+	auto sheet = economy::banking::bank_balance_sheet(*f.state, bank, f.settlement);
+	REQUIRE(sheet.net_worth == Approx(100.0f)); // the loan is still a good asset
+	for(int day = 0; day < 60; ++day) { // well past the 30-day grace period
+		f.state->current_date += 1;
+		economy::banking::update_bank_statuses(*f.state, f.state->current_date);
+	}
+	REQUIRE(economy::banking::status_of(*f.state, bank) == economy::banking::bank_status::constrained);
+	// Once reserves come back, the bank recovers.
+	dcon::monetary_account_id saver_wallet{};
+	auto saver = f.make_company(200.0f, &saver_wallet);
+	auto saver_deposit = economy::banking::open_deposit_account(*f.state, bank, saver, f.settlement);
+	REQUIRE(economy::banking::deposit_cash(*f.state, saver_deposit, account_ref::from_dcon(saver_wallet), 200.0f, f.state->current_date) == Approx(200.0f));
+	economy::banking::update_bank_statuses(*f.state, f.state->current_date);
+	REQUIRE(economy::banking::status_of(*f.state, bank) == economy::banking::bank_status::solvent);
+}
+
+TEST_CASE("a capital shortfall outlasting its grace period is insolvency", "[economy][banking][deposits]") {
+	deposit_payments_tests::fixture f;
+	auto bank = f.make_bank(100.0f);
+	f.state->world.organization_set_bank_max_single_borrower_exposure(bank, 10.0f);
+	dcon::person_id borrower_person{};
+	auto borrower = deposit_payments_tests::make_person(*f.state, borrower_person);
+	auto deposit = economy::banking::open_deposit_account(*f.state, bank, borrower, f.settlement);
+	REQUIRE(deposit_payments_tests::lend(*f.state, bank, borrower_person, deposit, 500.0f));
+	// The bank's capital requirement rises above what its equity covers.
+	f.state->world.organization_set_bank_minimum_capital_ratio(bank, 0.9f);
+	for(int day = 0; day < 31; ++day) {
+		f.state->current_date += 1;
+		economy::banking::update_bank_statuses(*f.state, f.state->current_date);
+	}
+	REQUIRE(economy::banking::status_of(*f.state, bank) == economy::banking::bank_status::insolvent);
 }

@@ -27,6 +27,10 @@ struct balance_sheet {
 	float required_liquidity = 0.0f;
 };
 
+// solvent: meeting its capital and liquidity requirements. constrained: short
+// of reserves or capital; it keeps operating, and an illiquid bank with good
+// assets stays here however long the shortage lasts. insolvent: negative net
+// worth, or a capital shortfall that outlasted its grace period; final.
 enum class bank_status : uint8_t { solvent = 0, constrained = 1, insolvent = 2 };
 
 struct bank_policy {

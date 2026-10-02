@@ -21,7 +21,9 @@ Operating cash is base money. Moving it into or out of a bank changes the bank's
 | `deposit_cash` | wallet −X, deposit +X | reserves +X, deposit liabilities +X |
 | `withdraw_cash` | deposit −X, wallet +X | reserves −X, deposit liabilities −X |
 
-A bank pays out no more than its reserves hold; a withdrawal larger than its reserves is paid in part, and the bank's liquidity breach leaves it constrained. The wallet must belong to the deposit's owner: the same actor, or the exact person whose profile actor owns the deposit.
+A bank pays out no more than its reserves hold; a withdrawal larger than its reserves is paid in part.
+
+Illiquidity is not insolvency. A bank is `solvent` while it meets its capital and liquidity requirements, `constrained` while it is short of reserves or capital, and `insolvent` only when its net worth is negative or a capital shortfall outlasts its grace period. A reserve shortage alone keeps a bank constrained for as long as it lasts, and the bank recovers when reserves return; `insolvent` is final. The wallet must belong to the deposit's owner: the same actor, or the exact person whose profile actor owns the deposit.
 
 `pay_from_deposit` pays with immediate settlement:
 
