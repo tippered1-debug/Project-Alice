@@ -5125,6 +5125,9 @@ object{
 	property{ name{ bank_capital_breach_days } type{ uint16_t } tag{ save } }
 	property{ name{ bank_status } type{ uint8_t } tag{ save } }
 	property{ name{ bank_policy_configured } type{ uint8_t } tag{ save } }
+	property{ name{ central_bank_price_index } type{ float } tag{ save } }
+	property{ name{ central_bank_inflation } type{ float } tag{ save } }
+	property{ name{ central_bank_issued } type{ float } tag{ save } }
 }
 
 object{

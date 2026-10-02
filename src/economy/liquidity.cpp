@@ -6,6 +6,7 @@
 #include "economy/accounts/accounts.hpp"
 #include "economy/banking/banking.hpp"
 #include "economy/households.hpp"
+#include "economy/monetary_policy.hpp"
 #include "economy/wallets.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "persons/exact_population.hpp"
@@ -139,8 +140,9 @@ void process(sys::state& state) {
 	recognize_savers(state);
 	std::vector<dcon::economic_actor_id> actors;
 	state.world.for_each_economic_actor([&](dcon::economic_actor_id actor) {
-		// Banks are the depositories, and public treasuries hold base money.
-		if(is_bank_actor(state, actor) || state.world.economic_actor_get_institution_from_institution_actor(actor)) return;
+		// Banks are the depositories, and public treasuries and central banks hold base money.
+		if(is_bank_actor(state, actor) || state.world.economic_actor_get_institution_from_institution_actor(actor)
+			|| economy::monetary_policy::is_central_bank(state, actors::organizations::organization_for_actor(state, actor))) return;
 		actors.push_back(actor);
 	});
 	std::sort(actors.begin(), actors.end(), [](auto left, auto right) { return left.index() < right.index(); });

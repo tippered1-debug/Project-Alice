@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <array>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace sys { class state; }
@@ -142,6 +143,9 @@ float observed_price(sys::state const&, dcon::market_id, dcon::commodity_id, sys
 float concrete_reference_price(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);
 price_observation observation_for_date(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date);
 std::vector<market_activity_record> market_activity_for_date(sys::state const&, sys::date);
+// Adds the quantities exact persons bid for on each market in (from, to],
+// keyed by (market index << 32 | commodity index).
+void add_submitted_demand(sys::state const&, sys::date from, sys::date to, std::unordered_map<uint64_t, float>& demand);
 std::optional<sys::date> latest_fill_date(sys::state const&, dcon::market_id, dcon::commodity_id, sys::date query_date);
 
 // Compatibility read model. Category shares never enter purchase decisions.

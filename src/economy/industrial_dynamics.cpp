@@ -10,6 +10,7 @@
 #include "economy/households.hpp"
 #include "economy/investment_ranking.hpp"
 #include "economy/physical/concrete_market.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/extraction.hpp"
 #include "economy/physical/factory_inputs.hpp"
@@ -26,6 +27,7 @@
 #include <cstdlib>
 #include <limits>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -442,35 +444,294 @@ void process_insolvency(sys::state& state, dcon::factory_id factory, day_pool& p
 	}
 }
 
+uint64_t market_key(dcon::market_id market, dcon::commodity_id commodity) {
+	return (uint64_t(market.index()) << 32) | uint64_t(commodity.index());
+}
+
+// What each market is expected to absorb and to receive: the daily quantity
+// buyers bid for over the demand window, and the daily output of standing
+// plants and of projects still being built. An entrant's prospects fall as
+// capacity outgrows demand, so competition, not a rule, ends entry.
+struct market_outlook {
+	std::unordered_map<uint64_t, float> demand;
+	std::unordered_map<uint64_t, float> supply;
+	float demand_for(dcon::market_id market, dcon::commodity_id commodity) const {
+		auto it = demand.find(market_key(market, commodity));
+		return it == demand.end() ? 0.0f : it->second;
+	}
+	float supply_for(dcon::market_id market, dcon::commodity_id commodity) const {
+		auto it = supply.find(market_key(market, commodity));
+		return it == supply.end() ? 0.0f : it->second;
+	}
+	void add_supply(dcon::market_id market, dcon::commodity_id commodity, float quantity) {
+		if(market && commodity && std::isfinite(quantity) && quantity > 0.0f) supply[market_key(market, commodity)] += quantity;
+	}
+};
+
+float daily_output_of(sys::state const& state, dcon::factory_id factory) {
+	auto type = state.world.factory_get_building_type(factory);
+	if(!type) return 0.0f;
+	if(physical::extraction::extracts_deposit(state, factory))
+		return physical::extraction::daily_ceiling(state, factory, state.current_date);
+	// Farms and workshops produce what their land and labor allow.
+	if(physical::land::farms_land(state, factory) || households::is_craft(state, type))
+		return std::max(0.0f, state.world.factory_get_output(factory));
+	auto productivity = state.world.factory_get_productivity_factor(factory);
+	return std::max(0.0f, state.world.factory_get_productive_capacity(factory))
+		* std::max(0.0f, state.world.factory_type_get_output_amount(type)) * (productivity > 0.0f ? productivity : 1.0f);
+}
+
+float planned_output_of(sys::state const& state, dcon::capital_project_id project) {
+	auto kind = capital_projects::project_kind(state.world.capital_project_get_project_kind(project));
+	auto type = state.world.capital_project_get_factory_type(project);
+	if(kind == capital_projects::project_kind::extraction_plant) {
+		auto deposit = state.world.capital_project_get_resource_deposit_from_capital_project_target_deposit(project);
+		return deposit ? std::max(0.0f, state.world.resource_deposit_get_daily_extraction_capacity(deposit)) : 0.0f;
+	}
+	if((kind == capital_projects::project_kind::factory || kind == capital_projects::project_kind::factory_expansion) && type)
+		return std::max(0.0f, state.world.capital_project_get_planned_daily_capacity(project))
+			* std::max(0.0f, state.world.factory_type_get_output_amount(type));
+	return 0.0f;
+}
+
+market_outlook build_outlook(sys::state const& state) {
+	market_outlook result;
+	auto from = state.current_date - demand_window_days;
+	state.world.for_each_concrete_market_bid([&](dcon::concrete_market_bid_id bid) {
+		auto created = state.world.concrete_market_bid_get_created_on(bid);
+		if(created <= from || state.current_date < created) return;
+		auto market = state.world.concrete_market_bid_get_market_from_concrete_bid_market(bid);
+		auto commodity = state.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid);
+		if(market && commodity)
+			result.demand[market_key(market, commodity)] += std::max(0.0f, state.world.concrete_market_bid_get_original_quantity(bid));
+	});
+	physical::exact_person_goods::add_submitted_demand(state, from, state.current_date, result.demand);
+	for(auto& [key, quantity] : result.demand) {
+		(void)key;
+		quantity /= float(demand_window_days);
+	}
+	state.world.for_each_factory([&](dcon::factory_id factory) {
+		if(state.world.factory_get_agency_lifecycle_status(factory) >= lifecycle_bankrupt) return;
+		auto type = state.world.factory_get_building_type(factory);
+		auto market = physical::concrete_market::market_for_site(state, world::site::site_for_factory(state, factory));
+		if(type) result.add_supply(market, state.world.factory_type_get_output(type), daily_output_of(state, factory));
+	});
+	state.world.for_each_capital_project([&](dcon::capital_project_id project) {
+		if(state.world.capital_project_get_status(project) >= uint8_t(capital_projects::status::completed)) return;
+		auto type = state.world.capital_project_get_factory_type(project);
+		auto market = physical::concrete_market::market_for_site(state, state.world.capital_project_get_site_from_capital_project_site(project));
+		if(type) result.add_supply(market, state.world.factory_type_get_output(type), planned_output_of(state, project));
+	});
+	return result;
+}
+
+// Average daily wage of the workers already hired in each province: an
+// entrant competes for the same people.
+std::unordered_map<uint32_t, float> prevailing_wages(sys::state const& state) {
+	std::unordered_map<uint32_t, std::pair<double, double>> sums;
+	state.world.for_each_factory([&](dcon::factory_id factory) {
+		auto province = world::site::province_for_site(state, world::site::site_for_factory(state, factory));
+		if(!province) return;
+		for(auto contract_id : exact_person_economy::active_contracts_for_factory(state, factory)) {
+			auto contract = exact_person_economy::contract(state, contract_id);
+			if(!contract || contract->pay_period_days == 0 || !std::isfinite(contract->wage_rate)) continue;
+			auto& [wages, labor] = sums[province.index()];
+			wages += double(contract->wage_rate) * double(contract->labor_capacity) / double(contract->pay_period_days);
+			labor += double(contract->labor_capacity);
+		}
+	});
+	std::unordered_map<uint32_t, float> result;
+	for(auto const& [province, sum] : sums)
+		if(sum.second > 0.0) result[province] = float(sum.first / sum.second);
+	return result;
+}
+
+// The daily wage a new plant must offer to recruit: what local plants already
+// pay, more than members of the local cohorts earn working for themselves, and
+// never below the bootstrap offer.
+float recruitment_wage(sys::state const& state, std::unordered_map<uint32_t, float> const& prevailing,
+	dcon::province_id province, float unit_revenue) {
+	float reservation = 0.0f;
+	for(auto cohort_role : { households::role::peasant, households::role::urban })
+		reservation = std::max(reservation, households::reservation_wage(state, households::household_for(state, province, cohort_role)));
+	auto local = prevailing.find(province.index());
+	return std::max({ reservation * 1.1f, local == prevailing.end() ? 0.0f : local->second, unit_revenue * 0.075f });
+}
+
+float construction_cost(sys::state const& state, dcon::market_id market, dcon::factory_type_id type, float units) {
+	float result = 0.0f;
+	auto const& construction = state.world.factory_type_get_construction_costs(type);
+	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+		auto commodity = construction.commodity_type[i];
+		if(!commodity) break;
+		if(physical::factory_inputs::ordinary_physical_input(state, commodity))
+			result += std::max(0.0f, construction.commodity_amounts[i]) * units * 0.5f
+				* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
+	}
+	return std::isfinite(result) ? result : 0.0f;
+}
+
+float input_unit_cost(sys::state const& state, dcon::market_id market, dcon::factory_type_id type) {
+	float result = 0.0f;
+	auto const& inputs = state.world.factory_type_get_inputs(type);
+	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
+		auto commodity = inputs.commodity_type[i];
+		if(!commodity) break;
+		if(physical::factory_inputs::ordinary_physical_input(state, commodity))
+			result += std::max(0.0f, inputs.commodity_amounts[i])
+				* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
+	}
+	return std::isfinite(result) ? result : 0.0f;
+}
+
+enum class opportunity_kind : uint8_t { factory, extraction };
+
 struct project_opportunity {
+	opportunity_kind kind = opportunity_kind::factory;
 	dcon::province_id province{};
 	dcon::nation_id nation{};
 	dcon::site_id site{};
+	dcon::market_id market{};
 	dcon::factory_type_id type{};
+	dcon::resource_deposit_id deposit{};
+	dcon::commodity_id output{};
+	float capacity = 0.0f;
+	// At full capacity.
+	float daily_output = 0.0f;
+	float output_price = 0.0f;
+	float daily_material_cost = 0.0f;
+	float daily_wage_cost = 0.0f;
+	float capital_cost = 0.0f;
+	// Materials are bid up to 20% over reference and must be carried here.
 	float project_budget = 0.0f;
-	float working_capital = 0.0f;
-	economy::investment::project_inputs inputs{};
+	float lifetime_days = std::numeric_limits<float>::infinity();
 };
 
-uint64_t opportunity_key(dcon::province_id province, dcon::factory_type_id type) {
-	return (uint64_t(province.index()) << 32) | uint64_t(type.index());
+struct appraisal {
+	economy::investment::project_score score{};
+	float working_capital = 0.0f;
+	bool viable = false;
+};
+
+// One evaluator for every project: the entrant's expected sell-through and
+// price given the market outlook, its materials and recruitment wages, and the
+// sponsor's required return as the cost of capital. A mine must outlast twice
+// its payback.
+appraisal appraise(project_opportunity const& opportunity, float required_return, market_outlook const& outlook) {
+	appraisal result{};
+	auto entry = expected_entry(outlook.demand_for(opportunity.market, opportunity.output),
+		outlook.supply_for(opportunity.market, opportunity.output), opportunity.daily_output);
+	economy::investment::project_inputs terms{};
+	terms.capital_cost = opportunity.capital_cost;
+	terms.gross_daily_revenue = opportunity.daily_output * opportunity.output_price * entry.price_factor;
+	terms.expected_sell_through = entry.sell_through;
+	terms.daily_material_cost = opportunity.daily_material_cost * entry.sell_through;
+	terms.daily_wage_cost = opportunity.daily_wage_cost * entry.sell_through;
+	terms.demand_risk = 1.0f - entry.sell_through;
+	terms.jobs = opportunity.capacity;
+	terms.annual_interest_rate = required_return;
+	result.score = economy::investment::evaluate(terms);
+	result.working_capital = std::max(1.0f, (terms.daily_material_cost + terms.daily_wage_cost) * 30.0f);
+	result.viable = result.score.privately_viable && result.score.risk_adjusted_private > 0.0f
+		&& opportunity.lifetime_days >= 2.0f * result.score.payback_days;
+	return result;
 }
 
-dcon::factory_id profitable_collateral_factory(sys::state const& state,
-	dcon::organization_id organization) {
-	dcon::factory_id selected{};
-	float selected_value = 0.0f;
-	for(auto factory : actors::organizations::factories_operated_by(state, organization)) {
-		if(!factory || !state.world.factory_is_valid(factory)
-			|| state.world.factory_get_agency_lifecycle_status(factory) >= lifecycle_bankrupt
-			|| capital_market::expected_daily_profit(state, factory) <= epsilon) continue;
-		auto value = replacement_value(state, factory);
-		if(value > selected_value) {
-			selected = factory;
-			selected_value = value;
-		}
-	}
-	return selected;
+std::vector<project_opportunity> factory_opportunities(sys::state const& state,
+	std::unordered_map<uint32_t, float> const& wages) {
+	std::vector<project_opportunity> opportunities;
+	constexpr float planned_capacity = 0.5f;
+	state.world.for_each_province([&](dcon::province_id province) {
+		auto market_relation = state.world.province_get_state_membership(province);
+		auto market = market_relation ? state.world.state_instance_get_market_from_local_market(market_relation) : dcon::market_id{};
+		auto nation = nation_of_province(state, province);
+		auto project_site = world::spatial_runtime::site_for_province(state, province);
+		if(!market || !nation || !project_site) return;
+		state.world.for_each_factory_type([&](dcon::factory_type_id type) {
+			auto output = state.world.factory_type_get_output(type);
+			// An extraction plant exists only on a deposit, a farm only on land,
+			// and a workshop only in a cohort.
+			if(!output || physical::extraction::extracts_deposit(state, type)
+				|| physical::land::farms_land(state, type) || households::is_craft(state, type)) return;
+			auto price = physical::concrete_market::canonical_reference_price(state, market, output, state.current_date, 0.0f);
+			auto unit_revenue = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * price;
+			auto materials = input_unit_cost(state, market, type);
+			auto wage = recruitment_wage(state, wages, province, unit_revenue);
+			// A recipe without a construction bill cannot be built, and one that
+			// loses money at full sales is never worth building.
+			auto capital = construction_cost(state, market, type, planned_capacity);
+			if(capital <= epsilon || unit_revenue <= materials + wage) return;
+			project_opportunity opportunity{};
+			opportunity.kind = opportunity_kind::factory;
+			opportunity.province = province;
+			opportunity.nation = nation;
+			opportunity.site = project_site;
+			opportunity.market = market;
+			opportunity.type = type;
+			opportunity.output = output;
+			opportunity.capacity = planned_capacity;
+			opportunity.daily_output = state.world.factory_type_get_output_amount(type) * planned_capacity;
+			opportunity.output_price = price;
+			opportunity.daily_material_cost = materials * planned_capacity;
+			opportunity.daily_wage_cost = wage * planned_capacity;
+			opportunity.capital_cost = capital;
+			opportunity.project_budget = capital * 1.5f;
+			opportunities.push_back(opportunity);
+		});
+	});
+	return opportunities;
+}
+
+// Known deposits without a plant. Only an organization allowed to operate the
+// deposit can build on it.
+std::vector<project_opportunity> extraction_opportunities(sys::state const& state,
+	std::unordered_map<uint32_t, float> const& wages) {
+	std::unordered_map<uint32_t, dcon::factory_type_id> recipe_for;
+	state.world.for_each_factory_type([&](dcon::factory_type_id type) {
+		dcon::commodity_id output = state.world.factory_type_get_output(type);
+		if(output && physical::extraction::extracts_deposit(state, type) && !recipe_for.contains(output.index()))
+			recipe_for.emplace(output.index(), type);
+	});
+	std::vector<project_opportunity> opportunities;
+	state.world.for_each_resource_deposit([&](dcon::resource_deposit_id deposit) {
+		dcon::commodity_id commodity = state.world.resource_deposit_get_commodity(deposit);
+		auto recipe = commodity ? recipe_for.find(commodity.index()) : recipe_for.end();
+		auto daily = state.world.resource_deposit_get_daily_extraction_capacity(deposit);
+		auto remaining = state.world.resource_deposit_get_remaining_recoverable_reserves(deposit);
+		if(recipe == recipe_for.end() || physical::extraction::enterprise_for_deposit(state, deposit)
+			|| !(daily > 0.0f) || !(remaining > 0.0f)) return;
+		auto type = recipe->second;
+		auto site = state.world.resource_deposit_get_site_from_resource_deposit_site(deposit);
+		auto province = world::site::province_for_site(state, site);
+		auto market = physical::concrete_market::market_for_site(state, site);
+		auto nation = nation_of_province(state, province);
+		auto per_unit = std::max(0.0f, state.world.factory_type_get_output_amount(type))
+			* std::max(0.0f, state.world.resource_deposit_get_grade_or_quality(deposit));
+		if(!market || !nation || per_unit <= epsilon) return;
+		auto units = daily / per_unit;
+		auto price = physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
+		auto capital = construction_cost(state, market, type, units);
+		if(capital <= epsilon) return;
+		project_opportunity opportunity{};
+		opportunity.kind = opportunity_kind::extraction;
+		opportunity.province = province;
+		opportunity.nation = nation;
+		opportunity.site = site;
+		opportunity.market = market;
+		opportunity.type = type;
+		opportunity.deposit = deposit;
+		opportunity.output = commodity;
+		opportunity.capacity = units;
+		opportunity.daily_output = daily;
+		opportunity.output_price = price;
+		opportunity.daily_material_cost = input_unit_cost(state, market, type) * units;
+		opportunity.daily_wage_cost = recruitment_wage(state, wages, province, per_unit * price) * units;
+		opportunity.capital_cost = capital;
+		opportunity.project_budget = capital * 1.5f;
+		opportunity.lifetime_days = remaining / daily;
+		opportunities.push_back(opportunity);
+	});
+	return opportunities;
 }
 
 void scale_greenfield_project(sys::state& state, dcon::capital_project_id project, float funding_fraction) {
@@ -483,107 +744,6 @@ void scale_greenfield_project(sys::state& state, dcon::capital_project_id projec
 			state.world.capital_project_requirement_set_required_quantity(requirement,
 				state.world.capital_project_requirement_get_required_quantity(requirement) * fraction);
 		});
-}
-
-// Plants already standing and plants already being built: a second investor
-// does not duplicate either.
-std::unordered_set<uint64_t> occupied_opportunities(sys::state const& state) {
-	std::unordered_set<uint64_t> result;
-	state.world.for_each_factory([&](dcon::factory_id factory) {
-		auto province = world::site::province_for_site(state, world::site::site_for_factory(state, factory));
-		auto type = state.world.factory_get_building_type(factory);
-		if(province && type && state.world.factory_get_productive_capacity(factory) > 0.0f)
-			result.insert(opportunity_key(province, type));
-	});
-	state.world.for_each_capital_project([&](dcon::capital_project_id project) {
-		if(state.world.capital_project_get_status(project) >= uint8_t(capital_projects::status::completed)
-			|| state.world.capital_project_get_project_kind(project) != uint8_t(capital_projects::project_kind::factory)) return;
-		auto province = world::site::province_for_site(state, state.world.capital_project_get_site_from_capital_project_site(project));
-		auto type = state.world.capital_project_get_factory_type(project);
-		if(province && type) result.insert(opportunity_key(province, type));
-	});
-	return result;
-}
-
-// The daily wage a new plant must offer to recruit: above what members of the
-// local cohorts earn working for themselves, and never below the bootstrap offer.
-float recruitment_wage(sys::state const& state, dcon::province_id province, float unit_revenue) {
-	float reservation = 0.0f;
-	for(auto cohort_role : { households::role::peasant, households::role::urban })
-		reservation = std::max(reservation, households::reservation_wage(state, households::household_for(state, province, cohort_role)));
-	return std::max(reservation * 1.1f, unit_revenue * 0.075f);
-}
-
-std::vector<project_opportunity> greenfield_opportunities(sys::state const& state,
-	std::unordered_set<uint64_t> const& occupied) {
-	std::vector<project_opportunity> opportunities;
-	state.world.for_each_province([&](dcon::province_id province) {
-		auto market_relation = state.world.province_get_state_membership(province);
-		auto market = market_relation ? state.world.state_instance_get_market_from_local_market(market_relation) : dcon::market_id{};
-		auto nation = nation_of_province(state, province);
-		auto project_site = world::spatial_runtime::site_for_province(state, province);
-		if(!market || !nation || !project_site) return;
-		state.world.for_each_factory_type([&](dcon::factory_type_id type) {
-			auto output = state.world.factory_type_get_output(type);
-			// An extraction plant exists only on a deposit its operator controls,
-			// a farm only on land, and a workshop only in a cohort.
-			if(!output || physical::extraction::extracts_deposit(state, type)
-				|| physical::land::farms_land(state, type) || households::is_craft(state, type)) return;
-			if(occupied.contains(opportunity_key(province, type))) return;
-			constexpr float planned_capacity = 0.5f;
-			auto output_price = physical::concrete_market::canonical_reference_price(state, market,
-				output, state.current_date, 0.0f);
-			auto unit_revenue = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * output_price;
-			if(unit_revenue <= epsilon) return;
-			auto sell_through = std::clamp(physical::concrete_market::observed_sell_through(state, market,
-				output, state.current_date, 0.65f), 0.15f, 0.95f);
-			float material_unit_cost = 0.0f;
-			auto const& inputs = state.world.factory_type_get_inputs(type);
-			for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-				auto commodity = inputs.commodity_type[i];
-				if(!commodity) break;
-				if(physical::factory_inputs::ordinary_physical_input(state, commodity))
-					material_unit_cost += std::max(0.0f, inputs.commodity_amounts[i])
-						* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
-			}
-			float construction_cost = 0.0f;
-			auto const& construction = state.world.factory_type_get_construction_costs(type);
-			for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-				auto commodity = construction.commodity_type[i];
-				if(!commodity) break;
-				if(physical::factory_inputs::ordinary_physical_input(state, commodity))
-					construction_cost += std::max(0.0f, construction.commodity_amounts[i]) * planned_capacity * 0.5f
-						* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
-			}
-			// A recipe without a construction bill cannot be built.
-			if(construction_cost <= epsilon) return;
-			project_opportunity opportunity{};
-			opportunity.province = province;
-			opportunity.nation = nation;
-			opportunity.site = project_site;
-			opportunity.type = type;
-			auto& terms = opportunity.inputs;
-			terms.capital_cost = construction_cost;
-			terms.gross_daily_revenue = unit_revenue * planned_capacity;
-			terms.daily_material_cost = material_unit_cost * planned_capacity * sell_through;
-			terms.daily_wage_cost = recruitment_wage(state, province, unit_revenue) * planned_capacity * sell_through;
-			terms.expected_sell_through = sell_through;
-			terms.demand_risk = 1.0f - sell_through;
-			terms.jobs = planned_capacity;
-			// Materials are bid up to 20% over reference and must be carried here.
-			opportunity.project_budget = construction_cost * 1.5f;
-			opportunity.working_capital = std::max(1.0f, (terms.daily_material_cost + terms.daily_wage_cost) * 30.0f);
-			if(economy::investment::evaluate(terms).expected_daily_cashflow > 0.0f)
-				opportunities.push_back(opportunity);
-		});
-	});
-	return opportunities;
-}
-
-economy::investment::project_score evaluate_for(project_opportunity const& opportunity, float required_return) {
-	auto terms = opportunity.inputs;
-	terms.annual_interest_rate = required_return;
-	return economy::investment::evaluate(terms);
 }
 
 struct plant_offer {
@@ -626,31 +786,38 @@ bool execute_purchase(sys::state& state, dcon::economic_actor_id investor, dcon:
 	return buy_plant(state, company, organization, offer.factory, offer.price);
 }
 
-// Finances a greenfield plant from the sponsor's own funds, then bank credit
-// against a profitable plant it already runs, then new shares sold to the
-// investors of its country. A person founds a company for the project.
-bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor, dcon::commodity_id settlement,
-	float own, project_opportunity const& opportunity, day_pool& pool) {
-	auto required = opportunity.project_budget + opportunity.working_capital;
+// Finances a project from the sponsor's own money, then new shares sold to the
+// investors of its country, then bank credit against the project itself for
+// what remains. A person founds a company for a plant; only an organization
+// allowed to work a deposit can build a mine on it, and a mine is built whole.
+bool finance_project(sys::state& state, dcon::economic_actor_id investor, dcon::commodity_id settlement,
+	float own, project_opportunity const& opportunity, appraisal const& assessed, day_pool& pool,
+	market_outlook& outlook) {
+	auto required = opportunity.project_budget + assessed.working_capital;
 	auto organization = actors::organizations::organization_for_actor(state, investor);
 	auto founding = !organization;
+	auto mine = opportunity.kind == opportunity_kind::extraction;
+	if(founding && mine) return false;
 	own = std::min(own, required);
 	if(founding && own + epsilon < founder_minimum_share * required) return false;
-	auto annual_earnings = evaluate_for(opportunity, 0.0f).expected_daily_cashflow * 365.0f;
+	auto annual_cashflow = assessed.score.expected_daily_cashflow * 365.0f;
 
 	capital_market::offering terms{};
+	terms.issuer = organization;
 	terms.nation = opportunity.nation;
 	terms.settlement = settlement;
 	terms.amount = required - own;
 	terms.pre_money = founding ? own : capital_market::book_value(state, organization);
-	terms.annual_earnings = annual_earnings
-		+ (founding ? 0.0f : capital_market::expected_annual_earnings(state, organization));
-	terms.issuer = organization;
+	terms.annual_earnings = annual_cashflow + (founding ? 0.0f : capital_market::expected_annual_earnings(state, organization));
 	auto& investors = pool.get(state);
 	capital_market::commit(investors, investor, settlement, own);
-	auto planned = terms.amount > epsilon ? capital_market::total(capital_market::subscriptions(state, investors, terms)) : 0.0f;
-	auto collateral = organization ? profitable_collateral_factory(state, organization) : dcon::factory_id{};
-	if(own + planned + epsilon < minimum_funded_share * required && !collateral) return false;
+	auto equity = terms.amount > epsilon
+		? std::min(terms.amount, capital_market::total(capital_market::subscriptions(state, investors, terms))) : 0.0f;
+	auto debt_need = std::min(opportunity.project_budget, required - own - equity);
+	auto quoted = debt_need > epsilon ? economy::banking::quote_project_credit(state, founding ? dcon::economic_actor_id{} : investor,
+		settlement, debt_need, annual_cashflow, own + equity, opportunity.capital_cost).amount : 0.0f;
+	auto reachable = own + equity + quoted;
+	if(reachable + epsilon < (mine ? 1.0f : minimum_funded_share) * required) return false;
 
 	dcon::economic_actor_id sponsor = investor;
 	if(founding) {
@@ -667,29 +834,29 @@ bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor, dco
 	}
 	if(!actors::organizations::is_economic_kind(actor_kind(state.world.organization_get_kind(organization)))) return false;
 	auto source = actor_account(state, sponsor, settlement);
-	auto project = capital_projects::create_greenfield_factory(state, sponsor, organization,
-		opportunity.site, opportunity.type, settlement, 0.5f);
+	auto project = mine
+		? capital_projects::create_extraction_plant(state, sponsor, organization, opportunity.deposit, opportunity.type, settlement)
+		: capital_projects::create_greenfield_factory(state, sponsor, organization, opportunity.site, opportunity.type,
+			settlement, opportunity.capacity);
 	if(!project || !source) return false;
 
-	float borrowed = 0.0f;
-	if(collateral && own + planned + epsilon < required) {
-		auto credit = economy::banking::underwrite_factory_credit(state, collateral, source, 1,
-			std::min(opportunity.project_budget, required - own - planned),
-			evaluate_for(opportunity, 0.0f).annual_return_on_capital,
-			replacement_value(state, collateral), project);
-		borrowed = credit.funded_amount;
-	}
 	float raised = 0.0f;
-	if(required - own - borrowed > epsilon) {
-		terms.amount = required - own - borrowed;
+	if(equity > epsilon) {
+		terms.amount = equity;
 		raised = capital_market::raise(state, investors, terms);
 	}
-	auto funded = std::min(required, own + borrowed + raised);
+	float borrowed = 0.0f;
+	auto debt = std::min(opportunity.project_budget, required - own - raised);
+	if(debt > epsilon)
+		borrowed = economy::banking::underwrite_project_credit(state, project, source, debt, annual_cashflow,
+			own + raised, opportunity.capital_cost).funded_amount;
+	auto funded = std::min(required, own + raised + borrowed);
 	auto fraction = funded / required;
-	if(fraction + epsilon < minimum_funded_share) {
+	if(fraction + epsilon < (mine ? 1.0f : minimum_funded_share)) {
 		(void)capital_projects::cancel(state, project);
 		return false;
 	}
+	fraction = std::min(fraction, 1.0f);
 	auto budget = opportunity.project_budget * fraction;
 	if(cash_in_wallet(state, sponsor, settlement, budget) + epsilon < budget
 		|| !capital_projects::fund(state, project, source, std::min(budget, wallets::spendable(state, wallets::account_ref::from_dcon(source))))) {
@@ -697,11 +864,12 @@ bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor, dco
 		return false;
 	}
 	if(fraction + epsilon < 1.0f) scale_greenfield_project(state, project, fraction);
+	outlook.add_supply(opportunity.market, opportunity.output, opportunity.daily_output * fraction);
 	return true;
 }
 
 void process_investor(sys::state& state, dcon::economic_actor_id investor,
-	std::vector<project_opportunity> const& opportunities, std::unordered_set<uint64_t>& occupied, day_pool& pool) {
+	std::vector<project_opportunity> const& opportunities, market_outlook& outlook, day_pool& pool) {
 	state.world.economic_actor_set_industrial_last_decision_date(investor, state.current_date);
 	auto settlement = capital_market::settlement_of(state, investor);
 	if(!settlement) return;
@@ -710,45 +878,141 @@ void process_investor(sys::state& state, dcon::economic_actor_id investor,
 	if(!nation || own <= 1.0f) return;
 	auto required_return = capital_market::required_return(state, investor, settlement);
 
-	project_opportunity const* greenfield = nullptr;
-	float greenfield_excess = 0.0f;
+	project_opportunity const* best = nullptr;
+	appraisal best_appraisal{};
 	for(auto const& candidate : opportunities) {
-		if(candidate.nation != nation || occupied.contains(opportunity_key(candidate.province, candidate.type))) continue;
-		auto score = evaluate_for(candidate, required_return);
-		if(score.privately_viable && score.risk_adjusted_private > greenfield_excess) {
-			greenfield = &candidate;
-			greenfield_excess = score.risk_adjusted_private;
+		if(candidate.nation != nation) continue;
+		if(candidate.kind == opportunity_kind::extraction
+			&& !physical::extraction::may_operate(state, candidate.deposit, investor, state.current_date)) continue;
+		auto assessed = appraise(candidate, required_return, outlook);
+		if(assessed.viable && (!best || assessed.score.risk_adjusted_private > best_appraisal.score.risk_adjusted_private)) {
+			best = &candidate;
+			best_appraisal = assessed;
 		}
 	}
+	auto best_excess = best ? best_appraisal.score.risk_adjusted_private : 0.0f;
 	auto purchase = best_plant_offer(state, investor, nation, settlement, own, required_return);
-	if(purchase.factory && purchase.excess_return > 0.0f && purchase.excess_return >= greenfield_excess) {
+	if(purchase.factory && purchase.excess_return > 0.0f && purchase.excess_return >= best_excess) {
 		if(execute_purchase(state, investor, settlement, purchase))
 			capital_market::commit(pool.get(state), investor, settlement, purchase.price);
-	} else if(greenfield
-		&& execute_greenfield(state, investor, settlement, own, *greenfield, pool)) {
-		occupied.insert(opportunity_key(greenfield->province, greenfield->type));
+	} else if(best) {
+		(void)finance_project(state, investor, settlement, own, *best, best_appraisal, pool, outlook);
 	}
 }
 
+// An urban cohort takes up a craft its members do not practise yet when a
+// worker would earn more at it, at the price and sales the market outlook
+// allows, than the cohort's own production now gives, and it holds a month of
+// the craft's inputs in savings and cash. Labor is then shared with its other
+// paying crafts.
+void review_workshops(sys::state& state, dcon::organization_id cohort, market_outlook& outlook) {
+	if(households::role_of(state, cohort) != households::role::urban) return;
+	auto site = households::home_site(state, cohort);
+	auto market = physical::concrete_market::market_for_site(state, site);
+	auto workers = households::workers(state, cohort);
+	auto actor = actors::organizations::actor_for_organization(state, cohort);
+	auto settlement = capital_market::settlement_of(state, actor);
+	if(!site || !market || !settlement || workers <= epsilon) return;
+	std::unordered_set<uint32_t> practised;
+	uint32_t paying = 0;
+	for(auto factory : actors::organizations::factories_operated_by(state, cohort)) {
+		dcon::factory_type_id type = state.world.factory_get_building_type(factory);
+		if(!households::is_craft(state, type)) continue;
+		practised.insert(type.index());
+		if(households::self_employed_labor(state, factory) > epsilon) ++paying;
+	}
+	auto share = workers / float(paying + 1);
+	auto threshold = std::max(households::reservation_wage(state, cohort), epsilon);
+	dcon::factory_type_id best{};
+	float best_value = threshold;
+	float best_inputs = 0.0f;
+	float best_added = 0.0f;
+	state.world.for_each_factory_type([&](dcon::factory_type_id type) {
+		if(!households::is_craft(state, type) || practised.contains(type.index())) return;
+		auto output = state.world.factory_type_get_output(type);
+		auto per_worker = std::max(0.0f, state.world.factory_type_get_output_amount(type));
+		auto added = share * per_worker;
+		auto entry = expected_entry(outlook.demand_for(market, output), outlook.supply_for(market, output), added);
+		auto price = physical::concrete_market::canonical_reference_price(state, market, output, state.current_date, 0.0f);
+		auto inputs = input_unit_cost(state, market, type);
+		auto value = (per_worker * price * entry.price_factor - inputs) * entry.sell_through;
+		if(value > best_value) {
+			best = type;
+			best_value = value;
+			best_inputs = inputs;
+			best_added = added;
+		}
+	});
+	if(!best || capital_market::liquid_funds(state, actor, settlement) + epsilon < best_inputs * share * 30.0f) return;
+	if(households::create_workshop(state, site, best, cohort))
+		outlook.add_supply(market, state.world.factory_type_get_output(best), best_added);
+}
+
 } // namespace
+
+entry_terms expected_entry(float demand, float supply, float added) {
+	entry_terms result{};
+	auto capacity = std::max(0.0f, supply) + std::max(0.0f, added);
+	if(!(demand > 0.0f) || !(capacity > 0.0f)) return result;
+	auto ratio = demand / capacity;
+	result.sell_through = std::clamp(ratio, 0.0f, maximum_entry_sell_through);
+	result.price_factor = std::clamp(std::pow(ratio, 1.0f / demand_elasticity), 0.5f, 1.25f);
+	return result;
+}
 
 float asking_price_for(sys::state const& state, dcon::factory_id factory) {
 	return asking_price(state, factory);
 }
 
+// Built plants wear out. Each day a plant loses the daily share of the annual
+// depreciation rate of its capacity, and its operator books that share of the
+// plant's replacement value as a cost. Farm land and household crafts do not
+// wear; a firm replaces worn capacity by expanding when its plants run full.
+void depreciate(sys::state& state) {
+	auto daily = 1.0f - std::pow(1.0f - annual_depreciation_rate, 1.0f / 365.0f);
+	state.world.for_each_factory([&](dcon::factory_id factory) {
+		auto type = state.world.factory_get_building_type(factory);
+		auto capacity = state.world.factory_get_productive_capacity(factory);
+		if(!type || !(capacity > 0.0f) || state.world.factory_get_agency_lifecycle_status(factory) >= lifecycle_bankrupt
+			|| physical::land::farms_land(state, factory) || households::is_craft(state, type)) return;
+		auto worn = replacement_value(state, factory) * daily;
+		state.world.factory_set_productive_capacity(factory, capacity * (1.0f - daily));
+		state.world.factory_set_size(factory, state.world.factory_get_size(factory) * (1.0f - daily));
+		auto organization = actors::organizations::operator_organization_for_factory(state, factory);
+		if(organization && !households::is_household(state, organization) && std::isfinite(worn))
+			state.world.organization_set_retained_earnings(organization,
+				state.world.organization_get_retained_earnings(organization) - worn);
+	});
+}
+
 void process(sys::state& state) {
+	depreciate(state);
 	day_pool pool;
 	std::vector<dcon::factory_id> factories;
 	state.world.for_each_factory([&](dcon::factory_id factory) { factories.push_back(factory); });
 	for(auto factory : factories) process_insolvency(state, factory, pool);
 	std::vector<dcon::economic_actor_id> investors;
+	std::vector<dcon::organization_id> cohorts;
 	state.world.for_each_economic_actor([&](dcon::economic_actor_id actor) {
-		if(eligible_sponsor(state, actor) && review_due(state, actor)) investors.push_back(actor);
+		if(!review_due(state, actor)) return;
+		if(eligible_sponsor(state, actor)) investors.push_back(actor);
+		else if(auto organization = actors::organizations::organization_for_actor(state, actor);
+			organization && households::is_household(state, organization)) cohorts.push_back(organization);
 	});
+	(void)capital_market::trade_shares(state, pool.get(state));
+	if(investors.empty() && cohorts.empty()) return;
+	auto outlook = build_outlook(state);
+	for(auto cohort : cohorts) {
+		review_workshops(state, cohort, outlook);
+		state.world.economic_actor_set_industrial_last_decision_date(
+			actors::organizations::actor_for_organization(state, cohort), state.current_date);
+	}
 	if(investors.empty()) return;
-	auto occupied = occupied_opportunities(state);
-	auto opportunities = greenfield_opportunities(state, occupied);
-	for(auto investor : investors) process_investor(state, investor, opportunities, occupied, pool);
+	auto wages = prevailing_wages(state);
+	auto opportunities = factory_opportunities(state, wages);
+	auto mines = extraction_opportunities(state, wages);
+	opportunities.insert(opportunities.end(), mines.begin(), mines.end());
+	for(auto investor : investors) process_investor(state, investor, opportunities, outlook, pool);
 }
 
 } // namespace economy::industrial_dynamics

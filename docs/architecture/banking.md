@@ -37,6 +37,18 @@ It fails without change when the payer's deposit or, for an external payment, th
 
 **Liquidity policy** (`economy::liquidity`). Each day every actor holding a deposit keeps its free wallet cash near 30% of its free liquid money, withdrawing below 20% and depositing above 40%. A depositor of a bank that is not solvent withdraws everything the bank can pay, so runs and contagion follow from balance sheets rather than scripts. An actor with more than 10 of idle cash and no deposit opens one at the solvent bank of its country with the most liquidity. A person without a profile whose wallet holds more than 50 gains one first, so savers bank. Public treasuries hold base money. Deposits are the savings that investors commit to equity; see [Capital allocation](capital-allocation.md).
 
+## Monetary policy
+
+`economy::monetary_policy` gives each nation a central bank per settlement. The central bank is a state-owned organization, opened when the nation first has a configured bank. Its income goes to the government. Who controls it politically is not modelled yet.
+
+- **Price index.** The cost of what buyers bid for in the nation's markets over the last 30 days, at today's reference prices relative to base costs.
+- **Policy rate.** Every 30 days the central bank updates smoothed inflation, half from the latest month. The rule's rate is the 2% neutral real rate, plus inflation, plus half the gap between inflation and the 2% target, between 0 and 30%. The policy rate moves a quarter of the way toward the rule's rate. The first policy rate is the average rate the nation's banks were authored with.
+- **Bank lending rates.** A bank lends at the policy rate plus a liquidity premium. The premium is 3% when the bank's reserves only meet its liquidity requirement and falls to zero at twice the requirement. Savings deposited as reserves therefore make credit cheaper.
+- **Deposit interest.** Each deposit is credited monthly with 80% of the yield of its bank's performing loans, never more than the bank's lending rate. The interest is a bank liability, not new base money.
+- **Discount window.** Every day a bank that is short of reserves can borrow the shortfall from the central bank, unless it is insolvent. It borrows at the policy rate plus 2%, for 30 days, against at most half of its performing loans. The lent reserves are new base money, recorded as issued by the central bank. The bank repays out of reserves above its requirement; repaid principal retires the money, and interest is central bank income. A bank that cannot repay at maturity rolls the loan over.
+
+The sum of all operating, reserve and exact accounts, less money issued by central banks, is conserved by every operation.
+
 ## Authoring
 
 Banks, reserve policy, opening deposits, and declared loans are scenario-authored and balance-checked; see [Scenario format](../runtime/scenario-format.md). The original monetary ontology milestone is retained in [Archive](../archive/README.md).

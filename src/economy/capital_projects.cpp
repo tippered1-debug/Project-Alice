@@ -218,6 +218,16 @@ void release_bids(sys::state& s, dcon::capital_project_id p) {
 		}
 	});
 }
+// A loan raised for the project follows the plant it built, so the plant's
+// distress and insolvency handling covers it.
+void attach_project_loans(sys::state& s, dcon::capital_project_id p, dcon::factory_id f) {
+	s.world.capital_project_for_each_firm_capital_request_project_as_capital_project(p, [&](auto relation) {
+		auto request = s.world.firm_capital_request_project_get_firm_capital_request(relation);
+		auto loan = s.world.firm_capital_request_get_obligation_from_firm_capital_request_obligation(request);
+		if(loan && !s.world.obligation_get_factory_from_obligation_factory(loan))
+			s.world.force_create_obligation_factory(loan, f);
+	});
+}
 // A finished or abandoned project hands what is left of its budget back to its
 // sponsor's own ledger: a project account is earmarked cash, never a sink.
 void close_account(sys::state& s, dcon::capital_project_id p) {
@@ -301,6 +311,7 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		}
 		s.world.force_create_capital_project_factory(p, f);
 		s.world.force_create_capital_project_asset(p, asset);
+		attach_project_loans(s, p, f);
 	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::extraction_plant)) {
 		// The plant is capital built on an existing deposit; the deposit itself
 		// is never created here. Access is checked again at completion because
@@ -333,6 +344,7 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 		}
 		s.world.force_create_capital_project_factory(p, f);
 		s.world.force_create_capital_project_asset(p, asset);
+		attach_project_loans(s, p, f);
 	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::factory_expansion)) {
 		auto factory = s.world.capital_project_get_factory_from_capital_project_target_factory(p);
 		if(!factory || !s.world.factory_is_valid(factory)

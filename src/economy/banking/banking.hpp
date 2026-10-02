@@ -135,6 +135,29 @@ factory_credit_result underwrite_factory_credit(sys::state&, dcon::factory_id,
 	dcon::monetary_account_id operating_account, uint8_t request_kind, float requested_amount,
 	float expected_annual_return, float collateral_value, dcon::capital_project_id project = {});
 
+// Bank credit for a capital project of a sponsor who may own no plant yet. A
+// bank lends against the project's expected cash flow (repaying half the loan
+// over its term), the sponsor's equity in it (at least this share of equity
+// plus debt), and the plant it will become (at this share of its value). The
+// loan is due at the end of the term and follows the plant once it is built.
+inline constexpr int32_t project_loan_term_days = 1825;
+inline constexpr float minimum_project_equity_share = 0.3f;
+inline constexpr float project_collateral_share = 0.5f;
+struct project_credit_quote {
+	dcon::organization_id bank{};
+	float amount = 0.0f;
+	float annual_interest_rate = 0.0f;
+	float underwriting_score = 0.0f;
+};
+// What the best willing bank would lend now; changes nothing. The borrower may
+// be a company still to be founded.
+project_credit_quote quote_project_credit(sys::state const&, dcon::economic_actor_id borrower,
+	dcon::commodity_id settlement, float requested_amount, float expected_annual_cashflow,
+	float sponsor_equity, float project_value);
+factory_credit_result underwrite_project_credit(sys::state&, dcon::capital_project_id,
+	dcon::monetary_account_id operating_account, float requested_amount, float expected_annual_cashflow,
+	float sponsor_equity, float project_value);
+
 float indicative_factory_loan_rate(sys::state const&, dcon::factory_id,
 	dcon::commodity_id settlement, float requested_amount, float collateral_value);
 

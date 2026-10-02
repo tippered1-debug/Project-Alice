@@ -936,6 +936,14 @@ price_observation observation_for_date(sys::state const& state, dcon::market_id 
 	return result;
 }
 
+void add_submitted_demand(sys::state const& state, sys::date from, sys::date to, std::unordered_map<uint64_t, float>& demand) {
+	if(!state.exact_person_goods) return;
+	for(auto const& bid : ensure_store(state)->bids) {
+		if(bid.created_on <= from || to < bid.created_on || !bid.market || !bid.commodity) continue;
+		demand[(uint64_t(bid.market.index()) << 32) | uint64_t(bid.commodity.index())] += std::max(0.0f, bid.original_quantity);
+	}
+}
+
 std::vector<market_activity_record> market_activity_for_date(sys::state const& state, sys::date date) {
 	std::unordered_map<uint64_t, market_activity_record> activity;
 	auto get_record = [&](dcon::market_id market, dcon::commodity_id commodity) -> market_activity_record* {

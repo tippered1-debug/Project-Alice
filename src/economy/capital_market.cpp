@@ -266,4 +266,95 @@ float raise(sys::state& state, pool& investors, offering const& terms, float min
 	return execute(state, investors, terms, planned);
 }
 
+bool transfer_stake(sys::state& state, dcon::ownership_stake_id from, dcon::economic_actor_id to, float fraction) {
+	if(!from || !state.world.ownership_stake_is_valid(from) || !to || !std::isfinite(fraction) || fraction <= 0.0f) return false;
+	auto asset = state.world.ownership_stake_get_asset_from_ownership_stake_asset(from);
+	auto held = state.world.ownership_stake_get_economic_fraction(from);
+	if(!asset || fraction > held + 1.0e-6f) return false;
+	fraction = std::min(fraction, held);
+	auto share = held > 0.0f ? fraction / held : 1.0f;
+	auto ownership = state.world.ownership_stake_get_ownership_fraction(from) * share;
+	auto voting = state.world.ownership_stake_get_voting_fraction(from) * share;
+	dcon::ownership_stake_id target{};
+	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
+		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
+		if(state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake) == to) target = stake;
+	});
+	actors::ownership::assign_runtime_canonical_id(state, to);
+	// The seller gives up its fractions first: an asset never holds more than 1.
+	auto seller_ownership = state.world.ownership_stake_get_ownership_fraction(from);
+	auto seller_voting = state.world.ownership_stake_get_voting_fraction(from);
+	if(!actors::ownership::set_stake_fractions(state, from, std::max(0.0f, seller_ownership - ownership),
+		std::max(0.0f, seller_voting - voting), std::max(0.0f, held - fraction))) return false;
+	auto restore = [&]() { (void)actors::ownership::set_stake_fractions(state, from, seller_ownership, seller_voting, held); };
+	if(!target) {
+		target = actors::ownership::create_stake(state, to, asset, 0.0f, 0.0f, 0.0f);
+		if(!target) {
+			restore();
+			return false;
+		}
+		actors::ownership::assign_runtime_canonical_id(state, target);
+	}
+	if(!actors::ownership::set_stake_fractions(state, target,
+		std::min(1.0f, state.world.ownership_stake_get_ownership_fraction(target) + ownership),
+		std::min(1.0f, state.world.ownership_stake_get_voting_fraction(target) + voting),
+		std::min(1.0f, state.world.ownership_stake_get_economic_fraction(target) + fraction))) {
+		restore();
+		return false;
+	}
+	if(fraction + 1.0e-6f >= held) state.world.delete_ownership_stake(from);
+	return true;
+}
+
+float trade_shares(sys::state& state, pool& investors) {
+	auto day = state.current_date.to_raw_value();
+	std::vector<dcon::ownership_stake_id> due;
+	state.world.for_each_ownership_stake([&](dcon::ownership_stake_id stake) {
+		if((day + int32_t(stake.index())) % share_review_days == 0) due.push_back(stake);
+	});
+	float traded = 0.0f;
+	for(auto stake : due) {
+		if(!state.world.ownership_stake_is_valid(stake)) continue;
+		auto asset = state.world.ownership_stake_get_asset_from_ownership_stake_asset(stake);
+		auto issuer = asset ? state.world.asset_get_organization_from_organization_equity_asset(asset) : dcon::organization_id{};
+		auto holder = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
+		auto kind = kind_of(state, holder);
+		// Only firms' shares trade, and only private holders trade them.
+		if(!issuer || households::is_household(state, issuer)
+			|| kind_of(state, actors::organizations::actor_for_organization(state, issuer)) != actor_kind::company
+			|| !(saves_in_bank(kind) || invests_from_operations(kind))) continue;
+		auto settlement = settlement_of(state, holder);
+		auto nation = nation_of(state, holder, settlement);
+		auto held = state.world.ownership_stake_get_economic_fraction(stake);
+		auto earnings = expected_annual_earnings(state, issuer);
+		if(!settlement || !nation || !(held > 0.0f) || !(earnings > 0.0f)) continue;
+		auto seller_required = required_return(state, holder, settlement);
+		auto in_need = liquid_funds(state, holder, settlement) < cash_need_threshold;
+		auto issuer_actor = actors::organizations::actor_for_organization(state, issuer);
+		investor const* buyer = nullptr;
+		for(auto const& entry : investors.investors) {
+			if(entry.actor == holder || entry.actor == issuer_actor || entry.settlement != settlement || entry.nation != nation
+				|| entry.investable <= epsilon || !(entry.required_return > 0.0f)) continue;
+			if(!in_need && entry.required_return + 1.0e-6f >= seller_required) continue;
+			if(!buyer || entry.required_return < buyer->required_return) buyer = &entry;
+		}
+		if(!buyer) continue;
+		// Value of the whole firm to each side.
+		auto buyer_value = earnings / buyer->required_return;
+		auto seller_value = seller_required > 0.0f ? earnings / seller_required : 0.0f;
+		auto price_per_unit = in_need ? buyer_value * (1.0f - distressed_sale_discount) : 0.5f * (buyer_value + seller_value);
+		if(!(price_per_unit > 0.0f) || !std::isfinite(price_per_unit)) continue;
+		auto fraction = std::min(held, buyer->investable * concentration_limit / price_per_unit);
+		auto price = fraction * price_per_unit;
+		auto destination = wallets::open_for(state, holder, settlement);
+		if(price <= epsilon || !destination) continue;
+		auto buyer_actor = buyer->actor;
+		if(!pay(state, buyer_actor, settlement, destination, price, relations::transaction_kind::purchase)) continue;
+		if(!transfer_stake(state, stake, buyer_actor, fraction)) std::abort();
+		commit(investors, buyer_actor, settlement, price);
+		traded += price;
+	}
+	return traded;
+}
+
 } // namespace economy::capital_market

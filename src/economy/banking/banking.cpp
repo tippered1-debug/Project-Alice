@@ -416,12 +416,13 @@ dcon::obligation_id execute_loan_raw(sys::state& state, dcon::organization_id ba
 	return loan;
 }
 
-dcon::obligation_id originate_factory_loan_to_operating_account(sys::state& state,
-	dcon::organization_id bank, dcon::factory_id factory, dcon::monetary_account_id operating_account,
-	float principal, float annual_interest_rate, uint64_t canonical_id, float collateral_value) {
+// Pays a loan out of the bank's reserves into the borrower's operating
+// account: loan principal replaces reserves, and operating cash receives it.
+dcon::obligation_id originate_operating_loan(sys::state& state, dcon::organization_id bank,
+	dcon::monetary_account_id operating_account, float principal, float annual_interest_rate,
+	uint64_t canonical_id, float collateral_value, sys::date due_date) {
 	if(!policy_configured(state, bank) || status_of(state, bank) != bank_status::solvent
-		|| !factory || !operating_account
-		|| !state.world.monetary_account_is_valid(operating_account)) return {};
+		|| !operating_account || !state.world.monetary_account_is_valid(operating_account)) return {};
 	economy::monetary::ontology::account_view operating_view;
 	if(!economy::monetary::ontology::describe(state, economy::monetary::ontology::account_ref::from_monetary(operating_account), operating_view)
 		|| operating_view.instrument != economy::monetary::ontology::instrument_kind::operating_account) return {};
@@ -429,7 +430,7 @@ dcon::obligation_id originate_factory_loan_to_operating_account(sys::state& stat
 	auto settlement = accounts::settlement_of(state, operating_account);
 	auto lender = actors::organizations::actor_for_organization(state, bank);
 	auto reserve = reserve_account_for(state, bank, settlement);
-	if(!borrower || borrower == lender || borrower != actors::organizations::operator_actor_for_factory(state, factory)
+	if(!borrower || borrower == lender
 		|| !settlement || !reserve || settlement != state.world.organization_get_bank_settlement_currency(bank)
 		|| !valid_positive_amount(principal) || !std::isfinite(annual_interest_rate)
 		|| annual_interest_rate + balance_tolerance < bank_base_rate(state, bank)
@@ -439,31 +440,54 @@ dcon::obligation_id originate_factory_loan_to_operating_account(sys::state& stat
 		|| principal > bank_credit_capacity(state, bank, borrower, settlement, false) + balance_tolerance) return {};
 	auto projected_cash = double(accounts::balance(state, operating_account)) + double(principal);
 	if(!std::isfinite(projected_cash) || projected_cash > std::numeric_limits<float>::max()) return {};
-	if(canonical_id == 0)
-		canonical_id = stable_hash(id_key("loan-factory-runtime", state.world.organization_get_canonical_id(bank),
-			state.world.factory_get_canonical_id(factory), state.current_date.to_raw_value()));
+	if(canonical_id == 0) return {};
 	state.world.for_each_obligation([&](dcon::obligation_id existing) {
 		if(state.world.obligation_get_canonical_id(existing) == canonical_id) canonical_id = 0;
 	});
 	if(canonical_id == 0) return {};
 	auto loan = relations::create_obligation(state, borrower, lender, principal, settlement,
-		state.current_date, state.current_date + 365, annual_interest_rate, relations::obligation_kind::loan);
+		state.current_date, due_date, annual_interest_rate, relations::obligation_kind::loan);
 	if(!loan) return {};
 	state.world.obligation_set_canonical_id(loan, canonical_id);
 	state.world.obligation_set_collateral_value(loan, collateral_value);
-	state.world.force_create_obligation_factory(loan, factory);
 	auto issuance = relations::record_transaction(state, lender, borrower, principal, settlement,
 		relations::transaction_kind::loan_issuance, state.current_date);
 	if(!issuance) return {};
-	// Operating cash is held outside commercial bank deposit liabilities. This
-	// loan is paid out from the bank's authored reserve settlement asset: loan
-	// principal replaces reserves, and the operating cash account receives it.
 	state.world.monetary_account_set_balance(reserve, accounts::balance(state, reserve) - principal);
 	state.world.monetary_account_set_balance(operating_account,
 		accounts::balance(state, operating_account) + principal);
 	state.world.obligation_set_last_interest_accrual_date(loan, state.current_date);
 	refresh_bank_state(state, bank);
 	return loan;
+}
+
+dcon::obligation_id originate_factory_loan_to_operating_account(sys::state& state,
+	dcon::organization_id bank, dcon::factory_id factory, dcon::monetary_account_id operating_account,
+	float principal, float annual_interest_rate, uint64_t canonical_id, float collateral_value) {
+	if(!factory || !operating_account || !state.world.monetary_account_is_valid(operating_account)
+		|| accounts::owner_of(state, operating_account) != actors::organizations::operator_actor_for_factory(state, factory))
+		return {};
+	if(canonical_id == 0)
+		canonical_id = stable_hash(id_key("loan-factory-runtime", state.world.organization_get_canonical_id(bank),
+			state.world.factory_get_canonical_id(factory), state.current_date.to_raw_value()));
+	auto loan = originate_operating_loan(state, bank, operating_account, principal, annual_interest_rate,
+		canonical_id, collateral_value, state.current_date + 365);
+	if(loan) state.world.force_create_obligation_factory(loan, factory);
+	return loan;
+}
+
+uint32_t defaulted_loan_count(sys::state const& state, dcon::economic_actor_id borrower, dcon::commodity_id settlement) {
+	uint32_t result = 0;
+	if(!borrower) return result;
+	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(borrower, [&](dcon::obligation_debtor_id relation) {
+		auto loan = state.world.obligation_debtor_get_obligation(relation);
+		if(!loan || state.world.obligation_get_kind(loan) != uint8_t(relations::obligation_kind::loan)
+			|| state.world.obligation_get_settlement_commodity(loan) != settlement) return;
+		auto status = state.world.obligation_get_status(loan);
+		if(status == uint8_t(relations::obligation_status::defaulted)
+			|| status == uint8_t(relations::obligation_status::written_off)) ++result;
+	});
+	return result;
 }
 }
 
@@ -1142,6 +1166,95 @@ factory_credit_result underwrite_factory_credit(sys::state& state, dcon::factory
 		approved + 1.0e-5f < requested_amount ? 2 : 1); // partial / full
 	result.obligation = obligation;
 	result.funded_amount = approved;
+	return result;
+}
+
+project_credit_quote quote_project_credit(sys::state const& state, dcon::economic_actor_id borrower,
+	dcon::commodity_id settlement, float requested_amount, float expected_annual_cashflow,
+	float sponsor_equity, float project_value) {
+	project_credit_quote best{};
+	if(!settlement || !valid_positive_amount(requested_amount) || !std::isfinite(expected_annual_cashflow)
+		|| !valid_nonnegative_amount(sponsor_equity) || !valid_nonnegative_amount(project_value)) return best;
+	auto term_years = float(project_loan_term_days) / 365.0f;
+	// The bank needs the project's cash flow to repay half the loan over its
+	// term, the sponsor's own stake in the project, and the plant as security.
+	float cashflow_coverage = std::clamp(std::max(0.0f, expected_annual_cashflow) * term_years * 0.5f / requested_amount, 0.0f, 1.0f);
+	float equity_coverage = std::clamp(sponsor_equity
+		/ (minimum_project_equity_share * (sponsor_equity + requested_amount)), 0.0f, 1.0f);
+	float collateral_coverage = std::clamp(project_collateral_share * project_value / requested_amount, 0.0f, 1.0f);
+	float repayment_history = defaulted_loan_count(state, borrower, settlement) == 0 ? 1.0f : 0.0f;
+	float project_return = project_value > balance_tolerance ? expected_annual_cashflow / project_value : 0.0f;
+	std::vector<dcon::organization_id> banks;
+	state.world.for_each_organization([&](dcon::organization_id candidate) {
+		if(policy_configured(state, candidate)
+			&& state.world.organization_get_bank_settlement_currency(candidate) == settlement)
+			banks.push_back(candidate);
+	});
+	std::sort(banks.begin(), banks.end(), [&](auto left, auto right) {
+		return state.world.organization_get_canonical_id(left) < state.world.organization_get_canonical_id(right);
+	});
+	for(auto candidate : banks) {
+		if(status_of(state, candidate) != bank_status::solvent) continue;
+		auto rate = bank_base_rate(state, candidate) + state.world.organization_get_bank_lending_spread(candidate);
+		float return_coverage = project_return > rate ? 1.0f : 0.0f;
+		auto score = std::min({ cashflow_coverage, equity_coverage, collateral_coverage, repayment_history, return_coverage });
+		if(score + balance_tolerance < 1.0f - state.world.organization_get_bank_risk_appetite(candidate)) continue;
+		auto amount = std::min(requested_amount, bank_credit_capacity(state, candidate, borrower, settlement, false));
+		if(amount <= balance_tolerance) continue;
+		if(amount > best.amount || (amount == best.amount && rate < best.annual_interest_rate)) {
+			best.bank = candidate;
+			best.amount = amount;
+			best.annual_interest_rate = rate;
+			best.underwriting_score = score;
+		}
+	}
+	return best;
+}
+
+factory_credit_result underwrite_project_credit(sys::state& state, dcon::capital_project_id project,
+	dcon::monetary_account_id operating_account, float requested_amount, float expected_annual_cashflow,
+	float sponsor_equity, float project_value) {
+	factory_credit_result result{};
+	if(!project || !state.world.capital_project_is_valid(project) || !operating_account
+		|| !state.world.monetary_account_is_valid(operating_account)) return result;
+	auto borrower = accounts::owner_of(state, operating_account);
+	auto settlement = accounts::settlement_of(state, operating_account);
+	if(!borrower || borrower != state.world.capital_project_get_economic_actor_from_capital_project_sponsor(project)) return result;
+	result.requested_amount = requested_amount;
+	auto quote = quote_project_credit(state, borrower, settlement, requested_amount, expected_annual_cashflow,
+		sponsor_equity, project_value);
+	if(!quote.bank) return result;
+	auto request_key = stable_hash(id_key("project-capital-request", uint64_t(project.index()) + 1,
+		state.world.capital_project_get_created_on(project).to_raw_value(), state.current_date.to_raw_value()));
+	auto request = state.world.create_firm_capital_request();
+	result.request = request;
+	state.world.firm_capital_request_set_canonical_id(request, request_key);
+	state.world.firm_capital_request_set_request_kind(request, 2);
+	state.world.firm_capital_request_set_settlement(request, settlement);
+	state.world.firm_capital_request_set_requested_amount(request, requested_amount);
+	state.world.firm_capital_request_set_expected_annual_return(request,
+		project_value > balance_tolerance ? expected_annual_cashflow / project_value : 0.0f);
+	state.world.firm_capital_request_set_collateral_value(request, project_value);
+	state.world.firm_capital_request_set_underwriting_score(request, quote.underwriting_score);
+	state.world.firm_capital_request_set_annual_interest_rate(request, quote.annual_interest_rate);
+	state.world.firm_capital_request_set_requested_on(request, state.current_date);
+	state.world.firm_capital_request_set_maturity_date(request, state.current_date + project_loan_term_days);
+	state.world.force_create_firm_capital_request_project(request, project);
+	state.world.force_create_firm_capital_request_bank(request, quote.bank);
+	auto obligation = originate_operating_loan(state, quote.bank, operating_account, quote.amount,
+		quote.annual_interest_rate, stable_hash(id_key("loan-request", request_key)), project_value,
+		state.current_date + project_loan_term_days);
+	if(!obligation) {
+		state.world.firm_capital_request_set_status(request, 3);
+		return result;
+	}
+	state.world.force_create_firm_capital_request_obligation(request, obligation);
+	state.world.firm_capital_request_set_funded_amount(request, quote.amount);
+	state.world.firm_capital_request_set_status(request, quote.amount + 1.0e-5f < requested_amount ? 2 : 1);
+	result.obligation = obligation;
+	result.funded_amount = quote.amount;
+	result.annual_interest_rate = quote.annual_interest_rate;
+	result.underwriting_score = quote.underwriting_score;
 	return result;
 }
 

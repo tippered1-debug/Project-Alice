@@ -98,4 +98,19 @@ float execute(sys::state&, pool&, offering const&, std::vector<subscription> con
 // Plans and executes: raises nothing unless at least `minimum` subscribes.
 float raise(sys::state&, pool&, offering const&, float minimum = 0.0f);
 
+// Secondary market. Once per period each holder of shares in a firm reviews
+// its stake. It sells it to the investor of its country who values it most when
+// that investor requires a lower return than the holder does; the price is
+// halfway between their valuations (expected earnings over required return).
+// A holder short of cash sells at a tenth below the buyer's valuation. A buyer
+// pays no more than its concentration limit allows, so it may take part of the stake.
+inline constexpr int32_t share_review_days = 30;
+inline constexpr float distressed_sale_discount = 0.1f;
+// A holder whose liquid money is below this is short of cash.
+inline constexpr float cash_need_threshold = 10.0f;
+// Reviews the stakes due today. Returns the money that changed hands.
+float trade_shares(sys::state&, pool&);
+// Moves `fraction` of a firm's equity from one holder to another.
+bool transfer_stake(sys::state&, dcon::ownership_stake_id from, dcon::economic_actor_id to, float fraction);
+
 } // namespace economy::capital_market
