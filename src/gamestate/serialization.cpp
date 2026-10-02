@@ -63,7 +63,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 15;
+constexpr uint16_t exact_runtime_save_version = 16;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -639,6 +639,7 @@ bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const
 	if(restored) restored = military::land_forces::import_snapshot(state, snapshot.land_forces);
 	if(restored) restored = economy::capital_projects::import_requests(state, snapshot.construction);
 	if(restored && snapshot.extension_version < 15) economy::capital_projects::isolate_pre_cut_projects(state);
+	if(restored && snapshot.extension_version < 16) economy::capital_projects::adopt_pre_industry_projects(state);
 	if(restored && snapshot.extension_version >= 12)
 		restored = technology::kernel::import_snapshot(state, snapshot.technology);
 	if(restored)

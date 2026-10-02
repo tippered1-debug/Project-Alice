@@ -5,6 +5,7 @@
 #include "economy/accounts/accounts.hpp"
 #include "economy/banking/banking.hpp"
 #include "economy/capital_projects.hpp"
+#include "economy/construction_industry.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/concrete_market.hpp"
@@ -502,17 +503,21 @@ std::vector<project_opportunity> greenfield_opportunities(sys::state const& stat
 			auto wages = gross_revenue * 0.25f;
 			auto profit = gross_revenue - materials - wages;
 			if(profit <= epsilon) return;
-			float construction_cost = 0.0f;
+			float construction_cost = 0.0f, material_quantity = 0.0f;
 			auto const& construction = state.world.factory_type_get_construction_costs(type);
 			for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
 				auto commodity = construction.commodity_type[i];
 				if(!commodity) break;
+				if(physical::factory_inputs::ordinary_physical_input(state, commodity)) material_quantity += std::max(0.0f, construction.commodity_amounts[i]) * 0.25f;
 				if(physical::factory_inputs::ordinary_physical_input(state, commodity))
 					construction_cost += std::max(0.0f, construction.commodity_amounts[i]) * 0.25f
 						* physical::concrete_market::canonical_reference_price(state, market,
 							commodity, state.current_date, 0.0f);
 			}
 			if(construction_cost <= epsilon) construction_cost = profit * 45.0f;
+			// The contractor's crew is paid for its work as well.
+			else construction_cost += capital_projects::labor_cost_estimate(state, province, material_quantity,
+				float(state.world.factory_type_get_construction_time(type)) * state.defines.alice_factory_build_time_mult);
 			auto budget = construction_cost * 1.50f;
 			auto working = std::max(1.0f, (materials + wages) * 30.0f);
 			auto score = profit * 365.0f / std::max(1.0f, construction_cost) - 0.10f;
@@ -540,8 +545,10 @@ acquisition_opportunity best_acquisition(sys::state const& state, dcon::economic
 	acquisition_opportunity best{};
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		if(actors::organizations::operator_actor_for_factory(state, factory) == buyer) return;
-		// Buying the plant would not transfer control of its deposit or land.
-		if(physical::extraction::extracts_deposit(state, factory) || physical::land::farms_land(state, factory)) return;
+		// Buying the plant would not transfer control of its deposit or land, and
+		// a construction works is its operator's crew, not a plant for sale.
+		if(physical::extraction::extracts_deposit(state, factory) || physical::land::farms_land(state, factory)
+			|| construction_industry::is_works(state, factory)) return;
 		if(state.world.factory_get_payroll_settlement(factory)
 			&& state.world.factory_get_payroll_settlement(factory) != settlement) return;
 		auto lifecycle = state.world.factory_get_agency_lifecycle_status(factory);

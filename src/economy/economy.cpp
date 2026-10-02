@@ -8,6 +8,7 @@
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/capital_projects.hpp"
+#include "economy/construction_industry.hpp"
 #include "economy/industrial_dynamics.hpp"
 #include "economy/banking/banking.hpp"
 #include "market_access.hpp"
@@ -494,6 +495,7 @@ float sphere_leader_share_factor(sys::state& state, dcon::nation_id sphere_leade
 
 void update_factory_triggered_modifiers(sys::state& state) {
 	state.world.for_each_factory([&](dcon::factory_id f) {
+		if(::economy::construction_industry::is_works(state, f)) return;
 		auto fac_type = fatten(state.world, state.world.factory_get_building_type(f));
 		float sum = 1.0f;
 		auto prov = ::compat::alice::province_for_factory(state, f);
@@ -1696,7 +1698,7 @@ float estimate_subject_payments_received(sys::state& state, dcon::nation_id o) {
 
 construction_status province_building_construction(sys::state& state, dcon::province_id p, province_building_type t) {
 	for(auto row : state.world.province_get_province_building_construction(p)) if(row.get_type() == uint8_t(t))
-		return {capital_projects::material_progress(state, capital_projects::project_for(state, row.id)), true};
+		return {capital_projects::physical_progress(state, capital_projects::project_for(state, row.id)), true};
 	return {0.0f, false};
 }
 construction_status factory_upgrade(sys::state& state, dcon::factory_id f) {
@@ -1704,13 +1706,13 @@ construction_status factory_upgrade(sys::state& state, dcon::factory_id f) {
 	state.world.for_each_capital_project([&](auto p) {
 		if(state.world.capital_project_get_factory_from_capital_project_target_factory(p) == f
 			&& state.world.capital_project_get_status(p) < uint8_t(capital_projects::status::completed))
-			result = {capital_projects::material_progress(state, p), true};
+			result = {capital_projects::physical_progress(state, p), true};
 	});
 	return result;
 }
 float unit_construction_progress(sys::state&, dcon::province_land_construction_id) { return 0.0f; }
 float unit_construction_progress(sys::state& state, dcon::province_naval_construction_id c) {
-	return capital_projects::material_progress(state, capital_projects::project_for(state, c));
+	return capital_projects::physical_progress(state, capital_projects::project_for(state, c));
 }
 
 // This is used specifically in AI calculations, and omits subject income calculation because that requires iterating over all subjects and calculating their tax income seperately, will will cause OOS when parallelized over nations in ai::update_budget

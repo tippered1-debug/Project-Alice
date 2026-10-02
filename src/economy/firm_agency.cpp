@@ -7,6 +7,7 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/capital_projects.hpp"
+#include "economy/construction_industry.hpp"
 #include "economy/investment_ranking.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/physical/deposits.hpp"
@@ -131,6 +132,8 @@ void finance_working_capital(sys::state& state, dcon::factory_id factory,
 }
 
 production_decision decide_factory(sys::state const& state, dcon::factory_id factory) {
+	// A construction works staffs for its contracts, not for a product market.
+	if(construction_industry::is_works(state, factory)) return construction_industry::decide_works(state, factory);
 	production_decision result{};
 	if(!factory || !state.world.factory_is_valid(factory)
 		|| state.world.factory_get_agency_lifecycle_status(factory) >= 2) return result;
@@ -501,15 +504,19 @@ void update_decisions(sys::state& state) {
 			auto added_capacity = std::max(0.10f, capacity * 0.10f);
 			auto const& construction = state.world.factory_type_get_construction_costs(type);
 			auto construction_scale = added_capacity * 0.5f;
-			float capital_cost = 0.0f;
+			float capital_cost = 0.0f, material_quantity = 0.0f;
 			for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
 				auto commodity = construction.commodity_type[i];
 				if(!commodity) break;
 				if(!physical::factory_inputs::ordinary_physical_input(state, commodity)) continue;
 				auto quantity = finite_nonnegative(construction.commodity_amounts[i]) * construction_scale;
+				material_quantity += quantity;
 				capital_cost += quantity * physical::concrete_market::canonical_reference_price(
 					state, market, commodity, state.current_date, 0.0f);
 			}
+			// The crew's work is part of what the expansion costs.
+			capital_cost += capital_projects::labor_cost_estimate(state, province, material_quantity,
+				float(state.world.factory_type_get_construction_time(type)) * state.defines.alice_factory_build_time_mult * 0.5f);
 			auto funding = physical::factory_inputs::procurement_account_for(state, owner);
 			auto project_budget = capital_cost * 1.50f;
 			economy::investment::project_inputs proposal{};

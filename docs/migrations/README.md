@@ -8,7 +8,7 @@ This folder describes transitions from Project Alice/Victoria-shaped data to the
 | --- | --- |
 | Scenario authoring | Canonical firm, owner, asset, banking, and land-force tables are required by the scenario contract. Authored POP rows, factory definitions, geography, and resource signals remain bootstrap inputs. See [Scenario format](../runtime/scenario-format.md). |
 | Save compatibility | The runtime accepts the documented current save format and rejects unsupported aggregate saves; it does not reconstruct individual history from POP totals. See [Serialization](../runtime/serialization.md). |
-| Construction | Capital projects own accounts, delivered materials, consumed recipes and completion. Legacy queues and demand are projections. See [Construction hard cut](canonical-construction.md) for coverage and remaining authoring boundaries. |
+| Construction | Capital projects own accounts, materials and results. Contractors' crews perform the work that installs materials, under contracts paid per unit of work. Legacy queues and demand are projections. See [Canonical construction](canonical-construction.md). |
 | Household consumers | The POP consumer-engine purge is complete in the recorded audit. Exact accounts, needs, goods, and fills are canonical; POP fields are projections. The audit is preserved in [Archive](../archive/README.md). |
 | Causal legacy reads | Current boundaries are in [Causality](../architecture/causality.md). The older purge note is a historical implementation record. |
 | Technology | Canonical capability tables have an explicit scenario activation boundary. When active, legacy technology flags are not read into the capability kernel. See [Technology](../architecture/technology.md). |

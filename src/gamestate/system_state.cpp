@@ -3435,6 +3435,11 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	assert(population_projection && "canonical population projection failed after initialization");
 	if(!population_projection) std::abort();
 	::governance::bootstrap(*this);
+	// Machine parts are the construction equipment of the content: a
+	// contractor's stock of them mechanizes its crew.
+	world.for_each_commodity([&](dcon::commodity_id commodity) {
+		world.commodity_set_construction_equipment(commodity, to_string_view(world.commodity_get_name(commodity)) == "machine_parts");
+	});
 	if(!::actors::canonical_scenario::load(*this, common, context, err))
 		return;
 	::economy::industrial_production::bootstrap_factories(*this);

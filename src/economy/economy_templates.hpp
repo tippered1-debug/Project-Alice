@@ -16,7 +16,7 @@ void for_each_new_factory(sys::state& state, dcon::province_id s, F&& func) {
 			|| state.world.capital_project_get_status(p) >= uint8_t(capital_projects::status::completed)) return;
 		auto site = state.world.capital_project_get_site_from_capital_project_site(p);
 		if(state.world.site_get_province_from_site_location(site) == s)
-			func(new_factory{capital_projects::material_progress(state, p), state.world.capital_project_get_factory_type(p)});
+			func(new_factory{capital_projects::physical_progress(state, p), state.world.capital_project_get_factory_type(p)});
 	});
 }
 
@@ -27,7 +27,7 @@ void for_each_upgraded_factory(sys::state& state, dcon::province_id s, F&& func)
 			|| state.world.capital_project_get_status(p) >= uint8_t(capital_projects::status::completed)) return;
 		auto site = state.world.capital_project_get_site_from_capital_project_site(p);
 		if(state.world.site_get_province_from_site_location(site) == s)
-			func(upgraded_factory{capital_projects::material_progress(state, p), state.world.capital_project_get_factory_type(p), {}});
+			func(upgraded_factory{capital_projects::physical_progress(state, p), state.world.capital_project_get_factory_type(p), {}});
 	});
 }
 } // namespace economy

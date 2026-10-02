@@ -365,7 +365,12 @@ TEST_CASE("capital_extraction_project_builds_plant_on_existing_deposit", "[econo
 	REQUIRE(required == Approx(2.0f * (8.0f / (2.0f * 0.8f)) * 0.5f));
 	auto yard = state->world.capital_project_get_site_from_capital_project_site(project);
 	REQUIRE(::economy::physical::inventory::add(*state, yard, timber, required, owner) == Approx(required));
-	REQUIRE(::economy::capital_projects::consume(*state, requirement, required) == Approx(required));
+	// Materials are installed only with construction work; this test is about
+	// what completion creates, so it applies the whole work at once.
+	state->world.capital_project_set_status(project, uint8_t(::economy::capital_projects::status::funded));
+	REQUIRE(::economy::capital_projects::seal_required_work(*state, project));
+	auto work = ::economy::capital_projects::required_work(*state, project);
+	REQUIRE(::economy::capital_projects::apply_work(*state, project, work) == Approx(work));
 	REQUIRE(state->world.capital_project_get_status(project) == uint8_t(::economy::capital_projects::status::completed));
 
 	auto plant = state->world.capital_project_get_factory_from_capital_project_factory(project);
