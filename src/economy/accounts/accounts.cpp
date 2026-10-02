@@ -24,6 +24,11 @@ dcon::monetary_account_id find_account(sys::state const& state, dcon::economic_a
 	state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(owner, [&](dcon::monetary_account_owner_id relation) {
 		auto account = state.world.monetary_account_owner_get_monetary_account(relation);
 		if(result || !account || state.world.monetary_account_get_commodity_from_monetary_account_settlement(account) != settlement) return;
+		// A capital project's account is earmarked project cash, not the owner's
+		// operating account.
+		bool project_account = false;
+		state.world.monetary_account_for_each_capital_project_account_as_monetary_account(account, [&](auto) { project_account = true; });
+		if(project_account) return;
 		economy::monetary::ontology::account_view view;
 		if(economy::monetary::ontology::describe(state,
 			economy::monetary::ontology::account_ref::from_monetary(account), view)

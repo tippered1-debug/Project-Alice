@@ -13,6 +13,7 @@ This is the entry point for the architecture that describes the current runtime.
 | Households and income | Budgets of every living person, transitions, dividends, inheritance. | [Households and income](households-and-income.md) |
 | Primary production | Deposits, land, farms, extraction, and leases. | [Primary production](primary-production.md) |
 | Banking | Operating money, reserves, deposits, loans, and settlement. | [Banking](banking.md) |
+| Capital allocation | Savers, equity offerings, project finance, and plant sales. | [Capital allocation](capital-allocation.md) |
 | Ownership | Explicit owners and stakes in productive assets and firms. | [Ownership](ownership.md) |
 | Government | Public institutions, treasury, and account-backed public activity. | [Government](government.md) |
 | Military | Canonical formations, assigned people, equipment, and supply. | [Military](military.md) |

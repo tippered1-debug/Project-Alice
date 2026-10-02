@@ -4,27 +4,28 @@
 #include "actors/ownership.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/banking/banking.hpp"
+#include "economy/capital_market.hpp"
 #include "economy/capital_projects.hpp"
-#include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/households.hpp"
+#include "economy/investment_ranking.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/extraction.hpp"
-#include "economy/physical/land.hpp"
-#include "economy/households.hpp"
-#include "economy/wallets.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/inventory.hpp"
+#include "economy/physical/land.hpp"
 #include "economy/relations/relations.hpp"
+#include "economy/wallets.hpp"
 #include "system_state.hpp"
-#include "world/spatial_runtime.hpp"
 #include "world/site.hpp"
+#include "world/spatial_runtime.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
-#include <unordered_map>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -40,20 +41,29 @@ constexpr uint8_t lifecycle_restructuring = 1;
 constexpr uint8_t lifecycle_bankrupt = 2;
 constexpr uint8_t lifecycle_liquidated = 3;
 constexpr uint8_t lifecycle_closed = 4;
-constexpr int32_t investor_review_days = 30;
-constexpr int32_t bankruptcy_sale_window_days = 120;
 
-bool eligible_investor(sys::state const& state, dcon::economic_actor_id actor) {
+// The day's investors, built on first use: every offering of the day draws on
+// the same commitments.
+struct day_pool {
+	std::optional<capital_market::pool> investors;
+	capital_market::pool& get(sys::state const& state) {
+		if(!investors) investors = capital_market::build_pool(state);
+		return *investors;
+	}
+};
+
+bool eligible_sponsor(sys::state const& state, dcon::economic_actor_id actor) {
 	if(!actor || !state.world.economic_actor_is_valid(actor)) return false;
 	auto kind = actor_kind(state.world.economic_actor_get_kind(actor));
 	return kind == actor_kind::company || kind == actor_kind::fund
 		|| kind == actor_kind::cooperative || kind == actor_kind::person;
 }
 
-float unreserved_cash(sys::state const& state, dcon::monetary_account_id account) {
-	if(!account) return 0.0f;
-	return std::max(0.0f, accounts::balance(state, account)
-		- physical::concrete_market::reserved_bid_amount(state, account));
+bool review_due(sys::state const& state, dcon::economic_actor_id actor) {
+	auto last = state.world.economic_actor_get_industrial_last_decision_date(actor);
+	if(last) return state.current_date.to_raw_value() - last.to_raw_value() >= investor_review_days;
+	// First reviews are spread over the period instead of all falling on one day.
+	return (state.current_date.to_raw_value() + int32_t(actor.index())) % investor_review_days == 0;
 }
 
 dcon::monetary_account_id actor_account(sys::state& state, dcon::economic_actor_id actor,
@@ -62,51 +72,42 @@ dcon::monetary_account_id actor_account(sys::state& state, dcon::economic_actor_
 	return account ? account : accounts::open_account(state, actor, settlement);
 }
 
-float factory_value(sys::state const& state, dcon::factory_id factory) {
-	if(!factory || !state.world.factory_is_valid(factory)) return 0.0f;
-	auto type = state.world.factory_get_building_type(factory);
-	auto site = world::site::site_for_factory(state, factory);
-	auto market = physical::concrete_market::market_for_site(state, site);
-	if(!type || !market) return 0.0f;
-	auto output = state.world.factory_type_get_output(type);
-	auto price = physical::concrete_market::canonical_reference_price(state, market, output,
-		state.current_date, 0.0f);
-	auto capacity = std::max(0.0f, state.world.factory_get_productive_capacity(factory));
-	auto output_per_unit = std::max(0.0f, state.world.factory_type_get_output_amount(type));
-	auto value = capacity * output_per_unit * std::max(0.0f, price) * 30.0f;
-	return std::isfinite(value) ? value : 0.0f;
+dcon::nation_id nation_of_province(sys::state const& state, dcon::province_id province) {
+	return province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
 }
 
-float expected_factory_daily_profit(sys::state const& state, dcon::factory_id factory) {
+dcon::nation_id nation_of_factory(sys::state const& state, dcon::factory_id factory) {
+	return nation_of_province(state, world::site::province_for_site(state, world::site::site_for_factory(state, factory)));
+}
+
+// Moves deposit money into the actor's operating wallet until its free cash
+// covers `amount`. Returns the free cash afterwards.
+float cash_in_wallet(sys::state& state, dcon::economic_actor_id actor, dcon::commodity_id settlement, float amount) {
+	auto wallet = wallets::open_for(state, actor, settlement);
+	auto cash = wallets::spendable(state, wallet);
+	if(cash + epsilon >= amount) return cash;
+	if(auto deposit = economy::banking::deposit_account_for(state, actor, settlement))
+		(void)economy::banking::withdraw_cash(state, deposit, wallet, amount - cash, state.current_date);
+	return wallets::spendable(state, wallet);
+}
+
+// What it would cost to build the plant's capacity again at today's prices.
+float replacement_value(sys::state const& state, dcon::factory_id factory) {
 	if(!factory || !state.world.factory_is_valid(factory)) return 0.0f;
 	auto type = state.world.factory_get_building_type(factory);
-	auto market = physical::concrete_market::market_for_site(state,
-		world::site::site_for_factory(state, factory));
+	auto market = physical::concrete_market::market_for_site(state, world::site::site_for_factory(state, factory));
 	if(!type || !market) return 0.0f;
 	auto capacity = std::max(0.0f, state.world.factory_get_productive_capacity(factory));
-	auto output = state.world.factory_type_get_output(type);
-	auto price = physical::concrete_market::canonical_reference_price(state, market, output,
-		state.current_date, 0.0f);
-	auto output_units = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * capacity;
-	auto sell_through = state.world.factory_get_agency_expected_sell_through(factory);
-	if(!std::isfinite(sell_through) || sell_through <= epsilon) sell_through = 0.65f;
-	float materials = 0.0f;
-	auto const& inputs = state.world.factory_type_get_inputs(type);
+	float value = 0.0f;
+	auto const& construction = state.world.factory_type_get_construction_costs(type);
 	for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
-		auto commodity = inputs.commodity_type[i];
+		auto commodity = construction.commodity_type[i];
 		if(!commodity) break;
 		if(physical::factory_inputs::ordinary_physical_input(state, commodity))
-			materials += std::max(0.0f, inputs.commodity_amounts[i]) * capacity
-				* physical::concrete_market::canonical_reference_price(state, market, commodity,
-					state.current_date, 0.0f);
+			value += std::max(0.0f, construction.commodity_amounts[i]) * capacity * 0.5f
+				* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
 	}
-	auto revenue = output_units * std::max(0.0f, price) * std::clamp(sell_through, 0.05f, 1.0f);
-	auto wages = exact_person_economy::wage_due_for_factory(state, factory);
-	if(wages <= epsilon) wages = revenue * 0.25f;
-	auto observed = state.world.factory_get_agency_recent_profit(factory);
-	if(std::isfinite(observed) && std::abs(observed) > epsilon)
-		return observed * 0.5f + (revenue - materials - wages) * 0.5f;
-	return revenue - materials - wages;
+	return std::isfinite(value) ? value : 0.0f;
 }
 
 std::vector<dcon::obligation_id> factory_loans(sys::state const& state, dcon::factory_id factory) {
@@ -223,7 +224,7 @@ void transfer_factory_inventory(sys::state& state, dcon::factory_id factory,
 
 void close_factory(sys::state& state, dcon::factory_id factory) {
 	if(!factory || !state.world.factory_is_valid(factory)) return;
-	state.world.factory_set_agency_liquidation_value(factory, factory_value(state, factory));
+	state.world.factory_set_agency_liquidation_value(factory, replacement_value(state, factory));
 	auto site = world::site::site_for_factory(state, factory);
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
 	for(auto contract : exact_person_economy::active_contracts_for_factory(state, factory))
@@ -257,85 +258,6 @@ void close_factory(sys::state& state, dcon::factory_id factory) {
 	state.world.factory_set_agency_last_lifecycle_date(factory, state.current_date);
 }
 
-bool acquire_factory(sys::state& state, dcon::economic_actor_id buyer,
-	dcon::organization_id buyer_org, dcon::factory_id factory, float price) {
-	if(!buyer || !buyer_org || !factory || !state.world.factory_is_valid(factory)
-		|| actors::organizations::operator_actor_for_factory(state, factory) == buyer) return false;
-	auto seller = actors::organizations::operator_actor_for_factory(state, factory);
-	auto settlement = state.world.factory_get_payroll_settlement(factory);
-	if(!settlement) settlement = physical::exchange::settlement_for_purchase(state, buyer);
-	if(!seller || !settlement || !std::isfinite(price) || price <= epsilon) return false;
-	auto buyer_account = accounts::find_account(state, buyer, settlement);
-	if(!buyer_account || unreserved_cash(state, buyer_account) < price) return false;
-	auto seller_account = actor_account(state, seller, settlement);
-	if(!seller_account || !accounts::transfer(state, buyer_account, seller_account, price,
-		relations::transaction_kind::purchase, state.current_date)) return false;
-
-	transfer_factory_inventory(state, factory, seller, buyer);
-	// Secured factory debt stays with the seller. The sale proceeds fund the
-	// creditor waterfall; any remaining claim is recorded as a bank loss.
-	(void)service_factory_claims(state, factory, seller_account, price, false, true);
-	transfer_factory_title(state, factory, buyer);
-	if(!actors::organizations::transfer_factory_operator(state, buyer_org, factory)) return false;
-	state.world.factory_set_agency_lifecycle_status(factory, lifecycle_active);
-	state.world.factory_set_agency_liquidation_value(factory, price);
-	state.world.factory_set_agency_bankruptcy_date(factory, sys::date{});
-	state.world.factory_set_agency_last_lifecycle_date(factory, state.current_date);
-	state.world.factory_set_agency_restructuring_count(factory, 0);
-	return true;
-}
-
-void attempt_owner_recapitalization(sys::state& state, dcon::factory_id factory) {
-	auto firm = actors::organizations::operator_actor_for_factory(state, factory);
-	auto settlement = state.world.factory_get_payroll_settlement(factory);
-	if(!settlement) settlement = physical::exchange::settlement_for_purchase(state, firm);
-	if(!firm || !settlement) return;
-	auto account = actor_account(state, firm, settlement);
-	if(!account) return;
-	auto due = total_factory_debt(state, factory);
-	auto target = std::min(due, std::max(1.0f, factory_value(state, factory) * 0.10f));
-	if(target <= epsilon) return;
-	auto injected = actors::ownership::contribute_equity_to_factory(state, factory, firm, account, target);
-	if(injected > epsilon) {
-		state.world.factory_set_agency_owner_equity_contributed(factory,
-			state.world.factory_get_agency_owner_equity_contributed(factory) + injected);
-		(void)service_factory_claims(state, factory, account, injected, true, false);
-	}
-}
-
-void attempt_external_recapitalization(sys::state& state, dcon::factory_id factory) {
-	auto firm = actors::organizations::operator_actor_for_factory(state, factory);
-	auto organization = actors::organizations::operator_organization_for_factory(state, factory);
-	auto settlement = state.world.factory_get_payroll_settlement(factory);
-	if(!firm || !organization || !settlement || expected_factory_daily_profit(state, factory) <= 0.0f) return;
-	auto need = std::min(total_factory_debt(state, factory), factory_value(state, factory) * 0.08f);
-	if(need <= epsilon) return;
-	auto firm_account = actor_account(state, firm, settlement);
-	if(!firm_account) return;
-	dcon::economic_actor_id selected{};
-	wallets::account_ref selected_account{};
-	float selected_amount = 0.0f;
-	state.world.for_each_economic_actor([&](dcon::economic_actor_id investor) {
-		if(investor == firm || !eligible_investor(state, investor)) return;
-		auto account = wallets::account_for(state, investor, settlement);
-		auto amount = std::min(need, wallets::spendable(state, account) * 0.10f);
-		if(amount > selected_amount) {
-			selected = investor;
-			selected_account = account;
-			selected_amount = amount;
-		}
-	});
-	if(!selected || selected_amount <= epsilon
-		|| !wallets::pay(state, selected_account, wallets::account_ref::from_dcon(firm_account), selected_amount,
-			relations::transaction_kind::equity_contribution)) return;
-	(void)actors::ownership::issue_equity(state,
-		actors::organizations::equity_asset_for_organization(state, organization), selected,
-		selected_amount, std::max(1.0f, factory_value(state, factory)));
-	state.world.factory_set_agency_owner_equity_contributed(factory,
-		state.world.factory_get_agency_owner_equity_contributed(factory) + selected_amount);
-	(void)service_factory_claims(state, factory, firm_account, selected_amount, true, false);
-}
-
 bool restructure_defaulted_factory(sys::state& state, dcon::factory_id factory) {
 	bool changed = false;
 	for(auto loan : factory_loans(state, factory)) {
@@ -359,7 +281,118 @@ bool restructure_defaulted_factory(sys::state& state, dcon::factory_id factory) 
 	return changed;
 }
 
-void process_insolvency(sys::state& state, dcon::factory_id factory) {
+// A plant is for sale only when its operator puts it up: in a bankruptcy
+// auction whose price falls over the sale window, or when a distressed operator
+// without defaulted debt divests. A sound plant is never sold off.
+float asking_price(sys::state const& state, dcon::factory_id factory) {
+	if(!factory || !state.world.factory_is_valid(factory)) return 0.0f;
+	// Buying the plant would not transfer control of its deposit or land, and a
+	// household's livelihood is not for sale.
+	if(physical::extraction::extracts_deposit(state, factory) || physical::land::farms_land(state, factory)
+		|| households::is_household(state, actors::organizations::operator_organization_for_factory(state, factory)))
+		return 0.0f;
+	auto value = replacement_value(state, factory);
+	if(value <= epsilon) return 0.0f;
+	auto lifecycle = state.world.factory_get_agency_lifecycle_status(factory);
+	if(lifecycle == lifecycle_bankrupt) {
+		auto since = state.current_date.to_raw_value()
+			- state.world.factory_get_agency_last_lifecycle_date(factory).to_raw_value();
+		auto elapsed = std::clamp(float(since) / float(bankruptcy_sale_window_days), 0.0f, 1.0f);
+		return value * (auction_opening_share - (auction_opening_share - auction_floor_share) * elapsed);
+	}
+	if(lifecycle < lifecycle_bankrupt && state.world.factory_get_agency_distress_days(factory) >= divestment_distress_days
+		&& state.world.factory_get_agency_recent_profit(factory) < 0.0f && !has_defaulted_factory_loan(state, factory))
+		return value * auction_opening_share;
+	return 0.0f;
+}
+
+// The proceeds of a plant sale go to its creditors first, then to the owners
+// of the plant in proportion to their economic stakes.
+void pay_plant_owners(sys::state& state, dcon::factory_id factory, dcon::economic_actor_id seller,
+	dcon::monetary_account_id seller_account, float proceeds) {
+	auto asset = actors::ownership::asset_for_factory(state, factory);
+	auto settlement = accounts::settlement_of(state, seller_account);
+	if(!asset || !settlement || proceeds <= epsilon) return;
+	struct holder { dcon::economic_actor_id owner; float fraction; };
+	std::vector<holder> holders;
+	float total = 0.0f;
+	state.world.asset_for_each_ownership_stake_asset_as_asset(asset, [&](dcon::ownership_stake_asset_id relation) {
+		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
+		auto owner = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
+		auto fraction = state.world.ownership_stake_get_economic_fraction(stake);
+		if(!owner || !(fraction > 0.0f)) return;
+		holders.push_back({ owner, fraction });
+		total += fraction;
+	});
+	if(!(total > 0.0f)) return;
+	std::sort(holders.begin(), holders.end(), [](auto const& a, auto const& b) { return a.owner.index() < b.owner.index(); });
+	auto available = std::min(proceeds, std::max(0.0f, accounts::balance(state, seller_account)));
+	for(auto const& [owner, fraction] : holders) {
+		if(owner == seller) continue; // the operator's own share stays where it is
+		auto share = available * fraction / total;
+		auto destination = wallets::open_for(state, owner, settlement);
+		if(share > epsilon && destination)
+			(void)wallets::pay(state, wallets::account_ref::from_dcon(seller_account), destination, share,
+				relations::transaction_kind::purchase);
+	}
+}
+
+bool buy_plant(sys::state& state, dcon::economic_actor_id buyer, dcon::organization_id buyer_org,
+	dcon::factory_id factory, float price) {
+	if(!buyer || !buyer_org || !factory || !state.world.factory_is_valid(factory)
+		|| actors::organizations::operator_actor_for_factory(state, factory) == buyer) return false;
+	auto seller = actors::organizations::operator_actor_for_factory(state, factory);
+	auto settlement = state.world.factory_get_payroll_settlement(factory);
+	if(!settlement) settlement = physical::exchange::settlement_for_purchase(state, buyer);
+	if(!seller || !settlement || !std::isfinite(price) || price <= epsilon) return false;
+	if(cash_in_wallet(state, buyer, settlement, price) + epsilon < price) return false;
+	auto buyer_account = accounts::find_account(state, buyer, settlement);
+	auto seller_account = actor_account(state, seller, settlement);
+	if(!buyer_account || !seller_account || !accounts::transfer(state, buyer_account, seller_account, price,
+		relations::transaction_kind::purchase, state.current_date)) return false;
+
+	transfer_factory_inventory(state, factory, seller, buyer);
+	// Secured factory debt stays with the seller: the proceeds fund the
+	// creditor waterfall, and any unrecovered claim is a bank loss.
+	auto recovered = service_factory_claims(state, factory, seller_account, price, false, true);
+	pay_plant_owners(state, factory, seller, seller_account, std::max(0.0f, price - recovered));
+	transfer_factory_title(state, factory, buyer);
+	if(!actors::organizations::transfer_factory_operator(state, buyer_org, factory)) return false;
+	state.world.factory_set_agency_lifecycle_status(factory, lifecycle_active);
+	state.world.factory_set_agency_liquidation_value(factory, price);
+	state.world.factory_set_agency_bankruptcy_date(factory, sys::date{});
+	state.world.factory_set_agency_last_lifecycle_date(factory, state.current_date);
+	state.world.factory_set_agency_restructuring_count(factory, 0);
+	state.world.factory_set_agency_distress_days(factory, 0);
+	return true;
+}
+
+// A defaulted firm offers new shares to cure its default. Investors buy only if
+// the firm's expected earnings justify the price; existing owners are diluted.
+void offer_recapitalization(sys::state& state, dcon::factory_id factory, day_pool& pool) {
+	auto organization = actors::organizations::operator_organization_for_factory(state, factory);
+	auto firm = actors::organizations::actor_for_organization(state, organization);
+	auto settlement = state.world.factory_get_payroll_settlement(factory);
+	if(!organization || !firm || !settlement) return;
+	float defaulted = 0.0f;
+	for(auto loan : factory_loans(state, factory))
+		if(state.world.obligation_get_status(loan) == uint8_t(obligation_status::defaulted))
+			defaulted += relations::total_due(state, loan);
+	if(defaulted <= epsilon) return;
+	capital_market::offering terms{};
+	terms.issuer = organization;
+	terms.nation = nation_of_factory(state, factory);
+	terms.settlement = settlement;
+	terms.amount = defaulted;
+	terms.pre_money = capital_market::book_value(state, organization);
+	terms.annual_earnings = capital_market::expected_annual_earnings(state, organization);
+	auto raised = capital_market::raise(state, pool.get(state), terms);
+	if(raised <= epsilon) return;
+	auto account = actor_account(state, firm, settlement);
+	(void)service_factory_claims(state, factory, account, raised, true, false);
+}
+
+void process_insolvency(sys::state& state, dcon::factory_id factory, day_pool& pool) {
 	if(!factory || !state.world.factory_is_valid(factory)) return;
 	// A household's farm is its livelihood, not a firm that can be liquidated.
 	if(households::is_household(state, actors::organizations::operator_organization_for_factory(state, factory))) return;
@@ -370,8 +403,7 @@ void process_insolvency(sys::state& state, dcon::factory_id factory) {
 			state.world.factory_set_agency_bankruptcy_date(factory, state.current_date);
 		auto last_recap = state.world.factory_get_agency_last_recapitalization_date(factory);
 		if(!last_recap || state.current_date.to_raw_value() - last_recap.to_raw_value() >= 30) {
-			attempt_owner_recapitalization(state, factory);
-			attempt_external_recapitalization(state, factory);
+			offer_recapitalization(state, factory, pool);
 			state.world.factory_set_agency_last_recapitalization_date(factory, state.current_date);
 		}
 		if(has_defaulted_factory_loan(state, factory)) (void)restructure_defaulted_factory(state, factory);
@@ -411,14 +443,18 @@ void process_insolvency(sys::state& state, dcon::factory_id factory) {
 }
 
 struct project_opportunity {
+	dcon::province_id province{};
+	dcon::nation_id nation{};
 	dcon::site_id site{};
 	dcon::factory_type_id type{};
-	dcon::commodity_id settlement{};
 	float project_budget = 0.0f;
 	float working_capital = 0.0f;
-	float daily_profit = 0.0f;
-	float score = -std::numeric_limits<float>::infinity();
+	economy::investment::project_inputs inputs{};
 };
+
+uint64_t opportunity_key(dcon::province_id province, dcon::factory_type_id type) {
+	return (uint64_t(province.index()) << 32) | uint64_t(type.index());
+}
 
 dcon::factory_id profitable_collateral_factory(sys::state const& state,
 	dcon::organization_id organization) {
@@ -427,8 +463,8 @@ dcon::factory_id profitable_collateral_factory(sys::state const& state,
 	for(auto factory : actors::organizations::factories_operated_by(state, organization)) {
 		if(!factory || !state.world.factory_is_valid(factory)
 			|| state.world.factory_get_agency_lifecycle_status(factory) >= lifecycle_bankrupt
-			|| expected_factory_daily_profit(state, factory) <= epsilon) continue;
-		auto value = factory_value(state, factory);
+			|| capital_market::expected_daily_profit(state, factory) <= epsilon) continue;
+		auto value = replacement_value(state, factory);
 		if(value > selected_value) {
 			selected = factory;
 			selected_value = value;
@@ -437,8 +473,7 @@ dcon::factory_id profitable_collateral_factory(sys::state const& state,
 	return selected;
 }
 
-void scale_greenfield_project(sys::state& state, dcon::capital_project_id project,
-	float funding_fraction) {
+void scale_greenfield_project(sys::state& state, dcon::capital_project_id project, float funding_fraction) {
 	auto fraction = std::clamp(funding_fraction, 0.05f, 1.0f);
 	state.world.capital_project_set_planned_daily_capacity(project,
 		state.world.capital_project_get_planned_daily_capacity(project) * fraction);
@@ -450,264 +485,270 @@ void scale_greenfield_project(sys::state& state, dcon::capital_project_id projec
 		});
 }
 
-std::vector<project_opportunity> greenfield_opportunities(sys::state const& state) {
-	std::vector<project_opportunity> opportunities;
-	std::unordered_map<uint32_t, dcon::site_id> province_sites;
-	std::unordered_map<uint32_t, std::unordered_set<uint32_t>> existing_types;
-	state.world.for_each_province([&](dcon::province_id province) {
-		auto const site = world::spatial_runtime::site_for_province(state, province);
-		if(site) province_sites.emplace(province.index(), site);
-	});
+// Plants already standing and plants already being built: a second investor
+// does not duplicate either.
+std::unordered_set<uint64_t> occupied_opportunities(sys::state const& state) {
+	std::unordered_set<uint64_t> result;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		auto const site = world::site::site_for_factory(state, factory);
-		auto const province = world::site::province_for_site(state, site);
-		if(!site || !province || !state.world.province_is_valid(province)) std::abort();
-		province_sites.insert_or_assign(province.index(), site);
-		dcon::factory_type_id type = state.world.factory_get_building_type(factory);
-		if(type) existing_types[province.index()].insert(type.index());
+		auto province = world::site::province_for_site(state, world::site::site_for_factory(state, factory));
+		auto type = state.world.factory_get_building_type(factory);
+		if(province && type && state.world.factory_get_productive_capacity(factory) > 0.0f)
+			result.insert(opportunity_key(province, type));
 	});
+	state.world.for_each_capital_project([&](dcon::capital_project_id project) {
+		if(state.world.capital_project_get_status(project) >= uint8_t(capital_projects::status::completed)
+			|| state.world.capital_project_get_project_kind(project) != uint8_t(capital_projects::project_kind::factory)) return;
+		auto province = world::site::province_for_site(state, state.world.capital_project_get_site_from_capital_project_site(project));
+		auto type = state.world.capital_project_get_factory_type(project);
+		if(province && type) result.insert(opportunity_key(province, type));
+	});
+	return result;
+}
+
+// The daily wage a new plant must offer to recruit: above what members of the
+// local cohorts earn working for themselves, and never below the bootstrap offer.
+float recruitment_wage(sys::state const& state, dcon::province_id province, float unit_revenue) {
+	float reservation = 0.0f;
+	for(auto cohort_role : { households::role::peasant, households::role::urban })
+		reservation = std::max(reservation, households::reservation_wage(state, households::household_for(state, province, cohort_role)));
+	return std::max(reservation * 1.1f, unit_revenue * 0.075f);
+}
+
+std::vector<project_opportunity> greenfield_opportunities(sys::state const& state,
+	std::unordered_set<uint64_t> const& occupied) {
+	std::vector<project_opportunity> opportunities;
 	state.world.for_each_province([&](dcon::province_id province) {
 		auto market_relation = state.world.province_get_state_membership(province);
 		auto market = market_relation ? state.world.state_instance_get_market_from_local_market(market_relation) : dcon::market_id{};
-		if(!market) return;
-		auto site_entry = province_sites.find(province.index());
-		if(site_entry == province_sites.end()) return;
-		auto project_site = site_entry->second;
+		auto nation = nation_of_province(state, province);
+		auto project_site = world::spatial_runtime::site_for_province(state, province);
+		if(!market || !nation || !project_site) return;
 		state.world.for_each_factory_type([&](dcon::factory_type_id type) {
 			auto output = state.world.factory_type_get_output(type);
-			// An extraction plant exists only on a deposit its operator controls;
-			// a greenfield site has none.
+			// An extraction plant exists only on a deposit its operator controls,
+			// a farm only on land, and a workshop only in a cohort.
 			if(!output || physical::extraction::extracts_deposit(state, type)
-				|| physical::land::farms_land(state, type)) return;
-			auto type_entry = existing_types.find(province.index());
-			if(type_entry != existing_types.end() && type_entry->second.contains(type.index())) return;
-			auto unit_output = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * 0.5f;
+				|| physical::land::farms_land(state, type) || households::is_craft(state, type)) return;
+			if(occupied.contains(opportunity_key(province, type))) return;
+			constexpr float planned_capacity = 0.5f;
 			auto output_price = physical::concrete_market::canonical_reference_price(state, market,
 				output, state.current_date, 0.0f);
-			if(unit_output <= epsilon || output_price <= epsilon) return;
-			auto sell_through = physical::concrete_market::observed_sell_through(state, market,
-				output, state.current_date, 0.65f);
-			sell_through = std::clamp(sell_through, 0.15f, 0.95f);
-			auto gross_revenue = unit_output * output_price * sell_through;
+			auto unit_revenue = std::max(0.0f, state.world.factory_type_get_output_amount(type)) * output_price;
+			if(unit_revenue <= epsilon) return;
+			auto sell_through = std::clamp(physical::concrete_market::observed_sell_through(state, market,
+				output, state.current_date, 0.65f), 0.15f, 0.95f);
+			float material_unit_cost = 0.0f;
 			auto const& inputs = state.world.factory_type_get_inputs(type);
-			float materials = 0.0f;
 			for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
 				auto commodity = inputs.commodity_type[i];
 				if(!commodity) break;
 				if(physical::factory_inputs::ordinary_physical_input(state, commodity))
-					materials += std::max(0.0f, inputs.commodity_amounts[i]) * 0.5f
-						* physical::concrete_market::canonical_reference_price(state, market,
-							commodity, state.current_date, 0.0f);
+					material_unit_cost += std::max(0.0f, inputs.commodity_amounts[i])
+						* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
 			}
-			auto wages = gross_revenue * 0.25f;
-			auto profit = gross_revenue - materials - wages;
-			if(profit <= epsilon) return;
 			float construction_cost = 0.0f;
 			auto const& construction = state.world.factory_type_get_construction_costs(type);
 			for(uint32_t i = 0; i < economy::commodity_set::set_size; ++i) {
 				auto commodity = construction.commodity_type[i];
 				if(!commodity) break;
 				if(physical::factory_inputs::ordinary_physical_input(state, commodity))
-					construction_cost += std::max(0.0f, construction.commodity_amounts[i]) * 0.25f
-						* physical::concrete_market::canonical_reference_price(state, market,
-							commodity, state.current_date, 0.0f);
+					construction_cost += std::max(0.0f, construction.commodity_amounts[i]) * planned_capacity * 0.5f
+						* physical::concrete_market::canonical_reference_price(state, market, commodity, state.current_date, 0.0f);
 			}
-			if(construction_cost <= epsilon) construction_cost = profit * 45.0f;
-			auto budget = construction_cost * 1.50f;
-			auto working = std::max(1.0f, (materials + wages) * 30.0f);
-			auto score = profit * 365.0f / std::max(1.0f, construction_cost) - 0.10f;
+			// A recipe without a construction bill cannot be built.
+			if(construction_cost <= epsilon) return;
 			project_opportunity opportunity{};
+			opportunity.province = province;
+			opportunity.nation = nation;
 			opportunity.site = project_site;
 			opportunity.type = type;
-			opportunity.project_budget = budget;
-			opportunity.working_capital = working;
-			opportunity.daily_profit = profit;
-			opportunity.score = score;
-			opportunities.push_back(opportunity);
+			auto& terms = opportunity.inputs;
+			terms.capital_cost = construction_cost;
+			terms.gross_daily_revenue = unit_revenue * planned_capacity;
+			terms.daily_material_cost = material_unit_cost * planned_capacity * sell_through;
+			terms.daily_wage_cost = recruitment_wage(state, province, unit_revenue) * planned_capacity * sell_through;
+			terms.expected_sell_through = sell_through;
+			terms.demand_risk = 1.0f - sell_through;
+			terms.jobs = planned_capacity;
+			// Materials are bid up to 20% over reference and must be carried here.
+			opportunity.project_budget = construction_cost * 1.5f;
+			opportunity.working_capital = std::max(1.0f, (terms.daily_material_cost + terms.daily_wage_cost) * 30.0f);
+			if(economy::investment::evaluate(terms).expected_daily_cashflow > 0.0f)
+				opportunities.push_back(opportunity);
 		});
 	});
 	return opportunities;
 }
 
-struct acquisition_opportunity {
+economy::investment::project_score evaluate_for(project_opportunity const& opportunity, float required_return) {
+	auto terms = opportunity.inputs;
+	terms.annual_interest_rate = required_return;
+	return economy::investment::evaluate(terms);
+}
+
+struct plant_offer {
 	dcon::factory_id factory{};
 	float price = 0.0f;
-	float score = -std::numeric_limits<float>::infinity();
+	float excess_return = -std::numeric_limits<float>::infinity();
 };
 
-acquisition_opportunity best_acquisition(sys::state const& state, dcon::economic_actor_id buyer,
-	dcon::commodity_id settlement, float available_cash) {
-	acquisition_opportunity best{};
+plant_offer best_plant_offer(sys::state const& state, dcon::economic_actor_id buyer, dcon::nation_id nation,
+	dcon::commodity_id settlement, float available, float required_return) {
+	plant_offer best{};
 	state.world.for_each_factory([&](dcon::factory_id factory) {
-		if(actors::organizations::operator_actor_for_factory(state, factory) == buyer) return;
-		// Buying the plant would not transfer control of its deposit or land.
-		if(physical::extraction::extracts_deposit(state, factory) || physical::land::farms_land(state, factory)) return;
+		if(actors::organizations::operator_actor_for_factory(state, factory) == buyer
+			|| nation_of_factory(state, factory) != nation) return;
 		if(state.world.factory_get_payroll_settlement(factory)
 			&& state.world.factory_get_payroll_settlement(factory) != settlement) return;
-		auto lifecycle = state.world.factory_get_agency_lifecycle_status(factory);
-		auto asset_value = factory_value(state, factory);
-		if(asset_value <= epsilon) return;
-		auto distress = lifecycle == lifecycle_bankrupt;
-		auto price = asset_value * (distress ? 0.20f : 0.65f);
-		if(price <= epsilon || price > available_cash) return;
-		auto profit = expected_factory_daily_profit(state, factory);
-		if(profit <= epsilon) return;
-		auto score = profit * 365.0f / price - (distress ? 0.08f : 0.12f);
-		if(score > best.score) best = { factory, price, score };
+		auto price = asking_price(state, factory);
+		if(price <= epsilon || price > available) return;
+		auto excess = capital_market::expected_daily_profit(state, factory) * 365.0f / price - required_return;
+		if(excess > best.excess_return) best = { factory, price, excess };
 	});
-	(void)settlement;
 	return best;
 }
 
-bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor,
-	wallets::account_ref wallet, dcon::commodity_id settlement,
-	project_opportunity const& opportunity) {
-	if(!opportunity.site || !opportunity.type || !wallet) return false;
-	auto required = opportunity.project_budget + opportunity.working_capital;
-	auto available = wallets::spendable(state, wallet);
-	// Only an organization finances a project from its own operating account;
-	// a person founds a company and funds it from their own ledger.
-	dcon::monetary_account_id source = wallet.kind == economy::exact_person_economy::account_kind::dcon
-		? wallet.dcon_account : dcon::monetary_account_id{};
-	auto organization = actors::organizations::organization_for_actor(state, investor);
-	auto sponsor = investor;
-	dcon::economic_actor_id founder{};
-	if(!organization) {
-		organization = actors::organizations::create_company(state);
-		if(!organization) return false;
-		sponsor = actors::organizations::actor_for_organization(state, organization);
-		founder = investor;
-	}
-	if(!actors::organizations::is_economic_kind(actor_kind(state.world.organization_get_kind(organization)))) return false;
-	if(founder) {
-		if(available < required) return false;
-		auto startup_account = actor_account(state, sponsor, settlement);
-		if(!startup_account || !wallets::pay(state, wallet, wallets::account_ref::from_dcon(startup_account), required,
-			relations::transaction_kind::equity_contribution)) return false;
-		if(!actors::ownership::issue_equity(state,
-			actors::organizations::equity_asset_for_organization(state, organization), founder,
-			required, 0.0f)) return false;
-		source = startup_account;
-	}
-	auto project = capital_projects::create_greenfield_factory(state, sponsor, organization,
-		opportunity.site, opportunity.type, settlement, 0.5f);
-	if(!project) return false;
-	if(!founder && available < opportunity.working_capital + opportunity.project_budget * 0.05f) {
-		(void)capital_projects::cancel(state, project);
-		return false;
-	}
-	auto own_project_capital = founder ? opportunity.project_budget
-		: std::min(opportunity.project_budget, std::max(0.0f, available - opportunity.working_capital));
-	auto loan_need = std::max(0.0f, opportunity.project_budget - own_project_capital);
-	economy::banking::factory_credit_result credit{};
-	if(loan_need > epsilon) {
-		auto collateral_factory = profitable_collateral_factory(state, organization);
-		if(!collateral_factory) {
-			(void)capital_projects::cancel(state, project);
-			return false;
-		}
-		auto expected_return = opportunity.daily_profit * 365.0f
-			/ std::max(1.0f, opportunity.project_budget);
-		credit = economy::banking::underwrite_factory_credit(state, collateral_factory, source,
-			1, loan_need, expected_return, factory_value(state, collateral_factory), project);
-		if(credit.funded_amount <= epsilon) {
-			(void)capital_projects::cancel(state, project);
-			return false;
-		}
-	}
-	auto total_project_funding = own_project_capital + credit.funded_amount;
-	if(total_project_funding <= epsilon
-		|| (own_project_capital > epsilon
-			&& !capital_projects::fund(state, project, source, own_project_capital))) {
-		(void)capital_projects::cancel(state, project);
-		return false;
-	}
-	if(credit.funded_amount > epsilon
-		&& !capital_projects::fund(state, project, source, credit.funded_amount)) {
-		(void)capital_projects::cancel(state, project);
-		return false;
-	}
-	if(credit.funded_amount + epsilon < loan_need)
-		scale_greenfield_project(state, project,
-			total_project_funding / opportunity.project_budget);
-	return true;
-}
-
-bool execute_acquisition(sys::state& state, dcon::economic_actor_id investor,
-	wallets::account_ref wallet, dcon::commodity_id settlement,
-	acquisition_opportunity const& opportunity) {
-	auto organization = actors::organizations::organization_for_actor(state, investor);
-	if(organization) return acquire_factory(state, investor, organization,
-		opportunity.factory, opportunity.price);
-	if(!wallet || wallets::spendable(state, wallet) < opportunity.price) return false;
-	organization = actors::organizations::create_company(state);
+// The buyer's company: its own organization, or a company founded and wholly
+// owned by a person buyer, capitalized with the price.
+bool execute_purchase(sys::state& state, dcon::economic_actor_id investor, dcon::commodity_id settlement,
+	plant_offer const& offer) {
+	if(auto organization = actors::organizations::organization_for_actor(state, investor))
+		return buy_plant(state, investor, organization, offer.factory, offer.price);
+	auto organization = actors::organizations::create_company(state);
 	if(!organization) return false;
 	auto company = actors::organizations::actor_for_organization(state, organization);
 	auto company_account = actor_account(state, company, settlement);
-	if(!company_account || !wallets::pay(state, wallet, wallets::account_ref::from_dcon(company_account),
-		opportunity.price, relations::transaction_kind::equity_contribution)) return false;
+	if(!company_account || !capital_market::pay(state, investor, settlement,
+		wallets::account_ref::from_dcon(company_account), offer.price, relations::transaction_kind::equity_contribution)) return false;
+	actors::ownership::assign_runtime_canonical_id(state, investor);
 	if(!actors::ownership::issue_equity(state,
-		actors::organizations::equity_asset_for_organization(state, organization), investor,
-		opportunity.price, 0.0f)) return false;
-	return acquire_factory(state, company, organization, opportunity.factory, opportunity.price);
+		actors::organizations::equity_asset_for_organization(state, organization), investor, offer.price, 0.0f)) return false;
+	return buy_plant(state, company, organization, offer.factory, offer.price);
+}
+
+// Finances a greenfield plant from the sponsor's own funds, then bank credit
+// against a profitable plant it already runs, then new shares sold to the
+// investors of its country. A person founds a company for the project.
+bool execute_greenfield(sys::state& state, dcon::economic_actor_id investor, dcon::commodity_id settlement,
+	float own, project_opportunity const& opportunity, day_pool& pool) {
+	auto required = opportunity.project_budget + opportunity.working_capital;
+	auto organization = actors::organizations::organization_for_actor(state, investor);
+	auto founding = !organization;
+	own = std::min(own, required);
+	if(founding && own + epsilon < founder_minimum_share * required) return false;
+	auto annual_earnings = evaluate_for(opportunity, 0.0f).expected_daily_cashflow * 365.0f;
+
+	capital_market::offering terms{};
+	terms.nation = opportunity.nation;
+	terms.settlement = settlement;
+	terms.amount = required - own;
+	terms.pre_money = founding ? own : capital_market::book_value(state, organization);
+	terms.annual_earnings = annual_earnings
+		+ (founding ? 0.0f : capital_market::expected_annual_earnings(state, organization));
+	terms.issuer = organization;
+	auto& investors = pool.get(state);
+	capital_market::commit(investors, investor, settlement, own);
+	auto planned = terms.amount > epsilon ? capital_market::total(capital_market::subscriptions(state, investors, terms)) : 0.0f;
+	auto collateral = organization ? profitable_collateral_factory(state, organization) : dcon::factory_id{};
+	if(own + planned + epsilon < minimum_funded_share * required && !collateral) return false;
+
+	dcon::economic_actor_id sponsor = investor;
+	if(founding) {
+		organization = actors::organizations::create_company(state);
+		if(!organization) return false;
+		sponsor = actors::organizations::actor_for_organization(state, organization);
+		auto startup = actor_account(state, sponsor, settlement);
+		if(!startup || !capital_market::pay(state, investor, settlement, wallets::account_ref::from_dcon(startup), own,
+			relations::transaction_kind::equity_contribution)) return false;
+		actors::ownership::assign_runtime_canonical_id(state, investor);
+		if(!actors::ownership::issue_equity(state, actors::organizations::equity_asset_for_organization(state, organization),
+			investor, own, 0.0f)) return false;
+		terms.issuer = organization;
+	}
+	if(!actors::organizations::is_economic_kind(actor_kind(state.world.organization_get_kind(organization)))) return false;
+	auto source = actor_account(state, sponsor, settlement);
+	auto project = capital_projects::create_greenfield_factory(state, sponsor, organization,
+		opportunity.site, opportunity.type, settlement, 0.5f);
+	if(!project || !source) return false;
+
+	float borrowed = 0.0f;
+	if(collateral && own + planned + epsilon < required) {
+		auto credit = economy::banking::underwrite_factory_credit(state, collateral, source, 1,
+			std::min(opportunity.project_budget, required - own - planned),
+			evaluate_for(opportunity, 0.0f).annual_return_on_capital,
+			replacement_value(state, collateral), project);
+		borrowed = credit.funded_amount;
+	}
+	float raised = 0.0f;
+	if(required - own - borrowed > epsilon) {
+		terms.amount = required - own - borrowed;
+		raised = capital_market::raise(state, investors, terms);
+	}
+	auto funded = std::min(required, own + borrowed + raised);
+	auto fraction = funded / required;
+	if(fraction + epsilon < minimum_funded_share) {
+		(void)capital_projects::cancel(state, project);
+		return false;
+	}
+	auto budget = opportunity.project_budget * fraction;
+	if(cash_in_wallet(state, sponsor, settlement, budget) + epsilon < budget
+		|| !capital_projects::fund(state, project, source, std::min(budget, wallets::spendable(state, wallets::account_ref::from_dcon(source))))) {
+		(void)capital_projects::cancel(state, project);
+		return false;
+	}
+	if(fraction + epsilon < 1.0f) scale_greenfield_project(state, project, fraction);
+	return true;
 }
 
 void process_investor(sys::state& state, dcon::economic_actor_id investor,
-	std::vector<project_opportunity> const& greenfield_opportunities) {
-	if(!eligible_investor(state, investor)) return;
-	auto last = state.world.economic_actor_get_industrial_last_decision_date(investor);
-	if(last && state.current_date.to_raw_value() - last.to_raw_value() < investor_review_days) return;
-	auto settlement = physical::exchange::settlement_for_purchase(state, investor);
-	if(!settlement) {
-		state.world.economic_actor_set_industrial_last_decision_date(investor, state.current_date);
-		return;
-	}
-	auto account = wallets::account_for(state, investor, settlement);
-	auto available = wallets::spendable(state, account);
-	if(!account || available <= 1.0f) {
-		state.world.economic_actor_set_industrial_last_decision_date(investor, state.current_date);
-		return;
-	}
-	project_opportunity greenfield{};
-	auto organization = actors::organizations::organization_for_actor(state, investor);
-	auto can_borrow_against_portfolio = organization
-		&& profitable_collateral_factory(state, organization);
-	for(auto const& candidate : greenfield_opportunities) {
-		auto minimum_capital = can_borrow_against_portfolio
-			? candidate.working_capital + candidate.project_budget * 0.05f
-			: candidate.project_budget + candidate.working_capital;
-		if(minimum_capital > available || candidate.score <= greenfield.score) continue;
-		greenfield = candidate;
-		greenfield.settlement = settlement;
-	}
-	auto acquisition = best_acquisition(state, investor, settlement, available);
-	bool acted = false;
-	if(acquisition.score > greenfield.score && acquisition.factory
-		&& acquisition.score > 0.10f && available >= acquisition.price) {
-		acted = execute_acquisition(state, investor, account, settlement, acquisition);
-	} else if(greenfield.site && greenfield.score > 0.10f) {
-		acted = execute_greenfield(state, investor, account, settlement, greenfield);
-	}
-	(void)acted;
+	std::vector<project_opportunity> const& opportunities, std::unordered_set<uint64_t>& occupied, day_pool& pool) {
 	state.world.economic_actor_set_industrial_last_decision_date(investor, state.current_date);
+	auto settlement = capital_market::settlement_of(state, investor);
+	if(!settlement) return;
+	auto nation = capital_market::nation_of(state, investor, settlement);
+	auto own = capital_market::investable_funds(state, investor, settlement);
+	if(!nation || own <= 1.0f) return;
+	auto required_return = capital_market::required_return(state, investor, settlement);
+
+	project_opportunity const* greenfield = nullptr;
+	float greenfield_excess = 0.0f;
+	for(auto const& candidate : opportunities) {
+		if(candidate.nation != nation || occupied.contains(opportunity_key(candidate.province, candidate.type))) continue;
+		auto score = evaluate_for(candidate, required_return);
+		if(score.privately_viable && score.risk_adjusted_private > greenfield_excess) {
+			greenfield = &candidate;
+			greenfield_excess = score.risk_adjusted_private;
+		}
+	}
+	auto purchase = best_plant_offer(state, investor, nation, settlement, own, required_return);
+	if(purchase.factory && purchase.excess_return > 0.0f && purchase.excess_return >= greenfield_excess) {
+		if(execute_purchase(state, investor, settlement, purchase))
+			capital_market::commit(pool.get(state), investor, settlement, purchase.price);
+	} else if(greenfield
+		&& execute_greenfield(state, investor, settlement, own, *greenfield, pool)) {
+		occupied.insert(opportunity_key(greenfield->province, greenfield->type));
+	}
 }
 
 } // namespace
 
+float asking_price_for(sys::state const& state, dcon::factory_id factory) {
+	return asking_price(state, factory);
+}
+
 void process(sys::state& state) {
+	day_pool pool;
 	std::vector<dcon::factory_id> factories;
 	state.world.for_each_factory([&](dcon::factory_id factory) { factories.push_back(factory); });
-	for(auto factory : factories) process_insolvency(state, factory);
+	for(auto factory : factories) process_insolvency(state, factory, pool);
 	std::vector<dcon::economic_actor_id> investors;
 	state.world.for_each_economic_actor([&](dcon::economic_actor_id actor) {
-		if(!eligible_investor(state, actor)) return;
-		auto last = state.world.economic_actor_get_industrial_last_decision_date(actor);
-		if(!last || state.current_date.to_raw_value() - last.to_raw_value() >= investor_review_days)
-			investors.push_back(actor);
+		if(eligible_sponsor(state, actor) && review_due(state, actor)) investors.push_back(actor);
 	});
 	if(investors.empty()) return;
-	auto opportunities = greenfield_opportunities(state);
-	for(auto investor : investors) process_investor(state, investor, opportunities);
+	auto occupied = occupied_opportunities(state);
+	auto opportunities = greenfield_opportunities(state, occupied);
+	for(auto investor : investors) process_investor(state, investor, opportunities, occupied, pool);
 }
 
 } // namespace economy::industrial_dynamics

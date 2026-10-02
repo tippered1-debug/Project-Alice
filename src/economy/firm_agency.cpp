@@ -6,6 +6,7 @@
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/deposits.hpp"
+#include "economy/capital_market.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/investment_ranking.hpp"
 #include "economy/exact_person_economy.hpp"
@@ -25,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <unordered_set>
 
 namespace economy::firm_agency {
@@ -90,20 +92,12 @@ float factory_collateral_value(sys::state const& state, dcon::factory_id factory
 	return std::max(0.0f, capacity * units * finite_nonnegative(price) * 30.0f);
 }
 
-float contribute_and_borrow_for_working_capital(sys::state& state, dcon::factory_id factory,
-	dcon::economic_actor_id firm, dcon::monetary_account_id account, dcon::commodity_id settlement,
-	float shortfall, float expected_annual_return) {
-	if(!account || !settlement || !std::isfinite(shortfall) || shortfall <= epsilon) return 0.0f;
-	auto equity = actors::ownership::contribute_equity_to_factory(state, factory, firm, account, shortfall);
-	if(equity > 0.0f)
-		state.world.factory_set_agency_owner_equity_contributed(factory,
-			state.world.factory_get_agency_owner_equity_contributed(factory) + equity);
-	auto remaining = std::max(0.0f, shortfall - equity);
-	if(remaining > epsilon) {
-		(void)banking::underwrite_factory_credit(state, factory, account, 0, remaining,
-			expected_annual_return, factory_collateral_value(state, factory));
-	}
-	return equity;
+// Working capital is bank credit: owners are never called for cash.
+void borrow_working_capital(sys::state& state, dcon::factory_id factory,
+	dcon::monetary_account_id account, dcon::commodity_id settlement, float shortfall, float expected_annual_return) {
+	if(!account || !settlement || !std::isfinite(shortfall) || shortfall <= epsilon) return;
+	(void)banking::underwrite_factory_credit(state, factory, account, 0, shortfall,
+		expected_annual_return, factory_collateral_value(state, factory));
 }
 
 void finance_working_capital(sys::state& state, dcon::factory_id factory,
@@ -119,8 +113,7 @@ void finance_working_capital(sys::state& state, dcon::factory_id factory,
 		auto account = accounts::find_account(state, firm, settlement);
 		if(!account) account = accounts::open_account(state, firm, settlement);
 		if(!account) return;
-		(void)contribute_and_borrow_for_working_capital(state, factory, firm, account,
-			settlement, shortfall, expected_return);
+		borrow_working_capital(state, factory, account, settlement, shortfall, expected_return);
 		requested = true;
 	};
 	finance_one(decision.procurement_settlement, decision.procurement_funding_shortfall);
@@ -289,6 +282,12 @@ float desired_production(sys::state const& state, dcon::factory_id factory) {
 }
 
 void update_decisions(sys::state& state) {
+	// The day's investors, built only if some plant offers shares.
+	std::optional<capital_market::pool> investor_pool;
+	auto investors = [&]() -> capital_market::pool& {
+		if(!investor_pool) investor_pool = capital_market::build_pool(state);
+		return *investor_pool;
+	};
 	std::unordered_set<uint32_t> serviced_actors;
 	std::unordered_set<uint32_t> defaulted_factories;
 	std::unordered_set<uint32_t> actors_with_unscoped_defaults;
@@ -536,18 +535,30 @@ void update_decisions(sys::state& state) {
 						? operating.expected_payroll_cost / capacity : 0.0f)) * operating.desired_units);
 				auto working_reserve = daily_working_cost * 2.0f;
 				auto own_project_cash = std::max(0.0f, available_cash - working_reserve);
-				auto equity_need = std::max(0.0f, project_budget - own_project_cash);
-				auto owner_equity = actors::ownership::contribute_equity_to_factory(state, factory,
-					owner, funding.account, equity_need);
-				if(owner_equity > 0.0f)
-					state.world.factory_set_agency_owner_equity_contributed(factory,
-						state.world.factory_get_agency_owner_equity_contributed(factory) + owner_equity);
+				// Own cash first, then bank credit, then new shares sold to the
+				// investors of the plant's country who find the expansion worth it.
+				auto external_need = std::max(0.0f, project_budget - own_project_cash);
 				dcon::firm_capital_request_id project_request{};
-				auto loan_need = std::max(0.0f, equity_need - owner_equity);
-				if(loan_need > epsilon) {
+				float borrowed = 0.0f;
+				if(external_need > epsilon) {
 					auto credit = banking::underwrite_factory_credit(state, factory, funding.account, 1,
-						loan_need, score.annual_return_on_capital, factory_collateral_value(state, factory));
+						external_need, score.annual_return_on_capital, factory_collateral_value(state, factory));
 					project_request = credit.request;
+					borrowed = credit.funded_amount;
+				}
+				if(external_need - borrowed > epsilon && firm_organization) {
+					capital_market::offering terms{};
+					terms.issuer = firm_organization;
+					terms.nation = state.world.province_get_nation_from_province_ownership(province);
+					terms.settlement = funding.settlement;
+					terms.amount = external_need - borrowed;
+					terms.pre_money = capital_market::book_value(state, firm_organization);
+					terms.annual_earnings = capital_market::expected_annual_earnings(state, firm_organization)
+						+ score.expected_daily_cashflow * 365.0f;
+					auto raised = capital_market::raise(state, investors(), terms);
+					if(raised > 0.0f)
+						state.world.factory_set_agency_owner_equity_contributed(factory,
+							state.world.factory_get_agency_owner_equity_contributed(factory) + raised);
 				}
 				auto after_funding = std::max(0.0f, accounts::balance(state, funding.account)
 					- physical::concrete_market::reserved_bid_amount(state, funding.account) - working_reserve);

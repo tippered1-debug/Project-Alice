@@ -35,7 +35,7 @@ It fails without change when the payer's deposit or, for an external payment, th
 
 **Market payments.** A buyer whose wallet cannot cover an order funds the bid from their bank deposit, if their bank is not insolvent; the bid reserves against that deposit instead of the wallet. On a fill the seller is paid into their deposit at the buyer's bank, else into a deposit at another bank, else into their operating wallet. Freight is still paid from the buyer's wallet.
 
-**Liquidity policy** (`economy::liquidity`). Each day every actor holding a deposit keeps its free wallet cash near 30% of its free liquid money, withdrawing below 20% and depositing above 40%. A depositor of a bank that is not solvent withdraws everything the bank can pay, so runs and contagion follow from balance sheets rather than scripts. An organization or household with more than 10 of idle cash and no deposit opens one at the solvent bank of its country with the most liquidity. Public treasuries hold base money, and persons bank only through a profile they already hold.
+**Liquidity policy** (`economy::liquidity`). Each day every actor holding a deposit keeps its free wallet cash near 30% of its free liquid money, withdrawing below 20% and depositing above 40%. A depositor of a bank that is not solvent withdraws everything the bank can pay, so runs and contagion follow from balance sheets rather than scripts. An actor with more than 10 of idle cash and no deposit opens one at the solvent bank of its country with the most liquidity. A person without a profile whose wallet holds more than 50 gains one first, so savers bank. Public treasuries hold base money. Deposits are the savings that investors commit to equity; see [Capital allocation](capital-allocation.md).
 
 ## Authoring
 

@@ -24,6 +24,9 @@ dcon::commodity_id payout_settlement(sys::state const&, dcon::organization_id);
 // An organization with no operations, projects, or debts left returns all of
 // its cash to its owners.
 bool winding_up(sys::state const&, dcon::organization_id);
+// Cash a firm keeps for operations: unpaid wages plus `cash_buffer_days` of the
+// recent operating costs of its plants.
+float operating_reserve(sys::state const&, dcon::organization_id);
 // The amount the policy allows this organization to pay now.
 float payable(sys::state const&, dcon::organization_id);
 // Pays `amount` from the organization's payout account to its equity owners in

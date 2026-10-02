@@ -20,7 +20,7 @@ Suspension/cancellation releases open bids and their cash reservations. Paid car
 - `create_military_production` consumes an explicit physical recipe and emits the requested equipment commodity into shared inventory. It creates no people or regiments.
 - Naval requests capture their unit type and nation and create a ship once, after physical consumption.
 
-Existing province-building and naval command queues are request/UI facades backed by saved project bindings. Public project funding passes through real treasury accounts and `authorized_spend_by_institution`; fiscal authority is required. Older factory upgrades with an existing operator can use that operator's real account. Existing canonical firm systems continue to author greenfield factories and expansion projects.
+Existing province-building and naval command queues are request/UI facades backed by saved project bindings. Public project funding passes through real treasury accounts and `authorized_spend_by_institution`; fiscal authority is required. Older factory upgrades with an existing operator can use that operator's real account. Greenfield factories and expansion projects come from the sponsors described in [Capital allocation](../architecture/capital-allocation.md); a project returns its unspent budget to its sponsor when it completes or is cancelled.
 
 The aggregate `construction.cpp` engine, demand accumulation, purchased-goods advancement, POP/private budgets, hypothetical construction demand, and synthetic foreign-investment credit are removed. `purchased_goods`, `construction_demand`, and `private_construction_demand` are one-way UI projections. Progress queries and factory enumeration read projects. Instant-build cannot fill synthetic stock.
 

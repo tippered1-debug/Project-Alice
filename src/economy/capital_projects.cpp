@@ -11,6 +11,7 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/exchange.hpp"
+#include "economy/wallets.hpp"
 #include "governance/finance/finance.hpp"
 #include "world/site.hpp"
 #include "world/spatial_runtime.hpp"
@@ -217,6 +218,18 @@ void release_bids(sys::state& s, dcon::capital_project_id p) {
 		}
 	});
 }
+// A finished or abandoned project hands what is left of its budget back to its
+// sponsor's own ledger: a project account is earmarked cash, never a sink.
+void close_account(sys::state& s, dcon::capital_project_id p) {
+	auto account = s.world.capital_project_get_monetary_account_from_capital_project_account(p);
+	if(!account) return;
+	auto left = accounts::balance(s, account) - physical::concrete_market::reserved_bid_amount(s, account);
+	if(!std::isfinite(left) || left <= 0.0f) return;
+	auto destination = wallets::open_for(s, sponsor(s, p), accounts::settlement_of(s, account));
+	if(!destination || destination == wallets::account_ref::from_dcon(account)) return;
+	(void)wallets::pay(s, wallets::account_ref::from_dcon(account), destination, left,
+		relations::transaction_kind::transfer);
+}
 }
 
 bool suspend(sys::state& s, dcon::capital_project_id p) { if(!valid(s,p) || s.world.capital_project_get_status(p) >= uint8_t(status::completed)) return false; release_bids(s, p); s.world.capital_project_set_status(p,uint8_t(status::suspended)); return true; }
@@ -232,7 +245,13 @@ bool is_construction_site(sys::state const& s, dcon::site_id yard) {
 	});
 	return result;
 }
-bool cancel(sys::state& s, dcon::capital_project_id p) { if(!valid(s,p) || s.world.capital_project_get_status(p) == uint8_t(status::completed)) return false; release_bids(s, p); s.world.capital_project_set_status(p,uint8_t(status::cancelled)); return true; }
+bool cancel(sys::state& s, dcon::capital_project_id p) {
+	if(!valid(s,p) || s.world.capital_project_get_status(p) == uint8_t(status::completed)) return false;
+	release_bids(s, p);
+	close_account(s, p);
+	s.world.capital_project_set_status(p,uint8_t(status::cancelled));
+	return true;
+}
 
 bool complete(sys::state& s, dcon::capital_project_id p) {
 	if(!valid(s,p) || !requirements_satisfied(s,p) || s.world.capital_project_get_status(p) == uint8_t(status::suspended)
@@ -369,6 +388,7 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 	}
 	else return false;
 	release_bids(s, p);
+	close_account(s, p);
 	s.world.capital_project_set_status(p,uint8_t(status::completed));
 	s.world.capital_project_set_completed_on(p,s.current_date);
 	s.world.capital_project_set_progress(p,1.0f);

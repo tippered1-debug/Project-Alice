@@ -22,6 +22,7 @@
 #include "economy/dividends.cpp"
 #include "economy/estates.cpp"
 #include "economy/liquidity.cpp"
+#include "economy/capital_market.cpp"
 #include "economy/physical/inventory.cpp"
 #include "economy/physical/shipments.cpp"
 #include "economy/physical/freight_market.cpp"

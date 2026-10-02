@@ -68,6 +68,17 @@ bool winding_up(sys::state const& state, dcon::organization_id organization) {
 	return !busy;
 }
 
+float operating_reserve(sys::state const& state, dcon::organization_id organization) {
+	float daily_costs = 0.0f;
+	float unpaid_wages = 0.0f;
+	for(auto factory : actors::organizations::factories_operated_by(state, organization)) {
+		daily_costs += std::max(0.0f, state.world.factory_get_agency_recent_costs(factory));
+		unpaid_wages += std::max(0.0f, economy::exact_person_economy::unpaid_wages_for_factory(state, factory));
+	}
+	auto result = unpaid_wages + cash_buffer_days * daily_costs;
+	return std::isfinite(result) ? result : 0.0f;
+}
+
 float payable(sys::state const& state, dcon::organization_id organization) {
 	if(!organization || !state.world.organization_is_valid(organization)
 		|| economy::households::is_household(state, organization)) return 0.0f;
@@ -88,13 +99,7 @@ float payable(sys::state const& state, dcon::organization_id organization) {
 		return std::isfinite(result) ? std::max(0.0f, result) : 0.0f;
 	}
 	if(winding_up(state, organization)) return cash;
-	float daily_costs = 0.0f;
-	float unpaid_wages = 0.0f;
-	for(auto factory : actors::organizations::factories_operated_by(state, organization)) {
-		daily_costs += std::max(0.0f, state.world.factory_get_agency_recent_costs(factory));
-		unpaid_wages += std::max(0.0f, economy::exact_person_economy::unpaid_wages_for_factory(state, factory));
-	}
-	auto free = cash - unpaid_wages - cash_buffer_days * daily_costs;
+	auto free = cash - operating_reserve(state, organization);
 	auto result = std::min(payout_ratio * retained, free);
 	return std::isfinite(result) ? std::max(0.0f, result) : 0.0f;
 }

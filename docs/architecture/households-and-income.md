@@ -32,7 +32,7 @@ Every actor holds cash in one ledger per settlement (`economy::wallets`): a pers
 
 - **Dividends** (`economy::dividends`): every 30 days, staggered, a firm pays half its positive retained earnings, limited to cash above 90 days of recent operating costs and unpaid wages. A firm with no plants, deposits, projects, or active debts returns all of its cash, first as earnings and then as paid-in capital. A bank pays from reserves only while solvent, with its capital ratio kept 2 points above its minimum and liquidity at its requirement. Payouts go to equity owners by economic fraction: companies, banks, governments, households, and persons.
 - **Rent**: tenants pay land owners in cash every 30 days and in kind at harvest.
-- **Owner contributions and investment**: owners recapitalize firms and found companies from their own ledger.
+- **Investment**: owners are never called for cash. Savers buy new shares when a firm's expected earnings beat their required return, and persons found companies from their own savings. See [Capital allocation](capital-allocation.md).
 - **Public contractors** are owned by the commissioning government.
 - **Closed plants** keep their goods as the operator's property.
 - **Savings** sit in bank deposits under the liquidity policy and return to wallets as needed; deposits also pay market purchases directly. See [Banking](banking.md).

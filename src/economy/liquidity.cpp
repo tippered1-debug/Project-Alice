@@ -8,6 +8,7 @@
 #include "economy/households.hpp"
 #include "economy/wallets.hpp"
 #include "economy/physical/concrete_market.hpp"
+#include "persons/exact_population.hpp"
 #include "persons/persons.hpp"
 
 #include <algorithm>
@@ -115,7 +116,6 @@ void manage(sys::state& state, dcon::economic_actor_id actor, dcon::commodity_id
 		return;
 	}
 	if(cash <= minimum_idle_cash) return;
-	// Persons bank only through a profile they already hold.
 	auto bank = bank_for(state, nation_for(state, actor), settlement);
 	if(!bank) return;
 	actors::ownership::assign_runtime_canonical_id(state, actor);
@@ -123,7 +123,20 @@ void manage(sys::state& state, dcon::economic_actor_id actor, dcon::commodity_id
 	if(opened) (void)economy::banking::deposit_cash(state, opened, wallet, (1.0f - cash_share_target) * cash, state.current_date);
 }
 
+void recognize_savers(sys::state& state) {
+	if(!state.exact_population || !state.exact_person_economy) return;
+	for(auto key : economy::exact_person_economy::account_owners(state)) {
+		if(persons::exact_population::profile_for_person(state, key)
+			|| !persons::exact_population::alive(state, key)) continue;
+		float cash = 0.0f;
+		for(auto account : economy::exact_person_economy::accounts_for_person(state, key))
+			cash += economy::wallets::spendable(state, account);
+		if(cash > saver_cash_threshold) (void)persons::materialize_profile(state, key);
+	}
+}
+
 void process(sys::state& state) {
+	recognize_savers(state);
 	std::vector<dcon::economic_actor_id> actors;
 	state.world.for_each_economic_actor([&](dcon::economic_actor_id actor) {
 		// Banks are the depositories, and public treasuries hold base money.
