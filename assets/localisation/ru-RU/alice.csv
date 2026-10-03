@@ -1585,3 +1585,5 @@ alice_aot_producer_debt;Долг производителей: $x$
 alice_aot_unfunded_credit;Непокрытый убыток производителей сегодня: $x$
 alice_aot_credit_employment;Масштаб занятости с учётом кредита: $x$
 alice_trade_actual_quantity;Запрошено: ?Y$x$?W; отправлено: ?G$y$?W
+alice_government_coalition;Правящих партий: $X$ · мест $VAL$
+alice_government_without_parties;Беспартийное правительство

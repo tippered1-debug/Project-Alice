@@ -103,8 +103,6 @@ struct miniature {
 		economy::physical::exact_person_freight::initialize_empty_store(*state);
 		economy::physical::labor_dynamics::initialize_empty_store(*state);
 		nations::strategic_statecraft::initialize(*state);
-		state->transformation_government_state.resize(state->world.nation_size());
-		state->transformation_legislation_state.resize(state->world.nation_size());
 		add_equipment(reverse_authoring);
 		add_templates_and_equipment(reverse_authoring);
 		add_formations(reverse_authoring);

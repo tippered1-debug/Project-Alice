@@ -1,6 +1,5 @@
 #include "parsers_declarations.hpp"
 #include "system_state.hpp"
-#include "rebels.hpp"
 #include "fonts.hpp"
 #include "demographics.hpp"
 #include "military_templates.hpp"

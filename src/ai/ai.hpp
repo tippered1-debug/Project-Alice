@@ -13,7 +13,6 @@ struct ai_path_length {
 };
 
 void take_ai_decisions(sys::state& state);
-void take_reforms(sys::state& state);
 void remove_ai_data(sys::state& state, dcon::nation_id n);
 void update_ships(sys::state& state);
 void refresh_home_ports(sys::state& state);

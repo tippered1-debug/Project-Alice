@@ -5,7 +5,6 @@
 #include "politics.hpp"
 #include "prng.hpp"
 #include "province_templates.hpp"
-#include "rebels.hpp"
 #include "triggers.hpp"
 #include "script_constants.hpp"
 #include "nations.hpp"
@@ -3543,20 +3542,12 @@ uint32_t ef_university_state(EFFECT_PARAMTERS) {
 }
 
 uint32_t ef_trigger_revolt_nation(EFFECT_PARAMTERS) {
-	rebel::trigger_revolt(ws, trigger::to_nation(primary_slot), trigger::payload(tval[1]).reb_id, trigger::payload(tval[4]).ideo_id,
-			trigger::payload(tval[2]).cul_id, trigger::payload(tval[3]).rel_id);
 	return 0;
 }
 uint32_t ef_trigger_revolt_state(EFFECT_PARAMTERS) {
-	if(auto owner = ws.world.state_instance_get_nation_from_state_ownership(trigger::to_state(primary_slot)); owner)
-		rebel::trigger_revolt(ws, owner, trigger::payload(tval[1]).reb_id, trigger::payload(tval[4]).ideo_id,
-				trigger::payload(tval[2]).cul_id, trigger::payload(tval[3]).rel_id);
 	return 0;
 }
 uint32_t ef_trigger_revolt_province(EFFECT_PARAMTERS) {
-	if(auto owner = ws.world.province_get_nation_from_province_ownership(trigger::to_prov(primary_slot)); owner)
-		rebel::trigger_revolt(ws, owner, trigger::payload(tval[1]).reb_id, trigger::payload(tval[4]).ideo_id,
-				trigger::payload(tval[2]).cul_id, trigger::payload(tval[3]).rel_id);
 	return 0;
 }
 uint32_t ef_diplomatic_influence(EFFECT_PARAMTERS) {

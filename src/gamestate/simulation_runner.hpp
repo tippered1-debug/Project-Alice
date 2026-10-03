@@ -1,6 +1,5 @@
 #pragma once
 
-#include "culture/transformation_politics.hpp"
 // The synthetic lab sizes dcon arrays directly, so this header needs the
 // economy declarations in its own right rather than through whichever
 // translation unit happens to include it.
@@ -63,10 +62,6 @@ enum class invariant_field : uint8_t {
 	market_gdp,
 	factory_profit,
 	control_ratio,
-	legitimacy,
-	coalition_power,
-	government_stability,
-	government_confidence,
 	banking_health,
 	credit_rate,
 	trade_route_volume,
@@ -100,10 +95,6 @@ inline constexpr std::string_view invariant_field_name(invariant_field field) no
 	case invariant_field::market_gdp: return "market_gdp";
 	case invariant_field::factory_profit: return "factory_profit";
 	case invariant_field::control_ratio: return "control_ratio";
-	case invariant_field::legitimacy: return "legitimacy";
-	case invariant_field::coalition_power: return "coalition_power";
-	case invariant_field::government_stability: return "government_stability";
-	case invariant_field::government_confidence: return "government_confidence";
 	case invariant_field::banking_health: return "banking_health";
 	case invariant_field::credit_rate: return "credit_rate";
 	case invariant_field::trade_route_volume: return "trade_route_volume";
@@ -188,12 +179,6 @@ struct aggregate_snapshot {
 	uint64_t foreign_controlled_province_count = 0;
 	uint64_t rebel_controlled_province_count = 0;
 	uint64_t uncontrolled_owned_province_count = 0;
-	uint64_t transformed_nation_count = 0;
-	uint64_t stable_government_count = 0;
-	uint64_t contested_government_count = 0;
-	uint64_t fragile_government_count = 0;
-	uint64_t government_turnover_count = 0;
-	uint64_t cabinet_member_count = 0;
 	uint64_t trade_route_count = 0;
 
 	// Endogenous consumer-price inflation. The legacy balance-decay factor is
@@ -243,13 +228,6 @@ struct aggregate_snapshot {
 	double factory_profit = 0.0;
 	double control_ratio_sum = 0.0;
 	double minimum_control_ratio = 0.0;
-	double legitimacy_sum = 0.0;
-	double minimum_legitimacy = 0.0;
-	double coalition_power_sum = 0.0;
-	double government_stability_sum = 0.0;
-	double minimum_government_stability = 0.0;
-	double cabinet_confidence_sum = 0.0;
-	double minimum_cabinet_confidence = 0.0;
 	double industry_value = 0.0;
 	double industry_turnover = 0.0;
 	double trade_route_cargo = 0.0;
@@ -318,13 +296,6 @@ struct aggregate_snapshot {
 	double tracked_nation_inflation = 0.0;
 	double tracked_nation_real_wage_sum = 0.0;
 	uint64_t tracked_nation_market_count = 0;
-	double tracked_nation_legitimacy = 0.0;
-	double tracked_nation_coalition_power = 0.0;
-	double tracked_nation_government_stability = 0.0;
-	double tracked_nation_minimum_cabinet_confidence = 0.0;
-	int32_t tracked_nation_government_established_on = 0;
-	uint64_t tracked_nation_government_groups = 0;
-	bool tracked_nation_government_changed = false;
 
 	invariant_counts observed_violations{};
 };
@@ -727,85 +698,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		}
 	});
 
-	bool has_legitimacy = false;
-	bool has_government = false;
-	bool has_cabinet_member = false;
-	if(state.transformation_politics_cache_valid
-		&& state.transformation_politics_cache.size() == state.world.nation_size()) {
-		for(std::size_t index = 0; index < state.transformation_politics_cache.size(); ++index) {
-			auto const& political = state.transformation_politics_cache[index];
-			if(!political.enabled)
-				continue;
-			++result.transformed_nation_count;
-			if(detail::observe_nonnegative(result.observed_violations, invariant_field::legitimacy,
-					int32_t(index), -1, political.legitimacy.total, 100.0f)) {
-				result.legitimacy_sum += double(political.legitimacy.total);
-				if(!has_legitimacy || political.legitimacy.total < result.minimum_legitimacy)
-					result.minimum_legitimacy = political.legitimacy.total;
-				has_legitimacy = true;
-			}
-			if(detail::observe_nonnegative(result.observed_violations, invariant_field::coalition_power,
-					int32_t(index), -1, political.coalition.power_share, 1.0f)) {
-				result.coalition_power_sum += double(political.coalition.power_share);
-			}
-			if(detail::observe_nonnegative(result.observed_violations, invariant_field::government_stability,
-					int32_t(index), -1, political.government.stability, 1.0f)) {
-				result.government_stability_sum += double(political.government.stability);
-				if(!has_government || political.government.stability < result.minimum_government_stability)
-					result.minimum_government_stability = political.government.stability;
-				has_government = true;
-			}
-			if(!political.coalition.has_working_majority
-				|| political.government.stability < 0.45f
-				|| political.legitimacy.total < 35.0f) {
-				++result.fragile_government_count;
-			} else if(political.government.stability < 0.62f
-				|| political.legitimacy.total < 55.0f) {
-				++result.contested_government_count;
-			} else {
-				++result.stable_government_count;
-			}
-			if(political.government.changed_this_refresh)
-				++result.government_turnover_count;
-
-			double nation_minimum_confidence = 0.0;
-			bool nation_has_cabinet_member = false;
-			for(std::size_t group = 0;
-					group < politics::transformation::interest_group_count; ++group) {
-				auto const bit = politics::transformation::group_bit(
-					politics::transformation::interest_group_id(group));
-				if((political.government.groups & bit) == 0)
-					continue;
-				auto const confidence = political.government.confidence[group];
-				if(detail::observe_nonnegative(result.observed_violations,
-						invariant_field::government_confidence, int32_t(index), int32_t(group),
-						confidence, 1.0f)) {
-					++result.cabinet_member_count;
-					result.cabinet_confidence_sum += double(confidence);
-					if(!has_cabinet_member || confidence < result.minimum_cabinet_confidence)
-						result.minimum_cabinet_confidence = confidence;
-					if(!nation_has_cabinet_member || confidence < nation_minimum_confidence)
-						nation_minimum_confidence = confidence;
-					has_cabinet_member = true;
-					nation_has_cabinet_member = true;
-				}
-			}
-
-			if(tracked_nation && std::size_t(tracked_nation.index()) == index) {
-				result.tracked_nation_legitimacy = political.legitimacy.total;
-				result.tracked_nation_coalition_power = political.coalition.power_share;
-				result.tracked_nation_government_stability = political.government.stability;
-				result.tracked_nation_minimum_cabinet_confidence = nation_minimum_confidence;
-				result.tracked_nation_government_established_on =
-					political.government.established_on;
-				result.tracked_nation_government_groups =
-					uint64_t(political.government.groups);
-				result.tracked_nation_government_changed =
-					political.government.changed_this_refresh;
-			}
-		}
-	}
-
 	auto const shipment_allocation = economy::world_trade::clear_trade_shipments(state);
 	state.world.for_each_market([&](dcon::market_id market) {
 		result.trade_land_capacity_demand += double(shipment_allocation.requested_capacity(
@@ -983,13 +875,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	}
 	validate_aggregate(snapshot.control_ratio_sum);
 	validate_aggregate(snapshot.minimum_control_ratio);
-	validate_aggregate(snapshot.legitimacy_sum);
-	validate_aggregate(snapshot.minimum_legitimacy);
-	validate_aggregate(snapshot.coalition_power_sum);
-	validate_aggregate(snapshot.government_stability_sum);
-	validate_aggregate(snapshot.minimum_government_stability);
-	validate_aggregate(snapshot.cabinet_confidence_sum);
-	validate_aggregate(snapshot.minimum_cabinet_confidence);
 	validate_aggregate(snapshot.industry_value);
 	validate_aggregate(snapshot.industry_turnover);
 	validate_aggregate(snapshot.trade_route_cargo);
@@ -1031,10 +916,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.population_weighted_human_development);
 	validate_aggregate(snapshot.gross_internal_migration);
 	validate_aggregate(snapshot.gross_international_migration);
-	validate_aggregate(snapshot.tracked_nation_legitimacy);
-	validate_aggregate(snapshot.tracked_nation_coalition_power);
-	validate_aggregate(snapshot.tracked_nation_government_stability);
-	validate_aggregate(snapshot.tracked_nation_minimum_cabinet_confidence);
 	validate_aggregate(snapshot.tracked_nation_consumer_price_index);
 	validate_aggregate(snapshot.tracked_nation_real_wage_sum);
 	if(!std::isfinite(snapshot.tracked_nation_inflation)) {
@@ -1075,12 +956,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< snapshot.uncontrolled_owned_province_count
 		<< ",\"markets\":" << snapshot.market_count
 		<< ",\"nations\":" << snapshot.nation_count
-		<< ",\"transformed_nations\":" << snapshot.transformed_nation_count
-		<< ",\"stable_governments\":" << snapshot.stable_government_count
-		<< ",\"contested_governments\":" << snapshot.contested_government_count
-		<< ",\"fragile_governments\":" << snapshot.fragile_government_count
-		<< ",\"government_turnovers\":" << snapshot.government_turnover_count
-		<< ",\"cabinet_members\":" << snapshot.cabinet_member_count
 		<< ",\"factories\":" << snapshot.factory_count
 		<< ",\"unprofitable_factories\":" << snapshot.unprofitable_factory_count
 		<< ",\"trade_routes\":" << snapshot.trade_route_count
@@ -1135,17 +1010,7 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"machine_parts_buy_probability\":" << snapshot.tracked_nation_machine_parts_buy_probability
 		<< ",\"consumer_price_index\":" << snapshot.tracked_nation_consumer_price_index
 		<< ",\"inflation\":" << snapshot.tracked_nation_inflation
-		<< ",\"real_wage_sum\":" << snapshot.tracked_nation_real_wage_sum
-		<< ",\"legitimacy\":" << snapshot.tracked_nation_legitimacy
-		<< ",\"coalition_power\":" << snapshot.tracked_nation_coalition_power
-		<< ",\"government_stability\":" << snapshot.tracked_nation_government_stability
-		<< ",\"minimum_cabinet_confidence\":"
-		<< snapshot.tracked_nation_minimum_cabinet_confidence
-		<< ",\"government_established_on\":"
-		<< snapshot.tracked_nation_government_established_on
-		<< ",\"government_groups\":" << snapshot.tracked_nation_government_groups
-		<< ",\"government_changed\":"
-		<< (snapshot.tracked_nation_government_changed ? "true" : "false") << "}"
+		<< ",\"real_wage_sum\":" << snapshot.tracked_nation_real_wage_sum << "}"
 		<< ",\"living_standards\":{\"life_needs_population_sum\":"
 		<< snapshot.population_weighted_life_needs
 		<< ",\"everyday_needs_population_sum\":"
@@ -1187,15 +1052,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"depot_stockpile\":" << snapshot.depot_stockpile << "}"
 		<< ",\"administration\":{\"control_ratio_sum\":" << snapshot.control_ratio_sum
 		<< ",\"minimum_control_ratio\":" << snapshot.minimum_control_ratio << "}"
-		<< ",\"politics\":{\"legitimacy_sum\":" << snapshot.legitimacy_sum
-		<< ",\"minimum_legitimacy\":" << snapshot.minimum_legitimacy
-		<< ",\"coalition_power_sum\":" << snapshot.coalition_power_sum
-		<< ",\"government_stability_sum\":" << snapshot.government_stability_sum
-		<< ",\"minimum_government_stability\":"
-		<< snapshot.minimum_government_stability
-		<< ",\"cabinet_confidence_sum\":" << snapshot.cabinet_confidence_sum
-		<< ",\"minimum_cabinet_confidence\":"
-		<< snapshot.minimum_cabinet_confidence << "}"
 		<< ",\"trade\":{\"cargo\":" << snapshot.trade_route_cargo
 		<< ",\"effective_capacity\":" << snapshot.trade_effective_capacity
 		<< ",\"congestion_sum\":" << snapshot.trade_congestion_sum
@@ -1495,7 +1351,6 @@ struct synthetic_lab_result {
 		province, economy::pop_labor::primary_no_education, 1.0f);
 
 	state.world.nation_set_stockpiles(nation, money, 1'000'000.0f);
-	politics::transformation::refresh_all_nations(state);
 	// The lab bypasses scenario loading, so seed the money-supply baseline the
 	// same way a loaded save does. Without it the first observed day would be
 	// reported as if the entire supply had appeared from nowhere.
@@ -1513,9 +1368,6 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 		SinkFunction&& sink_function) {
 	run_result result{};
 	auto emit_snapshot = [&](uint64_t tick) {
-		if(!state.transformation_politics_cache_valid || state.transformation_politics_cache.size() != state.world.nation_size()) {
-			politics::transformation::refresh_all_nations(state);
-		}
 		auto snapshot = collect_snapshot(state, tick, options.tracked_nation);
 		result.last_validation = validate_snapshot(snapshot);
 		auto line = serialize_jsonl(snapshot, result.last_validation);
@@ -1627,8 +1479,6 @@ run_result run_ticks_with(sys::state& state, run_options const& options, TickFun
 				owner_account, -transfer_amount, economy::relations::transaction_kind::other,
 				target.current_date);
 		if(!transferred || !economy::exact_person_economy::project_population_cash_balances(target)) std::abort();
-		if(day % 30 == 0)
-			politics::transformation::refresh_all_nations(target);
 	};
 	if(sink)
 		return detail::run_ticks_with(state, options, tick, sink);

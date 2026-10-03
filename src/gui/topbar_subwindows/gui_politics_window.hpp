@@ -13,7 +13,9 @@
 #include "politics.hpp"
 #include "system_state.hpp"
 #include "text.hpp"
-#include "transformation_politics.hpp"
+#include "governance/governance.hpp"
+#include "governance/government.hpp"
+#include "governance/legislature.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -52,7 +54,7 @@ public:
 };
 
 
-enum class politics_window_tab : uint8_t { reforms = 0x0, movements = 0x1, decisions = 0x2, releasables = 0x3 };
+enum class politics_window_tab : uint8_t { decisions = 0x2, releasables = 0x3 };
 
 enum class politics_issue_sort_order : uint8_t { name, popular_support, voter_support };
 
@@ -157,13 +159,6 @@ class issue_option_text : public simple_text_element_base {
 		auto option = retrieve<dcon::issue_option_id>(state, parent);
 		set_text(state, text::produce_simple_string(state, state.world.issue_option_get_name(option)));
 	}
-	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
-		return tooltip_behavior::variable_tooltip;
-	}
-	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
-		auto option = retrieve<dcon::issue_option_id>(state, parent);
-		reform_description(state, contents, option);
-	}
 };
 
 class politics_party_issue_entry : public listbox_row_element_base<dcon::issue_option_id> {
@@ -250,13 +245,6 @@ public:
 			text::close_layout_box(contents, box);
 		}
 
-		/*
-		* We do not need to list party issues with full descriptions here since they are displayed literally below the party name with separate working tooltips.
-		for(auto pi : state.culture_definitions.party_issues) {
-			reform_description(state, contents, state.world.political_party_get_party_issues(party, pi));
-			text::add_line_break_to_layout(state, contents);
-		}
-		*/
 
 		auto cond_0 = (state.current_date >= state.world.political_party_get_start_date(party)) && (state.current_date <= state.world.political_party_get_end_date(party));
 		if(state.world.political_party_get_trigger(party)) {
@@ -378,10 +366,6 @@ public:
 			text::add_to_layout_box(state, contents, box, std::string_view{ ")" });
 			text::close_layout_box(contents, box);
 		}
-		for(auto pi : state.culture_definitions.party_issues) {
-			reform_description(state, contents, ruling_party.get_party_issues(pi));
-			text::add_line_break_to_layout(state, contents);
-		}
 	}
 };
 
@@ -416,180 +400,56 @@ public:
 };
 
 class nation_government_description_text : public generic_multiline_text<dcon::nation_id> {
-	static constexpr std::array<std::string_view, politics::transformation::interest_group_count> group_keys{{
-		"alice_aot_group_landed_elites",
-		"alice_aot_group_industrialists",
-		"alice_aot_group_intelligentsia",
-		"alice_aot_group_organized_labor",
-		"alice_aot_group_rural_communities",
-		"alice_aot_group_state_services",
-	}};
-
-	static std::string_view bill_stage_key(politics::transformation::legislation_stage stage) noexcept {
-		return transformation_bill_stage_key(stage);
-	}
-
-	static std::string bill_name(sys::state& state,
-		politics::transformation::legislation_state const& bill) {
-		return bill.target == politics::transformation::legislation_target::reform
-			? text::get_name_as_string(state, dcon::fatten(state.world, bill.reform))
-			: text::get_name_as_string(state, dcon::fatten(state.world, bill.option));
-	}
-
 public:
 	void populate_layout(sys::state& state, text::endless_layout& contents, dcon::nation_id nation_id) noexcept override {
-		// This GUI field is only three lines high in the vanilla interface. Keep
-		// the operational state visible here and move the full diagnosis to hover.
+		// The elected chambers set the electoral calendar; the governing parties'
+		// seats are counted in the chamber whose confidence the government needs,
+		// else in the first elected chamber.
+		dcon::institution_id elected;
+		bool has_election = false;
+		sys::date next_election{};
+		for(auto institution : governance::institutions_of(state, nation_id)) {
+			if(!governance::legislature::is_chamber(state, institution)
+				|| state.world.institution_get_electoral_system(institution) == 0)
+				continue;
+			if(!elected)
+				elected = institution;
+			auto const when = state.world.institution_get_next_election(institution);
+			if(!has_election || when < next_election)
+				next_election = when;
+			has_election = true;
+		}
 		{
 			auto box = text::open_layout_box(contents);
-			if(politics::can_appoint_ruling_party(state, nation_id))
-				text::localised_format_box(state, contents, box, std::string_view("can_appoint_ruling_party"));
-			if(politics::can_appoint_ruling_party(state, nation_id))
-				text::add_to_layout_box(state, contents, box, std::string_view(" · "));
-			if(!politics::has_elections(state, nation_id)) {
+			if(!has_election) {
 				text::localised_format_box(state, contents, box, std::string_view("term_for_life"));
-			} else if(politics::is_election_ongoing(state, nation_id)) {
-				text::localised_format_box(state, contents, box, std::string_view("election_info_in_gov"));
 			} else {
 				text::localised_format_box(state, contents, box, std::string_view("next_election"));
 				text::add_to_layout_box(state, contents, box, std::string_view(": "));
-				text::add_to_layout_box(state, contents, box,
-					text::date_to_string(state, politics::next_election_date(state, nation_id)));
+				text::add_to_layout_box(state, contents, box, text::date_to_string(state, next_election));
 			}
 			text::close_layout_box(contents, box);
 		}
 
-		auto const* transformation = politics::transformation::cached_nation_result(state, nation_id);
-		if(!transformation || !transformation->enabled) std::abort();
-
-		{
-			text::substitution_map sub;
-			text::add_to_substitution_map(sub, text::variable_type::x,
-				text::fp_one_place{transformation->legitimacy.total});
-			text::add_to_substitution_map(sub, text::variable_type::y,
-				text::fp_percentage{transformation->government.stability});
-			text::add_to_substitution_map(sub, text::variable_type::val,
-				text::fp_percentage{transformation->coalition.power_share});
-			auto box = text::open_layout_box(contents);
-			text::localised_format_box(state, contents, box, "alice_aot_government_compact", sub);
-			text::close_layout_box(contents, box);
-		}
-
-		if(auto const* bill = politics::transformation::active_bill(state, nation_id)) {
-			text::substitution_map sub;
-			auto const name = bill_name(state, *bill);
-			auto const stage = text::produce_simple_string(state, bill_stage_key(bill->stage));
-			text::add_to_substitution_map(sub, text::variable_type::x, std::string_view{name});
-			text::add_to_substitution_map(sub, text::variable_type::y, std::string_view{stage});
-			text::add_to_substitution_map(sub, text::variable_type::days,
-				int64_t(bill->stage_days));
-			text::add_to_substitution_map(sub, text::variable_type::val,
-				text::fp_percentage{
-					bill->stage == politics::transformation::legislation_stage::implementation
-						? bill->execution : bill->mandate});
-			auto box = text::open_layout_box(contents);
-			text::localised_format_box(state, contents, box, "alice_aot_bill_compact", sub);
-			text::close_layout_box(contents, box);
-		} else {
-			text::add_line(state, contents, "alice_aot_no_active_bill");
-		}
-	}
-
-	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
-		return tooltip_behavior::variable_tooltip;
-	}
-
-	void update_tooltip(sys::state& state, int32_t, int32_t,
-		text::columnar_layout& contents) noexcept override {
-		auto const nation_id = retrieve<dcon::nation_id>(state, parent);
-		auto const* transformation = politics::transformation::cached_nation_result(state, nation_id);
-		if(!transformation || !transformation->enabled)
+		auto chamber = governance::government::confidence_chamber(state, nation_id);
+		if(!chamber)
+			chamber = elected;
+		auto const parties = governance::government::coalition(state, nation_id);
+		if(parties.empty() || !chamber) {
+			text::add_line(state, contents, "alice_government_without_parties");
 			return;
-
-		text::add_line(state, contents, "alice_aot_government_header");
-		text::add_line(state, contents, "alice_aot_legitimacy", text::variable_type::x,
-			text::format_float(transformation->legitimacy.total, 1));
-		if(transformation->interest_groups.represented_population > 0.0f) {
-			auto const electorate_share = std::clamp(
-				transformation->interest_groups.electorate_population
-					/ transformation->interest_groups.represented_population, 0.0f, 1.0f);
-			text::add_line(state, contents, "alice_aot_electoral_reach", text::variable_type::x,
-				text::format_percentage(electorate_share, 1));
 		}
-
-		std::string coalition;
-		for(std::size_t index = 0; index < group_keys.size(); ++index) {
-			auto const id = politics::transformation::interest_group_id(index);
-			if((transformation->coalition.groups & politics::transformation::group_bit(id)) == 0)
-				continue;
-			if(!coalition.empty()) coalition += ", ";
-			coalition += text::produce_simple_string(state, group_keys[index]);
-		}
-		if(coalition.empty()) coalition = text::produce_simple_string(state, "alice_aot_no_coalition");
-		text::add_line(state, contents, "alice_aot_coalition", text::variable_type::x, coalition);
-		text::add_line(state, contents, "alice_aot_coalition_power", text::variable_type::x,
-			text::format_percentage(transformation->coalition.power_share, 1));
-		text::add_line(state, contents, "alice_aot_government_stability", text::variable_type::x,
-			text::format_percentage(transformation->government.stability, 1));
-		text::add_line(state, contents, "alice_aot_party_mandate", text::variable_type::x,
-			text::format_percentage(transformation->government.party_mandate, 1));
-
-		if(auto const* bill = politics::transformation::active_bill(state, nation_id)) {
-			text::add_line_break_to_layout(state, contents);
-			text::add_line(state, contents, "alice_aot_bill_summary", text::variable_type::x,
-				bill_name(state, *bill));
-			text::add_line(state, contents, "alice_aot_bill_stage", text::variable_type::x,
-				text::produce_simple_string(state, bill_stage_key(bill->stage)));
-			text::add_line(state, contents, "alice_aot_bill_party_support", text::variable_type::x,
-				text::format_percentage(bill->party_support, 1));
-			transformation_bill_progress_description(state, contents, nation_id);
-		}
-
-		std::string_view outlook = "alice_aot_cabinet_outlook_stable";
-		std::string_view reason = "alice_aot_cabinet_reason_secure";
-		if(!transformation->coalition.has_working_majority) {
-			outlook = "alice_aot_cabinet_outlook_fragile";
-			reason = "alice_aot_cabinet_reason_no_majority";
-		} else if(transformation->government.stability < 0.45f) {
-			outlook = "alice_aot_cabinet_outlook_fragile";
-			reason = "alice_aot_cabinet_reason_low_confidence";
-		} else if(transformation->government.party_mandate < 0.25f) {
-			outlook = "alice_aot_cabinet_outlook_fragile";
-			reason = "alice_aot_cabinet_reason_low_party_mandate";
-		} else if(transformation->legitimacy.total < 35.0f) {
-			outlook = "alice_aot_cabinet_outlook_fragile";
-			reason = "alice_aot_cabinet_reason_low_legitimacy";
-		} else if(transformation->government.stability < 0.62f
-			|| transformation->government.party_mandate < 0.45f
-			|| transformation->legitimacy.total < 55.0f) {
-			outlook = "alice_aot_cabinet_outlook_contested";
-			reason = transformation->government.stability < 0.62f
-				? "alice_aot_cabinet_reason_low_confidence"
-				: transformation->government.party_mandate < 0.45f
-					? "alice_aot_cabinet_reason_low_party_mandate"
-					: "alice_aot_cabinet_reason_low_legitimacy";
-		}
-		text::add_line_break_to_layout(state, contents);
-		text::add_line(state, contents, "alice_aot_cabinet_outlook", text::variable_type::x,
-			text::produce_simple_string(state, outlook));
-		text::add_line(state, contents, "alice_aot_cabinet_reason", text::variable_type::x,
-			text::produce_simple_string(state, reason));
-		text::add_line(state, contents, "alice_aot_cabinet_confidence_header");
-		for(std::size_t index = 0; index < group_keys.size(); ++index) {
-			auto const id = politics::transformation::interest_group_id(index);
-			if((transformation->government.groups & politics::transformation::group_bit(id)) == 0)
-				continue;
-			auto box = text::open_layout_box(contents);
-			text::add_to_layout_box(state, contents, box, std::string_view("• "));
-			text::add_to_layout_box(state, contents, box,
-				text::produce_simple_string(state, group_keys[index]));
-			text::add_to_layout_box(state, contents, box, std::string_view(": "));
-			auto const confidence = transformation->government.confidence[index];
-			text::add_to_layout_box(state, contents, box, text::format_percentage(confidence, 0),
-				confidence < 0.45f ? text::text_color::red
-					: confidence < 0.62f ? text::text_color::yellow : text::text_color::green);
-			text::close_layout_box(contents, box);
-		}
+		uint32_t seats = 0;
+		for(auto party : parties)
+			seats += governance::government::seats_of(state, party, chamber, state.current_date);
+		auto const filled = governance::legislature::filled_seats(state, chamber, state.current_date);
+		text::substitution_map sub;
+		text::add_to_substitution_map(sub, text::variable_type::x, int64_t(parties.size()));
+		text::add_to_substitution_map(sub, text::variable_type::val,
+			text::fp_percentage{filled > 0 ? float(seats) / float(filled) : 0.0f});
+		auto box = text::open_layout_box(contents);
+		text::localised_format_box(state, contents, box, "alice_government_coalition", sub);
+		text::close_layout_box(contents, box);
 	}
 };
 
@@ -763,9 +623,6 @@ public:
 
 class politics_window : public generic_tabbed_window<politics_window_tab> {
 private:
-	reforms_window* reforms_win = nullptr;
-	unciv_reforms_window* unciv_reforms_win = nullptr;
-	movements_window* movements_win = nullptr;
 	decision_window* decision_win = nullptr;
 	release_nation_window* release_nation_win = nullptr;
 	politics_issue_support_listbox* issues_listbox = nullptr;
@@ -775,6 +632,7 @@ private:
 public:
 	void on_create(sys::state& state) noexcept override {
 		generic_tabbed_window::on_create(state);
+		active_tab = politics_window_tab::decisions;
 		{
 			auto ptr = make_element_by_type<politics_ruling_party_window>(state, "party_window");
 			add_child_to_front(std::move(ptr));
@@ -793,14 +651,8 @@ public:
 			return make_element_by_type<opaque_element_base>(state, id);
 		} else if(name == "close_button") {
 			return make_element_by_type<generic_close_button>(state, id);
-		} else if(name == "reforms_tab") {
-			auto ptr = make_element_by_type<generic_tab_button<politics_window_tab>>(state, id);
-			ptr->target = politics_window_tab::reforms;
-			return ptr;
-		} else if(name == "movements_tab") {
-			auto ptr = make_element_by_type<generic_tab_button<politics_window_tab>>(state, id);
-			ptr->target = politics_window_tab::movements;
-			return ptr;
+		} else if(name == "reforms_tab" || name == "movements_tab") {
+			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "decisions_tab") {
 			auto ptr = make_element_by_type<generic_tab_button<politics_window_tab>>(state, id);
 			ptr->target = politics_window_tab::decisions;
@@ -809,29 +661,16 @@ public:
 			auto ptr = make_element_by_type<generic_tab_button<politics_window_tab>>(state, id);
 			ptr->target = politics_window_tab::releasables;
 			return ptr;
-		} else if(name == "reforms_window") {
-			auto ptr = make_element_by_type<reforms_window>(state, id);
-			reforms_win = ptr.get();
-			ptr->set_visible(state, true);
-			return ptr;
-		} else if(name == "movements_window") {
-			auto ptr = make_element_by_type<movements_window>(state, id);
-			movements_win = ptr.get();
-			ptr->set_visible(state, false);
-			return ptr;
+		} else if(name == "reforms_window" || name == "movements_window" || name == "unciv_reforms_window") {
+			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "decision_window") {
 			auto ptr = make_element_by_type<decision_window>(state, id);
 			decision_win = ptr.get();
-			ptr->set_visible(state, false);
+			ptr->set_visible(state, true);
 			return ptr;
 		} else if(name == "release_nation") {
 			auto ptr = make_element_by_type<release_nation_window>(state, id);
 			release_nation_win = ptr.get();
-			ptr->set_visible(state, false);
-			return ptr;
-		} else if(name == "unciv_reforms_window") {
-			auto ptr = make_element_by_type<unciv_reforms_window>(state, id);
-			unciv_reforms_win = ptr.get();
 			ptr->set_visible(state, false);
 			return ptr;
 		} else if(name == "country_modifier_overlappingbox") {
@@ -886,21 +725,8 @@ public:
 			return nullptr;
 		}
 	}
-	void on_update(sys::state& state) noexcept override {
-		if(state.world.nation_get_is_civilized(state.local_player_nation) && unciv_reforms_win->is_visible()) {
-			unciv_reforms_win->set_visible(state, false);
-			reforms_win->set_visible(state, true);
-		} else if(!state.world.nation_get_is_civilized(state.local_player_nation) && reforms_win->is_visible()) {
-			reforms_win->set_visible(state, false);
-			unciv_reforms_win->set_visible(state, true);
-		}
-	}
-
 	void hide_sub_windows(sys::state& state) {
-		reforms_win->set_visible(state, false);
-		unciv_reforms_win->set_visible(state, false);
 		decision_win->set_visible(state, false);
-		movements_win->set_visible(state, false);
 		release_nation_win->set_visible(state, false);
 	}
 
@@ -909,16 +735,6 @@ public:
 			auto enum_val = any_cast<politics_window_tab>(payload);
 			hide_sub_windows(state);
 			switch(enum_val) {
-			case politics_window_tab::reforms:
-				if(state.world.nation_get_is_civilized(state.local_player_nation)) {
-					reforms_win->set_visible(state, true);
-				} else {
-					unciv_reforms_win->set_visible(state, true);
-				}
-				break;
-			case politics_window_tab::movements:
-				movements_win->set_visible(state, true);
-				break;
 			case politics_window_tab::decisions:
 				decision_win->set_visible(state, true);
 				break;

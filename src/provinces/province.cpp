@@ -1,5 +1,4 @@
 #include "province.hpp"
-#include "policy_execution.hpp"
 #include "province_templates.hpp"
 #include "dcon_generated_ids.hpp"
 #include "demographics.hpp"
@@ -8,7 +7,6 @@
 #include <vector>
 #include <cassert>
 #include <cstdlib>
-#include "rebels.hpp"
 #include "math_fns.hpp"
 #include "prng.hpp"
 #include "triggers.hpp"
@@ -1359,8 +1357,6 @@ void change_province_owner(sys::state& state, dcon::province_id id, dcon::nation
 	if(new_owner) {
 		std::vector<dcon::regiment_id> to_be_deleted;
 		for(auto p : state.world.province_get_pop_location(id)) {
-			rebel::remove_pop_from_movement(state, p.get_pop());
-			rebel::remove_pop_from_rebel_faction(state, p.get_pop());
 			for(const auto src : p.get_pop().get_regiment_source()) {
 				if(!src.get_regiment().get_army_from_army_membership().get_is_retreating() && !src.get_regiment().get_army_from_army_membership().get_navy_from_army_transport() && !src.get_regiment().get_army_from_army_membership().get_battle_from_army_battle_participation() && !src.get_regiment().get_army_from_army_membership().get_controller_from_army_rebel_control()) {
 					auto loc = src.get_regiment().get_army_from_army_membership().get_location_from_army_location();
@@ -1613,10 +1609,7 @@ void update_crimes(sys::state& state) {
 		that are possible for the province (determined by the crime being activated and its trigger passing).
 		*/
 
-		auto execution = nations::policy_execution::effective_policy(
-			state, owner, p, nations::policy_execution::policy_kind::crime_suppression);
-		auto chance = uint32_t(province::crime_fighting_efficiency(state, p)
-			* execution.effective_execution * 256.0f);
+		auto chance = uint32_t(province::crime_fighting_efficiency(state, p) * 256.0f);
 		auto rvalues = rng::get_random_pair(state, uint32_t((p.index() << 2) + 1));
 		if((rvalues.high & 0xFF) <= chance) {
 			if(state.world.province_get_crime(p)) {

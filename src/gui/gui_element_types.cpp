@@ -3378,13 +3378,6 @@ void flag_button2::update_tooltip(sys::state& state, int32_t x, int32_t y, text:
 		text::close_layout_box(contents, box);
 		return;
 	}
-	auto rid = retrieve<dcon::rebel_faction_id>(state, this);
-	if(rid) {
-		auto box = text::open_layout_box(contents, 0);
-		text::add_to_layout_box(state, contents, box, rebel::rebel_name(state, rid));
-		text::close_layout_box(contents, box);
-		return;
-	}
 }
 
 void flag_button2::render(sys::state& state, int32_t x, int32_t y) noexcept {
@@ -3475,13 +3468,6 @@ void flag_button::update_tooltip(sys::state& state, int32_t x, int32_t y, text::
 			auto box = text::open_layout_box(contents, 0);
 			text::add_to_layout_box(state, contents, box, name);
 			text::close_layout_box(contents, box);
-		}
-	} else {
-		if(auto reb = get_current_rebel_faction(state); reb) {
-			auto box = text::open_layout_box(contents, 0);
-			text::add_to_layout_box(state, contents, box, rebel::rebel_name(state, reb));
-			text::close_layout_box(contents, box);
-			return;
 		}
 	}
 }

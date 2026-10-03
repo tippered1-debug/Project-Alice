@@ -1,6 +1,5 @@
 #include "map_tooltip.hpp"
 #include "demographics.hpp"
-#include "rebels.hpp"
 #include "commands.hpp"
 #include "unit_tooltip.hpp"
 #include "economy_production.hpp"
@@ -330,9 +329,6 @@ void political_map_tt_box(sys::state& state, text::columnar_layout& contents, dc
 		auto fat_id = dcon::fatten(state.world, rf);
 		auto box = text::open_layout_box(contents);
 		text::add_to_layout_box(state, contents, box, text::embedded_flag{ state.national_definitions.rebel_id });
-		text::add_space_to_layout_box(state, contents, box);
-		auto name = rebel::rebel_name(state, rf);
-		text::add_to_layout_box(state, contents, box, std::string_view{ name });
 		text::close_layout_box(contents, box);
 	}
 }
@@ -1302,15 +1298,6 @@ void revolt_map_tt_box(sys::state& state, text::columnar_layout& contents, dcon:
 			text::localised_format_box(state, contents, box, std::string_view("mapmode_tooltip_rebels_amount"));
 			text::add_to_layout_box(state, contents, box, text::prettify(int64_t(total_rebels)), text::text_color::yellow);
 
-			for(size_t i = 0; i < rebel_factions.size(); i++) {
-				text::add_line_break_to_layout_box(state, contents, box);
-				text::add_space_to_layout_box(state, contents, box);
-				text::add_to_layout_box(state, contents, box, rebel::rebel_name(state, rebel_factions[i].first), text::text_color::yellow);
-				text::add_space_to_layout_box(state, contents, box);
-				text::add_to_layout_box(state, contents, box, std::string_view("("), text::text_color::white);
-				text::add_to_layout_box(state, contents, box, text::prettify(int64_t(rebel_factions[i].second)), text::text_color::white);
-				text::add_to_layout_box(state, contents, box, std::string_view(")"), text::text_color::white);
-			}
 		}
 
 		text::close_layout_box(contents, box);

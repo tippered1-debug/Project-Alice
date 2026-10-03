@@ -13,7 +13,6 @@
 #include "nations/strategic_statecraft.hpp"
 #include "politics.hpp"
 #include "province_templates.hpp"
-#include "rebels.hpp"
 #include "triggers.hpp"
 #include "ai.hpp"
 #include "gui_console.hpp"
@@ -1754,38 +1753,6 @@ void execute_intervene_in_war(sys::state& state, dcon::nation_id source, dcon::w
 	military::add_to_war(state, w, source, for_attacker);
 }
 
-void suppress_movement(sys::state& state, dcon::nation_id source, dcon::movement_id m) {
-	command_data p{ command_type::suppress_movement, state.local_player_id };
-	auto data = movement_data{ state.world.movement_get_associated_issue_option(m), state.world.movement_get_associated_independence(m) };
-	p << data;
-	add_to_command_queue(state, p);
-
-}
-bool can_suppress_movement(sys::state& state, dcon::nation_id source, dcon::movement_id m) {
-	if(!state.current_scene.game_in_progress) {
-		return false;
-	}
-	if(state.world.movement_get_nation_from_movement_within(m) != source)
-		return false;
-	if(state.world.movement_get_pop_movement_membership(m).begin() == state.world.movement_get_pop_movement_membership(m).end())
-		return false;
-	return state.world.nation_get_suppression_points(source) >= rebel::get_suppression_point_cost(state, m);
-}
-void execute_suppress_movement(sys::state& state, dcon::nation_id source, dcon::issue_option_id iopt,
-		dcon::national_identity_id tag) {
-	dcon::movement_id m;
-	if(iopt) {
-		m = rebel::get_movement_by_position(state, source, iopt);
-	} else if(tag) {
-		m = rebel::get_movement_by_independence(state, source, tag);
-	}
-	if(!m)
-		return;
-	auto& cur_sup_points = state.world.nation_get_suppression_points(source);
-	state.world.nation_set_suppression_points(source, cur_sup_points - rebel::get_suppression_point_cost(state, m));
-	rebel::suppress_movement(state, source, m);
-}
-
 void civilize_nation(sys::state& state, dcon::nation_id source) {
 	command_data p{ command_type::civilize_nation, state.local_player_id };
 	add_to_command_queue(state, p);
@@ -1841,61 +1808,6 @@ bool can_appoint_ruling_party(sys::state& state, dcon::nation_id source, dcon::p
 }
 void execute_appoint_ruling_party(sys::state& state, dcon::nation_id source, dcon::political_party_id p) {
 	politics::appoint_ruling_party(state, source, p);
-}
-
-void enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_option_id r) {
-
-	command_data p{ command_type::change_reform_option, state.local_player_id };
-	auto data = reform_selection_data{ r };
-	p << data;
-	add_to_command_queue(state, p);
-
-}
-bool can_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_option_id r) {
-	if(!state.current_scene.game_in_progress) {
-		return false;
-	}
-	if(source == state.local_player_nation && state.cheat_data.always_allow_reforms)
-		return true;
-	return politics::transformation::can_propose_bill(state, source, r);
-}
-void execute_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_option_id r) {
-	politics::transformation::propose_bill(state, source, r);
-	event::update_future_events(state);
-}
-
-void enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i) {
-
-	command_data p{ command_type::change_issue_option, state.local_player_id };
-	auto data = issue_selection_data{ i };
-	p << data;
-	add_to_command_queue(state, p);
-}
-bool can_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i) {
-	if(!state.current_scene.game_in_progress) {
-		return false;
-	}
-	if(source == state.local_player_nation && state.cheat_data.always_allow_reforms)
-		return true;
-	return politics::transformation::can_propose_bill(state, source, i);
-}
-void execute_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i) {
-	politics::transformation::propose_bill(state, source, i);
-	event::update_future_events(state);
-}
-
-void withdraw_transformation_bill(sys::state& state, dcon::nation_id source) {
-	command_data p{ command_type::withdraw_transformation_bill, state.local_player_id };
-	add_to_command_queue(state, p);
-}
-
-bool can_withdraw_transformation_bill(sys::state& state, dcon::nation_id source) {
-	return state.current_scene.game_in_progress
-		&& politics::transformation::can_withdraw_bill(state, source);
-}
-
-void execute_withdraw_transformation_bill(sys::state& state, dcon::nation_id source) {
-	politics::transformation::withdraw_bill(state, source);
 }
 
 void become_interested_in_crisis(sys::state& state, dcon::nation_id source) {
@@ -4173,38 +4085,6 @@ void execute_disband_undermanned_regiments(sys::state& state, dcon::nation_id so
 		military::delete_regiment_safe_wrapper(state, r);
 }
 
-void toggle_rebel_hunting(sys::state& state, dcon::nation_id source, dcon::army_id a) {
-
-	command_data p{ command_type::toggle_hunt_rebels, state.local_player_id };
-	auto data = army_movement_data{  };
-	data.a = a;
-	p << data;
-	add_to_command_queue(state, p);
-}
-void execute_toggle_rebel_hunting(sys::state& state, dcon::nation_id source, dcon::army_id a) {
-	if(!state.world.army_is_valid(a)) return;
-	auto owner = state.world.army_get_controller_from_army_control(a);
-	if(owner != source)
-		return;
-
-	auto current_state = state.world.army_get_is_rebel_hunter(a);
-	if(current_state) {
-		state.world.army_set_is_rebel_hunter(a, false);
-	} else {
-		auto path = state.world.army_get_path(a);
-		if(path.size() > 0) {
-			state.world.army_set_ai_province(a, path.at(0));
-		} else {
-			state.world.army_set_ai_province(a, state.world.army_get_location_from_army_location(a));
-			if(!state.world.army_get_battle_from_army_battle_participation(a) && !state.world.army_get_navy_from_army_transport(a)) {
-
-				military::send_rebel_hunter_to_next_province(state, a, state.world.army_get_location_from_army_location(a));
-			}
-		}
-		state.world.army_set_is_rebel_hunter(a, true);
-	}
-}
-
 void toggle_unit_ai_control(sys::state& state, dcon::nation_id source, dcon::army_id a) {
 
 	command_data p{ command_type::toggle_unit_ai_control, state.local_player_id };
@@ -4223,17 +4103,11 @@ void execute_toggle_unit_ai_control(sys::state& state, dcon::nation_id source, d
 		state.world.army_set_ai_activity(a, 0);
 		state.world.army_set_is_ai_controlled(a, false);
 	} else {
-		//turn off rebel control
-		state.world.army_set_is_rebel_hunter(a, false);
 		auto path = state.world.army_get_path(a);
 		if(path.size() > 0) {
 			state.world.army_set_ai_province(a, path.at(0));
 		} else {
 			state.world.army_set_ai_province(a, state.world.army_get_location_from_army_location(a));
-			if(!state.world.army_get_battle_from_army_battle_participation(a) && !state.world.army_get_navy_from_army_transport(a)) {
-
-				military::send_rebel_hunter_to_next_province(state, a, state.world.army_get_location_from_army_location(a));
-			}
 		}
 		state.world.army_set_ai_activity(a, 0);
 		state.world.army_set_is_ai_controlled(a, true);
@@ -6408,11 +6282,6 @@ bool can_perform_command(sys::state& state, command_data& c) {
 		return can_intervene_in_war(state, source, data.war, data.for_attacker);
 	}
 
-	case command_type::suppress_movement:
-	{
-		return true; //can_suppress_movement(state, c.source, c.data.movement.iopt);
-	}
-
 	case command_type::civilize_nation:
 	{
 		return can_civilize_nation(state, source);
@@ -6422,21 +6291,6 @@ bool can_perform_command(sys::state& state, command_data& c) {
 	{
 		auto& data = c.get_payload<command::political_party_data>();
 		return can_appoint_ruling_party(state, source, data.p);
-	}
-
-	case command_type::change_issue_option:
-	{
-		auto& data = c.get_payload<command::issue_selection_data>();
-		return can_enact_issue(state, source, data.r);
-	}
-
-	case command_type::withdraw_transformation_bill:
-		return can_withdraw_transformation_bill(state, source);
-
-	case command_type::change_reform_option:
-	{
-		auto& data = c.get_payload<command::reform_selection_data>();
-		return can_enact_reform(state, source, data.r);
 	}
 
 	case command_type::become_interested_in_crisis:
@@ -6734,11 +6588,6 @@ bool can_perform_command(sys::state& state, command_data& c) {
 	{
 		auto& data = c.get_payload<command::army_movement_data>();
 		return can_disband_undermanned_regiments(state, source, data.a);
-	}
-
-	case command_type::toggle_hunt_rebels:
-	{
-		return true; //can_toggle_rebel_hunting(state, c.source, c.data.army_movement.a);
 	}
 
 	case command_type::toggle_select_province:
@@ -7185,12 +7034,6 @@ void execute_command(sys::state& state, command_data& c) {
 		execute_intervene_in_war(state, source_nation, data.war, data.for_attacker);
 		break;
 	}
-	case command_type::suppress_movement:
-	{
-		auto& data = c.get_payload<movement_data>();
-		execute_suppress_movement(state, source_nation, data.iopt, data.tag);
-		break;
-	}
 	case command_type::civilize_nation:
 	{
 		execute_civilize_nation(state, source_nation);
@@ -7200,21 +7043,6 @@ void execute_command(sys::state& state, command_data& c) {
 	{
 		auto& data = c.get_payload<political_party_data>();
 		execute_appoint_ruling_party(state, source_nation, data.p);
-		break;
-	}
-	case command_type::change_issue_option:
-	{
-		auto& data = c.get_payload<issue_selection_data>();
-		execute_enact_issue(state, source_nation, data.r);
-		break;
-	}
-	case command_type::withdraw_transformation_bill:
-		execute_withdraw_transformation_bill(state, source_nation);
-		break;
-	case command_type::change_reform_option:
-	{
-		auto& data = c.get_payload<reform_selection_data>();
-		execute_enact_reform(state, source_nation, data.r);
 		break;
 	}
 	case command_type::become_interested_in_crisis:
@@ -7513,12 +7341,6 @@ void execute_command(sys::state& state, command_data& c) {
 	{
 		auto& data = c.get_payload < army_movement_data>();
 		execute_disband_undermanned_regiments(state, source_nation, data.a);
-		break;
-	}
-	case command_type::toggle_hunt_rebels:
-	{
-		auto& data = c.get_payload<army_movement_data>();
-		execute_toggle_rebel_hunting(state, source_nation, data.a);
 		break;
 	}
 	case command_type::toggle_select_province:

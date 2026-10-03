@@ -9,7 +9,6 @@
 #include "economy_factory_view.hpp"
 #include "events.hpp"
 #include "gamerule.hpp"
-#include "transformation_politics.hpp"
 
 namespace politics {
 
@@ -123,16 +122,6 @@ bool can_enact_political_reform(sys::state& state, dcon::nation_id nation, dcon:
 	auto count_party_issues = state.world.political_party_get_party_issues_size();
 
 	if(current != issue_option && !time_limit || time_limit + int32_t(state.defines.min_delay_between_reforms * 30) <= state.current_date && !state.world.issue_get_is_next_step_only(issue.id) || current.index() + 1 == issue_option.index() || current.index() - 1 == issue_option.index() && !allow || trigger::evaluate(state, allow, trigger::to_generic(nation), trigger::to_generic(nation), 0)) {
-		{
-			auto const support = transformation::evaluate_issue_support(state, nation, issue_option);
-			auto const political_score =
-				0.40f * support.political_power_support
-				+ 0.30f * support.coalition_support
-				+ 0.15f * support.electoral_support
-				+ 0.15f * support.popular_support;
-			return political_score >= 0.50f;
-		}
-
 		float total = 0.0f;
 		for(uint32_t icounter = state.world.ideology_size(); icounter-- > 0;) {
 			dcon::ideology_id iid{dcon::ideology_id::value_base_t(icounter)};
@@ -195,16 +184,6 @@ bool can_enact_social_reform(sys::state& state, dcon::nation_id n, dcon::issue_o
 	auto count_party_issues = state.world.political_party_get_party_issues_size();
 
 	if(current != o && !time_limit || time_limit + int32_t(state.defines.min_delay_between_reforms * 30) <= state.current_date && !state.world.issue_get_is_next_step_only(issue.id) || current.index() + 1 == o.index() || current.index() - 1 == o.index() && !allow || trigger::evaluate(state, allow, trigger::to_generic(n), trigger::to_generic(n), 0)) {
-		{
-			auto const support = transformation::evaluate_issue_support(state, n, o);
-			auto const political_score =
-				0.40f * support.political_power_support
-				+ 0.30f * support.coalition_support
-				+ 0.15f * support.electoral_support
-				+ 0.15f * support.popular_support;
-			return political_score >= 0.50f;
-		}
-
 		float total = 0.0f;
 		for(uint32_t icounter = state.world.ideology_size(); icounter-- > 0;) {
 			dcon::ideology_id iid{dcon::ideology_id::value_base_t(icounter)};
@@ -346,8 +325,6 @@ void set_ruling_party(sys::state& state, dcon::nation_id n, dcon::political_part
 			}
 		}
 	}
-	transformation::record_ruling_party_change(
-		state, n, old_party, p, election_mandate);
 }
 
 void force_ruling_party_ideology(sys::state& state, dcon::nation_id n, dcon::ideology_id id) {

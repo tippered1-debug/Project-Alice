@@ -43,20 +43,6 @@ bool readable_save_version(uint32_t version) {
 
 // Canonical handwritten runtime sections carry an explicit schema and length.
 // Save loading accepts only the exact schema written by this runtime.
-constexpr uint32_t transformation_politics_save_magic = 0x414F5450u; // AOTP
-constexpr uint16_t transformation_politics_save_version = 2;
-constexpr std::size_t transformation_politics_save_header_size =
-	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint32_t);
-constexpr std::size_t transformation_politics_save_record_size =
-	sizeof(uint32_t) + sizeof(int32_t)
-	+ politics::transformation::interest_group_count * sizeof(float) + sizeof(float);
-
-constexpr uint32_t transformation_legislation_save_magic = 0x414F424Cu; // AOBL
-constexpr uint16_t transformation_legislation_save_version = 2;
-constexpr std::size_t transformation_legislation_save_record_size =
-	sizeof(uint8_t) + 2 * sizeof(uint8_t) + sizeof(uint16_t) + sizeof(int32_t)
-	+ 3 * sizeof(uint32_t) + 5 * sizeof(float);
-
 constexpr uint32_t strategic_statecraft_save_magic = 0x414F5353u; // AOSS
 constexpr uint16_t strategic_statecraft_save_version = 1;
 constexpr std::size_t strategic_statecraft_save_header_size =
@@ -81,8 +67,6 @@ struct exact_runtime_snapshot {
 	uint16_t extension_version = 0;
 	bool extension_found = false;
 	bool present = false;
-	bool transformation_politics_loaded = false;
-	bool transformation_legislation_loaded = false;
 };
 
 struct legacy_casualty_event_record_v10 {
@@ -459,12 +443,7 @@ bool read_custom_vector(uint8_t const*& ptr, uint8_t const* end,
 
 uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	uint8_t const* section_end, exact_runtime_snapshot& result) {
-	// These flags were read from preceding sections and gate runtime restore.
-	auto const politics_loaded = result.transformation_politics_loaded;
-	auto const legislation_loaded = result.transformation_legislation_loaded;
 	result = exact_runtime_snapshot{};
-	result.transformation_politics_loaded = politics_loaded;
-	result.transformation_legislation_loaded = legislation_loaded;
 	if(std::size_t(section_end - ptr) < exact_runtime_save_header_size) return ptr;
 	auto const* header_start = ptr;
 	uint32_t magic = 0;
@@ -761,235 +740,6 @@ uint8_t const* read_strategic_statecraft_save(
 		disable_strategic_statecraft(state);
 	}
 	return payload_end;
-}
-
-std::size_t transformation_politics_save_size(sys::state const& state) {
-	assert(state.transformation_government_state.size() == state.world.nation_size());
-	if(state.transformation_government_state.size() != state.world.nation_size()) std::abort();
-	auto const count = state.transformation_government_state.size();
-	return transformation_politics_save_header_size
-		+ count * transformation_politics_save_record_size;
-}
-
-uint8_t* write_transformation_politics_save(uint8_t* ptr, sys::state const& state) {
-	assert(state.transformation_government_state.size() == state.world.nation_size());
-	if(state.transformation_government_state.size() != state.world.nation_size()) std::abort();
-	auto const count = state.transformation_government_state.size();
-
-	auto const payload_size = uint32_t(count * transformation_politics_save_record_size);
-	auto const count_u32 = uint32_t(count);
-	ptr = memcpy_serialize(ptr, transformation_politics_save_magic);
-	ptr = memcpy_serialize(ptr, transformation_politics_save_version);
-	uint16_t reserved = 0;
-	ptr = memcpy_serialize(ptr, reserved);
-	ptr = memcpy_serialize(ptr, payload_size);
-	ptr = memcpy_serialize(ptr, count_u32);
-	for(std::size_t index = 0; index < count; ++index) {
-		auto const& government = state.transformation_government_state[index];
-		ptr = memcpy_serialize(ptr, government.groups);
-		ptr = memcpy_serialize(ptr, government.established_on);
-		for(auto const confidence : government.confidence)
-			ptr = memcpy_serialize(ptr, confidence);
-		ptr = memcpy_serialize(ptr, government.party_mandate);
-	}
-	return ptr;
-}
-
-uint8_t const* read_transformation_politics_save(
-	uint8_t const* ptr, uint8_t const* section_end, sys::state& state, bool& loaded) {
-	loaded = false;
-	if(std::size_t(section_end - ptr) < transformation_politics_save_header_size)
-		return ptr;
-
-	uint32_t magic = 0;
-	uint16_t version = 0;
-	uint16_t reserved = 0;
-	uint32_t payload_size = 0;
-	uint32_t count = 0;
-	ptr = memcpy_deserialize(ptr, magic);
-	ptr = memcpy_deserialize(ptr, version);
-	ptr = memcpy_deserialize(ptr, reserved);
-	ptr = memcpy_deserialize(ptr, payload_size);
-	ptr = memcpy_deserialize(ptr, count);
-	(void)reserved;
-
-	if(magic != transformation_politics_save_magic)
-		return ptr - transformation_politics_save_header_size;
-	if(std::size_t(section_end - ptr) < payload_size)
-		return section_end;
-	if(version != transformation_politics_save_version)
-		return ptr + payload_size;
-	if(count != state.world.nation_size()
-		|| payload_size != count * transformation_politics_save_record_size)
-		return ptr + payload_size;
-
-	auto const* payload_start = ptr;
-	state.transformation_government_state.assign(state.world.nation_size(), {});
-	bool records_valid = true;
-	for(uint32_t index = 0; index < count; ++index) {
-		uint32_t groups = 0;
-		int32_t established_on = 0;
-		std::array<float, politics::transformation::interest_group_count> confidence{};
-		ptr = memcpy_deserialize(ptr, groups);
-		ptr = memcpy_deserialize(ptr, established_on);
-		for(auto& value : confidence)
-			ptr = memcpy_deserialize(ptr, value);
-		float party_mandate = -1.0f;
-		ptr = memcpy_deserialize(ptr, party_mandate);
-		bool confidence_valid = true;
-		for(auto const value : confidence)
-			confidence_valid = confidence_valid && std::isfinite(value) && value >= 0.0f && value <= 1.0f;
-		bool const mandate_valid = std::isfinite(party_mandate)
-			&& (party_mandate == -1.0f || party_mandate >= 0.0f && party_mandate <= 1.0f);
-		if(!confidence_valid || !mandate_valid)
-			records_valid = false;
-		auto& government = state.transformation_government_state[index];
-		government.groups = groups;
-		government.established_on = established_on;
-		government.confidence = confidence;
-		government.party_mandate = party_mandate;
-	}
-	loaded = records_valid && ptr == payload_start + payload_size;
-	return payload_start + payload_size;
-}
-
-std::size_t transformation_legislation_save_size(sys::state const& state) {
-	assert(state.transformation_legislation_state.size() == state.world.nation_size());
-	if(state.transformation_legislation_state.size() != state.world.nation_size()) std::abort();
-	auto const count = state.transformation_legislation_state.size();
-	return transformation_politics_save_header_size
-		+ count * transformation_legislation_save_record_size;
-}
-
-uint8_t* write_transformation_legislation_save(uint8_t* ptr, sys::state const& state) {
-	assert(state.transformation_legislation_state.size() == state.world.nation_size());
-	if(state.transformation_legislation_state.size() != state.world.nation_size()) std::abort();
-	auto const count = state.transformation_legislation_state.size();
-
-	auto const payload_size = uint32_t(count * transformation_legislation_save_record_size);
-	ptr = memcpy_serialize(ptr, transformation_legislation_save_magic);
-	ptr = memcpy_serialize(ptr, transformation_legislation_save_version);
-	uint16_t reserved = 0;
-	ptr = memcpy_serialize(ptr, reserved);
-	ptr = memcpy_serialize(ptr, payload_size);
-	ptr = memcpy_serialize(ptr, uint32_t(count));
-	for(std::size_t index = 0; index < count; ++index) {
-		auto const& bill = state.transformation_legislation_state[index];
-		ptr = memcpy_serialize(ptr, uint8_t(bill.active ? 1 : 0));
-		ptr = memcpy_serialize(ptr, uint8_t(bill.target));
-		ptr = memcpy_serialize(ptr, uint8_t(bill.stage));
-		ptr = memcpy_serialize(ptr, bill.stage_days);
-		ptr = memcpy_serialize(ptr, bill.proposed_on);
-		ptr = memcpy_serialize(ptr, uint32_t(bill.option ? bill.option.index() : 0));
-		ptr = memcpy_serialize(ptr, uint32_t(bill.reform ? bill.reform.index() : 0));
-		ptr = memcpy_serialize(ptr, uint32_t(bill.sponsor ? bill.sponsor.index() : 0));
-		ptr = memcpy_serialize(ptr, bill.party_support);
-		ptr = memcpy_serialize(ptr, bill.compromise);
-		ptr = memcpy_serialize(ptr, bill.mandate);
-		ptr = memcpy_serialize(ptr, bill.execution);
-		ptr = memcpy_serialize(ptr, bill.coalition_support);
-	}
-	return ptr;
-}
-
-uint8_t const* read_transformation_legislation_save(
-	uint8_t const* ptr, uint8_t const* section_end, sys::state& state, bool& loaded) {
-	loaded = false;
-	if(std::size_t(section_end - ptr) < transformation_politics_save_header_size)
-		return ptr;
-
-	uint32_t magic = 0;
-	uint16_t version = 0;
-	uint16_t reserved = 0;
-	uint32_t payload_size = 0;
-	uint32_t count = 0;
-	ptr = memcpy_deserialize(ptr, magic);
-	ptr = memcpy_deserialize(ptr, version);
-	ptr = memcpy_deserialize(ptr, reserved);
-	ptr = memcpy_deserialize(ptr, payload_size);
-	ptr = memcpy_deserialize(ptr, count);
-	(void)reserved;
-	if(magic != transformation_legislation_save_magic)
-		return ptr - transformation_politics_save_header_size;
-	if(std::size_t(section_end - ptr) < payload_size)
-		return section_end;
-	if(version != transformation_legislation_save_version)
-		return ptr + payload_size;
-	if(count != state.world.nation_size()
-		|| payload_size != count * transformation_legislation_save_record_size)
-		return ptr + payload_size;
-
-	auto const* payload_start = ptr;
-	state.transformation_legislation_state.assign(state.world.nation_size(), {});
-	bool records_valid = true;
-	for(uint32_t index = 0; index < count; ++index) {
-		uint8_t active = 0;
-		uint8_t target = uint8_t(politics::transformation::legislation_target::issue);
-		uint8_t stage = 0;
-		uint16_t stage_days = 0;
-		int32_t proposed_on = 0;
-		uint32_t option_index = 0;
-		uint32_t reform_index = 0;
-		uint32_t sponsor_index = 0;
-		float party_support = 0.5f;
-		float compromise = 0.0f;
-		float mandate = 0.0f;
-		float execution = 0.0f;
-		float coalition_support = 0.0f;
-		ptr = memcpy_deserialize(ptr, active);
-		ptr = memcpy_deserialize(ptr, target);
-		ptr = memcpy_deserialize(ptr, stage);
-		ptr = memcpy_deserialize(ptr, stage_days);
-		ptr = memcpy_deserialize(ptr, proposed_on);
-		ptr = memcpy_deserialize(ptr, option_index);
-		ptr = memcpy_deserialize(ptr, reform_index);
-		ptr = memcpy_deserialize(ptr, sponsor_index);
-		ptr = memcpy_deserialize(ptr, party_support);
-		ptr = memcpy_deserialize(ptr, compromise);
-		ptr = memcpy_deserialize(ptr, mandate);
-		ptr = memcpy_deserialize(ptr, execution);
-		ptr = memcpy_deserialize(ptr, coalition_support);
-		bool const issue_target = target == uint8_t(politics::transformation::legislation_target::issue);
-		bool const reform_target = target == uint8_t(politics::transformation::legislation_target::reform);
-		bool const support_valid = std::isfinite(party_support) && party_support >= 0.0f && party_support <= 1.0f
-			&& std::isfinite(compromise) && std::isfinite(mandate)
-			&& std::isfinite(execution) && std::isfinite(coalition_support);
-		bool const active_bill_valid = active == 0
-			|| (issue_target && option_index < state.world.issue_option_size())
-			|| (reform_target && reform_index < state.world.reform_option_size());
-		if(active > 1 || (!issue_target && !reform_target)
-			|| stage > uint8_t(politics::transformation::legislation_stage::implementation)
-			|| !support_valid || !active_bill_valid)
-			records_valid = false;
-		if(active != 0 && active_bill_valid) {
-			auto& bill = state.transformation_legislation_state[index];
-			bill.active = true;
-			bill.target = reform_target
-				? politics::transformation::legislation_target::reform
-				: politics::transformation::legislation_target::issue;
-			if(issue_target) {
-				bill.option = dcon::issue_option_id{
-					dcon::issue_option_id::value_base_t(option_index)};
-			} else {
-				bill.reform = dcon::reform_option_id{
-					dcon::reform_option_id::value_base_t(reform_index)};
-			}
-			if(sponsor_index < state.world.political_party_size())
-				bill.sponsor = dcon::political_party_id{
-					dcon::political_party_id::value_base_t(sponsor_index)};
-			bill.stage = politics::transformation::legislation_stage(
-				std::min<uint8_t>(stage, uint8_t(politics::transformation::legislation_stage::implementation)));
-			bill.stage_days = stage_days;
-			bill.proposed_on = proposed_on;
-			bill.party_support = party_support;
-			bill.compromise = compromise;
-			bill.mandate = mandate;
-			bill.execution = execution;
-			bill.coalition_support = coalition_support;
-		}
-	}
-	loaded = records_valid && ptr == payload_start + payload_size;
-	return payload_start + payload_size;
 }
 
 } // namespace
@@ -1790,10 +1540,6 @@ uint8_t const* read_handwritten_save_section(uint8_t const* ptr_in, uint8_t cons
 		ptr_in = memcpy_deserialize(ptr_in, state.military_definitions.great_wars_enabled);
 		ptr_in = memcpy_deserialize(ptr_in, state.military_definitions.world_wars_enabled);
 	}
-	ptr_in = read_transformation_politics_save(ptr_in, section_end, state,
-		exact_runtime.transformation_politics_loaded);
-	ptr_in = read_transformation_legislation_save(ptr_in, section_end, state,
-		exact_runtime.transformation_legislation_loaded);
 	ptr_in = read_strategic_statecraft_save(ptr_in, section_end, state);
 	ptr_in = read_exact_runtime_save(ptr_in, section_end, exact_runtime);
 	return ptr_in;
@@ -1856,8 +1602,6 @@ bool canonical_runtime_loaded(sys::state const& state) {
 		&& technology::kernel::validate_canonical_technology_state(state, technology_errors)
 		&& state.strategic_statecraft_initialized
 		&& state.strategic_interests.size() == state.world.nation_size()
-		&& state.transformation_government_state.size() == state.world.nation_size()
-		&& state.transformation_legislation_state.size() == state.world.nation_size()
 		&& actors::ownership::canonical_ownership_is_valid(state);
 }
 
@@ -1878,12 +1622,7 @@ uint8_t const* read_save_section(uint8_t const* ptr_in, uint8_t const* section_e
 		std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 		state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded, loadmask);
 	}
-	bool const politics_state_matches_world = state.transformation_government_state.size() == state.world.nation_size()
-		&& state.transformation_legislation_state.size() == state.world.nation_size();
-	bool runtime_restored = politics_state_matches_world
-		&& exact_runtime.transformation_politics_loaded
-		&& exact_runtime.transformation_legislation_loaded;
-	if(runtime_restored) runtime_restored = restore_exact_runtime_state(state, exact_runtime);
+	bool const runtime_restored = restore_exact_runtime_state(state, exact_runtime);
 	if(!runtime_restored) {
 		clear_exact_runtime_state(state);
 	}
@@ -1934,8 +1673,6 @@ uint8_t* write_handwritten_save_section(uint8_t* ptr_in, sys::state& state, bool
 		ptr_in = memcpy_serialize(ptr_in, state.military_definitions.great_wars_enabled);
 		ptr_in = memcpy_serialize(ptr_in, state.military_definitions.world_wars_enabled);
 	}
-	ptr_in = write_transformation_politics_save(ptr_in, state);
-	ptr_in = write_transformation_legislation_save(ptr_in, state);
 	ptr_in = write_strategic_statecraft_save(ptr_in, state);
 	ptr_in = write_exact_runtime_save(ptr_in, state);
 	return ptr_in;
@@ -1997,8 +1734,6 @@ size_t sizeof_handwritten_save_section(sys::state& state, bool exclude_local_han
 		sz += sizeof(state.military_definitions.great_wars_enabled);
 		sz += sizeof(state.military_definitions.world_wars_enabled);
 	}
-	sz += transformation_politics_save_size(state);
-	sz += transformation_legislation_save_size(state);
 	sz += strategic_statecraft_save_size(state);
 	sz += exact_runtime_save_size(state);
 	return sz;
@@ -2025,12 +1760,7 @@ uint8_t const* read_entire_mp_state(uint8_t const* ptr_in, uint8_t const* sectio
 	dcon::load_record loaded;
 	std::byte const* start = reinterpret_cast<std::byte const*>(ptr_in);
 	state.world.deserialize(start, reinterpret_cast<std::byte const*>(section_end), loaded);
-	bool const politics_state_matches_world = state.transformation_government_state.size() == state.world.nation_size()
-		&& state.transformation_legislation_state.size() == state.world.nation_size();
-	bool runtime_restored = politics_state_matches_world
-		&& exact_runtime.transformation_politics_loaded
-		&& exact_runtime.transformation_legislation_loaded;
-	if(runtime_restored) runtime_restored = restore_exact_runtime_state(state, exact_runtime);
+	bool const runtime_restored = restore_exact_runtime_state(state, exact_runtime);
 	if(!runtime_restored || !validate_strategic_statecraft_world_state(state)) {
 		clear_exact_runtime_state(state);
 		std::abort();

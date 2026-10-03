@@ -10,7 +10,6 @@
 #include "demographics.hpp"
 #include "politics.hpp"
 #include "province_templates.hpp"
-#include "rebels.hpp"
 #include "triggers.hpp"
 #include "container_types.hpp"
 #include "math_fns.hpp"
@@ -21,7 +20,6 @@
 #include "commands.hpp"
 #include "commands_constants.hpp"
 #include "validation.hpp"
-#include "policy_execution.hpp"
 #include "nations/strategic_statecraft.hpp"
 #include "military/land_forces.hpp"
 
@@ -8894,10 +8892,6 @@ void update_movement(sys::state& state) {
 						}
 						}();
 				}
-				if(state.world.army_get_is_rebel_hunter(a) && state.world.province_get_nation_from_province_control(dest) && state.world.nation_get_is_player_controlled(state.world.army_get_controller_from_army_control(a)) && !state.world.army_get_battle_from_army_battle_participation(a) && !state.world.army_get_navy_from_army_transport(a)) {
-
-					military::send_rebel_hunter_to_next_province(state, a, state.world.army_get_location_from_army_location(a));
-				}
 			}
 		}
 		}
@@ -9115,32 +9109,6 @@ int32_t free_transport_capacity(sys::state& state, dcon::navy_id n) {
 
 constexpr inline float siege_speed_mul = 1.0f / 37.5f;
 
-void send_rebel_hunter_to_next_province(sys::state& state, dcon::army_id ar, dcon::province_id prov) {
-	auto a = fatten(state.world, ar);
-	auto controller = a.get_controller_from_army_control();
-	static std::vector<rebel::impl::prov_str> rebel_provs;
-	rebel_provs.clear();
-	rebel::get_hunting_targets(state, controller, rebel_provs);
-	rebel::sort_hunting_targets(state, rebel::impl::arm_str{ ar, ai::estimate_army_offensive_strength(state, ar) }, rebel_provs);
-
-	for(auto& next_prov : rebel_provs) {
-		if(prov == next_prov.p)
-			continue;
-
-		auto path = province::make_land_unit_path(state, prov, next_prov.p, controller, a);
-		if(set_army_path(state, a, path, controller)) {
-			break;
-		}
-	}
-	if(!a.get_arrival_time()) {
-		auto home = a.get_ai_province();
-		if(home == prov)
-			return;
-
-		auto path = province::make_land_unit_path(state, prov, home, controller, a);
-		set_army_path(state, a, path, controller);
-	}
-}
 
 bool siege_potential(sys::state& state, dcon::nation_id army_controller, dcon::nation_id province_controller) {
 	bool will_siege = false;
@@ -9358,15 +9326,6 @@ void update_siege_progress(sys::state& state) {
 				});
 			}
 
-			for(auto ar : state.world.province_get_army_location(prov)) {
-				auto a = ar.get_army();
-
-				if(a.get_is_rebel_hunter() && a.get_controller_from_army_control().get_is_player_controlled() && !a.get_battle_from_army_battle_participation() && !a.get_navy_from_army_transport() && !a.get_arrival_time()) {
-
-					send_rebel_hunter_to_next_province(state, a, prov);
-
-				}
-			}
 
 			/*
 			TODO: When a province controller changes as the result of a siege, and it does not go back to the owner a random,
@@ -10656,10 +10615,6 @@ void start_mobilization(sys::state& state, dcon::nation_id n) {
 		auto province_speed = state.defines.mobilization_speed_base *
 			float(1.0f + state.defines.mobilization_speed_rails_mult *
 											 (state.world.province_get_building_level(schedule_array[count].where, uint8_t(economy::province_building_type::railroad))) / 5.0f);
-		auto const execution = nations::policy_execution::effective_policy(
-			state, n, schedule_array[count].where,
-			nations::policy_execution::policy_kind::mobilization_logistics).effective_execution;
-		province_speed *= std::max(0.05f, execution);
 		auto days = std::max(1, int32_t(1.0f / province_speed));
 		delay += days;
 		schedule_array[count].when = state.current_date + delay;

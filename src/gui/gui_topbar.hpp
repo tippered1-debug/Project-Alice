@@ -12,7 +12,6 @@
 #include "gui_diplomacy_request_templates.hpp"
 #include "nations.hpp"
 #include "politics.hpp"
-#include "rebels.hpp"
 #include "system_state.hpp"
 #include "text.hpp"
 #include "gui_event.hpp"
@@ -1577,111 +1576,6 @@ public:
 	}
 };
 
-class topbar_available_reforms_icon : public standard_nation_button {
-public:
-	int32_t get_icon_frame(sys::state& state, dcon::nation_id nation_id) noexcept override {
-		return int32_t(!nations::has_reform_available(state, nation_id));
-	}
-
-	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
-		return tooltip_behavior::variable_tooltip;
-	}
-
-	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
-		auto nation_id = retrieve<dcon::nation_id>(state, parent);
-		auto box = text::open_layout_box(contents, 0);
-		if(!nations::has_reform_available(state, nation_id)) {
-			text::localised_format_box(state, contents, box, std::string_view("countryalert_no_candoreforms"),
-					text::substitution_map{});
-		} else if(nations::has_reform_available(state, nation_id)) {
-			text::localised_format_box(state, contents, box, std::string_view("countryalert_candoreforms"), text::substitution_map{});
-			text::add_divider_to_layout_box(state, contents, box);
-			// Display Avaliable Reforms
-			// Mostly a copy of nations::has_reform_avaliable
-			auto last_date = state.world.nation_get_last_issue_or_reform_change(nation_id);
-			if(bool(last_date) && (last_date + int32_t(state.defines.min_delay_between_reforms * 30.0f)) > state.current_date) {
-				text::close_layout_box(contents, box);
-				return;
-			}
-			if(state.world.nation_get_is_civilized(nation_id)) {
-				for(auto i : state.culture_definitions.political_issues) {
-					for(auto o : state.world.issue_get_options(i)) {
-						if(o && politics::can_enact_political_reform(state, nation_id, o)) {
-							auto fat_id = dcon::fatten(state.world, o);
-							text::add_to_layout_box(state, contents, box, fat_id.get_parent_issue().get_name());
-							text::add_to_layout_box(state, contents, box, std::string_view(": "));
-							text::add_to_layout_box(state, contents, box, fat_id.get_name());
-							text::add_line_break_to_layout_box(state, contents, box);
-						}
-					}
-				}
-
-				for(auto i : state.culture_definitions.social_issues) {
-					for(auto o : state.world.issue_get_options(i)) {
-						if(o && politics::can_enact_social_reform(state, nation_id, o)) {
-							auto fat_id = dcon::fatten(state.world, o);
-							text::add_to_layout_box(state, contents, box, fat_id.get_parent_issue().get_name());
-							text::add_to_layout_box(state, contents, box, std::string_view(": "));
-							text::add_to_layout_box(state, contents, box, fat_id.get_name());
-							text::add_line_break_to_layout_box(state, contents, box);
-						}
-					}
-				}
-
-				text::close_layout_box(contents, box);
-				return;
-			} else {
-				for(auto i : state.culture_definitions.military_issues) {
-					for(auto o : state.world.reform_get_options(i)) {
-						if(o && politics::can_enact_military_reform(state, nation_id, o)) {
-							auto fat_id = dcon::fatten(state.world, o);
-							text::add_to_layout_box(state, contents, box, fat_id.get_parent_reform().get_name());
-							text::add_to_layout_box(state, contents, box, std::string_view(": "));
-							text::add_to_layout_box(state, contents, box, fat_id.get_name());
-							text::add_line_break_to_layout_box(state, contents, box);
-						}
-					}
-				}
-
-				for(auto i : state.culture_definitions.economic_issues) {
-					for(auto o : state.world.reform_get_options(i)) {
-						if(o && politics::can_enact_economic_reform(state, nation_id, o)) {
-							auto fat_id = dcon::fatten(state.world, o);
-							text::add_to_layout_box(state, contents, box, fat_id.get_parent_reform().get_name());
-							text::add_to_layout_box(state, contents, box, std::string_view(": "));
-							text::add_to_layout_box(state, contents, box, fat_id.get_name());
-							text::add_line_break_to_layout_box(state, contents, box);
-						}
-					}
-				}
-			}
-		}
-		text::close_layout_box(contents, box);
-	}
-
-	void button_action(sys::state& state) noexcept override {
-		auto const override_and_show_tab = [&]() {
-			state.ui_state.politics_subwindow->set_visible(state, true);
-			state.ui_state.politics_subwindow->impl_on_update(state);
-
-			Cyto::Any defs = Cyto::make_any<politics_window_tab>(politics_window_tab::reforms);
-			state.ui_state.politics_subwindow->impl_get(state, defs);
-
-			state.ui_state.root->move_child_to_front(state.ui_state.politics_subwindow);
-			state.ui_state.topbar_subwindow = state.ui_state.politics_subwindow;
-		};
-
-		if(state.ui_state.topbar_subwindow->is_visible()) {
-			state.ui_state.topbar_subwindow->set_visible(state, false);
-			if(state.ui_state.topbar_subwindow != state.ui_state.politics_subwindow)
-				override_and_show_tab();
-		} else {
-			override_and_show_tab();
-		}
-	}
-
-};
-
 class topbar_available_decisions_icon : public standard_nation_button {
 public:
 	int32_t get_icon_frame(sys::state& state, dcon::nation_id nation_id) noexcept override {
@@ -1769,68 +1663,6 @@ public:
 		}
 		text::close_layout_box(contents, box);
 	}
-};
-
-class topbar_rebels_icon : public button_element_base {
-public:
-	void on_update(sys::state& state) noexcept override {
-		for(auto rf : state.world.nation_get_rebellion_within(state.local_player_nation)) {
-			auto org = rf.get_rebels().get_organization();
-			if(org >= 0.01f) {
-				frame = 0;
-				return;
-			}
-		}
-		frame = 1;
-	}
-
-	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
-		return tooltip_behavior::variable_tooltip;
-	}
-
-	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
-		bool showed_title = false;
-
-		for(auto rf : state.world.nation_get_rebellion_within(state.local_player_nation)) {
-			auto org = rf.get_rebels().get_organization();
-			if(org >= 0.01f) {
-				if(!showed_title) {
-					text::add_line(state, contents, "countryalert_haverebels");
-					text::add_line_break_to_layout(state, contents);
-					showed_title = true;
-				}
-				auto rebelname = rebel::rebel_name(state, rf.get_rebels());
-					auto rebelsize = rf.get_rebels().get_possible_regiments();
-
-				text::add_line(state, contents, "topbar_faction",
-					text::variable_type::name, std::string_view{ rebelname },
-					text::variable_type::strength, text::pretty_integer{ rebelsize },
-					text::variable_type::org, text::fp_percentage{org});
-			}
-		}
-	}
-
-	void button_action(sys::state& state) noexcept override {
-		auto const override_and_show_tab = [&]() {
-			state.ui_state.politics_subwindow->set_visible(state, true);
-			state.ui_state.politics_subwindow->impl_on_update(state);
-
-			Cyto::Any defs = Cyto::make_any<politics_window_tab>(politics_window_tab::movements);
-			state.ui_state.politics_subwindow->impl_get(state, defs);
-
-			state.ui_state.root->move_child_to_front(state.ui_state.politics_subwindow);
-			state.ui_state.topbar_subwindow = state.ui_state.politics_subwindow;
-		};
-
-		if(state.ui_state.topbar_subwindow->is_visible()) {
-			state.ui_state.topbar_subwindow->set_visible(state, false);
-			if(state.ui_state.topbar_subwindow != state.ui_state.politics_subwindow)
-				override_and_show_tab();
-		} else {
-			override_and_show_tab();
-		}
-	}
-
 };
 
 class topbar_colony_icon : public standard_nation_button {
@@ -2048,8 +1880,6 @@ public:
 	int32_t get_icon_frame(sys::state& state, dcon::nation_id nation_id) noexcept override {
 		if(nations::sphereing_progress_is_possible(state, nation_id)) {
 			return 0;
-		} else if(rebel::sphere_member_has_ongoing_revolt(state, nation_id)) {
-			return 2;
 		} else {
 			return 1;
 		}
@@ -2093,24 +1923,8 @@ public:
 					}
 				}
 			}
-			bool added_reb_header = false;
-			for(auto m : state.world.in_nation) {
-				if(state.world.nation_get_in_sphere_of(m) == n) {
-					[&]() {
-						for(auto fac : state.world.nation_get_rebellion_within(m)) {
-							if(rebel::get_faction_brigades_active(state, fac.get_rebels()) > 0) {
-								if(!added_reb_header)
-									text::add_line(state, contents, std::string_view("a_alert_reb"));
-								added_reb_header = true;
-								text::nation_name_and_flag(state, m, contents, 15);
-								return;
-							}
-						}
-						}();
-				}
-			}
 
-			if(!added_increase_header && !added_reb_header)
+			if(!added_increase_header)
 				text::add_line(state, contents, std::string_view("alice_ca_cant_influence"));
 		}
 	}
@@ -2419,14 +2233,12 @@ public:
 			return make_element_by_type<nation_suppression_points_text>(state, id);
 		} else if(name == "politics_infamy_value") {
 			return make_element_by_type<topbar_nation_infamy_text>(state, id);
-		} else if(name == "alert_can_do_reforms") {
-			return make_element_by_type<topbar_available_reforms_icon>(state, id);
+		} else if(name == "alert_can_do_reforms" || name == "alert_have_rebels") {
+			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "alert_can_do_decisions") {
 			return make_element_by_type<topbar_available_decisions_icon>(state, id);
 		} else if(name == "alert_is_in_election") {
 			return make_element_by_type<topbar_ongoing_election_icon>(state, id);
-		} else if(name == "alert_have_rebels") {
-			return make_element_by_type<topbar_rebels_icon>(state, id);
 		} else if(name == "population_total_value") {
 			return make_element_by_type<topbar_nation_population_text>(state, id);
 		} else if(name == "topbar_focus_value") {

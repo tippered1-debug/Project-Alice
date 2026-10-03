@@ -8186,10 +8186,6 @@ void pop_details_emm_row_dest_flag_t::update_tooltip(sys::state& state, int32_t 
 		text::add_line(state, contents, text::get_name(state, std::get<dcon::nation_id>(flag)));
 	} else if(std::holds_alternative<dcon::national_identity_id>(flag)) {
 		text::add_line(state, contents, nations::name_from_tag(state, std::get<dcon::national_identity_id>(flag)));
-	} else if(std::holds_alternative<dcon::rebel_faction_id>(flag)) {
-		auto box = text::open_layout_box(contents, 0);
-		text::add_to_layout_box(state, contents, box, rebel::rebel_name(state, std::get<dcon::rebel_faction_id>(flag)));
-		text::close_layout_box(contents, box);
 	} 
 }
 void pop_details_emm_row_dest_flag_t::render(sys::state & state, int32_t x, int32_t y) noexcept {

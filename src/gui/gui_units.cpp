@@ -2056,58 +2056,6 @@ public:
 
 };
 
-class unit_details_hunt_rebels : public button_element_base {
-public:
-	bool visible = false;
-	void on_update(sys::state& state) noexcept override {
-		auto a = retrieve<dcon::army_id>(state, parent);
-		visible = !state.world.army_get_is_rebel_hunter(a) && state.world.army_get_controller_from_army_control(a) == state.local_player_nation;
-	}
-	message_result test_mouse(sys::state& state, int32_t x, int32_t y, mouse_probe_type type) noexcept override {
-		if(visible)
-			return button_element_base::test_mouse(state, x, y, type);
-		return message_result::unseen;
-	}
-	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
-		return tooltip_behavior::tooltip;
-	}
-	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
-		text::add_line(state, contents, "unit_enable_rebel_hunt");
-	}
-	void button_action(sys::state& state) noexcept override {
-		command::toggle_rebel_hunting(state, state.local_player_nation, retrieve<dcon::army_id>(state, parent));
-	}
-	void render(sys::state& state, int32_t x, int32_t y) noexcept override {
-		if(visible)
-			button_element_base::render(state, x, y);
-	}
-};
-class unit_details_dont_hunt_rebels : public button_element_base {
-public:
-	bool visible = false;
-	void on_update(sys::state& state) noexcept override {
-		auto a = retrieve<dcon::army_id>(state, parent);
-		visible = state.world.army_get_is_rebel_hunter(a) && state.world.army_get_controller_from_army_control(a) == state.local_player_nation;
-	}
-	message_result test_mouse(sys::state& state, int32_t x, int32_t y, mouse_probe_type type) noexcept override {
-		if(visible)
-			return button_element_base::test_mouse(state, x, y, type);
-		return message_result::unseen;
-	}
-	tooltip_behavior has_tooltip(sys::state& state) noexcept override {
-		return tooltip_behavior::tooltip;
-	}
-	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
-		text::add_line(state, contents, "alice_unit_disable_rebel_hunt");
-	}
-	void button_action(sys::state& state) noexcept override {
-		command::toggle_rebel_hunting(state, state.local_player_nation, retrieve<dcon::army_id>(state, parent));
-	}
-	void render(sys::state& state, int32_t x, int32_t y) noexcept override {
-		if(visible)
-			button_element_base::render(state, x, y);
-	}
-};
 class unit_details_ai_controlled : public checkbox_button {
 public:
 	bool is_active(sys::state& state) noexcept override {
@@ -2530,18 +2478,8 @@ public:
 			} else {
 				return make_element_by_type<unit_details_unload_navy_button>(state, id);
 			}
-		} else if(name == "enable_rebel_button") {
-			if constexpr(std::is_same_v<T, dcon::army_id>) {
-				return make_element_by_type<unit_details_hunt_rebels>(state, id);
-			} else {
-				return make_element_by_type<invisible_element>(state, id);
-			}
-		} else if(name == "disable_rebel_button") {
-			if constexpr(std::is_same_v<T, dcon::army_id>) {
-				return make_element_by_type<unit_details_dont_hunt_rebels>(state, id);
-			} else {
-				return make_element_by_type<invisible_element>(state, id);
-			}
+		} else if(name == "enable_rebel_button" || name == "disable_rebel_button") {
+			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "attach_unit_button" || name == "detach_unit_button" || name == "select_land") {
 
 			return make_element_by_type<invisible_element>(state, id);

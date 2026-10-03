@@ -19,7 +19,7 @@ people and institutions
 | Goods and production | Firms place input orders; factories consume physical inventory and produce goods; deposits and shipments represent extraction and delivery. | Market supply, demand, prices, inventories, and trade statistics are projected views. |
 | Firms and credit | Firm actors own operating accounts and assets. Bank underwriting originates firm-linked credit and loan servicing uses canonical accounts. | Factory and national fields expose information to legacy UI and scripts; they do not create canonical cash. |
 | Government | Public institutions assess taxes, maintain treasury accounts, employ staff, procure goods, and deliver services. | Budget fields expose the account-backed public position and policy settings. |
-| Domestic policy | Interest groups, coalitions, and staged reform bills inform political authority and execution. | Party and issue identifiers remain content-facing identities and UI vocabulary. |
+| Domestic policy | Elections, parties and governments fill the constitution's offices; the governing programme becomes fiscal law (see [Politics](politics.md)). | Legacy party, issue and ideology identifiers remain only for scripted content until they are removed. |
 | Foreign policy | Strategic Statecraft owns alliance and crisis choices and is required for every loaded country. | Existing diplomacy structures supply game content and display state. |
 
 The simulation writes DCON market and POP values through explicit projectors after canonical state changes. Scripts that attempt to alter canonical household cash or create factories without a canonical account or funded capital project fail loudly.

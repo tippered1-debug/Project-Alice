@@ -40,8 +40,6 @@ struct fixture {
 				province = state->world.create_province();
 		auto nation = state->world.create_nation();
 		nations::strategic_statecraft::initialize(*state);
-		state->transformation_government_state.resize(state->world.nation_size());
-		state->transformation_legislation_state.resize(state->world.nation_size());
 		state->world.province_set_nation_from_province_ownership(province, nation);
 		state->world.province_set_mid_point_b(province, {1.0f, 0.0f, 0.0f});
 		zone = state->world.create_state_instance();

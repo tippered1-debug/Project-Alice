@@ -45,11 +45,8 @@ enum class command_type : uint8_t {
 		abandon_colony = 28,
 		finish_colonization = 29,
 		intervene_in_war = 30,
-		suppress_movement = 31,
 		civilize_nation = 32,
 		appoint_ruling_party = 33,
-		change_issue_option = 34,
-		change_reform_option = 35,
 		become_interested_in_crisis = 36,
 		take_sides_in_crisis = 37,
 		begin_land_unit_construction = 38,
@@ -97,7 +94,6 @@ enum class command_type : uint8_t {
 		save_game = 83,
 		cancel_factory_building_construction = 84,
 		disband_undermanned = 85,
-		toggle_hunt_rebels = 88,
 		toggle_select_province = 89,
 		toggle_immigrator_province = 90,
 		state_transfer = 91,
@@ -128,7 +124,6 @@ enum class command_type : uint8_t {
 		change_naval_unit_type = 116,
 		toggle_supply_depot = 117,
 		set_army_supply_priority = 118,
-		withdraw_transformation_bill = 119,
 
 
 		// network
@@ -269,21 +264,9 @@ struct cheat_location_data {
 	dcon::nation_id n;
 };
 
-struct movement_data {
-	dcon::issue_option_id iopt;
-	dcon::national_identity_id tag;
-};
 
 struct political_party_data {
 	dcon::political_party_id p;
-};
-
-struct reform_selection_data {
-	dcon::reform_option_id r;
-};
-
-struct issue_selection_data {
-	dcon::issue_option_id r;
 };
 
 struct budget_settings_data {
@@ -664,11 +647,8 @@ constexpr enum_array<command_type, command_handler> command_type_handlers = {
 	{command_type::abandon_colony, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::finish_colonization, command_handler{sizeof(command::generic_state_definition_data),  sizeof(command::generic_state_definition_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::intervene_in_war, command_handler{sizeof(command::war_target_data),  sizeof(command::war_target_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
-	{command_type::suppress_movement, command_handler{ sizeof(command::movement_data), sizeof(command::movement_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::civilize_nation, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::appoint_ruling_party, command_handler{ sizeof(command::political_party_data), sizeof(command::political_party_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
-	{command_type::change_issue_option, command_handler{ sizeof(command::issue_selection_data), sizeof(command::issue_selection_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
-	{command_type::change_reform_option, command_handler{ sizeof(command::reform_selection_data), sizeof(command::reform_selection_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::become_interested_in_crisis, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::take_sides_in_crisis, command_handler{ sizeof(command::crisis_join_data), sizeof(command::crisis_join_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::begin_land_unit_construction, command_handler{ sizeof(command::land_unit_construction_data), sizeof(command::land_unit_construction_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
@@ -716,7 +696,6 @@ constexpr enum_array<command_type, command_handler> command_type_handlers = {
 	{command_type::save_game, command_handler{ sizeof(command::save_game_data), sizeof(command::save_game_data), &command_handler::false_is_host_receive_command, &command_handler::false_is_host_broadcast_command } },
 	{command_type::cancel_factory_building_construction, command_handler{ sizeof(command::factory_building_data), sizeof(command::factory_building_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::disband_undermanned, command_handler{ sizeof(command::army_movement_data), sizeof(command::army_movement_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
-	{command_type::toggle_hunt_rebels, command_handler{ sizeof(command::army_movement_data), sizeof(command::army_movement_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::toggle_select_province, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::toggle_immigrator_province, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::state_transfer, command_handler{ sizeof(command::state_transfer_data), sizeof(command::state_transfer_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
@@ -734,7 +713,6 @@ constexpr enum_array<command_type, command_handler> command_type_handlers = {
 	{ command_type::change_naval_unit_type, command_handler{ sizeof(command::change_naval_unit_type_data), sizeof(command::change_naval_unit_type_data) + (max_ship_count * sizeof(dcon::ship_id)), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::toggle_supply_depot, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::set_army_supply_priority, command_handler{ sizeof(command::army_supply_priority_data), sizeof(command::army_supply_priority_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
-	{ command_type::withdraw_transformation_bill, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::take_province, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::grant_province, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::ask_for_free_trade_agreement, command_handler{ sizeof(command::diplo_action_data), sizeof(command::diplo_action_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
@@ -921,8 +899,6 @@ void intervene_in_war(sys::state& state, dcon::nation_id source, dcon::war_id w,
 bool can_intervene_in_war(sys::state& state, dcon::nation_id source, dcon::war_id w, bool for_attacker);
 void execute_intervene_in_war(sys::state& state, dcon::nation_id source, dcon::war_id w, bool for_attacker);
 
-void suppress_movement(sys::state& state, dcon::nation_id source, dcon::movement_id m);
-bool can_suppress_movement(sys::state& state, dcon::nation_id source, dcon::movement_id m);
 
 void civilize_nation(sys::state& state, dcon::nation_id source);
 bool can_civilize_nation(sys::state& state, dcon::nation_id source);
@@ -932,13 +908,6 @@ void appoint_ruling_party(sys::state& state, dcon::nation_id source, dcon::polit
 bool can_appoint_ruling_party(sys::state& state, dcon::nation_id source, dcon::political_party_id p);
 void execute_appoint_ruling_party(sys::state& state, dcon::nation_id source, dcon::political_party_id p);
 
-void enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_option_id r);
-bool can_enact_reform(sys::state& state, dcon::nation_id source, dcon::reform_option_id r);
-
-void enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i);
-bool can_enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_id i);
-void withdraw_transformation_bill(sys::state& state, dcon::nation_id source);
-bool can_withdraw_transformation_bill(sys::state& state, dcon::nation_id source);
 
 void become_interested_in_crisis(sys::state& state, dcon::nation_id source);
 bool can_become_interested_in_crisis(sys::state& state, dcon::nation_id source);
@@ -1086,7 +1055,6 @@ void execute_change_land_unit_type(sys::state& state, dcon::nation_id source, st
 void change_naval_unit_type(sys::state& state, dcon::nation_id source, std::span<const dcon::ship_id> ships, dcon::unit_type_id new_type);
 
 
-void toggle_rebel_hunting(sys::state& state, dcon::nation_id source, dcon::army_id a);
 void toggle_unit_ai_control(sys::state& state, dcon::nation_id source, dcon::army_id a);
 void toggle_mobilized_is_ai_controlled(sys::state& state, dcon::nation_id source);
 

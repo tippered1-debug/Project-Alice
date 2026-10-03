@@ -4,7 +4,6 @@
 #include "demographics.hpp"
 #include "modifiers.hpp"
 #include "politics.hpp"
-#include "culture/transformation_politics.hpp"
 #include "system_state.hpp"
 #include "compat/technology_legacy_adapter.hpp"
 #include "governance/finance/finance.hpp"
@@ -18,7 +17,6 @@
 #include "prng.hpp"
 #include "effects.hpp"
 #include "province_templates.hpp"
-#include "rebels.hpp"
 #include "set"
 #include "economy_government.hpp"
 #include "economy_production.hpp"
@@ -2991,24 +2989,6 @@ void daily_update_flashpoint_tension(sys::state& state) {
 				total_increase += state.defines.tension_from_cb;
 			}
 			/*
-			- If there is an independence movement within the nation owning the state for the independence tag, the tension will
-			increase by movement-radicalism x define:TENSION_FROM_MOVEMENT x
-			fraction-of-population-in-state-with-same-culture-as-independence-tag x movement-support / 4000, up to a maximum of
-			define:TENSION_FROM_MOVEMENT_MAX per day.
-			*/
-			auto mov = rebel::get_movement_by_independence(state, si.get_nation_from_state_ownership(), si.get_flashpoint_tag());
-			if(mov) {
-				auto radicalism = state.world.movement_get_radicalism(mov);
-				auto support = state.world.movement_get_pop_support(mov);
-				auto state_pop = si.get_demographics(demographics::total);
-				auto pop_of_culture = si.get_demographics(demographics::to_key(state, si.get_flashpoint_tag().get_primary_culture()));
-				if(state_pop > 0) {
-					total_increase += std::min(state.defines.tension_from_movement_max,
-							state.defines.tension_from_movement * radicalism * pop_of_culture * support / (state_pop * 4000.0f));
-				}
-			}
-
-			/*
 			- Any flashpoint focus increases the tension by the amount listed in it per day.
 			*/
 			if(si.get_nation_from_flashpoint_focus()) {
@@ -4134,25 +4114,6 @@ void enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_i
 	}
 
 	/*
-	For political and social based reforms:
-	- Every issue-based movement with greater popular support than the movement supporting the given issue (if there is such a
-	movement; all movements if there is no such movement) has its radicalism increased by 3v(support-of-that-movement /
-	support-of-movement-behind-issue (or 1 if there is no such movement) - 1.0) x defines:WRONG_REFORM_RADICAL_IMPACT.
-	*/
-	auto winner = rebel::get_movement_by_position(state, source, i);
-	float winner_support = winner ? state.world.movement_get_pop_support(winner) : 1.0f;
-	for(auto m : state.world.nation_get_movement_within(source)) {
-		if(m.get_movement().get_associated_issue_option() && m.get_movement().get_associated_issue_option() != i && m.get_movement().get_pop_support() > winner_support) {
-
-			auto& cur_radicalism =  m.get_movement().get_transient_radicalism();
-			m.get_movement().set_transient_radicalism(cur_radicalism + std::min(3.0f, m.get_movement().get_pop_support() / winner_support - 1.0f) * state.defines.wrong_reform_radical_impact);
-		}
-	}
-	if(winner) {
-		state.world.delete_movement(winner);
-	}
-
-	/*
 	- For every ideology, the pop gains defines:MIL_REFORM_IMPACT x pop-support-for-that-ideology x ideology's support for doing
 	the opposite of the reform (calculated in the same way as determining when the upper house will support the reform or repeal)
 	militancy
@@ -4196,13 +4157,8 @@ void enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_i
 			auto adj_con = base_con + pop_demographics::get_demo(state, pop.get_pop(), isupport_key) * state.defines.con_reform_impact;
 			pop_demographics::set_consciousness(state, pop.get_pop(), std::clamp(adj_con, 0.0f, 10.0f));
 
-			if(auto m = pop.get_pop().get_movement_from_pop_movement_membership(); m && m.get_pop_support() > winner_support) {
-				auto base_mil = pop_demographics::get_militancy(state, pop.get_pop());
-				pop_demographics::set_militancy(state, pop.get_pop(), std::clamp(base_mil + state.defines.wrong_reform_militancy_impact, 0.0f, 10.0f));
-			} else {
-				auto base_mil = pop_demographics::get_militancy(state, pop.get_pop());
-				pop_demographics::set_militancy(state, pop.get_pop(), std::clamp(base_mil - state.defines.wrong_reform_militancy_impact, 0.0f, 10.0f));
-			}
+			auto base_mil = pop_demographics::get_militancy(state, pop.get_pop());
+			pop_demographics::set_militancy(state, pop.get_pop(), std::clamp(base_mil - state.defines.wrong_reform_militancy_impact, 0.0f, 10.0f));
 		}
 	}
 
@@ -4224,7 +4180,6 @@ void enact_issue(sys::state& state, dcon::nation_id source, dcon::issue_option_i
 
 	culture::update_nation_issue_rules(state, source);
 	sys::update_single_nation_modifiers(state, source);
-	politics::transformation::record_reform_outcome(state, source, i);
 
 	state.world.nation_set_last_issue_or_reform_change(source, state.current_date);
 }

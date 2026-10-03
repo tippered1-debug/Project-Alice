@@ -32,7 +32,6 @@
 #include "container_types_ui.hpp"
 #include "military_supply.hpp"
 #include "price_level.hpp"
-#include "transformation_politics.hpp"
 #include "nations/strategic_statecraft.hpp"
 
 namespace game_scene {
@@ -827,12 +826,6 @@ struct alignas(64) state {
 	std::vector<uint8_t> supply_depot_connected_cache;
 	bool army_supply_cache_valid = false;
 
-	// Derived flagship politics. The current result is recomputed from POP and
-	// economy state; the incumbent government beneath it is saved separately.
-	std::vector<politics::transformation::nation_result> transformation_politics_cache;
-	bool transformation_politics_cache_valid = false;
-	std::vector<politics::transformation::governing_coalition_state> transformation_government_state;
-	std::vector<politics::transformation::legislation_state> transformation_legislation_state;
 	bool strategic_statecraft_initialized = false;
 	std::vector<nations::strategic_statecraft::interests> strategic_interests;
 	std::vector<nations::strategic_statecraft::belief> strategic_beliefs;

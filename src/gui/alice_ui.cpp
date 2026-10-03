@@ -26,7 +26,6 @@
 #include "economy_pops.hpp"
 #include "human_development.hpp"
 #include "advanced_province_buildings.hpp"
-#include "land_ownership.hpp"
 #include "gamerule.hpp"
 #include "gamerules.cpp"
 #include "macrobuilder2.cpp"

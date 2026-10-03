@@ -2234,3 +2234,5 @@ alice_aot_credit_employment;Credit-constrained employment scale: $x$
 
 pop_education_staff_access;Public teaching capacity covers ?Y$val$?W of the local staffing target.
 pop_actual_payroll;Payroll received today
+alice_government_coalition;Governing parties: $X$ · seats held $VAL$
+alice_government_without_parties;No party government

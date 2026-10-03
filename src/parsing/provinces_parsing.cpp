@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <iterator>
 #include "container_types.hpp"
-#include "rebels.hpp"
 
 namespace parsers {
 void default_map_file::max_provinces(association_type, int32_t value, error_handler& err, int32_t line,

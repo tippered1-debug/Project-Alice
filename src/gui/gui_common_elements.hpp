@@ -10,7 +10,6 @@
 #include "military.hpp"
 #include "nations.hpp"
 #include "province_templates.hpp"
-#include "rebels.hpp"
 #include "system_state.hpp"
 #include "text.hpp"
 #include "triggers.hpp"
@@ -470,10 +469,6 @@ public:
 			text::localised_single_sub_box(state, contents, box, std::string_view("topbar_ruling_party"), text::variable_type::curr, std::string_view(ruling_party));
 			text::add_divider_to_layout_box(state, contents, box);
 			text::close_layout_box(contents, box);
-		}
-		for(auto pi : state.culture_definitions.party_issues) {
-			reform_description(state, contents, state.world.political_party_get_party_issues(fat_id.get_ruling_party(), pi));
-			text::add_line_break_to_layout(state, contents);
 		}
 	}
 };

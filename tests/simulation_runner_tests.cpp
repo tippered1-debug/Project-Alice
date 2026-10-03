@@ -76,19 +76,6 @@ simulation_diagnostics_fixture make_simulation_diagnostics_fixture() {
 	fixture.state->world.province_set_control_ratio(fixture.province, 0.7f);
 	fixture.state->world.nation_set_stockpiles(fixture.nation, economy::money, 10.0f);
 	fixture.state->defines.loan_base_interest = 0.03f;
-	fixture.state->transformation_politics_cache.assign(
-		fixture.state->world.nation_size(), politics::transformation::nation_result{});
-	auto& political = fixture.state->transformation_politics_cache[fixture.nation.index()];
-	political.enabled = true;
-	political.legitimacy.total = 60.0f;
-	political.coalition.power_share = 0.55f;
-	political.coalition.has_working_majority = true;
-	political.government.groups = politics::transformation::group_bit(
-		politics::transformation::interest_group_id::industrialists);
-	political.government.stability = 0.70f;
-	political.government.confidence[std::size_t(
-		politics::transformation::interest_group_id::industrialists)] = 0.65f;
-	fixture.state->transformation_politics_cache_valid = true;
 
 	return fixture;
 }
@@ -115,7 +102,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(snapshot.depot_count == 1);
 	REQUIRE(snapshot.nation_count == 1);
 	REQUIRE(snapshot.owned_province_count == 1);
-	REQUIRE(snapshot.transformed_nation_count == 1);
 	REQUIRE(snapshot.age_of_transformation);
 	REQUIRE(snapshot.inflation == Approx(0.01));
 	REQUIRE(snapshot.consumer_price_index == Approx(1.20));
@@ -145,17 +131,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(snapshot.government_debt == Approx(0.0));
 	REQUIRE(snapshot.control_ratio_sum == Approx(0.7));
 	REQUIRE(snapshot.minimum_control_ratio == Approx(0.7));
-	REQUIRE(snapshot.legitimacy_sum == Approx(60.0));
-	REQUIRE(snapshot.minimum_legitimacy == Approx(60.0));
-	REQUIRE(snapshot.coalition_power_sum == Approx(0.55));
-	REQUIRE(snapshot.stable_government_count == 1);
-	REQUIRE(snapshot.contested_government_count == 0);
-	REQUIRE(snapshot.fragile_government_count == 0);
-	REQUIRE(snapshot.cabinet_member_count == 1);
-	REQUIRE(snapshot.government_stability_sum == Approx(0.70));
-	REQUIRE(snapshot.minimum_government_stability == Approx(0.70));
-	REQUIRE(snapshot.cabinet_confidence_sum == Approx(0.65));
-	REQUIRE(snapshot.minimum_cabinet_confidence == Approx(0.65));
 	for(uint32_t index = 0; index < sys::checksum_key::key_size; ++index) {
 		REQUIRE(snapshot.save_checksum.key[index] == repeated_snapshot.save_checksum.key[index]);
 	}
@@ -165,9 +140,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(line.find("\"age_of_transformation\":true") != std::string::npos);
 	REQUIRE(line.find("\"finance\":") != std::string::npos);
 	REQUIRE(line.find("\"administration\":") != std::string::npos);
-	REQUIRE(line.find("\"politics\":") != std::string::npos);
-	REQUIRE(line.find("\"stable_governments\":1") != std::string::npos);
-	REQUIRE(line.find("\"government_stability_sum\":") != std::string::npos);
 	REQUIRE(line.find("\"demography\":") != std::string::npos);
 	REQUIRE(line.find("\"living_standards\":") != std::string::npos);
 	REQUIRE(line.find("\"consumer_price_index\":") != std::string::npos);
@@ -290,9 +262,6 @@ TEST_CASE("synthetic simulation lab runs a year without a scenario file",
 	REQUIRE(result.last_validation.valid);
 	REQUIRE(lines.size() == 14);
 	REQUIRE(lines.front().find("\"tick\":0") != std::string::npos);
-	REQUIRE(lines.front().find("\"government_stability\":") != std::string::npos);
-	REQUIRE(lines.front().find("\"minimum_cabinet_confidence\":") != std::string::npos);
-	REQUIRE(lines.front().find("\"government_groups\":") != std::string::npos);
 	REQUIRE(lines.back().find("\"tick\":365") != std::string::npos);
 	REQUIRE(lines.front() != lines.back());
 	REQUIRE(lines.back().find("\"age_of_transformation\":true") != std::string::npos);

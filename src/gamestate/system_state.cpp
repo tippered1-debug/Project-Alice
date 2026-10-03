@@ -14,7 +14,6 @@
 #include "parsers_declarations.hpp"
 #include "create_windows.hpp"
 #include "demographics.hpp"
-#include "rebels.hpp"
 #include "ai.hpp"
 #include "ai_alliances.hpp"
 #include "ai_focuses.hpp"
@@ -2972,56 +2971,10 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	}
 
 
-	// apply pops which are set to start in a rebel facion, and create those rebel factions if needed
-	for(auto pop_reb : context.map_of_pop_rebel_affiliation) {
-		auto pop_loc = context.state.world.pop_get_province_from_pop_location(pop_reb.first);
-		auto pop_owner = context.state.world.province_get_nation_from_province_ownership(pop_loc);
-		auto reb_fac = rebel::find_or_create_faction_for_pop(context.state, pop_owner, pop_reb.second, pop_reb.first);
-		context.state.world.try_create_pop_rebellion_membership(pop_reb.first, reb_fac);
-	}
-	// apply provinces which are set to be under rebel control at start date. Does not create new rebel factions, but uses existing ones
-	for(auto prov_reb : context.map_of_province_rebel_control) {
-		auto prov = prov_reb.first;
-		auto rebel_type = prov_reb.second;
-		auto prov_owner = context.state.world.province_get_nation_from_province_ownership(prov);
-		auto matching_reb_faction = rebel::find_faction_for_prov_occupation(context.state, prov_owner, rebel_type, prov);
-		if(bool(matching_reb_faction)) {
-			context.state.world.province_set_nation_from_province_control(prov, dcon::nation_id{ });
-			context.state.world.province_set_rebel_faction_from_province_rebel_control(prov, matching_reb_faction);
-		}
-		else {
-			err.accumulated_errors += "Could not find available rebel faction for revolt in province ID " + std::to_string(context.prov_id_to_original_id_map[prov].id) + ", has any compatible pops been assigned to the rebel type yet?";
-		}
-
-	}
-
-	// apply regiments which are set to be under rebel control at start date. Does not create new rebel factions, but uses existing ones
-	for(auto reg_prov : context.map_of_rebel_regiment_homes) {
-		auto rebel_reg = reg_prov.first;
-		auto prov = reg_prov.second.home_prov;
-		auto reb_army = context.state.world.regiment_get_army_from_army_membership(rebel_reg);
-		auto reb_army_fac = context.state.world.army_get_controller_from_army_rebel_control(reb_army);
-		auto rebel_faction = reb_army_fac;
-		if(!rebel_faction)
-			rebel_faction = context.state.world.province_get_rebel_faction_from_province_rebel_control(prov);
-		if(rebel_faction) {
-			if(!reb_army_fac)
-				context.state.world.army_set_controller_from_army_rebel_control(reb_army, rebel_faction);
-		} else {
-			context.state.world.delete_regiment(rebel_reg);
-			err.accumulated_warnings +=
-				"No rebel faction controls the regiment's starting province (" + reg_prov.second.file_name + " line " + std::to_string(reg_prov.second.line_num) + ")\n";
-		}
-
-	}
-
-	// Remove unsourced legacy regiments, while retaining faction-owned rebels.
+	// Remove unsourced legacy regiments.
 	world.for_each_regiment([&](auto n) {
-		if(!world.regiment_get_pop_from_regiment_source(n)) {
-			auto army = world.regiment_get_army_from_army_membership(n);
-			if(army && world.army_get_controller_from_army_rebel_control(army)) return;
+		if(!world.regiment_get_pop_from_regiment_source(n))
 			world.delete_regiment(n);
-		}
 	});
 
 	world.nation_resize_modifier_values(sys::national_mod_offsets::count);
@@ -3611,9 +3564,6 @@ void state::clear_army_supply_derived_data() {
 
 void state::clear_unsaved_data() {
 	clear_army_supply_derived_data();
-	politics::transformation::invalidate_cache(*this);
-	transformation_government_state.clear();
-	transformation_legislation_state.clear();
 
 	/*unit_names.clear();
 	unit_names_indices.clear();
@@ -4060,7 +4010,6 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 		|| !exact_person_freight || !labor_dynamics || !causal_order)
 		std::abort();
 	clear_army_supply_derived_data();
-	politics::transformation::invalidate_cache(*this);
 	// reset ui gamerule settings to match the actual setting of the save
 	gamerule::restore_gamerule_ui_settings(*this);
 	great_nations.reserve(int32_t(defines.great_nations_count));
@@ -4153,7 +4102,6 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 	pop_demographics::regenerate_is_primary_or_accepted(*this);
 
 	nations::update_national_administrative_efficiency(*this);
-	rebel::update_movement_values(*this);
 
 	economy::regenerate_unsaved_values(*this);
 
@@ -4234,8 +4182,6 @@ void state::fill_unsaved_data() { // reconstructs derived values that are not di
 
 	province::update_cached_values(*this);
 	nations::update_cached_values(*this);
-	if(transformation_government_state.size() != world.nation_size() || transformation_legislation_state.size() != world.nation_size())
-		politics::transformation::refresh_all_nations(*this);
 
 	ai::identify_focuses(*this);
 	ai::initialize_ai_tech_weights(*this);
@@ -4542,7 +4488,6 @@ void state::single_game_tick() {
 			case 8:
 				nations::update_national_administrative_efficiency(*this);
 				nations::update_administrative_efficiency(*this);
-				rebel::daily_update_rebel_organization(*this);
 				break;
 			case 9:
 				military::daily_leaders_update(*this);
@@ -4626,10 +4571,6 @@ void state::single_game_tick() {
 				ai::make_defense(*this);
 			}
 			break;
-		case 5:
-			rebel::update_movements(*this);
-			rebel::update_factions(*this);
-			break;
 		case 6:
 			ai::form_alliances(*this);
 			if(!bool(defines.alice_eval_ai_mil_everyday)) {
@@ -4653,15 +4594,12 @@ void state::single_game_tick() {
 			break;
 		case 12:
 			ai::update_ai_research(*this);
-			rebel::update_armies(*this);
-			rebel::rebel_hunting_check(*this);
 			break;
 			case 14:
 			ai::update_focuses(*this);
 			break;
 		case 15:
 			culture::discover_inventions(*this);
-			politics::transformation::refresh_all_nations(*this);
 			break;
 		case 20:
 			nations::update_flashpoint_tags(*this);
@@ -4670,29 +4608,15 @@ void state::single_game_tick() {
 				ai::make_defense(*this);
 			}
 			break;
-		case 22:
-			ai::take_reforms(*this);
-			break;
 		case 24:
-			rebel::execute_rebel_victories(*this);
 			if(!bool(defines.alice_eval_ai_mil_everyday)) {
 				ai::make_attacks(*this);
 			}
-			rebel::update_armies(*this);
-			rebel::rebel_hunting_check(*this);
-			break;
-		case 25:
-			rebel::execute_province_defections(*this);
-			break;
-		case 28:
-			rebel::rebel_risings_check(*this);
 			break;
 		case 30:
 			if(!bool(defines.alice_eval_ai_mil_everyday)) {
 				ai::update_ships(*this);
 			}
-			rebel::update_armies(*this);
-			rebel::rebel_hunting_check(*this);
 			break;
 		default:
 			break;
@@ -4834,10 +4758,6 @@ void state::single_game_tick() {
 			n.set_gdp_record(index, economy::gdp::value_nation_adjusted(*this, n));
 		}
 	}
-
-	// Flagship politics advances bills after the day's population and state
-	// capacity updates, so negotiation and implementation use current data.
-	politics::transformation::advance_legislation(*this);
 
 	ui_date = current_date;
 

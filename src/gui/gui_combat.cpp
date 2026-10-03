@@ -4,7 +4,6 @@
 #include "military.hpp"
 #include <gui_modifier_tooltips.hpp>
 #include "gui_leader_tooltip.hpp"
-#include "rebels.hpp"
 #include "gui_listbox_templates.hpp"
 #include "gui_templates.hpp"
 #include "province.hpp"
@@ -1249,7 +1248,6 @@ public:
 						n = state.world.national_identity_get_nation_from_identity_holder(state.national_definitions.rebel_id);
 				}
 				tag_str = std::string("@") + nations::int_to_tag(dcon::fatten(state.world, n).get_identity_from_identity_holder().get_identifying_int());
-				tag_str += " " + rebel::rebel_name(state, rf);
 				text::add_to_substitution_map(sub, text::variable_type::m, std::string_view{ tag_str });
 			}
 			text::add_to_substitution_map(sub, text::variable_type::name, state.to_string_view(state.world.regiment_get_name(reg.regiment)));

@@ -63,8 +63,6 @@ list(APPEND ALICE_CORE_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/gui/production.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/province_factories.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/factory_details.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
-	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
 )
 set_source_files_properties(src/lunasvg/plutovg-blend.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(src/lunasvg/plutovg-canvas.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
@@ -102,9 +100,6 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY
 	"${PROJECT_SOURCE_DIR}/src/economy/foreign_exchange.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/cargo_transit.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/human_development.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/land_ownership.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/industry_ownership.cpp"
-	"${PROJECT_SOURCE_DIR}/src/economy/labor_relations.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/world_trade_capacity.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_pops.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/economy_trade_routes.cpp"
@@ -124,10 +119,7 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST_GUI_TOPBAR
 	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/military_subwindows/gui_units_window.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/military_subwindows/gui_build_unit_large_window.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/politics_subwindows/gui_decision_window.cpp"
-	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/politics_subwindows/gui_movements_window.cpp"
-	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/politics_subwindows/gui_reforms_window.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/politics_subwindows/gui_release_nation_window.cpp"
-	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/politics_subwindows/gui_unciv_reforms_window.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/production_subwindows/gui_factory_refit_window.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/gui_population_window.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/topbar_subwindows/gui_production_window.cpp"
@@ -246,9 +238,6 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	${ALICE_INCREMENTAL_SOURCES_LIST_AI}
 	"${PROJECT_SOURCE_DIR}/src/culture/culture.cpp"
 	"${PROJECT_SOURCE_DIR}/src/culture/politics.cpp"
-	"${PROJECT_SOURCE_DIR}/src/culture/transformation_politics.cpp"
-	"${PROJECT_SOURCE_DIR}/src/culture/transformation_laws.cpp"
-	"${PROJECT_SOURCE_DIR}/src/culture/rebels.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/demographics.cpp"
 	${ALICE_INCREMENTAL_SOURCES_LIST_ECONOMY}
 	"${PROJECT_SOURCE_DIR}/src/graphics/opengl_wrapper.cpp"
@@ -262,7 +251,6 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/nations/nations.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/diplomatic_crisis_dynamics.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
-	"${PROJECT_SOURCE_DIR}/src/nations/policy_execution.cpp"
 	"${PROJECT_SOURCE_DIR}/src/provinces/province.cpp"
 	${ALICE_INCREMENTAL_SOURCES_LIST_RARELY_CHANGED}
 	${ALICE_INCREMENTAL_SOURCES_LIST_SCRIPTING}
