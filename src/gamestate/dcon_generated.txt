@@ -5129,6 +5129,9 @@ object{
 	property{ name{ central_bank_price_index } type{ float } tag{ save } }
 	property{ name{ central_bank_inflation } type{ float } tag{ save } }
 	property{ name{ central_bank_issued } type{ float } tag{ save } }
+	property{ name{ party_governing } type{ uint8_t } tag{ save } }
+	property{ name{ party_weak_elections } type{ uint8_t } tag{ save } }
+	property{ name{ party_founded_on } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -5144,6 +5147,11 @@ object{
 	property{ name{ staff_occupation } type{ uint8_t } tag{ save } }
 	property{ name{ staff_wage_multiplier } type{ float } tag{ save } }
 	property{ name{ territorial_template } type{ uint8_t } tag{ save } }
+	property{ name{ electoral_system } type{ uint8_t } tag{ save } }
+	property{ name{ election_districts } type{ uint8_t } tag{ save } }
+	property{ name{ election_term_days } type{ uint16_t } tag{ save } }
+	property{ name{ next_election } type{ sys::date } tag{ save } }
+	property{ name{ political_baseline_income } type{ float } tag{ save } }
 }
 
 object{
@@ -5241,6 +5249,10 @@ object{
 	property{ name{ succession } type{ uint8_t } tag{ save } }
 	property{ name{ removal } type{ uint8_t } tag{ save } }
 	property{ name{ exclusive } type{ uint8_t } tag{ save } }
+	property{ name{ electoral_system } type{ uint8_t } tag{ save } }
+	property{ name{ election_districts } type{ uint8_t } tag{ save } }
+	property{ name{ election_term_days } type{ uint16_t } tag{ save } }
+	property{ name{ next_election } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -8538,4 +8550,83 @@ relationship{
 	tag{ save }
 	link{ object{ organization } name{ organization } type{ unique } }
 	link{ object{ institution } name{ institution } type{ unique } }
+}
+
+object{
+	name{ platform_position }
+	storage_type{ erasable }
+	size{ 20000 }
+	tag{ save }
+	property{ name{ dimension } type{ uint8_t } tag{ save } }
+	property{ name{ value } type{ float } tag{ save } }
+}
+
+object{
+	name{ election }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{ name{ held_on } type{ sys::date } tag{ save } }
+	property{ name{ electorate } type{ float } tag{ save } }
+	property{ name{ turnout } type{ float } tag{ save } }
+}
+
+object{
+	name{ election_result }
+	storage_type{ erasable }
+	size{ 200000 }
+	tag{ save }
+	property{ name{ votes } type{ float } tag{ save } }
+	property{ name{ seats } type{ uint16_t } tag{ save } }
+}
+
+relationship{
+	name{ party_nation }
+	tag{ save }
+	link{ object{ organization } name{ organization } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ platform_position_party }
+	tag{ save }
+	link{ object{ platform_position } name{ platform_position } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ party_membership }
+	tag{ save }
+	link{ object{ person } name{ person } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+	property{ name{ joined_on } type{ sys::date } tag{ save } }
+	property{ name{ rank } type{ uint16_t } tag{ save } }
+}
+
+relationship{
+	name{ election_institution }
+	tag{ save }
+	link{ object{ election } name{ election } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ election_office }
+	tag{ save }
+	link{ object{ election } name{ election } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ election_result_election }
+	tag{ save }
+	link{ object{ election_result } name{ election_result } type{ unique } }
+	link{ object{ election } name{ election } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ election_result_party }
+	tag{ save }
+	link{ object{ election_result } name{ election_result } type{ unique } }
+	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
 }

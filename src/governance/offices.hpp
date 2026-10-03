@@ -17,7 +17,9 @@ namespace governance::offices {
 // first. The term ends a tenure automatically. On a vacancy the successor
 // office's holder acts in it, or takes it over in full.
 enum class succession_mode : uint8_t { none = 0, acting = 1, full = 2 };
-enum class removal_rule : uint8_t { by_appointer = 0, by_remover = 1, irremovable = 2 };
+// by_no_confidence: the confirming chamber removes the holder by passing a
+// motion of no confidence.
+enum class removal_rule : uint8_t { by_appointer = 0, by_remover = 1, irremovable = 2, by_no_confidence = 3 };
 
 struct office_rules {
 	dcon::office_id appointer{};
@@ -65,6 +67,9 @@ dcon::institutional_action_id appoint(sys::state&, dcon::person_id initiator, dc
 // Rule-checked dismissal by the holder of the removing office.
 dcon::institutional_action_id dismiss(sys::state&, dcon::person_id initiator, dcon::office_id, sys::date);
 bool resign(sys::state&, dcon::person_id, dcon::office_id, sys::date);
+// Removes the holder of an office whose confirming chamber has passed a motion
+// of no confidence in it.
+dcon::institutional_action_id remove_by_no_confidence(sys::state&, dcon::office_id, sys::date);
 // Ends the office's current tenure and applies its succession rule.
 void vacate(sys::state&, dcon::office_id, sys::date);
 // Ends every tenure whose term is over by `date`.

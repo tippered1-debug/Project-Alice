@@ -15,7 +15,9 @@ namespace governance::legislature {
 // through ordinary tenures; who fills them (appointment, founding, or a later
 // electoral layer) is the seat's office rule. A chamber decides by the votes of
 // the persons holding its seats on the day the question is decided.
-enum class motion_kind : uint8_t { enact = 0, repeal = 1, confirm = 2 };
+// carried_no_confidence: a motion of no confidence that removed its office's
+// holder; it binds no later tenure.
+enum class motion_kind : uint8_t { enact = 0, repeal = 1, confirm = 2, no_confidence = 3, carried_no_confidence = 4 };
 inline constexpr float simple_majority = 0.5f;
 // Amending the constitution needs more than two thirds of the filled seats.
 inline constexpr float constitutional_majority = 2.0f / 3.0f;
@@ -34,6 +36,13 @@ dcon::vote_id vote_on_instrument(sys::state&, dcon::person_id, dcon::institution
 	motion_kind, bool in_favor, sys::date);
 dcon::vote_id vote_on_confirmation(sys::state&, dcon::person_id, dcon::institution_id chamber, dcon::office_id,
 	dcon::person_id candidate, bool in_favor, sys::date);
+// A seat holder of the office's confirming chamber moves or backs a motion of
+// no confidence in the office's holder. Each tenure faces its own motion.
+dcon::motion_id open_no_confidence(sys::state&, dcon::office_id, sys::date);
+dcon::vote_id vote_on_no_confidence(sys::state&, dcon::person_id, dcon::office_id, bool in_favor, sys::date);
+bool no_confidence_passed(sys::state const&, dcon::office_id, sys::date);
+// Marks the office's current motion of no confidence as carried.
+void carry_no_confidence(sys::state&, dcon::office_id);
 // Votes in favor by today's seat holders exceed `threshold` of the filled seats.
 bool passed(sys::state const&, dcon::motion_id, sys::date, float threshold);
 

@@ -89,12 +89,14 @@ Constitution tables are optional. A country they do not name is founded when a n
 
 The rows mean the same as in the built-in models. A country named in these tables cannot also appear in `constitutions.csv`.
 
+`constitution_elections.csv` (`country;body;system;districts;term_days`) gives such a country its electoral rules. Without rows, it holds no elections. See [Politics](../architecture/politics.md).
+
 **First office holders.** `office_holders.csv` has columns `country;office;seat;person`.
 
 - `seat` is one-based and counts the seats of a multi-seat office.
 - `person` is a `source_population_cell:ordinal` reference to a living exact person.
 
-Offices left without a holder are seated with living adults of the country.
+Offices that no election, government or appointer fills are seated with living adults of the country. Elections, the government, and appointers fill the rest.
 
 **Rejected constitutions.** The scenario is rejected when any of the following holds:
 

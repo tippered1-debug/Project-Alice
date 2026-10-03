@@ -115,6 +115,7 @@ bool set_rules(sys::state& state, dcon::office_id office, office_rules const& ru
 	if(rules.confirmer && (nation_of(state, rules.confirmer) != nation
 		|| kind_of(state, rules.confirmer) != institution_kind::legislative_chamber)) return false;
 	if(rules.removal == removal_rule::by_remover && !rules.remover) return false;
+	if(rules.removal == removal_rule::by_no_confidence && !rules.confirmer) return false;
 	if(rules.succession != succession_mode::none && !rules.successor) return false;
 	if(auto r = state.world.office_get_office_appointer_as_office(office)) state.world.delete_office_appointer(r);
 	if(auto r = state.world.office_get_office_remover_as_office(office)) state.world.delete_office_remover(r);
@@ -223,6 +224,18 @@ dcon::institutional_action_id dismiss(sys::state& state, dcon::person_id initiat
 		|| !has_authority(state, deciding, authority_kind::dismiss, jurisdiction_of(state, office), date)) return {};
 	auto target = state.world.office_tenure_get_person_from_office_tenure_person(tenure);
 	auto action = record(state, institutional_action_kind::dismissal, initiator, target, office, date);
+	vacate(state, office, date);
+	return action;
+}
+
+dcon::institutional_action_id remove_by_no_confidence(sys::state& state, dcon::office_id office, sys::date date) {
+	auto tenure = current_tenure(state, office);
+	auto rules = rules_of(state, office);
+	if(!tenure || rules.removal != removal_rule::by_no_confidence
+		|| !legislature::no_confidence_passed(state, office, date)) return {};
+	auto target = state.world.office_tenure_get_person_from_office_tenure_person(tenure);
+	auto action = record(state, institutional_action_kind::dismissal, {}, target, office, date);
+	legislature::carry_no_confidence(state, office);
 	vacate(state, office, date);
 	return action;
 }

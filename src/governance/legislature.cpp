@@ -115,6 +115,49 @@ dcon::vote_id vote_on_confirmation(sys::state& state, dcon::person_id person, dc
 	return record_vote(state, motion, person, in_favor, date);
 }
 
+namespace {
+// The motion of no confidence opened during the office holder's current tenure.
+dcon::motion_id current_no_confidence(sys::state const& state, dcon::office_id office) {
+	auto chamber = offices::rules_of(state, office).confirmer;
+	auto tenure = offices::current_tenure(state, office);
+	if(!chamber || !tenure) return {};
+	auto started = state.world.office_tenure_get_started_on(tenure);
+	dcon::motion_id result{};
+	state.world.institution_for_each_motion_chamber_as_institution(chamber, [&](auto relation) {
+		auto motion = state.world.motion_chamber_get_motion(relation);
+		if(state.world.motion_get_kind(motion) == uint8_t(motion_kind::no_confidence)
+			&& state.world.motion_get_office_from_motion_office(motion) == office
+			&& !(state.world.motion_get_opened_on(motion) < started)) result = motion;
+	});
+	return result;
+}
+}
+
+dcon::motion_id open_no_confidence(sys::state& state, dcon::office_id office, sys::date date) {
+	auto chamber = offices::rules_of(state, office).confirmer;
+	if(!chamber || !offices::current_tenure(state, office)) return {};
+	if(auto existing = current_no_confidence(state, office)) return existing;
+	auto motion = create_motion(state, chamber, motion_kind::no_confidence, date);
+	state.world.force_create_motion_office(motion, office);
+	return motion;
+}
+
+dcon::vote_id vote_on_no_confidence(sys::state& state, dcon::person_id person, dcon::office_id office, bool in_favor, sys::date date) {
+	auto chamber = offices::rules_of(state, office).confirmer;
+	if(!chamber || !seat_of(state, person, chamber, date)) return {};
+	auto motion = open_no_confidence(state, office, date);
+	return motion ? record_vote(state, motion, person, in_favor, date) : dcon::vote_id{};
+}
+
+bool no_confidence_passed(sys::state const& state, dcon::office_id office, sys::date date) {
+	return passed(state, current_no_confidence(state, office), date, simple_majority);
+}
+
+void carry_no_confidence(sys::state& state, dcon::office_id office) {
+	if(auto motion = current_no_confidence(state, office))
+		state.world.motion_set_kind(motion, uint8_t(motion_kind::carried_no_confidence));
+}
+
 bool passed(sys::state const& state, dcon::motion_id motion, sys::date date, float threshold) {
 	if(!motion || !state.world.motion_is_valid(motion)) return false;
 	auto chamber = state.world.motion_get_institution_from_motion_chamber(motion);

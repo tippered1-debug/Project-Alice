@@ -28,6 +28,11 @@ namespace governance::constitution {
 // authorities: holder;kind;scope;delegated_from;source
 //   holder and delegated_from: institution:<key> or office:<key>; scope:
 //   national or territory; source: constitution, or empty.
+// elections: body;system;districts;term_days
+//   body: institution:<chamber> or office:<key>; system: proportional,
+//   plurality, direct, legislative, presiding, or running_mate; districts:
+//   national, regional, or own (the office's territory).
+//   removal (offices): no_confidence lets the confirming chamber remove the holder.
 
 struct institution_row {
 	std::string key, kind, parent, scope, service;
@@ -48,16 +53,23 @@ struct authority_row {
 	std::string holder, kind, scope, delegated_from, source;
 	uint32_t line = 0;
 };
+struct election_row {
+	std::string body, system, districts;
+	uint16_t term_days = 0;
+	uint32_t line = 0;
+};
 struct document {
 	std::vector<institution_row> institutions;
 	std::vector<office_row> offices;
 	std::vector<authority_row> authorities;
+	std::vector<election_row> elections;
 };
 
 // Parses rows; errors name the table and line.
 bool parse_institutions(std::string_view text, document&, std::string& error);
 bool parse_offices(std::string_view text, document&, std::string& error);
 bool parse_authorities(std::string_view text, document&, std::string& error);
+bool parse_elections(std::string_view text, document&, std::string& error);
 // Checks the rows are a coherent constitution: unique keys, known kinds, an
 // acyclic institution tree, existing references, chambers as confirmers,
 // delegations from earlier rows of the same power, and territorial powers
@@ -69,8 +81,8 @@ bool validate(document const&, std::string& error);
 // presidential, semi_presidential, dual_monarchy, absolute_monarchy,
 // authoritarian. Territorial models: unitary, federal.
 bool model(std::string_view executive, std::string_view territorial, document&, std::string& error);
-// Bootstrap input only: the model a legacy government type suggests.
-std::string_view legacy_executive_model(sys::state const&, dcon::nation_id);
+// The model of a nation the scenario does not constitute.
+inline constexpr std::string_view default_executive_model = "parliamentary_republic";
 
 struct founded {
 	dcon::legal_instrument_id constitution{};
@@ -88,9 +100,11 @@ void synchronize_territories(sys::state&, dcon::nation_id);
 // the founding constitution, and its grants. Fails without a partial state
 // being valid: the caller treats failure as fatal.
 bool found(sys::state&, dcon::nation_id, document const&, sys::date, founded&, std::string& error);
-// Installs a living adult of the nation in every office of the founded state.
+// Installs a living adult of the nation in every office no political process
+// fills: offices with neither an appointer nor an electoral rule (a hereditary
+// monarch, an heir). Elections, government formation and appointers fill the rest.
 bool appoint_founders(sys::state&, dcon::nation_id, founded const&, sys::date, std::string& error);
-// Founds every nation that has no constitution from its legacy model, unitary.
+// Founds every nation that has no constitution with the default model, unitary.
 void bootstrap(sys::state&);
 // Regions gained after founding get a regional government cloned from an
 // existing one of the same nation: same offices, rules, and powers over the new

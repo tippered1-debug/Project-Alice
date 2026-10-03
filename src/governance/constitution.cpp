@@ -2,6 +2,7 @@
 
 #include "system_state.hpp"
 #include "governance/law/law.hpp"
+#include "governance/elections.hpp"
 #include "governance/offices.hpp"
 #include "persons/exact_population.hpp"
 #include "persons/persons.hpp"
@@ -113,6 +114,9 @@ std::string row_error(std::string_view table, uint32_t line, std::string_view me
 constexpr std::string_view institutions_header = "key;kind;parent;scope;independent;service;staffing_per_capita;staff_occupation;wage_multiplier";
 constexpr std::string_view offices_header = "key;institution;kind;appointer;confirmer;removal;remover;term_days;succession;successor;exclusive;seats";
 constexpr std::string_view authorities_header = "holder;kind;scope;delegated_from;source";
+constexpr std::string_view elections_header = "body;system;districts;term_days";
+constexpr std::array<std::string_view, 7> electoral_system_names{ "none", "proportional", "plurality", "direct", "legislative", "presiding", "running_mate" };
+constexpr std::array<std::string_view, 3> district_names{ "national", "regional", "own" };
 
 // ---------------------------------------------------------------- models
 
@@ -172,7 +176,7 @@ office:prosecutor_general;enforce;national;institution:prosecution;
 )";
 
 struct executive_model {
-	std::string_view name, institutions, offices, authorities;
+	std::string_view name, institutions, offices, authorities, elections;
 };
 
 // Rows every legislature with two elected chambers shares.
@@ -212,7 +216,7 @@ constexpr std::array<executive_model, 7> executive_models{ {
 	{ "parliamentary_republic",
 		ALICE_INDEPENDENT_BODIES ALICE_BICAMERAL_INSTITUTIONS,
 		"head_of_state;head_of_state;head_of_state;;;irremovable;;0;acting;speaker;1;1\n"
-		"chief_executive;cabinet;head_of_government;head_of_state;lower_chamber;remover;head_of_state;0;none;;0;1\n"
+		"chief_executive;cabinet;head_of_government;head_of_state;lower_chamber;no_confidence;;0;none;;0;1\n"
 		"bank_governor;central_bank;central_bank_governor;head_of_state;lower_chamber;irremovable;;0;none;;1;1\n"
 		"chief_justice;judiciary;chief_justice;head_of_state;upper_chamber;irremovable;;0;none;;1;1\n"
 		ALICE_BICAMERAL_OFFICES,
@@ -225,12 +229,13 @@ constexpr std::array<executive_model, 7> executive_models{ {
 		"office:chief_executive;dismiss;national;;constitution\n"
 		"office:chief_executive;administer;national;;constitution\n"
 		"office:chief_executive;regulate;national;;constitution\n"
-		ALICE_COMMAND_UNDER("head_of_state") },
+		ALICE_COMMAND_UNDER("head_of_state"),
+		"institution:lower_chamber;proportional;national;1460\n" "institution:upper_chamber;plurality;regional;2190\n" "office:head_of_state;legislative;national;1825\n" "office:speaker;presiding;national;0\n" },
 	{ "parliamentary_monarchy",
 		ALICE_INDEPENDENT_BODIES ALICE_BICAMERAL_INSTITUTIONS,
 		"head_of_state;head_of_state;head_of_state;;;irremovable;;0;full;heir;1;1\n"
 		"heir;head_of_state;heir;;;irremovable;;0;none;;1;1\n"
-		"chief_executive;cabinet;head_of_government;head_of_state;lower_chamber;remover;head_of_state;0;none;;0;1\n"
+		"chief_executive;cabinet;head_of_government;head_of_state;lower_chamber;no_confidence;;0;none;;0;1\n"
 		"bank_governor;central_bank;central_bank_governor;head_of_state;lower_chamber;irremovable;;0;none;;1;1\n"
 		"chief_justice;judiciary;chief_justice;head_of_state;upper_chamber;irremovable;;0;none;;1;1\n"
 		ALICE_BICAMERAL_OFFICES,
@@ -243,7 +248,8 @@ constexpr std::array<executive_model, 7> executive_models{ {
 		"office:chief_executive;dismiss;national;;constitution\n"
 		"office:chief_executive;administer;national;;constitution\n"
 		"office:chief_executive;regulate;national;;constitution\n"
-		ALICE_COMMAND_UNDER("head_of_state") },
+		ALICE_COMMAND_UNDER("head_of_state"),
+		"institution:lower_chamber;proportional;national;1460\n" "institution:upper_chamber;plurality;regional;2190\n" "office:speaker;presiding;national;0\n" },
 	{ "presidential",
 		ALICE_INDEPENDENT_BODIES ALICE_BICAMERAL_INSTITUTIONS,
 		"chief_executive;head_of_state;head_of_state;;;irremovable;;0;full;vice_president;1;1\n"
@@ -258,11 +264,12 @@ constexpr std::array<executive_model, 7> executive_models{ {
 		"office:chief_executive;administer;national;;constitution\n"
 		"office:chief_executive;regulate;national;;constitution\n"
 		"office:chief_executive;command_forces;national;;constitution\n"
-		ALICE_COMMAND_UNDER("chief_executive") },
+		ALICE_COMMAND_UNDER("chief_executive"),
+		"office:chief_executive;direct;national;1460\n" "office:vice_president;running_mate;national;0\n" "institution:lower_chamber;plurality;regional;730\n" "institution:upper_chamber;plurality;regional;2190\n" "office:speaker;presiding;national;0\n" },
 	{ "semi_presidential",
 		ALICE_INDEPENDENT_BODIES ALICE_BICAMERAL_INSTITUTIONS,
 		"head_of_state;head_of_state;head_of_state;;;irremovable;;0;acting;speaker;1;1\n"
-		"chief_executive;cabinet;head_of_government;head_of_state;lower_chamber;remover;head_of_state;0;none;;0;1\n"
+		"chief_executive;cabinet;head_of_government;head_of_state;lower_chamber;no_confidence;;0;none;;0;1\n"
 		"bank_governor;central_bank;central_bank_governor;head_of_state;upper_chamber;irremovable;;0;none;;1;1\n"
 		"chief_justice;judiciary;chief_justice;head_of_state;upper_chamber;irremovable;;0;none;;1;1\n"
 		ALICE_BICAMERAL_OFFICES,
@@ -275,7 +282,8 @@ constexpr std::array<executive_model, 7> executive_models{ {
 		"office:chief_executive;dismiss;national;;constitution\n"
 		"office:chief_executive;administer;national;;constitution\n"
 		"office:chief_executive;regulate;national;;constitution\n"
-		ALICE_COMMAND_UNDER("head_of_state") },
+		ALICE_COMMAND_UNDER("head_of_state"),
+		"office:head_of_state;direct;national;1825\n" "institution:lower_chamber;proportional;national;1825\n" "institution:upper_chamber;plurality;regional;2190\n" "office:speaker;presiding;national;0\n" },
 	{ "dual_monarchy",
 		ALICE_SUBORDINATE_BODIES ALICE_BICAMERAL_INSTITUTIONS,
 		"head_of_state;head_of_state;head_of_state;;;irremovable;;0;full;heir;1;1\n"
@@ -294,7 +302,8 @@ constexpr std::array<executive_model, 7> executive_models{ {
 		"office:chief_executive;dismiss;national;;constitution\n"
 		"office:chief_executive;administer;national;;constitution\n"
 		"office:chief_executive;regulate;national;;constitution\n"
-		ALICE_COMMAND_UNDER("head_of_state") },
+		ALICE_COMMAND_UNDER("head_of_state"),
+		"institution:lower_chamber;plurality;regional;1460\n" "institution:upper_chamber;plurality;regional;2190\n" "office:speaker;presiding;national;0\n" },
 	{ "absolute_monarchy",
 		ALICE_SUBORDINATE_BODIES
 		"lower_chamber;legislative_chamber;legislature;national;0;legislation;0;0;1\n",
@@ -310,7 +319,8 @@ constexpr std::array<executive_model, 7> executive_models{ {
 		"office:chief_executive;dismiss;national;;constitution\n"
 		"office:chief_executive;administer;national;;constitution\n"
 		"office:chief_executive;command_forces;national;;constitution\n"
-		ALICE_COMMAND_UNDER("chief_executive") },
+		ALICE_COMMAND_UNDER("chief_executive"),
+		"" },
 	{ "authoritarian",
 		ALICE_SUBORDINATE_BODIES
 		"lower_chamber;legislative_chamber;legislature;national;0;legislation;0;0;1\n",
@@ -326,8 +336,16 @@ constexpr std::array<executive_model, 7> executive_models{ {
 		"office:chief_executive;dismiss;national;;constitution\n"
 		"office:chief_executive;administer;national;;constitution\n"
 		"office:chief_executive;command_forces;national;;constitution\n"
-		ALICE_COMMAND_UNDER("chief_executive") },
+		ALICE_COMMAND_UNDER("chief_executive"),
+		"" },
 } };
+
+constexpr std::string_view common_elections = R"(
+office:mayor;direct;own;1460
+)";
+constexpr std::string_view federal_elections = R"(
+office:governor;direct;own;1460
+)";
 
 constexpr std::string_view unitary_offices = R"(
 governor;region;regional_governor;chief_executive;;appointer;;0;none;;0;1
@@ -541,6 +559,20 @@ bool parse_offices(std::string_view text, document& result, std::string& error) 
 	return true;
 }
 
+bool parse_elections(std::string_view text, document& result, std::string& error) {
+	std::vector<parsed_line> rows;
+	if(!read_rows(text, "elections", elections_header, rows, error)) return false;
+	for(auto& row : rows) {
+		uint32_t term = 0;
+		if(!parse_number(row.cells[3], term) || term > 65535) {
+			error = row_error("elections", row.line, "term_days must be a number of days");
+			return false;
+		}
+		result.elections.push_back({ row.cells[0], row.cells[1], row.cells[2], uint16_t(term), row.line });
+	}
+	return true;
+}
+
 bool parse_authorities(std::string_view text, document& result, std::string& error) {
 	std::vector<parsed_line> rows;
 	if(!read_rows(text, "authorities", authorities_header, rows, error)) return false;
@@ -584,7 +616,8 @@ bool validate(document const& doc, std::string& error) {
 		if(row.key.empty() || !offices.emplace(row.key, &row).second) { error = row_error("offices", row.line, "key must be unique and nonempty"); return false; }
 		if(!institutions.contains(row.institution)) { error = row_error("offices", row.line, "institution '" + row.institution + "' is not defined"); return false; }
 		if(index_of(office_kind_names, row.kind) < 0) { error = row_error("offices", row.line, "unknown kind '" + row.kind + "'"); return false; }
-		if(row.removal != "appointer" && row.removal != "remover" && row.removal != "irremovable") { error = row_error("offices", row.line, "removal must be appointer, remover or irremovable"); return false; }
+		if(row.removal != "appointer" && row.removal != "remover" && row.removal != "irremovable" && row.removal != "no_confidence") { error = row_error("offices", row.line, "removal must be appointer, remover, irremovable or no_confidence"); return false; }
+		if(row.removal == "no_confidence" && row.confirmer.empty()) { error = row_error("offices", row.line, "removal by no confidence needs a confirming chamber"); return false; }
 		if(row.succession != "none" && row.succession != "acting" && row.succession != "full") { error = row_error("offices", row.line, "succession must be none, acting or full"); return false; }
 	}
 	auto office_scope = [&](office_row const& row) { return institutions.at(row.institution)->scope; };
@@ -634,6 +667,26 @@ bool validate(document const& doc, std::string& error) {
 		}
 		granted[{ row.holder, row.kind }] = true;
 	}
+	std::set<std::string> elected;
+	for(auto const& row : doc.elections) {
+		holder_ref body;
+		if(!parse_holder(row.body, body)) { error = row_error("elections", row.line, "body must be institution:<chamber> or office:<key>"); return false; }
+		auto system = index_of(electoral_system_names, row.system);
+		if(system <= 0 || index_of(district_names, row.districts) < 0) { error = row_error("elections", row.line, "unknown electoral system or district rule"); return false; }
+		if(!elected.insert(row.body).second) { error = row_error("elections", row.line, row.body + " has two electoral rules"); return false; }
+		bool seat_system = row.system == "proportional" || row.system == "plurality";
+		if(body.is_office) {
+			auto office = offices.find(body.key);
+			if(office == offices.end()) { error = row_error("elections", row.line, "office '" + body.key + "' is not defined"); return false; }
+			if(seat_system) { error = row_error("elections", row.line, "an office is not elected by a seat system"); return false; }
+			if(!office->second->appointer.empty()) { error = row_error("elections", row.line, "an office with an appointer is not elected"); return false; }
+			if(row.districts == "own" && office_scope(*office->second) == "national") { error = row_error("elections", row.line, "only a territorial office votes in its own territory"); return false; }
+		} else {
+			auto chamber = institutions.find(body.key);
+			if(chamber == institutions.end() || chamber->second->kind != "legislative_chamber") { error = row_error("elections", row.line, "an institution must be a legislative chamber to be elected"); return false; }
+			if(!seat_system) { error = row_error("elections", row.line, "a chamber is elected by a seat system"); return false; }
+		}
+	}
 	return true;
 }
 
@@ -653,20 +706,11 @@ bool model(std::string_view executive, std::string_view territorial, document& r
 		&& parse_offices(join(offices_header, { common_offices, found_model->offices, federal ? federal_offices : unitary_offices }), result, error)
 		&& parse_authorities(join(authorities_header, { common_authorities, found_model->authorities, ALICE_SHARED_BODY_AUTHORITIES,
 			federal ? federal_authorities : unitary_authorities }), result, error)
+		// Autocracies hold no elections at all.
+		&& parse_elections(join(elections_header, { found_model->elections,
+			found_model->elections.empty() ? std::string_view{} : common_elections,
+			federal && !found_model->elections.empty() ? federal_elections : std::string_view{} }), result, error)
 		&& validate(result, error);
-}
-
-std::string_view legacy_executive_model(sys::state const& state, dcon::nation_id nation) {
-	auto government = state.world.nation_get_government_type(nation);
-	if(!government) return "parliamentary_republic";
-	auto flag = state.world.government_type_get_flag(government);
-	auto flag_name = flag ? state.to_string_view(state.world.government_flag_get_filename(flag)) : std::string_view{};
-	bool monarchy = flag_name.find("monarch") != std::string_view::npos;
-	bool elections = state.world.government_type_get_has_elections(government);
-	bool appoints = state.world.government_type_get_can_appoint_ruling_party(government);
-	if(!elections) return monarchy ? "absolute_monarchy" : "authoritarian";
-	if(appoints) return monarchy ? "dual_monarchy" : "semi_presidential";
-	return monarchy ? "parliamentary_monarchy" : "parliamentary_republic";
 }
 
 void synchronize_territories(sys::state& state, dcon::nation_id nation) {
@@ -788,7 +832,8 @@ bool found(sys::state& state, dcon::nation_id nation, document const& doc, sys::
 			rules.successor = resolve_office(row.successor, office);
 			rules.confirmer = row.confirmer.empty() ? dcon::institution_id{} : result.institution(row.confirmer);
 			rules.removal = row.removal == "remover" ? offices::removal_rule::by_remover
-				: row.removal == "irremovable" ? offices::removal_rule::irremovable : offices::removal_rule::by_appointer;
+				: row.removal == "irremovable" ? offices::removal_rule::irremovable
+				: row.removal == "no_confidence" ? offices::removal_rule::by_no_confidence : offices::removal_rule::by_appointer;
 			rules.succession = row.succession == "full" ? offices::succession_mode::full
 				: row.succession == "acting" ? offices::succession_mode::acting : offices::succession_mode::none;
 			rules.term_days = row.term_days;
@@ -839,6 +884,15 @@ bool found(sys::state& state, dcon::nation_id nation, document const& doc, sys::
 			if(!grant) { error = row_error("authorities", row.line, "could not grant " + row.kind + " to " + row.holder); return false; }
 		}
 	}
+	// Electoral rules: the first elections are held at founding.
+	for(auto const& row : doc.elections) {
+		holder_ref body;
+		(void)parse_holder(row.body, body);
+		auto system = elections::electoral_system(index_of(electoral_system_names, row.system));
+		auto districts = elections::district_rule(index_of(district_names, row.districts));
+		if(body.is_office) for(auto office : result.offices[body.key]) elections::set_rule(state, office, system, districts, row.term_days, date);
+		else for(auto chamber : result.institutions[body.key]) elections::set_rule(state, chamber, system, districts, row.term_days, date);
+	}
 	return true;
 }
 
@@ -848,7 +902,11 @@ bool appoint_founders(sys::state& state, dcon::nation_id nation, founded const& 
 	for(auto const& [key, list] : result.offices) all.insert(all.end(), list.begin(), list.end());
 	std::sort(all.begin(), all.end(), [](auto a, auto b) { return a.index() < b.index(); });
 	for(auto office : all) {
-		if(!offices::vacant(state, office)) continue;
+		if(!offices::vacant(state, office) || offices::rules_of(state, office).appointer
+			|| state.world.office_get_electoral_system(office) != 0) continue;
+		// Seats of an elected chamber are filled by its elections.
+		auto chamber = institution_for_office(state, office);
+		if(state.world.office_get_kind(office) == uint8_t(office_kind::legislator) && state.world.institution_get_electoral_system(chamber) != 0) continue;
 		auto person = pool.next();
 		if(!person) { error = "not enough living adults to seat the founding offices"; return false; }
 		if(!offices::install(state, person, office, date)) { error = "a founder could not take office"; return false; }
@@ -862,7 +920,7 @@ void bootstrap(sys::state& state) {
 		document doc;
 		founded result;
 		std::string error;
-		if(!model(legacy_executive_model(state, nation), "unitary", doc, error)
+		if(!model(default_executive_model, "unitary", doc, error)
 			|| !found(state, nation, doc, state.current_date, result, error)
 			|| !appoint_founders(state, nation, result, state.current_date, error)) {
 			assert(false && "constitutional founding failed");

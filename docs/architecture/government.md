@@ -125,7 +125,7 @@ The territorial models are:
 - `unitary`: regions and the capital act under powers delegated from the cabinet and the finance ministry, and governors are appointed;
 - `federal`: regions hold their own constitutional powers to administer, spend and tax, and governors regulate in their territory.
 
-**New game.** A nation that has no constitution is founded from the model its legacy government type suggests, unitary. The government type is read only at this point, as bootstrap input. Founding seats living adults of the nation in every office.
+**New game.** A nation that has no constitution is founded with the default model, a unitary parliamentary republic. Founding seats only the offices no political process fills; elections, government formation and appointers fill the rest (see [Politics](politics.md)).
 
 **Regions gained later.** A region acquired after founding gets a regional government cloned from an existing one, with its offices vacant.
 
@@ -180,13 +180,9 @@ Money moves only between real accounts; allocating a budget never creates money.
    - municipal administrations buy office supplies;
    - the public works ministry commissions and pays for public construction.
 
-## Legacy inputs
+## Fiscal policy
 
-The tax and spending sliders are policy inputs, not authority. When they differ from the fiscal law in force, the holder of the office empowered to regulate public finance issues a regulation and repeals the one it replaces. That office is the finance minister where one exists. With no such holder, the sliders change nothing.
-
-Budget figures on nations and provinces are interface projections.
-
-Ruling party, reforms, and national modifiers still feed population politics. No state action covered here reads them.
+The governing programme becomes fiscal law through the finance minister (see [Politics](politics.md)). Legacy tax and spending sliders, budget figures on nations and provinces, ruling party, reforms, and national modifiers are read by no state action. A nation the scenario does not constitute is founded with the default model, a unitary parliamentary republic; no legacy government type is consulted.
 
 ## Central bank and armed forces
 
@@ -196,18 +192,8 @@ Who appoints and may remove its governor, and whether it is independent of the c
 
 **Armed forces.** A formation answers to its nation's military command. Orders (`governance::command`) need a person exercising an office with `command_forces` over the formation's nation: the commander in chief under the constitution, or the chief of the general staff under the command's delegated power.
 
-## Not yet modelled
+## Who holds office
 
-The next layer decides who gets these offices and why. That covers:
-
-- elections and parties;
-- coalition bargaining;
-- the political behavior that fills vacancies and votes in chambers.
-
-Until then:
-
-- seats and elected offices have no term;
-- vacancies stay open unless a succession rule fills them;
-- legislators vote only when told to.
+Elections, government formation, confidence, and the filling of vacancies are described in [Politics](politics.md). Founding seats only the offices no political process fills, such as a hereditary monarch and their heir.
 
 See [Actors](actors.md), [Banking](banking.md), [Ownership](ownership.md), and [Scenario format](../runtime/scenario-format.md).

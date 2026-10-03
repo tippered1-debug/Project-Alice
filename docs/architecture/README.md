@@ -16,6 +16,7 @@ This is the entry point for the architecture that describes the current runtime.
 | Capital allocation | Savers, equity offerings, project finance, and plant sales. | [Capital allocation](capital-allocation.md) |
 | Ownership | Explicit owners and stakes in productive assets and firms. | [Ownership](ownership.md) |
 | Government | Constitutional institutions and offices, authority, legislature, law, and public finance. | [Government](government.md) |
+| Politics | Voters' interests, parties, elections, government formation, and confidence. | [Politics](politics.md) |
 | Military | Canonical formations, assigned people, equipment, and supply. | [Military](military.md) |
 | Technology | Research organizations, capabilities, and adoption. | [Technology](technology.md) |
 | Logistics | Physical shipment routes, capacity, and delivery. | [Logistics](logistics.md) |

@@ -9,7 +9,7 @@ namespace sys { class state; }
 
 namespace actors::ownership {
 
-enum class actor_kind : uint8_t { invalid = 0, company = 1, bank = 2, fund = 3, cooperative = 4, state_entity = 5, other = 6, person = 7, household = 8 };
+enum class actor_kind : uint8_t { invalid = 0, company = 1, bank = 2, fund = 3, cooperative = 4, state_entity = 5, other = 6, person = 7, household = 8, party = 9 };
 
 dcon::economic_actor_id actor_for_organization(sys::state const&, dcon::organization_id);
 dcon::asset_id equity_asset_for_organization(sys::state const&, dcon::organization_id);

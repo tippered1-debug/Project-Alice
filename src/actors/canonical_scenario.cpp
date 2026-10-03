@@ -356,8 +356,10 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 // constitution_institutions.csv, constitution_offices.csv,
 // constitution_authorities.csv: the same rows as a built-in model with a
 // leading country column, for countries with their own constitution.
-// office_holders.csv: country;office;seat;person — the first holders; other
-// offices are seated with living adults of the country.
+// constitution_elections.csv: country;body;system;districts;term_days — the
+// electoral rules of a country with its own constitution (optional).
+// office_holders.csv: country;office;seat;person — the first holders of
+// offices no political process fills.
 bool load_constitutions(sys::state& state, simple_fs::directory const& common, parsers::error_handler& err) {
 	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
 	auto initial_errors = err.accumulated_errors.size();
@@ -370,12 +372,14 @@ bool load_constitutions(sys::state& state, simple_fs::directory const& common, p
 	static constexpr std::array<std::string_view, 13> offices_header = { "country", "key", "institution", "kind", "appointer", "confirmer", "removal", "remover", "term_days", "succession", "successor", "exclusive", "seats" };
 	static constexpr std::array<std::string_view, 6> authorities_header = { "country", "holder", "kind", "scope", "delegated_from", "source" };
 	static constexpr std::array<std::string_view, 4> holders_header = { "country", "office", "seat", "person" };
+	static constexpr std::array<std::string_view, 5> elections_header = { "country", "body", "system", "districts", "term_days" };
 	auto models = optional_rows("constitutions.csv", models_header);
 	auto custom_institutions = optional_rows("constitution_institutions.csv", institutions_header);
 	auto custom_offices = optional_rows("constitution_offices.csv", offices_header);
 	auto custom_authorities = optional_rows("constitution_authorities.csv", authorities_header);
 	auto holders = optional_rows("office_holders.csv", holders_header);
-	if(!models && !custom_institutions && !custom_offices && !custom_authorities && !holders) return true;
+	auto custom_elections = optional_rows("constitution_elections.csv", elections_header);
+	if(!models && !custom_institutions && !custom_offices && !custom_authorities && !custom_elections && !holders) return true;
 	if(bool(custom_institutions) != bool(custom_offices) || bool(custom_offices) != bool(custom_authorities)) {
 		err.accumulated_errors += "common/canonical_runtime: custom constitution tables come together: institutions, offices and authorities\n";
 		return false;
@@ -405,6 +409,7 @@ bool load_constitutions(sys::state& state, simple_fs::directory const& common, p
 	collect(custom_institutions, "key;kind;parent;scope;independent;service;staffing_per_capita;staff_occupation;wage_multiplier", "constitution_institutions.csv", governance::constitution::parse_institutions);
 	collect(custom_offices, "key;institution;kind;appointer;confirmer;removal;remover;term_days;succession;successor;exclusive;seats", "constitution_offices.csv", governance::constitution::parse_offices);
 	collect(custom_authorities, "holder;kind;scope;delegated_from;source", "constitution_authorities.csv", governance::constitution::parse_authorities);
+	collect(custom_elections, "body;system;districts;term_days", "constitution_elections.csv", governance::constitution::parse_elections);
 	if(models) for(auto const& row : models->rows) {
 		if(documents.contains(row.cells[0])) { add_row_error(err, "constitutions.csv", row.line, "country '" + row.cells[0] + "' also has its own constitution rows"); continue; }
 		std::string error;

@@ -10,7 +10,8 @@
 #include "governance/law/law.hpp"
 #include "governance/legislature.hpp"
 #include "governance/offices.hpp"
-#include "governance/policy_inputs.hpp"
+#include "governance/government.hpp"
+#include "governance/policy.hpp"
 #include "persons/exact_population.hpp"
 #include "persons/persons.hpp"
 
@@ -266,14 +267,15 @@ TEST_CASE("the finance minister sets fiscal law and the ministry allocates only 
 	auto works = f.treasury(c.institution("works"), 0.0f);
 	auto minister = f.seat(c, "finance_minister", 1);
 	auto interior_minister = f.seat(c, "interior_minister", 2);
-	gv::policy_inputs::fiscal_inputs inputs{};
-	inputs.tax_rates[0] = 0.1f;
-	inputs.tax_rates[1] = 0.2f;
-	inputs.tax_rates[2] = 0.3f;
-	inputs.shares.push_back({ c.institution("education"), 0.5f });
+	// A 20% base rate with half progressivity: 14%, 20% and 30%; the budget
+	// goes to education only.
+	gv::policy::position inputs{};
+	inputs[size_t(gv::policy::dimension::tax_level)] = 0.2f;
+	inputs[size_t(gv::policy::dimension::progressivity)] = 0.5f;
+	inputs[size_t(gv::policy::dimension::education)] = 0.5f;
 	// Another minister holds no power to regulate public finance.
-	REQUIRE_FALSE(gv::policy_inputs::enact(*f.state, f.nation, interior_minister, inputs, date));
-	auto regulation = gv::policy_inputs::enact(*f.state, f.nation, minister, inputs, date);
+	REQUIRE_FALSE(gv::policy::enact(*f.state, f.nation, interior_minister, inputs, date));
+	auto regulation = gv::policy::enact(*f.state, f.nation, minister, inputs, date);
 	REQUIRE(regulation);
 	REQUIRE(f.state->world.legal_instrument_get_office_from_legal_instrument_authorizing_office(regulation) == c.office("finance_minister"));
 	REQUIRE(f.state->world.legal_instrument_get_institution_from_legal_instrument_issuing_institution(regulation) == c.institution("finance"));
@@ -462,26 +464,25 @@ TEST_CASE("an independent central bank is not part of the finance ministry and a
 	REQUIRE(gv::parent_of(*d.state, dual.institution("central_bank")) == dual.institution("cabinet"));
 }
 
-TEST_CASE("legacy sliders change fiscal law only through the empowered office", "[governance][constitution]") {
+TEST_CASE("fiscal law follows the government's programme, never the legacy sliders", "[governance][constitution]") {
 	fixture f;
 	auto c = f.constitute("parliamentary_republic");
 	auto date = f.state->current_date;
-	f.state->world.nation_set_poor_tax(f.nation, 50);
-	f.state->world.nation_set_middle_tax(f.nation, 40);
-	f.state->world.nation_set_rich_tax(f.nation, 30);
-	// No finance minister: the sliders are wishes nobody can enact.
-	gv::policy_inputs::apply(*f.state);
+	f.state->world.nation_set_poor_tax(f.nation, 90);
+	f.state->world.nation_set_middle_tax(f.nation, 90);
+	f.state->world.nation_set_rich_tax(f.nation, 90);
+	// No finance minister: nobody can change fiscal law.
+	gv::government::implement(*f.state, f.nation, date);
 	REQUIRE_FALSE(gv::law::effective_amount(*f.state, gv::national(f.nation), gv::law::policy_rule_kind::income_tax_rate, date, 0));
 	auto minister = f.seat(c, "finance_minister", 1);
-	gv::policy_inputs::apply(*f.state);
-	REQUIRE(gv::law::effective_amount(*f.state, gv::national(f.nation), gv::law::policy_rule_kind::income_tax_rate, date, 0) == Approx(0.5f));
-	auto first = gv::law::effective_instruments(*f.state, gv::national(f.nation), date).back();
-	REQUIRE(f.state->world.legal_instrument_get_person_from_legal_instrument_enactor(first) == minister);
-	// New sliders: a new regulation replaces the old one.
-	f.state->world.nation_set_poor_tax(f.nation, 20);
-	gv::policy_inputs::apply(*f.state);
-	REQUIRE(gv::law::effective_amount(*f.state, gv::national(f.nation), gv::law::policy_rule_kind::income_tax_rate, date, 0) == Approx(0.2f));
-	REQUIRE(f.state->world.legal_instrument_get_status(first) == uint8_t(gv::law::legal_status::repealed));
+	gv::government::implement(*f.state, f.nation, date);
+	auto rate = gv::law::effective_amount(*f.state, gv::national(f.nation), gv::law::policy_rule_kind::income_tax_rate, date, 1);
+	REQUIRE(rate);
+	// The programme decided the rate; the 90% sliders did not.
+	REQUIRE(*rate <= gv::policy::maximum_tax_level);
+	REQUIRE(gv::policy::law_matches(*f.state, f.nation, gv::government::program(*f.state, f.nation), date));
+	auto regulation = gv::law::effective_instruments(*f.state, gv::national(f.nation), date).back();
+	REQUIRE(f.state->world.legal_instrument_get_person_from_legal_instrument_enactor(regulation) == minister);
 }
 
 TEST_CASE("structurally impossible constitutions fail before founding", "[governance][constitution]") {
@@ -549,8 +550,7 @@ TEST_CASE("an empty ministry keeps administering but exercises no discretion", "
 	REQUIRE(gv::grant_authority_to_institution(*f.state, finance, gv::authority_kind::regulate, gv::national(f.nation)));
 	REQUIRE(gv::has_authority(*f.state, finance, gv::authority_kind::regulate, gv::national(f.nation), date));
 	REQUIRE_FALSE(gv::acts_administratively(*f.state, finance, gv::authority_kind::regulate, gv::national(f.nation), date));
-	f.state->world.nation_set_poor_tax(f.nation, 50);
-	gv::policy_inputs::apply(*f.state);
+	gv::government::implement(*f.state, f.nation, date);
 	REQUIRE_FALSE(gv::law::effective_amount(*f.state, gv::national(f.nation), gv::law::policy_rule_kind::income_tax_rate, date, 0));
 	for(auto kind : { gv::authority_kind::legislate, gv::authority_kind::regulate, gv::authority_kind::appoint, gv::authority_kind::dismiss,
 		gv::authority_kind::assent, gv::authority_kind::issue_public_debt, gv::authority_kind::command_forces, gv::authority_kind::amend_constitution })
