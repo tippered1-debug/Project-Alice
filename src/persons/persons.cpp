@@ -1,4 +1,5 @@
 #include "persons.hpp"
+#include "governance/offices.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 
 #include "actors/ownership.hpp"
@@ -36,7 +37,8 @@ bool mark_profile_dead(sys::state& state, dcon::person_id profile, sys::date dat
 	auto offices = active_offices_of(state, profile);
 	state.world.person_set_alive(profile, uint8_t(0));
 	state.world.person_set_death_date(profile, date);
-	for(auto office : offices) (void)remove_from_office(state, office, date);
+	// The dead hold no office: each vacancy follows its office's succession rule.
+	for(auto office : offices) governance::offices::vacate(state, office, date);
 	return true;
 }
 
@@ -228,29 +230,17 @@ std::vector<dcon::office_id> active_offices_of(sys::state const& s, dcon::person
 	return result;
 }
 
-template<typename Scope>
-bool has_authority_via_offices(sys::state const& s, dcon::person_id person, governance::authority_kind kind, Scope scope) {
-	for(auto office : active_offices_of(s, person)) {
-		if(governance::has_authority(s, office, kind, scope)) return true;
-	}
-	return false;
-}
-
 bool person_has_authority(sys::state const& s, dcon::person_id person, governance::authority_kind kind, dcon::nation_id nation) {
-	return has_authority_via_offices(s, person, kind, nation);
+	return bool(governance::offices::exercising(s, person, kind, governance::national(nation), s.current_date));
 }
 
 dcon::office_tenure_id authority_tenure_on_or_before(sys::state const& s, dcon::person_id person,
 	governance::authority_kind kind, dcon::nation_id nation, sys::date date) {
-	for(auto office : active_offices_of(s, person)) {
-		auto tenure = active_tenure_for(s, office);
-		if(tenure && s.world.office_tenure_get_started_on(tenure) <= date && governance::has_authority(s, office, kind, nation)) return tenure;
-	}
-	return {};
+	return governance::offices::exercising(s, person, kind, governance::national(nation), date).tenure;
 }
 
 bool person_has_authority(sys::state const& s, dcon::person_id person, governance::authority_kind kind, dcon::territorial_unit_id territorial_unit) {
-	return has_authority_via_offices(s, person, kind, territorial_unit);
+	return bool(governance::offices::exercising(s, person, kind, governance::local(territorial_unit), s.current_date));
 }
 
 bool mark_dead(sys::state& s, dcon::person_id person, sys::date date) {

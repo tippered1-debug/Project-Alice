@@ -100,16 +100,8 @@ float education_access(sys::state const& state, dcon::pop_id pop) {
 	if(!pop || !state.world.pop_is_valid(pop) || !state.exact_person_economy) return 0.0f;
 	auto province = state.world.pop_get_province_from_pop_location(pop);
 	if(!province) return 0.0f;
-	auto nation = state.world.province_get_nation_from_province_ownership(province);
-	auto ministry = governance::public_administration::institution_for(state, nation, governance::institution_kind::education_ministry);
-	if(!ministry) return 0.0f;
-	double teachers = 0.0;
-	for(auto id : exact_person_economy::active_contracts_for_institution(state, ministry)) {
-		auto contract = exact_person_economy::contract(state, id);
-		if(!contract || !persons::alive(state, contract->worker) || !contract->workplace) continue;
-		if(state.world.site_get_province_from_site_location(contract->workplace) == province)
-			teachers += finite_nonnegative(contract->labor_capacity);
-	}
+	// Teachers of every education institution governing the province.
+	double teachers = governance::public_administration::education_staff_at(state, province);
 	double population = 0.0;
 	for(auto location : state.world.province_get_pop_location(province))
 		population += finite_nonnegative(state.world.pop_get_size(location.get_pop()));

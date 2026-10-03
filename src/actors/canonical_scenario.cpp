@@ -13,6 +13,8 @@
 #include "economy/money.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
+#include "governance/constitution.hpp"
+#include "governance/offices.hpp"
 #include "military/land_forces.hpp"
 #include "nations/nations.hpp"
 #include "parsing/parsers.hpp"
@@ -346,6 +348,97 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 	result = persons::materialize_profile(state, key);
 	return result && state.world.person_is_valid(result)
 		&& bool(persons::actor_for_person(state, result));
+}
+
+// Constitutions are optional tables: a country they do not name is founded
+// at bootstrap from the model its legacy government type suggests.
+// constitutions.csv: country;executive;territorial — a built-in model.
+// constitution_institutions.csv, constitution_offices.csv,
+// constitution_authorities.csv: the same rows as a built-in model with a
+// leading country column, for countries with their own constitution.
+// office_holders.csv: country;office;seat;person — the first holders; other
+// offices are seated with living adults of the country.
+bool load_constitutions(sys::state& state, simple_fs::directory const& common, parsers::error_handler& err) {
+	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
+	auto initial_errors = err.accumulated_errors.size();
+	auto optional_rows = [&](char const* filename, std::span<std::string_view const> header) -> std::optional<table> {
+		if(!simple_fs::open_file(canonical, simple_fs::utf8_to_native(filename))) return std::nullopt;
+		return read_table(canonical, filename, header, err);
+	};
+	static constexpr std::array<std::string_view, 3> models_header = { "country", "executive", "territorial" };
+	static constexpr std::array<std::string_view, 10> institutions_header = { "country", "key", "kind", "parent", "scope", "independent", "service", "staffing_per_capita", "staff_occupation", "wage_multiplier" };
+	static constexpr std::array<std::string_view, 13> offices_header = { "country", "key", "institution", "kind", "appointer", "confirmer", "removal", "remover", "term_days", "succession", "successor", "exclusive", "seats" };
+	static constexpr std::array<std::string_view, 6> authorities_header = { "country", "holder", "kind", "scope", "delegated_from", "source" };
+	static constexpr std::array<std::string_view, 4> holders_header = { "country", "office", "seat", "person" };
+	auto models = optional_rows("constitutions.csv", models_header);
+	auto custom_institutions = optional_rows("constitution_institutions.csv", institutions_header);
+	auto custom_offices = optional_rows("constitution_offices.csv", offices_header);
+	auto custom_authorities = optional_rows("constitution_authorities.csv", authorities_header);
+	auto holders = optional_rows("office_holders.csv", holders_header);
+	if(!models && !custom_institutions && !custom_offices && !custom_authorities && !holders) return true;
+	if(bool(custom_institutions) != bool(custom_offices) || bool(custom_offices) != bool(custom_authorities)) {
+		err.accumulated_errors += "common/canonical_runtime: custom constitution tables come together: institutions, offices and authorities\n";
+		return false;
+	}
+	std::map<std::string, governance::constitution::document> documents;
+	std::map<std::string, uint32_t> document_lines;
+	auto rejoin = [](std::vector<std::string> const& cells) {
+		std::string text;
+		for(size_t i = 1; i < cells.size(); ++i) { if(i > 1) text += ';'; text += cells[i]; }
+		return text;
+	};
+	auto collect = [&](std::optional<table> const& rows, std::string_view header, char const* filename,
+		bool (*parse)(std::string_view, governance::constitution::document&, std::string&)) {
+		if(!rows) return;
+		std::map<std::string, std::string> texts;
+		for(auto const& row : rows->rows) {
+			auto& text = texts[row.cells[0]];
+			if(text.empty()) text = std::string(header) + "\n";
+			text += rejoin(row.cells) + "\n";
+			document_lines.emplace(row.cells[0], row.line);
+		}
+		for(auto const& [country, text] : texts) {
+			std::string error;
+			if(!parse(text, documents[country], error)) add_row_error(err, filename, document_lines[country], error);
+		}
+	};
+	collect(custom_institutions, "key;kind;parent;scope;independent;service;staffing_per_capita;staff_occupation;wage_multiplier", "constitution_institutions.csv", governance::constitution::parse_institutions);
+	collect(custom_offices, "key;institution;kind;appointer;confirmer;removal;remover;term_days;succession;successor;exclusive;seats", "constitution_offices.csv", governance::constitution::parse_offices);
+	collect(custom_authorities, "holder;kind;scope;delegated_from;source", "constitution_authorities.csv", governance::constitution::parse_authorities);
+	if(models) for(auto const& row : models->rows) {
+		if(documents.contains(row.cells[0])) { add_row_error(err, "constitutions.csv", row.line, "country '" + row.cells[0] + "' also has its own constitution rows"); continue; }
+		std::string error;
+		if(!governance::constitution::model(row.cells[1], row.cells[2], documents[row.cells[0]], error)) add_row_error(err, "constitutions.csv", row.line, error);
+		document_lines.emplace(row.cells[0], row.line);
+	}
+	if(err.accumulated_errors.size() != initial_errors) return false;
+	std::map<std::string, governance::constitution::founded> founded;
+	for(auto const& [country, document] : documents) {
+		auto nation = find_nation_by_tag(state, country);
+		if(!nation) { add_row_error(err, "constitutions.csv", document_lines[country], "'" + country + "' is not an active country"); continue; }
+		std::string error;
+		if(!governance::constitution::found(state, nation, document, state.current_date, founded[country], error))
+			add_row_error(err, "constitutions.csv", document_lines[country], country + ": " + error);
+	}
+	if(holders) for(auto const& row : holders->rows) {
+		auto entry = founded.find(row.cells[0]);
+		if(entry == founded.end()) { add_row_error(err, "office_holders.csv", row.line, "country '" + row.cells[0] + "' is not constituted by the scenario"); continue; }
+		auto offices = entry->second.offices.find(row.cells[1]);
+		uint32_t seat = 0;
+		if(offices == entry->second.offices.end() || !parse_integer(row.cells[2], seat) || seat == 0 || seat > offices->second.size()) {
+			add_row_error(err, "office_holders.csv", row.line, "office '" + row.cells[1] + "' seat '" + row.cells[2] + "' does not exist"); continue;
+		}
+		dcon::person_id person{};
+		if(!resolve_person_reference(state, row.cells[3], person)) { add_row_error(err, "office_holders.csv", row.line, "person '" + row.cells[3] + "' must be a living exact person"); continue; }
+		if(!governance::offices::install(state, person, offices->second[seat - 1], state.current_date))
+			add_row_error(err, "office_holders.csv", row.line, "person '" + row.cells[3] + "' cannot take the office (occupied or incompatible)");
+	}
+	for(auto const& [country, result] : founded) {
+		std::string error;
+		if(!governance::constitution::appoint_founders(state, find_nation_by_tag(state, country), result, state.current_date, error))
+			add_row_error(err, "constitutions.csv", document_lines[country], country + ": " + error);
+	}
+	return err.accumulated_errors.size() == initial_errors;
 }
 
 bool read_and_parse_tables(simple_fs::directory const& common,
@@ -2337,7 +2430,7 @@ bool load(sys::state& state, simple_fs::directory const& common,
 		err.fatal = true;
 		return false;
 	}
-	if(!load_canonical_technology(state, common, context, err, firms, assets)) {
+	if(!load_canonical_technology(state, common, context, err, firms, assets) || !load_constitutions(state, common, err)) {
 		err.fatal = true;
 		return false;
 	}

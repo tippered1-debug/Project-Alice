@@ -243,7 +243,7 @@ TEST_CASE("naval orders create a ship once after actual construction consumption
 TEST_CASE("public construction spends real treasury cash only with fiscal authority", "[construction-cut]") {
  fixture f; auto nation=f.state->world.province_get_nation_from_province_ownership(f.province);
  auto& recipe=f.state->economy_definitions.building_definitions[0].cost; recipe.commodity_type[0]=f.output; recipe.commodity_amounts[0]=5;
- auto authority=governance::central_government_for(*f.state,nation);
+ auto authority=governance::create_institution(*f.state,nation,governance::institution_kind::public_works_ministry);
  auto treasury=governance::finance::open_treasury_account(*f.state,authority,f.settlement); REQUIRE(treasury);
  REQUIRE(accounts::bootstrap_set_balance(*f.state,treasury,100)); f.state->world.nation_set_construction_spending(nation,100);
  auto order=f.state->world.force_create_province_building_construction(f.province,nation); f.state->world.province_building_construction_set_type(order,0);

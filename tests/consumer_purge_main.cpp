@@ -9,3 +9,4 @@
 #include "deposit_payments_tests.cpp"
 #include "capital_allocation_tests.cpp"
 #include "monetary_policy_tests.cpp"
+#include "constitution_tests.cpp"

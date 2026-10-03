@@ -2123,6 +2123,7 @@ object{
 	storage_type{ erasable }
 	size{ 10000 }
 	tag{ save }
+	property{ name{ level } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -5137,6 +5138,12 @@ object{
 	tag{ save }
 	property{ name{ canonical_id } type{ uint64_t } tag{ save } }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ independent } type{ uint8_t } tag{ save } }
+	property{ name{ service } type{ uint8_t } tag{ save } }
+	property{ name{ staffing_per_capita } type{ float } tag{ save } }
+	property{ name{ staff_occupation } type{ uint8_t } tag{ save } }
+	property{ name{ staff_wage_multiplier } type{ float } tag{ save } }
+	property{ name{ territorial_template } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -5211,6 +5218,8 @@ object{
 	property{ name{ started_on } type{ sys::date } tag{ save } }
 	property{ name{ ended_on } type{ sys::date } tag{ save } }
 	property{ name{ active } type{ uint8_t } tag{ save } }
+	property{ name{ acting } type{ uint8_t } tag{ save } }
+	property{ name{ term_ends } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -5228,6 +5237,10 @@ object{
 	size{ 50000 }
 	tag{ save }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ term_days } type{ uint16_t } tag{ save } }
+	property{ name{ succession } type{ uint8_t } tag{ save } }
+	property{ name{ removal } type{ uint8_t } tag{ save } }
+	property{ name{ exclusive } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -5236,6 +5249,8 @@ object{
 	size{ 100000 }
 	tag{ save }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ valid_from } type{ sys::date } tag{ save } }
+	property{ name{ valid_until } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -5392,6 +5407,7 @@ object{
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ settlement } type{ commodity_id } tag{ save } }
 	property{ name{ amount } type{ float } tag{ save } }
+	property{ name{ parameter } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -6527,8 +6543,8 @@ relationship{
 relationship{
 	name{ legal_instrument_policy_rule }
 	tag{ save }
-	link{ object{ legal_instrument } name{ legal_instrument } type{ unique } }
-	link{ object{ policy_rule } name{ policy_rule } type{ many } index_storage{ array } }
+	link{ object{ policy_rule } name{ policy_rule } type{ unique } }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ many } index_storage{ array } }
 }
 
 relationship{
@@ -8392,4 +8408,134 @@ load_save{
 	name{store_mp_data}
 	only_objects{mp_data}
 	only_properties{mp_data}
+}
+
+object{
+	name{ motion }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ opened_on } type{ sys::date } tag{ save } }
+}
+
+object{
+	name{ vote }
+	storage_type{ erasable }
+	size{ 400000 }
+	tag{ save }
+	property{ name{ in_favor } type{ uint8_t } tag{ save } }
+	property{ name{ cast_on } type{ sys::date } tag{ save } }
+}
+
+relationship{
+	name{ office_appointer }
+	tag{ save }
+	link{ object{ office } name{ office } type{ unique } }
+	link{ object{ office } name{ appointer } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ office_remover }
+	tag{ save }
+	link{ object{ office } name{ office } type{ unique } }
+	link{ object{ office } name{ remover } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ office_successor }
+	tag{ save }
+	link{ object{ office } name{ office } type{ unique } }
+	link{ object{ office } name{ successor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ office_confirmer }
+	tag{ save }
+	link{ object{ office } name{ office } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ authority_grant_source }
+	tag{ save }
+	link{ object{ authority_grant } name{ authority_grant } type{ unique } }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ authority_grant_delegator }
+	tag{ save }
+	link{ object{ authority_grant } name{ delegated } type{ unique } }
+	link{ object{ authority_grant } name{ delegator } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ policy_rule_target_institution }
+	tag{ save }
+	link{ object{ policy_rule } name{ policy_rule } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ motion_chamber }
+	tag{ save }
+	link{ object{ motion } name{ motion } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ motion_instrument }
+	tag{ save }
+	link{ object{ motion } name{ motion } type{ unique } }
+	link{ object{ legal_instrument } name{ legal_instrument } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ motion_office }
+	tag{ save }
+	link{ object{ motion } name{ motion } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ motion_candidate }
+	tag{ save }
+	link{ object{ motion } name{ motion } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ vote_motion }
+	tag{ save }
+	link{ object{ vote } name{ vote } type{ unique } }
+	link{ object{ motion } name{ motion } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ vote_person }
+	tag{ save }
+	link{ object{ vote } name{ vote } type{ unique } }
+	link{ object{ person } name{ person } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ territorial_unit_owner }
+	tag{ save }
+	link{ object{ territorial_unit } name{ territorial_unit } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ territorial_unit_region }
+	tag{ save }
+	link{ object{ territorial_unit } name{ territorial_unit } type{ unique } }
+	link{ object{ state_definition } name{ state_definition } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ organization_public_institution }
+	tag{ save }
+	link{ object{ organization } name{ organization } type{ unique } }
+	link{ object{ institution } name{ institution } type{ unique } }
 }

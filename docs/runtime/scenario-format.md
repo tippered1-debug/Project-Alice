@@ -70,6 +70,39 @@ Example row: `steel_mortgage_01;us_pittsburgh_steel;firm;clearing_bank;5000;0.06
 
 Opening equity is derived from the complete balance sheet after reserves, deposits, and declared loans load. It must equal `opening_equity` in `banks.csv` and `paid_in_equity + retained_earnings` in `firms.csv`. A mismatch rejects the scenario with the bank ID and the authored and derived values. The loader never creates a balancing asset or liability.
 
+## Constitutions
+
+Constitution tables are optional. A country they do not name is founded when a new game starts, from the constitutional model its legacy government type suggests, as a unitary state. See [Government](../architecture/government.md).
+
+**Built-in model.** `constitutions.csv` has columns `country;executive;territorial`.
+
+- `executive` is one of: `parliamentary_republic`, `parliamentary_monarchy`, `presidential`, `semi_presidential`, `dual_monarchy`, `absolute_monarchy`, `authoritarian`.
+- `territorial` is `unitary` or `federal`.
+
+**Own constitution.** A country can author its own rows instead, in three tables that must appear together:
+
+| Table | Columns |
+| --- | --- |
+| `constitution_institutions.csv` | `country;key;kind;parent;scope;independent;service;staffing_per_capita;staff_occupation;wage_multiplier` |
+| `constitution_offices.csv` | `country;key;institution;kind;appointer;confirmer;removal;remover;term_days;succession;successor;exclusive;seats` |
+| `constitution_authorities.csv` | `country;holder;kind;scope;delegated_from;source` |
+
+The rows mean the same as in the built-in models. A country named in these tables cannot also appear in `constitutions.csv`.
+
+**First office holders.** `office_holders.csv` has columns `country;office;seat;person`.
+
+- `seat` is one-based and counts the seats of a multi-seat office.
+- `person` is a `source_population_cell:ordinal` reference to a living exact person.
+
+Offices left without a holder are seated with living adults of the country.
+
+**Rejected constitutions.** The scenario is rejected when any of the following holds:
+
+- a constitution's rows do not validate;
+- a country tag is not active;
+- an office or seat does not exist;
+- a holder is dead, or cannot lawfully take the office (it is occupied, or an exclusive office forbids the combination).
+
 ## Stable identity and validation
 
 Stable IDs are deterministic 64-bit hashes of the authored keys and are saved on firms, actors, accounts, sites, factories, deposits, assets, ownership stakes, institutions, and obligations. Entity creation is sorted by authored ID. Entities created later by a capital project receive stable runtime IDs from their entity type, creation date, and DCON index. The runtime checks that every factory and deposit has one operator, one distinct asset, a complete owner graph, and stable identity. A failure names the DCON factory/deposit and site IDs and stops scenario generation. Legacy province producer debt and ownership shares are excluded from simulation, and factory subsidy state is cleared and ignored; none of these fields fill missing canonical rows.

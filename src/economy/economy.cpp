@@ -54,6 +54,8 @@
 #include "economy/exact_person_economy.hpp"
 #include "world/spatial_runtime.hpp"
 #include "governance/public_administration.hpp"
+#include "governance/offices.hpp"
+#include "governance/policy_inputs.hpp"
 #include <vector>
 #include <algorithm>
 #include <cassert>
@@ -1049,8 +1051,12 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	}
 
 	{
+		// Terms end, sliders become regulations through the empowered office,
+		// then the national treasury disburses what the law appropriates.
+		governance::offices::expire_terms(state, state.current_date);
+		governance::policy_inputs::apply(state);
 		for(auto nation : state.world.in_nation) {
-			governance::public_administration::appropriate_daily_budget(state, nation.id);
+			governance::public_administration::allocate_budget(state, nation.id);
 			governance::public_administration::plan_public_staffing(state, nation.id);
 		}
 		governance::public_administration::synchronize_local_governments(state);

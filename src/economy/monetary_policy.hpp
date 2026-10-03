@@ -11,7 +11,9 @@ namespace economy::monetary_policy {
 // but solvent. Commercial banks lend at the policy rate plus a premium that
 // falls as their reserves grow, so savings lower the cost of credit, and
 // depositors earn a share of what bank loans earn.
-// Political control of the central bank (mandate, appointments) is not modelled.
+// The central bank is the economic arm of the constitutional central bank
+// institution: who appoints its governor and who sets its mandate are the
+// constitution's and the law's.
 
 inline constexpr float inflation_target = 0.02f;
 inline constexpr float neutral_real_rate = 0.02f;
@@ -40,6 +42,12 @@ dcon::organization_id central_bank_for(sys::state const&, dcon::nation_id, dcon:
 // lending rate the nation's banks were authored with, else the neutral rate.
 dcon::organization_id open_central_bank(sys::state&, dcon::nation_id, dcon::commodity_id settlement);
 bool is_central_bank(sys::state const&, dcon::organization_id);
+// The constitutional institution a central bank organization embodies. The
+// bank acts only while that institution holds `issue_currency` over the nation;
+// its inflation target is the law's, else the default.
+dcon::institution_id public_institution_of(sys::state const&, dcon::organization_id);
+bool authorized(sys::state const&, dcon::organization_id, sys::date);
+float inflation_target_of(sys::state const&, dcon::nation_id, sys::date);
 float policy_rate(sys::state const&, dcon::organization_id central_bank);
 // Base money the central bank has created and not yet retired.
 float issued_money(sys::state const&, dcon::organization_id central_bank);

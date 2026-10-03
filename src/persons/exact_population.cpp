@@ -1451,15 +1451,20 @@ bool profile_matches_snapshot(sys::state const& state, exact_population_store co
 	person_key key, dcon::person_id profile) {
 	auto const profile_ordinal = key.ordinal <= uint64_t(std::numeric_limits<uint32_t>::max())
 		? uint32_t(key.ordinal) : 0u;
+	// The live store is cleared while a snapshot is imported: the cell's
+	// source attributes come from the store being imported.
+	auto cell = store.cell_by_source.find(key.source_population_cell);
+	if(cell == store.cell_by_source.end()) return false;
+	auto const& descriptor = store.cells[cell->second];
 	if(!profile || !state.world.person_is_valid(profile)
 		|| !state.world.person_get_birth_day_known(profile)
 		|| state.world.person_get_birth_day_index(profile) != snapshot_birth_day(store, key)
 		|| bool(state.world.person_get_alive(profile)) != snapshot_alive(store, key)
 		|| state.world.person_get_source_population_cell(profile) != key.source_population_cell
 		|| state.world.person_get_source_population_ordinal(profile) != profile_ordinal
-		|| state.world.person_get_source_culture(profile) != persons::exact_population::source_culture(state, key)
-		|| state.world.person_get_source_religion(profile) != persons::exact_population::source_religion(state, key)
-		|| state.world.person_get_source_pop_type(profile) != persons::exact_population::source_pop_type(state, key)
+		|| state.world.person_get_source_culture(profile) != descriptor.source_culture
+		|| state.world.person_get_source_religion(profile) != descriptor.source_religion
+		|| state.world.person_get_source_pop_type(profile) != descriptor.source_pop_type
 		|| state.world.person_get_site_from_person_home_site(profile) != snapshot_home_site(store, key)) return false;
 	auto death_day = snapshot_death_day(store, key);
 	if(snapshot_alive(store, key)) return death_day == std::numeric_limits<int32_t>::min();

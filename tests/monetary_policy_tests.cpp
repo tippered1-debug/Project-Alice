@@ -3,11 +3,21 @@
 #include "canonical_consumer_fixture.hpp"
 #include "economy/banking/banking.hpp"
 #include "economy/monetary_policy.hpp"
+#include "governance/constitution.hpp"
 #include "economy/relations/relations.hpp"
 
 namespace monetary_policy_tests {
 
 using economy::monetary_policy::issued_money;
+
+// Money is issued only by a constitutional central bank institution.
+void constitute(capital_allocation_tests::fixture& f) {
+	governance::constitution::document doc;
+	governance::constitution::founded founded;
+	std::string error;
+	REQUIRE(governance::constitution::model("parliamentary_republic", "unitary", doc, error));
+	REQUIRE(governance::constitution::found(*f.state, f.nation, doc, f.state->current_date, founded, error));
+}
 
 dcon::organization_id make_bank(capital_allocation_tests::fixture& f, float reserves, float liquidity_target) {
 	auto bank = economy::banking::create_bank(*f.state);
@@ -67,6 +77,7 @@ using monetary_policy_tests::issued_money;
 
 TEST_CASE("the policy rate follows inflation and sets what banks charge", "[economy][monetary-policy]") {
 	capital_allocation_tests::fixture f;
+	monetary_policy_tests::constitute(f);
 	f.demand(f.output, 5.0f);
 	auto central_bank = economy::monetary_policy::open_central_bank(*f.state, f.nation, f.settlement);
 	REQUIRE(central_bank);
@@ -92,6 +103,7 @@ TEST_CASE("the policy rate follows inflation and sets what banks charge", "[econ
 
 TEST_CASE("a bank with more reserves behind its deposits lends cheaper", "[economy][monetary-policy]") {
 	capital_allocation_tests::fixture f;
+	monetary_policy_tests::constitute(f);
 	auto rich = monetary_policy_tests::make_bank(f, 2000.0f, 0.05f);
 	auto thin = monetary_policy_tests::make_bank(f, 500.0f, 0.05f);
 	(void)monetary_policy_tests::deposit_at(f, rich, 10000.0f);
@@ -107,6 +119,7 @@ TEST_CASE("a bank with more reserves behind its deposits lends cheaper", "[econo
 
 TEST_CASE("depositors earn a share of what the bank's loans earn", "[economy][monetary-policy]") {
 	capital_allocation_tests::fixture f;
+	monetary_policy_tests::constitute(f);
 	auto bank = monetary_policy_tests::make_bank(f, 5000.0f, 0.05f);
 	(void)monetary_policy_tests::lend_to_plant(f, bank, 1000.0f);
 	auto deposit = monetary_policy_tests::deposit_at(f, bank, 2000.0f);
@@ -124,6 +137,7 @@ TEST_CASE("depositors earn a share of what the bank's loans earn", "[economy][mo
 
 TEST_CASE("the central bank lends reserves to an illiquid solvent bank and retires them on repayment", "[economy][monetary-policy]") {
 	capital_allocation_tests::fixture f;
+	monetary_policy_tests::constitute(f);
 	// Reserves of 100 against a liquidity requirement of 200, with a good loan book.
 	auto bank = monetary_policy_tests::make_bank(f, 1100.0f, 0.2f);
 	(void)monetary_policy_tests::lend_to_plant(f, bank, 1000.0f);
@@ -158,6 +172,7 @@ TEST_CASE("the central bank lends reserves to an illiquid solvent bank and retir
 
 TEST_CASE("the central bank does not lend to an insolvent bank or without collateral", "[economy][monetary-policy]") {
 	capital_allocation_tests::fixture f;
+	monetary_policy_tests::constitute(f);
 	// No loans to pledge.
 	auto unsecured = monetary_policy_tests::make_bank(f, 100.0f, 0.2f);
 	(void)monetary_policy_tests::deposit_at(f, unsecured, 50.0f);

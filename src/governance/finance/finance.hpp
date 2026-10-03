@@ -41,6 +41,13 @@ dcon::fiscal_action_id authorized_spend_by_institution(sys::state&, dcon::instit
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id recipient_account,
 	float amount, sys::date date);
 
+// Transfers appropriated money from the allocating institution's treasury to
+// a recipient institution's treasury. The allocator needs `appropriate` and
+// `spend_public_funds` over its jurisdiction, and an effective appropriation
+// must name the recipient. No money is created: it moves between real accounts.
+dcon::fiscal_action_id authorized_allocate(sys::state&, dcon::institution_id allocator,
+	dcon::institution_id recipient, dcon::commodity_id settlement, float amount, sys::date date);
+
 dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state&, dcon::person_id initiator,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
 	float principal, sys::date due_date, float annual_interest_rate, sys::date date,

@@ -5,6 +5,7 @@
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
 #include "governance/law/law.hpp"
+#include "governance/offices.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 
@@ -34,10 +35,6 @@ bool payable_obligation(sys::state const& state, dcon::obligation_id obligation)
 		&& state.world.obligation_get_status(obligation) == uint8_t(obligation_status::active);
 }
 
-dcon::office_id office_for_tenure(sys::state const& state, dcon::office_tenure_id tenure) {
-	return tenure ? state.world.office_tenure_get_office_from_office_tenure_office(tenure) : dcon::office_id{};
-}
-
 struct authority_context {
 	dcon::institution_id institution{};
 	dcon::office_id office{};
@@ -49,12 +46,12 @@ bool authority_for_treasury(sys::state const& state, dcon::person_id initiator,
 	authority_context& result) {
 	if(!initiator || !state.world.person_is_valid(initiator) || !persons::alive(state, initiator) || !treasury_account || !state.world.monetary_account_is_valid(treasury_account)) return false;
 	result.institution = treasury_institution_for(state, treasury_account);
-	if(!result.institution) return false;
-	auto nation = governance::nation_of(state, result.institution);
-	if(!nation) return false;
-	auto tenure = persons::authority_tenure_on_or_before(state, initiator, kind, nation, date);
-	if(!tenure) return false;
-	result.office = office_for_tenure(state, tenure);
+	if(!result.institution || !governance::nation_of(state, result.institution)) return false;
+	// The person must exercise, on the date, an office holding the power over
+	// the jurisdiction of the treasury's institution.
+	auto exercised = governance::offices::exercising(state, initiator, kind, governance::jurisdiction_of(state, result.institution), date);
+	if(!exercised) return false;
+	result.office = exercised.office;
 	result.settlement = economy::accounts::settlement_of(state, treasury_account);
 	return result.office && result.settlement;
 }
@@ -140,10 +137,9 @@ dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state& state,
 	dcon::monetary_account_id treasury_account, float amount,
 	sys::date due_date, sys::date date) {
 	if(!authority || !state.world.institution_is_valid(authority) || !valid_amount(amount) || due_date < date || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor) || !treasury_account || !state.world.monetary_account_is_valid(treasury_account) || treasury_institution_for(state, treasury_account) != authority) return {};
-	auto nation = governance::nation_of(state, authority);
 	auto settlement = economy::accounts::settlement_of(state, treasury_account);
-	if(!nation || !settlement || !governance::has_authority(state, authority,
-		governance::authority_kind::levy_tax, nation)) return {};
+	if(!governance::nation_of(state, authority) || !settlement || !governance::has_authority(state, authority,
+		governance::authority_kind::levy_tax, governance::jurisdiction_of(state, authority), date)) return {};
 	auto creditor = governance::actor_for_institution(state, authority);
 	if(!creditor || creditor == taxpayer_actor || economy::accounts::owner_of(state, treasury_account) != creditor) return {};
 	dcon::obligation_id rolling_obligation{};
@@ -219,12 +215,28 @@ dcon::fiscal_action_id authorized_spend_by_institution(sys::state& state,
 	auto settlement = economy::accounts::settlement_of(state, treasury_account);
 	auto recipient_institution = institution_for_actor(state, economy::accounts::owner_of(state, recipient_account));
 	if(!nation || !settlement || !governance::has_authority(state, authority,
-		governance::authority_kind::spend_public_funds, nation) || economy::accounts::settlement_of(state, recipient_account) != settlement || !recipient_institution || governance::nation_of(state, recipient_institution) != nation || treasury_institution_for(state, recipient_account) != recipient_institution || economy::accounts::balance(state, treasury_account) < amount) return {};
+		governance::authority_kind::spend_public_funds, governance::jurisdiction_of(state, authority), date) || economy::accounts::settlement_of(state, recipient_account) != settlement || !recipient_institution || governance::nation_of(state, recipient_institution) != nation || treasury_institution_for(state, recipient_account) != recipient_institution || economy::accounts::balance(state, treasury_account) < amount) return {};
 	auto transaction = economy::accounts::transfer(state, treasury_account, recipient_account,
 		amount, transaction_kind::public_spending, date);
 	if(!transaction) return {};
 	return record_action(state, fiscal_action_kind::public_spending, {}, {}, authority,
 		treasury_account, date, {}, transaction);
+}
+
+dcon::fiscal_action_id authorized_allocate(sys::state& state, dcon::institution_id allocator,
+	dcon::institution_id recipient, dcon::commodity_id settlement, float amount, sys::date date) {
+	if(!allocator || !recipient || allocator == recipient || !settlement || !valid_amount(amount)) return {};
+	auto scope = governance::jurisdiction_of(state, allocator);
+	if(!governance::has_authority(state, allocator, governance::authority_kind::appropriate, scope, date)
+		|| !governance::has_authority(state, allocator, governance::authority_kind::spend_public_funds, scope, date)) return {};
+	bool appropriated = false;
+	for(auto const& entry : governance::law::appropriations(state, scope, date))
+		if(entry.institution == recipient && entry.share > 0.0f) appropriated = true;
+	if(!appropriated) return {};
+	auto source = treasury_account_for(state, allocator, settlement);
+	auto destination = treasury_account_for(state, recipient, settlement);
+	if(!source || !destination) return {};
+	return authorized_spend_by_institution(state, allocator, source, destination, amount, date);
 }
 
 namespace {

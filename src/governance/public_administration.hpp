@@ -16,11 +16,17 @@ dcon::monetary_account_id household_sector_account(sys::state&, dcon::nation_id)
 dcon::institution_id tax_authority_for(sys::state const&, dcon::nation_id);
 dcon::monetary_account_id tax_treasury_for(sys::state const&, dcon::nation_id);
 float treasury_cash(sys::state const&, dcon::nation_id);
+// Interface projection of public cash, not a spending authorization.
 float daily_budget(sys::state const&, dcon::nation_id);
-void appropriate_daily_budget(sys::state&, dcon::nation_id);
+// On the first of each month: the tax authority hands collected revenue to the
+// national treasury (the finance ministry's), which disburses the share the
+// fiscal law sets to each institution the law appropriates.
+void allocate_budget(sys::state&, dcon::nation_id);
 void plan_public_staffing(sys::state&, dcon::nation_id);
 void settle_public_payroll(sys::state&);
 void post_procurement_bids(sys::state&);
 void deliver_public_services(sys::state&);
+// Teachers working in the province for education institutions governing it.
+float education_staff_at(sys::state const&, dcon::province_id);
 
 } // namespace governance::public_administration

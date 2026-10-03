@@ -12,6 +12,7 @@
 #include "economy/exact_person_economy.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/finance/finance.hpp"
+#include "governance/law/law.hpp"
 #include "governance/public_administration.hpp"
 
 #include <cassert>
@@ -356,9 +357,11 @@ void collect_taxes(sys::state& state) {
 		state.world.nation_set_total_poor_income(nation.id, tax_base[0]);
 		state.world.nation_set_total_middle_income(nation.id, tax_base[1]);
 		state.world.nation_set_total_rich_income(nation.id, tax_base[2]);
-		float rates[3] = {float(state.world.nation_get_poor_tax(nation.id)) / 100.0f,
-			float(state.world.nation_get_middle_tax(nation.id)) / 100.0f,
-			float(state.world.nation_get_rich_tax(nation.id)) / 100.0f};
+		// Rates are those of the fiscal law in force; without one, nothing is due.
+		float rates[3] = {};
+		for(uint8_t bucket = 0; bucket < 3; ++bucket)
+			rates[bucket] = governance::law::effective_amount(state, governance::national(nation.id),
+				governance::law::policy_rule_kind::income_tax_rate, state.current_date, bucket).value_or(0.0f);
 		float statutory_due = tax_base[0] * rates[0] + tax_base[1] * rates[1] + tax_base[2] * rates[2];
 		if(!std::isfinite(statutory_due) || statutory_due <= 1.0e-6f) continue;
 		auto authority = governance::public_administration::tax_authority_for(state, nation.id);

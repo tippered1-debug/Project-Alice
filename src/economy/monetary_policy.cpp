@@ -10,6 +10,7 @@
 #include "economy/relations/relations.hpp"
 #include "economy/wallets.hpp"
 #include "governance/governance.hpp"
+#include "governance/law/law.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -78,9 +79,28 @@ dcon::organization_id central_bank_for(sys::state const& state, dcon::nation_id 
 	return result;
 }
 
+dcon::institution_id public_institution_of(sys::state const& state, dcon::organization_id central_bank) {
+	return central_bank ? state.world.organization_get_institution_from_organization_public_institution(central_bank) : dcon::institution_id{};
+}
+
+bool authorized(sys::state const& state, dcon::organization_id central_bank, sys::date date) {
+	auto institution = public_institution_of(state, central_bank);
+	return institution && governance::has_authority(state, institution, governance::authority_kind::issue_currency,
+		governance::national(state.world.organization_get_bank_jurisdiction(central_bank)), date);
+}
+
+float inflation_target_of(sys::state const& state, dcon::nation_id nation, sys::date date) {
+	return governance::law::effective_amount(state, governance::national(nation),
+		governance::law::policy_rule_kind::inflation_target, date).value_or(inflation_target);
+}
+
 dcon::organization_id open_central_bank(sys::state& state, dcon::nation_id nation, dcon::commodity_id settlement) {
 	if(auto existing = central_bank_for(state, nation, settlement)) return existing;
 	if(!nation || !settlement) return {};
+	// Money is issued only by the institution the constitution empowers to.
+	auto institution = governance::find_institution(state, nation, governance::institution_kind::central_bank);
+	if(!institution || !governance::has_authority(state, institution, governance::authority_kind::issue_currency,
+		governance::national(nation), state.current_date)) return {};
 	double rates = 0.0;
 	int32_t banks = 0;
 	state.world.for_each_organization([&](dcon::organization_id bank) {
@@ -105,6 +125,7 @@ dcon::organization_id open_central_bank(sys::state& state, dcon::nation_id natio
 	if(auto equity = actors::organizations::equity_asset_for_organization(state, central_bank); equity && government)
 		(void)actors::ownership::create_stake(state, government, equity, 1.0f, 1.0f, 1.0f);
 	(void)accounts::open_account(state, actor, settlement);
+	state.world.force_create_organization_public_institution(central_bank, institution);
 	return central_bank;
 }
 
@@ -177,7 +198,7 @@ float deposit_rate(sys::state const& state, dcon::organization_id bank) {
 }
 
 void review(sys::state& state, dcon::organization_id central_bank) {
-	if(!is_central_bank(state, central_bank)) return;
+	if(!is_central_bank(state, central_bank) || !authorized(state, central_bank, state.current_date)) return;
 	auto nation = state.world.organization_get_bank_jurisdiction(central_bank);
 	auto settlement = state.world.organization_get_bank_settlement_currency(central_bank);
 	auto index = price_index(state, nation);
@@ -189,7 +210,9 @@ void review(sys::state& state, dcon::organization_id central_bank) {
 	}
 	state.world.organization_set_central_bank_price_index(central_bank, index);
 	state.world.organization_set_central_bank_inflation(central_bank, inflation);
-	auto rule = std::clamp(neutral_real_rate + inflation + inflation_response * (inflation - inflation_target),
+	// The target is the central bank's legal mandate.
+	auto target = inflation_target_of(state, nation, state.current_date);
+	auto rule = std::clamp(neutral_real_rate + inflation + inflation_response * (inflation - target),
 		0.0f, maximum_policy_rate);
 	auto current = policy_rate(state, central_bank);
 	auto rate = std::clamp(current + rate_smoothing * (rule - current), 0.0f, maximum_policy_rate);
@@ -227,7 +250,7 @@ float lend_reserves(sys::state& state, dcon::organization_id bank) {
 	auto central_bank = open_central_bank(state, nation, settlement);
 	auto lender = actors::organizations::actor_for_organization(state, central_bank);
 	auto borrower = actors::organizations::actor_for_organization(state, bank);
-	if(!central_bank || !lender || !borrower) return 0.0f;
+	if(!central_bank || !lender || !borrower || !authorized(state, central_bank, state.current_date)) return 0.0f;
 	auto loan = relations::create_obligation(state, borrower, lender, amount, settlement, state.current_date,
 		state.current_date + discount_term_days, policy_rate(state, central_bank) + discount_penalty,
 		relations::obligation_kind::loan);

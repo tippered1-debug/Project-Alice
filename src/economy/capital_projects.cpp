@@ -517,7 +517,10 @@ bool add_recipe(sys::state& s, dcon::capital_project_id p, economy::commodity_se
 }
 dcon::capital_project_id public_request(sys::state& s, dcon::nation_id nation, dcon::province_id province, project_kind kind, dcon::factory_type_id type = {}) {
 	if(!nation || !province) return {};
-	auto authority = governance::central_government_for(s, nation);
+	// Public construction is commissioned by the public works ministry, which
+	// pays from its own appropriated treasury; without one, nothing is built.
+	auto authority = governance::find_institution(s, nation, governance::institution_kind::public_works_ministry);
+	if(!authority) return {};
 	auto owner = governance::actor_for_institution(s, authority);
 	auto settlement = physical::exchange::settlement_for_purchase(s, owner);
 	if(!settlement) return {};
@@ -561,7 +564,7 @@ void fund_public_request(sys::state& s, request_record const& r) {
 		needed += remaining * physical::concrete_market::canonical_reference_price(s, market, c, s.current_date) * 1.20f;
 	});
 	auto amount = std::min(std::max(0.0f, needed - accounts::balance(s, account)),
-		std::max(0.0f, accounts::balance(s, treasury) - physical::concrete_market::reserved_bid_amount(s, treasury)) * float(s.world.nation_get_construction_spending(r.nation)) / 100.0f);
+		std::max(0.0f, accounts::balance(s, treasury) - physical::concrete_market::reserved_bid_amount(s, treasury)));
 	if(amount > 0.0f && governance::finance::authorized_spend_by_institution(s, authority, treasury, account, amount, s.current_date)) {
 		s.world.capital_project_set_state_funded(r.project, 1);
 		if(s.world.capital_project_get_status(r.project) == uint8_t(status::planned)) {

@@ -43,6 +43,8 @@
 #include "actors/canonical_scenario.hpp"
 #include "governance/governance.hpp"
 #include "governance/public_administration.hpp"
+#include "governance/constitution.hpp"
+#include "governance/policy_inputs.hpp"
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
 #include "military/land_forces.hpp"
@@ -3438,7 +3440,12 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	if(!::actors::canonical_scenario::load(*this, common, context, err))
 		return;
 	::economy::industrial_production::bootstrap_factories(*this);
+	// Every nation the scenario did not constitute is founded from its legacy
+	// government type (bootstrap input only), then its first fiscal law is
+	// issued by its founding finance minister.
+	::governance::constitution::bootstrap(*this);
 	::governance::public_administration::bootstrap(*this);
+	::governance::policy_inputs::apply(*this);
 	fill_unsaved_data(); // we need this to run triggers
 
 	// Clean up and fixup armies and navies
