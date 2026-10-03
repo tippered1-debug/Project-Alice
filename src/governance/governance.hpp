@@ -116,6 +116,20 @@ bool has_authority(sys::state const&, dcon::institution_id, authority_kind, dcon
 bool has_authority(sys::state const&, dcon::office_id, authority_kind, dcon::nation_id);
 bool has_authority(sys::state const&, dcon::office_id, authority_kind, dcon::territorial_unit_id);
 
+// Administrative continuity and political discretion. An institution keeps
+// executing what law and budget already decided (collecting taxes, paying
+// staff, disbursing appropriations, operating its mandate) even while its
+// offices are empty. Discretion is exercised only by a person through an
+// office, or by a chamber through its members' votes. Discretion means: making
+// law or regulation, appointing, dismissing, confirming, assenting, borrowing,
+// licensing, expropriating, adjudicating, commanding forces, and amending the
+// constitution. An institution may still hold a discretionary grant as a
+// link in a delegation chain, but it never acts on one in its own name.
+bool discretionary(authority_kind);
+// Whether an institution may act in its own name: the power is administrative
+// and the institution holds a valid grant for it.
+bool acts_administratively(sys::state const&, dcon::institution_id, authority_kind, jurisdiction, sys::date);
+
 // The state itself as a legal person: the root of the nation's institutions,
 // owner of public property and residual heir. It holds no power of its own;
 // powers are granted by the constitution.

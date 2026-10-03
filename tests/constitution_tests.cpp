@@ -532,3 +532,29 @@ TEST_CASE("save and load keep offices, tenures, powers and hierarchy", "[governa
 	REQUIRE(gv::offices::dismiss(*loaded.state, premier, c.office("finance_minister"), date + 1));
 	REQUIRE(gv::offices::appoint(*loaded.state, premier, replacement, c.office("finance_minister"), date + 1));
 }
+
+TEST_CASE("an empty ministry keeps administering but exercises no discretion", "[governance][constitution]") {
+	fixture f;
+	auto c = f.constitute("parliamentary_republic");
+	auto date = f.state->current_date;
+	auto finance = c.institution("finance");
+	REQUIRE(gv::offices::vacant(*f.state, c.office("finance_minister")));
+	// Continuity: the ministry still pays out of its treasury under its own power.
+	auto treasury = f.treasury(finance, 100.0f);
+	auto education = f.treasury(c.institution("education"), 0.0f);
+	REQUIRE(gv::acts_administratively(*f.state, finance, gv::authority_kind::spend_public_funds, gv::national(f.nation), date));
+	REQUIRE(gv::finance::authorized_spend_by_institution(*f.state, finance, treasury, education, 10.0f, date));
+	// Discretion: even a regulatory grant held by the institution itself does
+	// not let it act in its own name, and nobody holds the minister's office.
+	REQUIRE(gv::grant_authority_to_institution(*f.state, finance, gv::authority_kind::regulate, gv::national(f.nation)));
+	REQUIRE(gv::has_authority(*f.state, finance, gv::authority_kind::regulate, gv::national(f.nation), date));
+	REQUIRE_FALSE(gv::acts_administratively(*f.state, finance, gv::authority_kind::regulate, gv::national(f.nation), date));
+	f.state->world.nation_set_poor_tax(f.nation, 50);
+	gv::policy_inputs::apply(*f.state);
+	REQUIRE_FALSE(gv::law::effective_amount(*f.state, gv::national(f.nation), gv::law::policy_rule_kind::income_tax_rate, date, 0));
+	for(auto kind : { gv::authority_kind::legislate, gv::authority_kind::regulate, gv::authority_kind::appoint, gv::authority_kind::dismiss,
+		gv::authority_kind::assent, gv::authority_kind::issue_public_debt, gv::authority_kind::command_forces, gv::authority_kind::amend_constitution })
+		REQUIRE(gv::discretionary(kind));
+	for(auto kind : { gv::authority_kind::administer, gv::authority_kind::levy_tax, gv::authority_kind::spend_public_funds, gv::authority_kind::appropriate })
+		REQUIRE_FALSE(gv::discretionary(kind));
+}

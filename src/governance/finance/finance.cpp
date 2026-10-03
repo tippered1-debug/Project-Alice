@@ -138,7 +138,7 @@ dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state& state,
 	sys::date due_date, sys::date date) {
 	if(!authority || !state.world.institution_is_valid(authority) || !valid_amount(amount) || due_date < date || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor) || !treasury_account || !state.world.monetary_account_is_valid(treasury_account) || treasury_institution_for(state, treasury_account) != authority) return {};
 	auto settlement = economy::accounts::settlement_of(state, treasury_account);
-	if(!governance::nation_of(state, authority) || !settlement || !governance::has_authority(state, authority,
+	if(!governance::nation_of(state, authority) || !settlement || !governance::acts_administratively(state, authority,
 		governance::authority_kind::levy_tax, governance::jurisdiction_of(state, authority), date)) return {};
 	auto creditor = governance::actor_for_institution(state, authority);
 	if(!creditor || creditor == taxpayer_actor || economy::accounts::owner_of(state, treasury_account) != creditor) return {};
@@ -214,7 +214,7 @@ dcon::fiscal_action_id authorized_spend_by_institution(sys::state& state,
 	auto nation = governance::nation_of(state, authority);
 	auto settlement = economy::accounts::settlement_of(state, treasury_account);
 	auto recipient_institution = institution_for_actor(state, economy::accounts::owner_of(state, recipient_account));
-	if(!nation || !settlement || !governance::has_authority(state, authority,
+	if(!nation || !settlement || !governance::acts_administratively(state, authority,
 		governance::authority_kind::spend_public_funds, governance::jurisdiction_of(state, authority), date) || economy::accounts::settlement_of(state, recipient_account) != settlement || !recipient_institution || governance::nation_of(state, recipient_institution) != nation || treasury_institution_for(state, recipient_account) != recipient_institution || economy::accounts::balance(state, treasury_account) < amount) return {};
 	auto transaction = economy::accounts::transfer(state, treasury_account, recipient_account,
 		amount, transaction_kind::public_spending, date);
@@ -227,8 +227,8 @@ dcon::fiscal_action_id authorized_allocate(sys::state& state, dcon::institution_
 	dcon::institution_id recipient, dcon::commodity_id settlement, float amount, sys::date date) {
 	if(!allocator || !recipient || allocator == recipient || !settlement || !valid_amount(amount)) return {};
 	auto scope = governance::jurisdiction_of(state, allocator);
-	if(!governance::has_authority(state, allocator, governance::authority_kind::appropriate, scope, date)
-		|| !governance::has_authority(state, allocator, governance::authority_kind::spend_public_funds, scope, date)) return {};
+	if(!governance::acts_administratively(state, allocator, governance::authority_kind::appropriate, scope, date)
+		|| !governance::acts_administratively(state, allocator, governance::authority_kind::spend_public_funds, scope, date)) return {};
 	bool appropriated = false;
 	for(auto const& entry : governance::law::appropriations(state, scope, date))
 		if(entry.institution == recipient && entry.share > 0.0f) appropriated = true;

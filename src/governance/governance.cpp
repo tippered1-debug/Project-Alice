@@ -359,6 +359,21 @@ bool has_authority(sys::state const& state, dcon::office_id holder, authority_ki
 	return has_authority(state, holder, kind, local(territory), state.current_date);
 }
 
+bool discretionary(authority_kind kind) {
+	switch(kind) {
+	case authority_kind::administer: case authority_kind::levy_tax: case authority_kind::spend_public_funds:
+	case authority_kind::appropriate: case authority_kind::issue_currency: case authority_kind::enforce:
+	case authority_kind::other:
+		return false;
+	default:
+		return true;
+	}
+}
+
+bool acts_administratively(sys::state const& state, dcon::institution_id institution, authority_kind kind, jurisdiction scope, sys::date date) {
+	return !discretionary(kind) && has_authority(state, institution, kind, scope, date);
+}
+
 dcon::institution_id central_government_for(sys::state& state, dcon::nation_id nation) {
 	if(auto existing = find_institution(state, nation, institution_kind::central_government)) return existing;
 	return create_institution(state, nation, institution_kind::central_government);

@@ -85,7 +85,7 @@ dcon::institution_id public_institution_of(sys::state const& state, dcon::organi
 
 bool authorized(sys::state const& state, dcon::organization_id central_bank, sys::date date) {
 	auto institution = public_institution_of(state, central_bank);
-	return institution && governance::has_authority(state, institution, governance::authority_kind::issue_currency,
+	return institution && governance::acts_administratively(state, institution, governance::authority_kind::issue_currency,
 		governance::national(state.world.organization_get_bank_jurisdiction(central_bank)), date);
 }
 
@@ -99,7 +99,7 @@ dcon::organization_id open_central_bank(sys::state& state, dcon::nation_id natio
 	if(!nation || !settlement) return {};
 	// Money is issued only by the institution the constitution empowers to.
 	auto institution = governance::find_institution(state, nation, governance::institution_kind::central_bank);
-	if(!institution || !governance::has_authority(state, institution, governance::authority_kind::issue_currency,
+	if(!institution || !governance::acts_administratively(state, institution, governance::authority_kind::issue_currency,
 		governance::national(nation), state.current_date)) return {};
 	double rates = 0.0;
 	int32_t banks = 0;

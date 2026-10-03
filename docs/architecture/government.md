@@ -55,6 +55,29 @@ An authority grant has:
 
 **Revocation.** Revoking a grant ends it from that date, together with every grant delegated from it. The history is kept.
 
+## Continuity and discretion
+
+An institution keeps executing what law and budget already decided while its offices are empty. In its own name it may:
+
+- administer;
+- levy the taxes the law sets;
+- spend its treasury;
+- disburse appropriations;
+- operate its mandate (a central bank issuing currency by its rule);
+- enforce.
+
+Every other power is discretionary:
+
+- legislating and regulating;
+- appointing, dismissing, confirming, and assenting;
+- borrowing;
+- licensing and expropriating;
+- adjudicating;
+- commanding forces;
+- amending the constitution.
+
+A discretionary power is exercised only by a person through an office, or by a chamber through its members' votes. An institution may hold a discretionary grant only as a link in a delegation chain, and it never acts on one in its own name (`governance::acts_administratively`). An empty ministry therefore keeps paying its staff, but it cannot change tax policy, issue a regulation, or appoint anyone.
+
 ## Offices
 
 An office is a slot in an institution with constitutional rules:
