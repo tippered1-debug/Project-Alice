@@ -79,11 +79,12 @@ TEST_CASE("voters want what their economic position gives them reason to want", 
 		for(auto const& value : voters) if(value.cohort == cohort) return value.ideal;
 		return gv::policy::position{};
 	};
-	auto tax = size_t(gv::policy::dimension::tax_level), spread = size_t(gv::policy::dimension::progressivity), works = size_t(gv::policy::dimension::public_works);
+	auto tax = gv::policy::topic_id::income_tax, spread = gv::policy::topic_id::progressivity,
+		works = gv::policy::topic_id::public_works_appropriation;
 	// The poorer want higher and more progressive taxes; the rural want public works.
-	REQUIRE(ideal_of(f.peasants)[tax] > ideal_of(f.gentry)[tax]);
-	REQUIRE(ideal_of(f.townsfolk)[spread] > ideal_of(f.gentry)[spread]);
-	REQUIRE(ideal_of(f.peasants)[works] > ideal_of(f.townsfolk)[works]);
+	REQUIRE(std::get<float>(*gv::policy::get(ideal_of(f.peasants), tax)) > std::get<float>(*gv::policy::get(ideal_of(f.gentry), tax)));
+	REQUIRE(std::get<float>(*gv::policy::get(ideal_of(f.townsfolk), spread)) > std::get<float>(*gv::policy::get(ideal_of(f.gentry), spread)));
+	REQUIRE(std::get<float>(*gv::policy::get(ideal_of(f.peasants), works)) > std::get<float>(*gv::policy::get(ideal_of(f.townsfolk), works)));
 	// The peasants are the median adults.
 	REQUIRE(gv::electorate::median_income(voters) == Approx(0.5f * 250.0f / 600.0f));
 }
@@ -184,20 +185,27 @@ TEST_CASE("parties drift to their voters, new blocs found parties, and failures 
 	nation_fixture f;
 	(void)f.constitute("parliamentary_republic");
 	auto date = f.state->current_date;
-	gv::policy::position left{}, right{}, far{};
-	left[0] = 0.3f; right[0] = 0.05f; far = { 0.4f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+	gv::policy::position left, right, far;
+	(void)gv::policy::set(left, gv::policy::topic_id::income_tax, 0.3f);
+	(void)gv::policy::set(right, gv::policy::topic_id::income_tax, 0.05f);
+	(void)gv::policy::set(far, gv::policy::topic_id::income_tax, 0.4f);
+	(void)gv::policy::set(far, gv::policy::topic_id::progressivity, 1.0f);
+	(void)gv::policy::set(far, gv::policy::topic_id::education_appropriation, 1.0f);
+	(void)gv::policy::set(far, gv::policy::topic_id::policing_appropriation, 1.0f);
+	(void)gv::policy::set(far, gv::policy::topic_id::public_works_appropriation, 1.0f);
+	(void)gv::policy::set(far, gv::policy::topic_id::local_government_appropriation, 1.0f);
 	auto a = gv::parties::create(*f.state, f.nation, left, date);
 	auto b = gv::parties::create(*f.state, f.nation, right, date);
 	std::vector<gv::electorate::voter> voters(3);
-	voters[0].adults = 100.0f; voters[0].turnout = 1.0f; voters[0].ideal = left; voters[0].ideal[0] = 0.25f;
+	voters[0].adults = 100.0f; voters[0].turnout = 1.0f; voters[0].ideal = left; (void)gv::policy::set(voters[0].ideal, gv::policy::topic_id::income_tax, 0.25f);
 	voters[1].adults = 100.0f; voters[1].turnout = 1.0f; voters[1].ideal = right;
 	voters[2].adults = 100.0f; voters[2].turnout = 1.0f; voters[2].ideal = far;
 	std::map<uint32_t, float> shares{ { a.index(), 0.5f }, { b.index(), 0.01f } };
 	gv::parties::evolve(*f.state, f.nation, voters, shares, 0, date);
 	// The left party moved 30% toward the centre of the voters nearest it
 	// (the first and the far voter): from 0.3 toward 0.325.
-	REQUIRE(gv::parties::platform(*f.state, a)[0] == Approx(0.3075f));
-	REQUIRE(gv::parties::platform(*f.state, b)[0] == Approx(0.05f));
+	REQUIRE(std::get<float>(*gv::policy::get(gv::parties::platform(*f.state, a), gv::policy::topic_id::income_tax)) == Approx(0.3075f));
+	REQUIRE(std::get<float>(*gv::policy::get(gv::parties::platform(*f.state, b), gv::policy::topic_id::income_tax)) == Approx(0.05f));
 	// The unrepresented third founded a party.
 	REQUIRE(gv::parties::parties_of(*f.state, f.nation).size() == 3);
 	gv::parties::evolve(*f.state, f.nation, voters, shares, 0, date);

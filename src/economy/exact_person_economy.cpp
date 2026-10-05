@@ -8,6 +8,7 @@
 #include "economy/money/ontology.hpp"
 #include "money.hpp"
 #include "governance/governance.hpp"
+#include "governance/law/law.hpp"
 #include "governance/finance/finance.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -171,6 +172,14 @@ uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::j
 	auto pay_period_days = state.world.job_offer_get_pay_period_days(offer);
 	if(!std::isfinite(labor_capacity) || labor_capacity <= 0.0f
 		|| !std::isfinite(wage_rate) || wage_rate < 0.0f || pay_period_days == 0) return 0;
+	auto workplace_province = state.world.site_get_province_from_site_location(workplace);
+	auto workplace_nation = workplace_province
+		? state.world.province_get_nation_from_province_ownership(workplace_province) : dcon::nation_id{};
+	if(workplace_nation) {
+		auto statutory = governance::law::effective_topic(state, governance::national(workplace_nation),
+			governance::policy::topic_id::minimum_wage, state.current_date);
+		if(statutory && wage_rate / float(pay_period_days) + 1.0e-6f < std::get<float>(*statutory)) return 0;
+	}
 	auto store = ensure_store(state);
 	for(auto const& existing : store->contracts)
 		if(existing.worker == worker && active_contract_on(state, existing)) return 0;

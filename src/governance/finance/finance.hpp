@@ -2,6 +2,7 @@
 
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
+#include "economy/exact_person_economy.hpp"
 
 #include <cstdint>
 
@@ -40,6 +41,9 @@ dcon::fiscal_action_id authorized_spend(sys::state&, dcon::person_id initiator,
 dcon::fiscal_action_id authorized_spend_by_institution(sys::state&, dcon::institution_id authority,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id recipient_account,
 	float amount, sys::date date);
+dcon::fiscal_action_id authorized_spend_exact_person_by_institution(sys::state&, dcon::institution_id authority,
+	dcon::monetary_account_id treasury_account, economy::exact_person_economy::person_key recipient,
+	economy::exact_person_economy::account_ref recipient_account, float amount, sys::date date);
 
 // Transfers appropriated money from the allocating institution's treasury to
 // a recipient institution's treasury. The allocator needs `appropriate` and

@@ -3,6 +3,7 @@
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
 #include "governance/governance.hpp"
+#include "governance/policy.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -29,7 +30,9 @@ enum class policy_rule_kind : uint8_t {
 	// amount: the central bank's annual inflation target.
 	inflation_target = 4,
 	// amount: share of the national treasury disbursed each month.
-	disbursement_rate = 5
+	disbursement_rate = 5,
+	// A typed rule whose stable topic id and tagged value live on the policy rule.
+	substantive_policy = 6
 };
 enum class legal_action_kind : uint8_t { enactment = 0, repeal = 1, assent = 2, founding = 3 };
 
@@ -44,6 +47,8 @@ struct rule {
 	float amount = 0.0f;
 	uint8_t parameter = 0;
 	dcon::institution_id target{};
+	policy::topic_id topic = policy::topic_id::income_tax;
+	policy::policy_value topic_value = 0.0f;
 };
 
 // The power an instrument of a kind requires: amend_constitution, legislate,
@@ -56,6 +61,8 @@ dcon::legal_instrument_id create_draft_instrument(sys::state&, legal_instrument_
 bool add_rule(sys::state&, dcon::legal_instrument_id, rule const&);
 bool add_public_debt_ceiling_rule(sys::state&, dcon::legal_instrument_id, dcon::commodity_id, float);
 bool add_public_debt_prohibition_rule(sys::state&, dcon::legal_instrument_id, dcon::commodity_id);
+bool add_topic_rule(sys::state&, dcon::legal_instrument_id, policy::topic_id,
+	policy::policy_value const&, dcon::institution_id target = {});
 
 // Enactment. Where chambers hold the required power over the jurisdiction,
 // every such chamber must have passed the instrument (a constitution by a two
@@ -73,6 +80,8 @@ bool instrument_is_effective(sys::state const&, dcon::legal_instrument_id, sys::
 // jurisdiction decides a rule's value.
 std::optional<float> effective_amount(sys::state const&, jurisdiction, policy_rule_kind, sys::date,
 	uint8_t parameter = 0, dcon::institution_id target = {}, dcon::commodity_id settlement = {});
+std::optional<policy::policy_value> effective_topic(sys::state const&, jurisdiction, policy::topic_id, sys::date);
+dcon::institution_id effective_topic_target(sys::state const&, jurisdiction, policy::topic_id, sys::date);
 struct appropriation {
 	dcon::institution_id institution{};
 	float share = 0.0f;

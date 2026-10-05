@@ -11,6 +11,7 @@
 #include "labor_dynamics.hpp"
 #include "persons/exact_population.hpp"
 #include "governance/governance.hpp"
+#include "governance/law/law.hpp"
 #include "governance/finance/finance.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -30,6 +31,16 @@ constexpr uint8_t skilled_occupation = 1;
 constexpr uint8_t professional_occupation = 2;
 constexpr float voluntary_quit_wage_gain = 1.12f;
 constexpr float reservation_premium = 1.1f;
+
+float minimum_daily_wage(sys::state const& state, dcon::site_id workplace, sys::date date) {
+	if(!workplace || !state.world.site_is_valid(workplace)) return 0.0f;
+	auto province = state.world.site_get_province_from_site_location(workplace);
+	auto nation = province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
+	if(!nation) return 0.0f;
+	auto value = governance::law::effective_topic(state, governance::national(nation),
+		governance::policy::topic_id::minimum_wage, date);
+	return value ? std::max(0.0f, std::get<float>(*value)) : 0.0f;
+}
 
 sys::date normalized_date(sys::state const& state, sys::date date) {
 	if(date) return date;
@@ -104,10 +115,11 @@ dcon::job_offer_id post_job_offer(sys::state& state, dcon::economic_actor_id emp
 	if(operator_actor && operator_actor != employer) return {};
 	if(!workplace) workplace = world::site::site_for_factory(state, factory);
 	if(!workplace || !state.world.site_is_valid(workplace)) return {};
+	created_on = normalized_date(state, created_on);
+	if(wage_rate / float(pay_period_days) + epsilon < minimum_daily_wage(state, workplace, created_on)) return {};
 	auto settlement = accounts::settlement_of(state, payer_account);
 	auto factory_settlement = state.world.factory_get_payroll_settlement(factory);
 	if(!settlement || factory_settlement && factory_settlement != settlement) return {};
-	created_on = normalized_date(state, created_on);
 	if(expires_on && expires_on < created_on) return {};
 	auto offer = state.world.create_job_offer();
 	state.world.job_offer_set_occupation(offer, occupation);
@@ -136,6 +148,7 @@ dcon::job_offer_id post_institution_job_offer(sys::state& state, dcon::instituti
 	created_on = normalized_date(state, created_on);
 	if(!expires_on) expires_on = created_on + int32_t(30);
 	if(expires_on && expires_on < created_on) return {};
+	if(wage_rate / float(pay_period_days) + epsilon < minimum_daily_wage(state, workplace, created_on)) return {};
 	auto offer = state.world.create_job_offer();
 	state.world.job_offer_set_occupation(offer, occupation);
 	state.world.job_offer_set_labor_capacity(offer, labor_capacity);
@@ -194,7 +207,8 @@ void process_factory_vacancies(sys::state& state) {
 		auto settlement = state.world.factory_get_payroll_settlement(factory);
 		auto payer = settlement ? accounts::find_account(state, employer, settlement) : dcon::monetary_account_id{};
 		if(!employer || !payer) return;
-		auto desired = firm_agency::decide_factory(state, factory).desired_units;
+		auto decision = firm_agency::decide_factory(state, factory);
+		auto desired = decision.desired_units;
 		auto site = world::site::site_for_factory(state, factory);
 		if(!site || !std::isfinite(desired) || desired <= epsilon) return;
 		float staffing_mix[3]{};
@@ -227,6 +241,15 @@ void process_factory_vacancies(sys::state& state) {
 			auto openings = uint32_t(std::ceil(shortage));
 			if(openings == 0) continue;
 			auto terms = wage_offer_for_factory(state, factory, occupation);
+			auto minimum = minimum_daily_wage(state, site, state.current_date);
+		if(terms.pay_period_days == 0) continue;
+		auto minimum_rate = minimum * float(terms.pay_period_days);
+		if(minimum_rate > terms.wage_rate + epsilon) {
+			// Hiring at the statutory rate is worthwhile only while expected
+			// contribution per worker covers that real payroll obligation.
+			if(desired <= 0.0f || decision.expected_unit_revenue - decision.expected_variable_cost < minimum) continue;
+			terms.wage_rate = minimum_rate;
+		}
 			(void)post_job_offer(state, employer, factory, site, occupation, 1.0f,
 				terms.wage_rate, terms.pay_period_days, payer, openings, state.current_date);
 		}

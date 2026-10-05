@@ -35,6 +35,9 @@ bool is_draft(sys::state const& state, dcon::legal_instrument_id instrument) {
 }
 
 bool same_rule(sys::state const& state, dcon::policy_rule_id existing, rule const& candidate) {
+	if(state.world.policy_rule_get_kind(existing) != uint8_t(candidate.kind)) return false;
+	if(candidate.kind == policy_rule_kind::substantive_policy)
+		return state.world.policy_rule_get_topic_id(existing) == uint16_t(candidate.topic);
 	return state.world.policy_rule_get_kind(existing) == uint8_t(candidate.kind)
 		&& state.world.policy_rule_get_settlement(existing) == candidate.settlement
 		&& state.world.policy_rule_get_parameter(existing) == candidate.parameter
@@ -48,6 +51,17 @@ rule read_rule(sys::state const& state, dcon::policy_rule_id id) {
 	result.amount = state.world.policy_rule_get_amount(id);
 	result.parameter = state.world.policy_rule_get_parameter(id);
 	result.target = state.world.policy_rule_get_institution_from_policy_rule_target_institution(id);
+	if(result.kind == policy_rule_kind::substantive_policy) {
+		result.topic = policy::topic_id(state.world.policy_rule_get_topic_id(id));
+		auto spec = policy::definition(result.topic);
+		if(spec) switch(spec->kind) {
+		case policy::value_kind::continuous: result.topic_value = state.world.policy_rule_get_amount(id); break;
+		case policy::value_kind::ordinal: result.topic_value = int32_t(state.world.policy_rule_get_amount(id)); break;
+		case policy::value_kind::categorical: result.topic_value = policy::category_value{state.world.policy_rule_get_category_value(id)}; break;
+		case policy::value_kind::binary: result.topic_value = state.world.policy_rule_get_boolean_value(id) != 0; break;
+		case policy::value_kind::structured: result.topic_value = policy::structured_value{state.world.policy_rule_get_amount(id), state.world.policy_rule_get_auxiliary(id)}; break;
+		}
+	}
 	return result;
 }
 
@@ -68,6 +82,14 @@ bool valid_rule(sys::state const& state, dcon::legal_instrument_id instrument, r
 		return std::isfinite(value.amount) && value.amount >= -0.1f && value.amount <= 1.0f;
 	case policy_rule_kind::disbursement_rate:
 		return std::isfinite(value.amount) && value.amount > 0.0f && value.amount <= 1.0f;
+	case policy_rule_kind::substantive_policy: {
+		auto scope = jurisdiction_of(state, instrument);
+		auto spec = policy::definition(value.topic);
+		if(!spec || spec->jurisdiction != policy::jurisdiction_kind::national || !scope.nation) return false;
+		return policy::valid(value.topic, value.topic_value)
+			&& (!value.target || state.world.institution_is_valid(value.target)
+				&& governance::nation_of(state, value.target) == scope.nation);
+	}
 	}
 	return false;
 }
@@ -209,6 +231,25 @@ bool add_rule(sys::state& state, dcon::legal_instrument_id instrument, rule cons
 	state.world.policy_rule_set_settlement(id, value.settlement);
 	state.world.policy_rule_set_amount(id, value.amount);
 	state.world.policy_rule_set_parameter(id, value.parameter);
+	if(value.kind == policy_rule_kind::substantive_policy) {
+		state.world.policy_rule_set_topic_id(id, uint16_t(value.topic));
+		auto spec = policy::definition(value.topic);
+		if(spec) {
+			state.world.policy_rule_set_value_kind(id, uint8_t(spec->kind));
+			switch(spec->kind) {
+			case policy::value_kind::continuous: state.world.policy_rule_set_amount(id, std::get<float>(value.topic_value)); break;
+			case policy::value_kind::ordinal: state.world.policy_rule_set_amount(id, float(std::get<int32_t>(value.topic_value))); break;
+			case policy::value_kind::categorical: state.world.policy_rule_set_category_value(id, std::get<policy::category_value>(value.topic_value).value); break;
+			case policy::value_kind::binary: state.world.policy_rule_set_boolean_value(id, std::get<bool>(value.topic_value) ? 1 : 0); break;
+			case policy::value_kind::structured: {
+				auto parameters = std::get<policy::structured_value>(value.topic_value);
+				state.world.policy_rule_set_amount(id, parameters.first);
+				state.world.policy_rule_set_auxiliary(id, parameters.second);
+				break;
+			}
+			}
+		}
+	}
 	if(value.target) state.world.force_create_policy_rule_target_institution(id, value.target);
 	state.world.force_create_legal_instrument_policy_rule(id, instrument);
 	return true;
@@ -220,6 +261,16 @@ bool add_public_debt_ceiling_rule(sys::state& state, dcon::legal_instrument_id i
 
 bool add_public_debt_prohibition_rule(sys::state& state, dcon::legal_instrument_id instrument, dcon::commodity_id settlement) {
 	return add_rule(state, instrument, { policy_rule_kind::public_debt_issuance_prohibited, settlement, 0.0f });
+}
+
+bool add_topic_rule(sys::state& state, dcon::legal_instrument_id instrument, policy::topic_id topic,
+	policy::policy_value const& value, dcon::institution_id target) {
+	rule result{};
+	result.kind = policy_rule_kind::substantive_policy;
+	result.topic = topic;
+	result.topic_value = value;
+	result.target = target;
+	return add_rule(state, instrument, result);
 }
 
 bool instrument_is_effective(sys::state const& state, dcon::legal_instrument_id instrument, sys::date date) {
@@ -291,6 +342,30 @@ std::optional<float> effective_amount(sys::state const& state, jurisdiction scop
 	for(auto instrument : effective_instruments(state, scope, date))
 		for(auto id : rules_of(state, instrument))
 			if(same_rule(state, id, wanted)) result = state.world.policy_rule_get_amount(id);
+	return result;
+}
+
+std::optional<policy::policy_value> effective_topic(sys::state const& state, jurisdiction scope,
+	policy::topic_id topic, sys::date date) {
+	std::optional<policy::policy_value> result;
+	for(auto instrument : effective_instruments(state, scope, date))
+		for(auto id : rules_of(state, instrument))
+			if(state.world.policy_rule_get_kind(id) == uint8_t(policy_rule_kind::substantive_policy)
+				&& state.world.policy_rule_get_topic_id(id) == uint16_t(topic)) {
+				auto value = read_rule(state, id);
+				result = value.topic_value;
+			}
+	return result;
+}
+
+dcon::institution_id effective_topic_target(sys::state const& state, jurisdiction scope,
+	policy::topic_id topic, sys::date date) {
+	dcon::institution_id result{};
+	for(auto instrument : effective_instruments(state, scope, date))
+		for(auto id : rules_of(state, instrument))
+			if(state.world.policy_rule_get_kind(id) == uint8_t(policy_rule_kind::substantive_policy)
+				&& state.world.policy_rule_get_topic_id(id) == uint16_t(topic))
+				result = state.world.policy_rule_get_institution_from_policy_rule_target_institution(id);
 	return result;
 }
 

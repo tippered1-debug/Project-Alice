@@ -24,9 +24,8 @@ dcon::office_id chief_office(sys::state const&, dcon::nation_id);
 dcon::institution_id confidence_chamber(sys::state const&, dcon::nation_id);
 std::vector<dcon::organization_id> coalition(sys::state const&, dcon::nation_id);
 uint32_t seats_of(sys::state const&, dcon::organization_id party, dcon::institution_id chamber, sys::date);
-// The governing programme: the governing parties' platforms weighted by their
-// seats. Without governing parties, the ideal of the wealthiest tenth of the
-// electorate, on whom a government without a party base relies.
+// The governing programme is the latest issue-by-issue coalition agreement.
+// Without governing parties, it follows the wealthiest tenth of the electorate.
 policy::position program(sys::state const&, dcon::nation_id);
 
 // Forms the government after an election or a fall. Returns whether a chief
@@ -44,7 +43,8 @@ bool test_confidence(sys::state&, dcon::nation_id, sys::date);
 // with persons outside party politics. A seat whose holder died passes to the
 // next member on their party's list.
 void fill_vacancies(sys::state&, dcon::nation_id, sys::date);
-// The finance minister turns the programme into fiscal law when they differ.
+// Turns a negotiated programme into a bill and submits it through the
+// constitutionally deciding legislature and assent offices.
 void implement(sys::state&, dcon::nation_id, sys::date);
 
 // Founding politics: parties from the electorate, the first elections, the

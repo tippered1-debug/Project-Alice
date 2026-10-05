@@ -3,59 +3,90 @@
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
 
-#include <array>
 #include <cstdint>
 #include <utility>
+#include <optional>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace sys { class state; }
 
 namespace governance::policy {
 
-// The policy space parties compete over. Every dimension is a lever the fiscal
-// law already has, so a winning platform becomes a concrete regulation.
-enum class dimension : uint8_t {
-	// Base rate on wage income, from 0 to 40%.
-	tax_level = 0,
-	// From 0 (one rate for all) to 1 (the poor pay 40% of the base rate, the
-	// rich twice it).
+// Topic ids are save data. Append new ids; never renumber an existing topic.
+// The registry describes the domain and the law hook, while platform values
+// are sparse so a party may leave an issue unaddressed.
+enum class topic_id : uint16_t {
+	income_tax = 0,
 	progressivity = 1,
-	// Relative weights of the budget shares, from 0 to 1.
-	education = 2,
-	policing = 3,
-	public_works = 4,
-	local_government = 5,
-	count = 6
+	education_appropriation = 2,
+	policing_appropriation = 3,
+	public_works_appropriation = 4,
+	local_government_appropriation = 5,
+	minimum_wage = 6,
+	labor_protection = 7,
+	collective_bargaining = 8,
+	unemployment_replacement = 9,
+	unemployment_duration = 10,
+	dividend_tax = 11,
+	resource_royalty = 12,
+	bank_reserve_requirement = 13
 };
-inline constexpr size_t dimension_count = size_t(dimension::count);
-using position = std::array<float, dimension_count>;
 
-inline constexpr float maximum_tax_level = 0.4f;
-inline constexpr float disbursement_rate = 0.35f;
+enum class value_kind : uint8_t { continuous = 0, ordinal = 1, categorical = 2, binary = 3, structured = 4 };
+enum class implementation : uint8_t { statute = 0, delegated_regulation = 1, appropriation = 2 };
+enum class jurisdiction_kind : uint8_t { national = 0, territorial = 1 };
 
-float lower_bound(dimension);
-float upper_bound(dimension);
+struct category_value { uint16_t value = 0; friend bool operator==(category_value, category_value) = default; };
+struct structured_value {
+	float first = 0.0f;
+	float second = 0.0f;
+	friend bool operator==(structured_value const&, structured_value const&) = default;
+};
+using policy_value = std::variant<float, int32_t, category_value, bool, structured_value>;
+
+struct topic_definition {
+	topic_id id{};
+	std::string_view name;
+	value_kind kind = value_kind::continuous;
+	implementation enacted_by = implementation::statute;
+	jurisdiction_kind jurisdiction = jurisdiction_kind::national;
+	float minimum = 0.0f;
+	float maximum = 1.0f;
+	uint16_t category_count = 0;
+	policy_value default_value = 0.0f;
+};
+
+struct entry { topic_id topic{}; policy_value value{}; };
+struct issue_salience { topic_id topic{}; float weight = 0.0f; };
+using salience = std::vector<issue_salience>;
+struct position {
+	std::vector<entry> entries;
+	bool empty() const noexcept { return entries.empty(); }
+	size_t size() const noexcept { return entries.size(); }
+};
+
+std::vector<topic_definition> const& topics();
+topic_definition const* definition(topic_id);
+bool valid(topic_id, policy_value const&);
+std::optional<policy_value> get(position const&, topic_id);
+policy_value value_or(position const&, topic_id);
+bool set(position&, topic_id, policy_value const&);
 position clamp(position);
-// Squared distance with every dimension scaled to its range.
 float distance(position const&, position const&);
+float distance(position const&, position const&, salience const&);
+position weighted_mean(std::vector<std::pair<position const*, float>> const&);
+position move_toward(position const&, position const&, float fraction);
 
 struct fiscal_rules {
 	float tax_rates[3] = {};
 	std::vector<std::pair<dcon::institution_id, float>> shares;
 };
-// The tax rates and appropriations a position means for a nation's
-// institutions: education, policing and public works shares go to the
-// national institutions providing those services, and the local share is split
-// between the territorial governments with staff.
+
+inline constexpr float disbursement_rate = 0.35f;
 fiscal_rules rules_for(sys::state const&, dcon::nation_id, position const&);
-// The position the fiscal law in force expresses, if there is one.
 bool current(sys::state const&, dcon::nation_id, sys::date, position&);
 bool law_matches(sys::state const&, dcon::nation_id, position const&, sys::date);
-// The person exercising the office empowered to regulate public finance.
-dcon::person_id fiscal_regulator(sys::state const&, dcon::nation_id, sys::date);
-// Drafts and enacts the fiscal regulation for the position as the person and
-// repeals the fiscal regulations it replaces; returns nothing when the person
-// may not regulate public finance.
-dcon::legal_instrument_id enact(sys::state&, dcon::nation_id, dcon::person_id, position const&, sys::date);
 
 } // namespace governance::policy

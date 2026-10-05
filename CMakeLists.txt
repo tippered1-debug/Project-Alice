@@ -31,6 +31,8 @@ endif()
 list(APPEND ALICE_SOURCE_BLOB "${PROJECT_SOURCE_DIR}/src/main.cpp")
 
 list(APPEND ALICE_CORE_SOURCES_LIST
+	"${PROJECT_SOURCE_DIR}/src/economy/social_entitlements.cpp"
+	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
 	"${PROJECT_SOURCE_DIR}/src/map/projections.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/alice_ui.cpp"
 	"${PROJECT_SOURCE_DIR}/src/map/map_state.cpp"
@@ -250,7 +252,6 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/military/land_forces.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/nations.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/diplomatic_crisis_dynamics.cpp"
-	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
 	"${PROJECT_SOURCE_DIR}/src/provinces/province.cpp"
 	${ALICE_INCREMENTAL_SOURCES_LIST_RARELY_CHANGED}
 	${ALICE_INCREMENTAL_SOURCES_LIST_SCRIPTING}

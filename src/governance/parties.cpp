@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <numeric>
 
 namespace governance::parties {
@@ -21,39 +22,42 @@ constexpr int32_t old_age_days = 75 * 365;
 
 float weight_of(electorate::voter const& value) { return value.adults * value.turnout; }
 
-using normalized = policy::position;
-
-normalized normalize(policy::position const& value) {
-	normalized result{};
-	for(size_t i = 0; i < policy::dimension_count; ++i)
-		result[i] = value[i] / (policy::upper_bound(policy::dimension(i)) - policy::lower_bound(policy::dimension(i)));
-	return result;
+policy::position weighted_mean(std::vector<electorate::voter> const& voters, std::vector<size_t> const& chosen) {
+	std::vector<std::pair<policy::position const*, float>> values;
+	values.reserve(chosen.size());
+	for(auto index : chosen) values.push_back({ &voters[index].ideal, weight_of(voters[index]) });
+	return policy::weighted_mean(values);
 }
 
-policy::position denormalize(normalized const& value) {
-	policy::position result{};
-	for(size_t i = 0; i < policy::dimension_count; ++i)
-		result[i] = value[i] * (policy::upper_bound(policy::dimension(i)) - policy::lower_bound(policy::dimension(i)));
-	return policy::clamp(result);
-}
-
-float squared(normalized const& a, normalized const& b) {
-	float result = 0.0f;
-	for(size_t i = 0; i < policy::dimension_count; ++i) result += (a[i] - b[i]) * (a[i] - b[i]);
-	return result;
-}
-
-normalized weighted_mean(std::vector<electorate::voter> const& voters, std::vector<size_t> const& chosen) {
-	normalized result{};
-	double total = 0.0;
-	for(auto index : chosen) {
-		auto weight = weight_of(voters[index]);
-		auto point = normalize(voters[index].ideal);
-		for(size_t i = 0; i < policy::dimension_count; ++i) result[i] += float(weight) * point[i];
-		total += weight;
+policy::policy_value read_value(sys::state const& state, dcon::platform_position_id id, policy::topic_id topic) {
+	auto spec = policy::definition(topic);
+	if(!spec) return 0.0f;
+	switch(spec->kind) {
+	case policy::value_kind::continuous: return state.world.platform_position_get_value(id);
+	case policy::value_kind::ordinal: return int32_t(state.world.platform_position_get_value(id));
+	case policy::value_kind::categorical: return policy::category_value{state.world.platform_position_get_category_value(id)};
+	case policy::value_kind::binary: return state.world.platform_position_get_boolean_value(id) != 0;
+	case policy::value_kind::structured: return policy::structured_value{state.world.platform_position_get_value(id), state.world.platform_position_get_auxiliary(id)};
 	}
-	if(total > 0.0) for(auto& coordinate : result) coordinate = float(coordinate / total);
-	return result;
+	return 0.0f;
+}
+
+void write_value(sys::state& state, dcon::platform_position_id id, policy::topic_id topic, policy::policy_value const& value) {
+	auto spec = policy::definition(topic);
+	if(!spec) return;
+	state.world.platform_position_set_value_kind(id, uint8_t(spec->kind));
+	switch(spec->kind) {
+	case policy::value_kind::continuous: state.world.platform_position_set_value(id, std::get<float>(value)); break;
+	case policy::value_kind::ordinal: state.world.platform_position_set_value(id, float(std::get<int32_t>(value))); break;
+	case policy::value_kind::categorical: state.world.platform_position_set_category_value(id, std::get<policy::category_value>(value).value); break;
+	case policy::value_kind::binary: state.world.platform_position_set_boolean_value(id, std::get<bool>(value) ? 1 : 0); break;
+	case policy::value_kind::structured: {
+		auto parameters = std::get<policy::structured_value>(value);
+		state.world.platform_position_set_value(id, parameters.first);
+		state.world.platform_position_set_auxiliary(id, parameters.second);
+		break;
+	}
+	}
 }
 
 bool recruitable(sys::state const& state, persons::person_key key, sys::date date) {
@@ -125,31 +129,36 @@ dcon::nation_id nation_of(sys::state const& state, dcon::organization_id party) 
 }
 
 policy::position platform(sys::state const& state, dcon::organization_id party) {
-	policy::position result{};
+	policy::position result;
 	state.world.organization_for_each_platform_position_party_as_organization(party, [&](auto relation) {
-		auto position = state.world.platform_position_party_get_platform_position(relation);
-		auto dimension = state.world.platform_position_get_dimension(position);
-		if(dimension < policy::dimension_count) result[dimension] = state.world.platform_position_get_value(position);
+		auto item = state.world.platform_position_party_get_platform_position(relation);
+		auto topic = policy::topic_id(state.world.platform_position_get_dimension(item));
+		(void)policy::set(result, topic, read_value(state, item, topic));
 	});
 	return result;
 }
 
 void set_platform(sys::state& state, dcon::organization_id party, policy::position const& raw) {
 	auto value = policy::clamp(raw);
-	std::array<dcon::platform_position_id, policy::dimension_count> existing{};
+	std::map<uint16_t, std::pair<dcon::platform_position_party_id, dcon::platform_position_id>> existing;
 	state.world.organization_for_each_platform_position_party_as_organization(party, [&](auto relation) {
-		auto position = state.world.platform_position_party_get_platform_position(relation);
-		auto dimension = state.world.platform_position_get_dimension(position);
-		if(dimension < policy::dimension_count) existing[dimension] = position;
+		auto item = state.world.platform_position_party_get_platform_position(relation);
+		existing[state.world.platform_position_get_dimension(item)] = {relation, item};
 	});
-	for(size_t i = 0; i < policy::dimension_count; ++i) {
-		auto position = existing[i];
-		if(!position) {
-			position = state.world.create_platform_position();
-			state.world.platform_position_set_dimension(position, uint8_t(i));
-			state.world.force_create_platform_position_party(position, party);
+	for(auto const& [topic, ids] : existing) {
+		if(policy::get(value, policy::topic_id(topic))) continue;
+		state.world.delete_platform_position_party(ids.first);
+		state.world.delete_platform_position(ids.second);
+	}
+	for(auto const& item : value.entries) {
+		auto found = existing.find(uint16_t(item.topic));
+		auto id = found == existing.end() ? dcon::platform_position_id{} : found->second.second;
+		if(!id) {
+			id = state.world.create_platform_position();
+			state.world.platform_position_set_dimension(id, uint16_t(item.topic));
+			state.world.force_create_platform_position_party(id, party);
 		}
-		state.world.platform_position_set_value(position, value[i]);
+		write_value(state, id, item.topic, item.value);
 	}
 }
 
@@ -226,7 +235,8 @@ uint32_t recruit(sys::state& state, dcon::organization_id party, std::vector<ele
 	std::vector<size_t> order(voters.size());
 	std::iota(order.begin(), order.end(), size_t(0));
 	std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-		return policy::distance(voters[a].ideal, target) < policy::distance(voters[b].ideal, target);
+		return policy::distance(voters[a].ideal, target, voters[a].issue_salience)
+			< policy::distance(voters[b].ideal, target, voters[b].issue_salience);
 	});
 	auto rivals = parties_of(state, nation_of(state, party));
 	uint32_t enlisted = 0;
@@ -236,7 +246,13 @@ uint32_t recruit(sys::state& state, dcon::organization_id party, std::vector<ele
 		for(auto index : order) {
 			if(have + enlisted >= wanted) break;
 			auto const& value = voters[index];
-			bool supporter = nearest(state, rivals, value.ideal) == party;
+		auto supporter_party = dcon::organization_id{};
+		float supporter_distance = std::numeric_limits<float>::infinity();
+		for(auto rival : rivals) {
+			auto candidate_distance = policy::distance(value.ideal, platform(state, rival), value.issue_salience);
+			if(candidate_distance < supporter_distance) { supporter_party = rival; supporter_distance = candidate_distance; }
+		}
+		bool supporter = supporter_party == party;
 			if((pass == 0) != supporter) continue;
 			auto room = wanted - have - enlisted;
 			if(value.cohort) enlisted += enlist_from_cohort(state, party, value.cohort, pass == 0 ? room : std::min<uint32_t>(3, room), date);
@@ -254,28 +270,28 @@ std::vector<dcon::organization_id> found(sys::state& state, dcon::nation_id nati
 	auto k = std::min(founding_parties, all.size());
 	// Deterministic seeding: the weighted mean, then the voter weight that
 	// lies farthest from the centroids chosen so far.
-	std::vector<normalized> centroids{ weighted_mean(voters, all) };
+	std::vector<policy::position> centroids{ weighted_mean(voters, all) };
 	while(centroids.size() < k) {
 		size_t best = all.front();
 		float best_score = -1.0f;
 		for(auto index : all) {
-			auto point = normalize(voters[index].ideal);
 			float nearest_distance = std::numeric_limits<float>::infinity();
-			for(auto const& centroid : centroids) nearest_distance = std::min(nearest_distance, squared(point, centroid));
+			for(auto const& centroid : centroids) nearest_distance = std::min(nearest_distance,
+				policy::distance(voters[index].ideal, centroid, voters[index].issue_salience));
 			auto score = weight_of(voters[index]) * nearest_distance;
 			if(score > best_score) { best = index; best_score = score; }
 		}
 		if(best_score <= 0.0f) break;
-		centroids.push_back(normalize(voters[best].ideal));
+		centroids.push_back(voters[best].ideal);
 	}
 	std::vector<std::vector<size_t>> clusters(centroids.size());
 	for(int iteration = 0; iteration < 25; ++iteration) {
 		for(auto& cluster : clusters) cluster.clear();
 		for(auto index : all) {
-			auto point = normalize(voters[index].ideal);
 			size_t best = 0;
 			for(size_t c = 1; c < centroids.size(); ++c)
-				if(squared(point, centroids[c]) < squared(point, centroids[best])) best = c;
+				if(policy::distance(voters[index].ideal, centroids[c], voters[index].issue_salience)
+					< policy::distance(voters[index].ideal, centroids[best], voters[index].issue_salience)) best = c;
 			clusters[best].push_back(index);
 		}
 		for(size_t c = 0; c < centroids.size(); ++c)
@@ -284,7 +300,7 @@ std::vector<dcon::organization_id> found(sys::state& state, dcon::nation_id nati
 	// All parties exist before any recruits, so each draws on its own supporters.
 	for(size_t c = 0; c < centroids.size(); ++c)
 		if(!clusters[c].empty())
-			if(auto party = create(state, nation, denormalize(centroids[c]), date)) result.push_back(party);
+			if(auto party = create(state, nation, centroids[c], date)) result.push_back(party);
 	for(auto party : result) (void)recruit(state, party, voters, members_each, date);
 	return result;
 }
@@ -312,7 +328,7 @@ void evolve(sys::state& state, dcon::nation_id nation, std::vector<electorate::v
 		size_t best = existing.size();
 		float best_distance = std::numeric_limits<float>::infinity();
 		for(size_t p = 0; p < existing.size(); ++p) {
-			auto d = policy::distance(voters[i].ideal, platform(state, existing[p]));
+			auto d = policy::distance(voters[i].ideal, platform(state, existing[p]), voters[i].issue_salience);
 			if(d < best_distance) { best = p; best_distance = d; }
 		}
 		if(best < existing.size()) supporters[best].push_back(i);
@@ -323,14 +339,13 @@ void evolve(sys::state& state, dcon::nation_id nation, std::vector<electorate::v
 	}
 	for(size_t p = 0; p < existing.size(); ++p) {
 		if(supporters[p].empty()) continue;
-		auto current = normalize(platform(state, existing[p]));
+		auto current = platform(state, existing[p]);
 		auto target = weighted_mean(voters, supporters[p]);
-		for(size_t i = 0; i < policy::dimension_count; ++i) current[i] += platform_drift * (target[i] - current[i]);
-		set_platform(state, existing[p], denormalize(current));
+		set_platform(state, existing[p], policy::move_toward(current, target, platform_drift));
 	}
 	// A large unrepresented bloc founds a party at its centre.
 	if(total > 0.0 && unrepresented_weight / total >= entry_share)
-		if(auto party = create(state, nation, denormalize(weighted_mean(voters, unrepresented)), date))
+		if(auto party = create(state, nation, weighted_mean(voters, unrepresented), date))
 			(void)recruit(state, party, voters, members_each, date);
 	for(auto party : parties_of(state, nation)) (void)recruit(state, party, voters, members_each, date);
 }

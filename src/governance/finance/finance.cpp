@@ -223,6 +223,31 @@ dcon::fiscal_action_id authorized_spend_by_institution(sys::state& state,
 		treasury_account, date, {}, transaction);
 }
 
+dcon::fiscal_action_id authorized_spend_exact_person_by_institution(sys::state& state,
+	dcon::institution_id authority, dcon::monetary_account_id treasury_account,
+	economy::exact_person_economy::person_key recipient,
+	economy::exact_person_economy::account_ref recipient_account, float amount, sys::date date) {
+	if(!authority || !state.world.institution_is_valid(authority) || !valid_amount(amount)
+		|| recipient_account.kind != economy::exact_person_economy::account_kind::exact
+		|| !economy::exact_person_economy::account_exists(state, recipient_account)
+		|| economy::exact_person_economy::owner_of(state, recipient_account) != recipient
+		|| !treasury_account || !state.world.monetary_account_is_valid(treasury_account)
+		|| treasury_institution_for(state, treasury_account) != authority
+		|| economy::accounts::settlement_of(state, treasury_account)
+			!= economy::exact_person_economy::settlement_of(state, recipient_account)
+		|| !governance::acts_administratively(state, authority,
+			governance::authority_kind::spend_public_funds, governance::jurisdiction_of(state, authority), date)
+		|| economy::accounts::balance(state, treasury_account) < amount) return {};
+	auto transfer = economy::exact_person_economy::transfer_with_result(state,
+		economy::exact_person_economy::account_ref::from_dcon(treasury_account), recipient_account,
+		amount, transaction_kind::public_spending, date);
+	if(!transfer.success) return {};
+	auto action = record_action(state, fiscal_action_kind::public_spending, {}, {}, authority,
+		treasury_account, date);
+	if(action) state.world.fiscal_action_set_exact_transaction_id(action, transfer.exact_transaction_id);
+	return action;
+}
+
 dcon::fiscal_action_id authorized_allocate(sys::state& state, dcon::institution_id allocator,
 	dcon::institution_id recipient, dcon::commodity_id settlement, float amount, sys::date date) {
 	if(!allocator || !recipient || allocator == recipient || !settlement || !valid_amount(amount)) return {};

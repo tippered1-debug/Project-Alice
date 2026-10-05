@@ -3,54 +3,215 @@
 #include "system_state.hpp"
 #include "governance/governance.hpp"
 #include "governance/law/law.hpp"
-#include "governance/offices.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace governance::policy {
 namespace {
 
 constexpr float tolerance = 1.0e-4f;
+constexpr topic_definition registry[] = {
+	{ topic_id::income_tax, "income_tax", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.4f, 0, 0.0f },
+	{ topic_id::progressivity, "progressivity", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.5f },
+	{ topic_id::education_appropriation, "education_appropriation", value_kind::continuous, implementation::appropriation, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.35f },
+	{ topic_id::policing_appropriation, "policing_appropriation", value_kind::continuous, implementation::appropriation, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.25f },
+	{ topic_id::public_works_appropriation, "public_works_appropriation", value_kind::continuous, implementation::appropriation, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.3f },
+	{ topic_id::local_government_appropriation, "local_government_appropriation", value_kind::continuous, implementation::appropriation, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.3f },
+	{ topic_id::minimum_wage, "minimum_wage", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 100.0f, 0, 0.0f },
+	{ topic_id::labor_protection, "labor_protection", value_kind::ordinal, implementation::statute, jurisdiction_kind::national, 0.0f, 3.0f, 0, int32_t(1) },
+	{ topic_id::collective_bargaining, "collective_bargaining", value_kind::categorical, implementation::statute, jurisdiction_kind::national, 0.0f, 0.0f, 4, category_value{1} },
+	{ topic_id::unemployment_replacement, "unemployment_replacement", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.8f, 0, 0.0f },
+	{ topic_id::unemployment_duration, "unemployment_duration", value_kind::ordinal, implementation::statute, jurisdiction_kind::national, 0.0f, 365.0f, 0, int32_t(0) },
+	{ topic_id::dividend_tax, "dividend_tax", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.6f, 0, 0.0f },
+	{ topic_id::resource_royalty, "resource_royalty", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.8f, 0, 0.0f },
+	{ topic_id::bank_reserve_requirement, "bank_reserve_requirement", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.5f, 0, 0.0f }
+};
 
-bool fiscal_instrument(sys::state const& state, dcon::legal_instrument_id instrument) {
-	bool result = false;
-	state.world.legal_instrument_for_each_legal_instrument_policy_rule_as_legal_instrument(instrument, [&](auto relation) {
-		auto kind = law::policy_rule_kind(state.world.policy_rule_get_kind(state.world.legal_instrument_policy_rule_get_policy_rule(relation)));
-		if(kind == law::policy_rule_kind::income_tax_rate || kind == law::policy_rule_kind::appropriation_share
-			|| kind == law::policy_rule_kind::disbursement_rate) result = true;
-	});
-	return result;
+float numeric(policy_value const& value) {
+	if(auto v = std::get_if<float>(&value)) return *v;
+	if(auto v = std::get_if<int32_t>(&value)) return float(*v);
+	if(auto v = std::get_if<bool>(&value)) return *v ? 1.0f : 0.0f;
+	if(auto v = std::get_if<category_value>(&value)) return float(v->value);
+	return 0.0f;
 }
 
 } // namespace
 
-float lower_bound(dimension) { return 0.0f; }
-float upper_bound(dimension which) { return which == dimension::tax_level ? maximum_tax_level : 1.0f; }
+std::vector<topic_definition> const& topics() {
+	static const std::vector<topic_definition> result(std::begin(registry), std::end(registry));
+	return result;
+}
+
+topic_definition const* definition(topic_id id) {
+	auto index = uint16_t(id);
+	return index < std::size(registry) && uint16_t(registry[index].id) == index ? &registry[index] : nullptr;
+}
+
+bool valid(topic_id topic, policy_value const& value) {
+	auto spec = definition(topic);
+	if(!spec) return false;
+	switch(spec->kind) {
+	case value_kind::continuous: {
+		auto number = std::get_if<float>(&value);
+		return number && std::isfinite(*number) && *number >= spec->minimum && *number <= spec->maximum;
+	}
+	case value_kind::ordinal: {
+		auto number = std::get_if<int32_t>(&value);
+		return number && float(*number) >= spec->minimum && float(*number) <= spec->maximum;
+	}
+	case value_kind::categorical: {
+		auto category = std::get_if<category_value>(&value);
+		return category && category->value < spec->category_count;
+	}
+	case value_kind::binary: return std::holds_alternative<bool>(value);
+	case value_kind::structured: {
+		auto parameters = std::get_if<structured_value>(&value);
+		return parameters && std::isfinite(parameters->first) && std::isfinite(parameters->second);
+	}
+	}
+	return false;
+}
+
+std::optional<policy_value> get(position const& source, topic_id topic) {
+	auto found = std::lower_bound(source.entries.begin(), source.entries.end(), topic,
+		[](entry const& item, topic_id id) { return uint16_t(item.topic) < uint16_t(id); });
+	if(found == source.entries.end() || found->topic != topic) return std::nullopt;
+	return found->value;
+}
+
+policy_value value_or(position const& source, topic_id topic) {
+	if(auto value = get(source, topic)) return *value;
+	if(auto spec = definition(topic)) return spec->default_value;
+	return 0.0f;
+}
+
+bool set(position& target, topic_id topic, policy_value const& value) {
+	if(!valid(topic, value)) return false;
+	auto found = std::lower_bound(target.entries.begin(), target.entries.end(), topic,
+		[](entry const& item, topic_id id) { return uint16_t(item.topic) < uint16_t(id); });
+	if(found != target.entries.end() && found->topic == topic) found->value = value;
+	else target.entries.insert(found, { topic, value });
+	return true;
+}
 
 position clamp(position value) {
-	for(size_t i = 0; i < dimension_count; ++i) {
-		auto which = dimension(i);
-		value[i] = std::isfinite(value[i]) ? std::clamp(value[i], lower_bound(which), upper_bound(which)) : lower_bound(which);
+	for(auto& item : value.entries) {
+		auto spec = definition(item.topic);
+		if(!spec) continue;
+		if(spec->kind == value_kind::continuous) {
+			auto number = numeric(item.value);
+			item.value = std::clamp(std::isfinite(number) ? number : numeric(spec->default_value), spec->minimum, spec->maximum);
+		} else if(spec->kind == value_kind::ordinal) {
+			auto number = int32_t(numeric(item.value));
+			item.value = std::clamp(number, int32_t(spec->minimum), int32_t(spec->maximum));
+		} else if(!valid(item.topic, item.value)) item.value = spec->default_value;
 	}
+	value.entries.erase(std::remove_if(value.entries.begin(), value.entries.end(), [](entry const& item) {
+		return definition(item.topic) == nullptr;
+	}), value.entries.end());
 	return value;
 }
 
-float distance(position const& a, position const& b) {
-	float result = 0.0f;
-	for(size_t i = 0; i < dimension_count; ++i) {
-		auto range = upper_bound(dimension(i)) - lower_bound(dimension(i));
-		auto delta = (a[i] - b[i]) / range;
-		result += delta * delta;
+float distance(position const& a, position const& b, salience const& weights) {
+	double sum = 0.0;
+	uint32_t count = 0;
+	for(auto const& spec : topics()) {
+		auto av = get(a, spec.id), bv = get(b, spec.id);
+		if(!av && !bv) continue;
+		float weight = 1.0f;
+		if(!weights.empty()) {
+			auto found = std::find_if(weights.begin(), weights.end(), [&](issue_salience const& item) { return item.topic == spec.id; });
+			weight = found == weights.end() ? 0.0f : std::max(0.0f, found->weight);
+		}
+		if(!(weight > 0.0f)) continue;
+		auto left = av.value_or(spec.default_value), right = bv.value_or(spec.default_value);
+		double delta = 0.0;
+		if(spec.kind == value_kind::categorical || spec.kind == value_kind::binary) delta = left == right ? 0.0 : 1.0;
+		else if(spec.kind == value_kind::structured) {
+			auto x = std::get<structured_value>(left), y = std::get<structured_value>(right);
+			auto d1 = double(x.first) - y.first, d2 = double(x.second) - y.second;
+			delta = (d1 * d1 + d2 * d2) / 2.0;
+		} else {
+			auto range = double(spec.maximum - spec.minimum);
+			delta = range > 0.0 ? std::pow((double(numeric(left)) - numeric(right)) / range, 2.0) : 0.0;
+		}
+		sum += delta * weight;
+		if(weights.empty()) ++count;
 	}
-	return result;
+	if(weights.empty()) return count ? float(sum / count) : 0.0f;
+	double total_weight = 0.0;
+	for(auto const& item : weights) total_weight += std::max(0.0f, item.weight);
+	return total_weight > 0.0 ? float(sum / total_weight) : 0.0f;
+}
+
+float distance(position const& a, position const& b) {
+	return distance(a, b, {});
+}
+
+position weighted_mean(std::vector<std::pair<position const*, float>> const& values) {
+	position result;
+	for(auto const& spec : topics()) {
+		double total = 0.0, first = 0.0, second = 0.0;
+		std::map<uint16_t, double> categories;
+		for(auto const& [source, weight] : values) {
+			if(!source || !(weight > 0.0f)) continue;
+			auto raw = get(*source, spec.id);
+			if(!raw) continue;
+			total += weight;
+			if(spec.kind == value_kind::structured) {
+				auto structured = std::get<structured_value>(*raw);
+				first += weight * structured.first;
+				second += weight * structured.second;
+			} else if(spec.kind == value_kind::categorical) {
+				categories[std::get<category_value>(*raw).value] += weight;
+			} else first += weight * numeric(*raw);
+		}
+		if(total <= 0.0) continue;
+		if(spec.kind == value_kind::categorical) {
+			uint16_t best = 0;
+			double best_weight = -1.0;
+			for(auto const& [category, weight] : categories)
+				if(weight > best_weight) { best = category; best_weight = weight; }
+			(void)set(result, spec.id, category_value{best});
+		} else if(spec.kind == value_kind::binary) {
+			(void)set(result, spec.id, first / total >= 0.5);
+		} else if(spec.kind == value_kind::ordinal) {
+			(void)set(result, spec.id, int32_t(std::lround(first / total)));
+		} else if(spec.kind == value_kind::structured) {
+			(void)set(result, spec.id, structured_value{float(first / total), float(second / total)});
+		} else (void)set(result, spec.id, float(first / total));
+	}
+	return clamp(std::move(result));
+}
+
+position move_toward(position const& from, position const& to, float fraction) {
+	fraction = std::clamp(std::isfinite(fraction) ? fraction : 0.0f, 0.0f, 1.0f);
+	position result = from;
+	for(auto const& spec : topics()) {
+		auto target = get(to, spec.id);
+		if(!target) continue;
+		auto original = get(from, spec.id).value_or(spec.default_value);
+		if(spec.kind == value_kind::continuous) {
+			auto a = numeric(original), b = numeric(*target);
+			(void)set(result, spec.id, a + fraction * (b - a));
+		} else if(spec.kind == value_kind::ordinal) {
+			auto a = numeric(original), b = numeric(*target);
+			(void)set(result, spec.id, int32_t(std::lround(a + fraction * (b - a))));
+		} else if(spec.kind == value_kind::structured) {
+			auto a = std::get<structured_value>(original), b = std::get<structured_value>(*target);
+			(void)set(result, spec.id, structured_value{a.first + fraction * (b.first - a.first), a.second + fraction * (b.second - a.second)});
+		} else if(fraction >= 0.5f) (void)set(result, spec.id, *target);
+	}
+	return clamp(std::move(result));
 }
 
 fiscal_rules rules_for(sys::state const& state, dcon::nation_id nation, position const& raw) {
 	auto value = clamp(raw);
 	fiscal_rules result{};
-	auto base = value[size_t(dimension::tax_level)];
-	auto spread = value[size_t(dimension::progressivity)];
+	auto base = numeric(value_or(value, topic_id::income_tax));
+	auto spread = numeric(value_or(value, topic_id::progressivity));
 	result.tax_rates[0] = std::clamp(base * (1.0f - 0.6f * spread), 0.0f, 1.0f);
 	result.tax_rates[1] = std::clamp(base, 0.0f, 1.0f);
 	result.tax_rates[2] = std::clamp(base * (1.0f + spread), 0.0f, 1.0f);
@@ -62,12 +223,12 @@ fiscal_rules rules_for(sys::state const& state, dcon::nation_id nation, position
 		}
 		auto service = service_kind(state.world.institution_get_service(institution));
 		float share = -1.0f;
-		if(service == service_kind::education) share = value[size_t(dimension::education)];
-		else if(service == service_kind::policing) share = value[size_t(dimension::policing)];
-		else if(service == service_kind::construction) share = value[size_t(dimension::public_works)];
+		if(service == service_kind::education) share = numeric(value_or(value, topic_id::education_appropriation));
+		else if(service == service_kind::policing) share = numeric(value_or(value, topic_id::policing_appropriation));
+		else if(service == service_kind::construction) share = numeric(value_or(value, topic_id::public_works_appropriation));
 		if(share > 0.0f) result.shares.push_back({ institution, share });
 	}
-	auto local = value[size_t(dimension::local_government)];
+	auto local = numeric(value_or(value, topic_id::local_government_appropriation));
 	if(local > 0.0f && !territorial.empty())
 		for(auto institution : territorial) result.shares.push_back({ institution, local / float(territorial.size()) });
 	return result;
@@ -79,16 +240,24 @@ bool current(sys::state const& state, dcon::nation_id nation, sys::date date, po
 	auto rich = law::effective_amount(state, scope, law::policy_rule_kind::income_tax_rate, date, 2);
 	if(!middle || !rich) return false;
 	result = {};
-	result[size_t(dimension::tax_level)] = *middle;
-	result[size_t(dimension::progressivity)] = *middle > tolerance ? *rich / *middle - 1.0f : 0.0f;
+	(void)set(result, topic_id::income_tax, *middle);
+	(void)set(result, topic_id::progressivity, *middle > tolerance ? *rich / *middle - 1.0f : 0.0f);
 	for(auto const& entry : law::appropriations(state, scope, date)) {
-		if(territory_of(state, entry.institution)) { result[size_t(dimension::local_government)] += entry.share; continue; }
+		if(territory_of(state, entry.institution)) {
+			(void)set(result, topic_id::local_government_appropriation,
+				numeric(value_or(result, topic_id::local_government_appropriation)) + entry.share);
+			continue;
+		}
 		auto service = service_kind(state.world.institution_get_service(entry.institution));
-		if(service == service_kind::education) result[size_t(dimension::education)] = entry.share;
-		else if(service == service_kind::policing) result[size_t(dimension::policing)] = entry.share;
-		else if(service == service_kind::construction) result[size_t(dimension::public_works)] = entry.share;
+		if(service == service_kind::education) (void)set(result, topic_id::education_appropriation, entry.share);
+		else if(service == service_kind::policing) (void)set(result, topic_id::policing_appropriation, entry.share);
+		else if(service == service_kind::construction) (void)set(result, topic_id::public_works_appropriation, entry.share);
 	}
-	result = clamp(result);
+	for(auto const& spec : topics())
+		if(spec.id != topic_id::income_tax && spec.id != topic_id::progressivity
+			&& spec.id != topic_id::education_appropriation && spec.id != topic_id::policing_appropriation
+			&& spec.id != topic_id::public_works_appropriation && spec.id != topic_id::local_government_appropriation)
+			if(auto value = law::effective_topic(state, scope, spec.id, date)) (void)set(result, spec.id, *value);
 	return true;
 }
 
@@ -109,48 +278,13 @@ bool law_matches(sys::state const& state, dcon::nation_id nation, position const
 			if(entry.institution == institution && std::abs(entry.share - share) <= tolerance) found = true;
 		if(!found) return false;
 	}
-	return true;
-}
-
-dcon::person_id fiscal_regulator(sys::state const& state, dcon::nation_id nation, sys::date date) {
-	dcon::person_id fallback{};
-	for(auto institution : institutions_of(state, nation))
-		for(auto office : offices_of(state, institution)) {
-			auto person = offices::holder(state, office);
-			if(!person || !offices::tenure_of(state, person, office, date)
-				|| !has_authority(state, office, authority_kind::regulate, national(nation), date)) continue;
-			if(state.world.office_get_kind(office) == uint8_t(office_kind::finance_minister)) return person;
-			if(!fallback) fallback = person;
-		}
-	return fallback;
-}
-
-dcon::legal_instrument_id enact(sys::state& state, dcon::nation_id nation, dcon::person_id person, position const& value, sys::date date) {
-	auto rules = rules_for(state, nation, value);
-	auto instrument = law::create_draft_instrument(state, law::legal_instrument_kind::regulation, nation);
-	if(!instrument) return {};
-	bool ok = true;
-	for(uint8_t bucket = 0; bucket < 3; ++bucket)
-		ok = ok && law::add_rule(state, instrument, { law::policy_rule_kind::income_tax_rate, {}, rules.tax_rates[bucket], bucket });
-	ok = ok && law::add_rule(state, instrument, { law::policy_rule_kind::disbursement_rate, {}, disbursement_rate });
-	for(auto const& [institution, share] : rules.shares)
-		ok = ok && law::add_rule(state, instrument, { law::policy_rule_kind::appropriation_share, {}, share, 0, institution });
-	std::vector<dcon::legal_instrument_id> superseded;
-	for(auto existing : law::effective_instruments(state, national(nation), date))
-		if(existing != instrument && fiscal_instrument(state, existing)
-			&& state.world.legal_instrument_get_kind(existing) == uint8_t(law::legal_instrument_kind::regulation)) superseded.push_back(existing);
-	if(!ok || !law::authorized_enact(state, person, instrument, date, date)) {
-		// A refused draft leaves nothing behind.
-		std::vector<dcon::policy_rule_id> drafted;
-		state.world.legal_instrument_for_each_legal_instrument_policy_rule_as_legal_instrument(instrument, [&](auto relation) {
-			drafted.push_back(state.world.legal_instrument_policy_rule_get_policy_rule(relation));
-		});
-		state.world.delete_legal_instrument(instrument);
-		for(auto rule : drafted) state.world.delete_policy_rule(rule);
-		return {};
+	for(auto const& item : value.entries) {
+		auto spec = definition(item.topic);
+		if(!spec || spec->enacted_by == implementation::appropriation) continue;
+		auto actual = law::effective_topic(state, scope, item.topic, date);
+		if(!actual || *actual != item.value) return false;
 	}
-	for(auto existing : superseded) (void)law::authorized_repeal(state, person, existing, date);
-	return instrument;
+	return true;
 }
 
 } // namespace governance::policy

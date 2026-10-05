@@ -28,7 +28,14 @@ struct voter {
 	bool public_employee = false;
 	bool rural = false;
 	bool dependents = false;
+	bool worker = false;
+	bool unemployed = false;
+	bool wage_arrears = false;
+	bool shareholder = false;
+	bool debtor = false;
+	bool depositor = false;
 	policy::position ideal{};
+	policy::salience issue_salience;
 	float turnout = 0.0f;
 };
 
@@ -37,10 +44,8 @@ inline constexpr float adult_share_of_members = 0.6f;
 // The nation's voters with ideal positions and turnout.
 std::vector<voter> voters(sys::state const&, dcon::nation_id);
 float median_income(std::vector<voter> const&);
-// What a voter wants: lower taxes and less redistribution as income rises
-// above the median; more of everything public for public employees; schooling
-// for families; order for the wealthy; works and local government for rural
-// voters. Turnout rises with income, wealth and public employment.
+// Preferences and issue weights are derived from economic exposure. The
+// sparse typed position lets each voter remain indifferent to unexposed laws.
 void assess(voter&, float median_income);
 // The regional territorial unit a province votes in.
 dcon::territorial_unit_id region_of(sys::state const&, dcon::province_id);

@@ -127,7 +127,7 @@ tally count(sys::state const& state, dcon::nation_id nation, std::vector<elector
 		std::vector<double> utility(candidates.size());
 		double best = -1.0e30;
 		for(size_t j = 0; j < candidates.size(); ++j) {
-			utility[j] = -choice_sensitivity * policy::distance(value.ideal, platforms[j]) + bonus[j];
+			utility[j] = -choice_sensitivity * policy::distance(value.ideal, platforms[j], value.issue_salience) + bonus[j];
 			best = std::max(best, utility[j]);
 		}
 		double total = 0.0;

@@ -4132,6 +4132,11 @@ object {
 		tag{ save }
 	}
 	property{
+		name{ next_policy_bill_date }
+		type{ sys::date }
+		tag{ save }
+	}
+	property{
 		name{ is_civilized }
 		type{ bitfield }
 		tag{ save }
@@ -5397,6 +5402,26 @@ object{
 	tag{ save }
 	property{ name{ kind } type{ uint8_t } tag{ save } }
 	property{ name{ occurred_on } type{ sys::date } tag{ save } }
+	property{ name{ exact_transaction_id } type{ uint64_t } tag{ save } }
+}
+
+object{
+	name{ social_entitlement_claim }
+	storage_type{ erasable }
+	size{ 1000000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ person_ordinal } type{ uint64_t } tag{ save } }
+	property{ name{ separation_event_id } type{ uint64_t } tag{ save } }
+	property{ name{ established_on } type{ sys::date } tag{ save } }
+	property{ name{ last_assessed_on } type{ sys::date } tag{ save } }
+	property{ name{ expires_on } type{ sys::date } tag{ save } }
+	property{ name{ daily_benefit } type{ float } tag{ save } }
+	property{ name{ settlement } type{ commodity_id } tag{ save } }
+	property{ name{ amount_due } type{ float } tag{ save } }
+	property{ name{ amount_paid } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -5420,6 +5445,11 @@ object{
 	property{ name{ settlement } type{ commodity_id } tag{ save } }
 	property{ name{ amount } type{ float } tag{ save } }
 	property{ name{ parameter } type{ uint8_t } tag{ save } }
+	property{ name{ topic_id } type{ uint16_t } tag{ save } }
+	property{ name{ value_kind } type{ uint8_t } tag{ save } }
+	property{ name{ category_value } type{ uint16_t } tag{ save } }
+	property{ name{ boolean_value } type{ uint8_t } tag{ save } }
+	property{ name{ auxiliary } type{ float } tag{ save } }
 }
 
 object{
@@ -6496,6 +6526,20 @@ relationship{
 	tag{ save }
 	link{ object{ fiscal_action } name{ fiscal_action } type{ unique } }
 	link{ object{ transaction } name{ transaction } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ social_entitlement_claim_nation }
+	tag{ save }
+	link{ object{ social_entitlement_claim } name{ claim } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ social_entitlement_claim_institution }
+	tag{ save }
+	link{ object{ social_entitlement_claim } name{ claim } type{ unique } }
+	link{ object{ institution } name{ institution } type{ many } index_storage{ array } }
 }
 
 relationship{
@@ -8557,8 +8601,20 @@ object{
 	storage_type{ erasable }
 	size{ 20000 }
 	tag{ save }
-	property{ name{ dimension } type{ uint8_t } tag{ save } }
+	property{ name{ dimension } type{ uint16_t } tag{ save } }
 	property{ name{ value } type{ float } tag{ save } }
+	property{ name{ value_kind } type{ uint8_t } tag{ save } }
+	property{ name{ category_value } type{ uint16_t } tag{ save } }
+	property{ name{ boolean_value } type{ uint8_t } tag{ save } }
+	property{ name{ auxiliary } type{ float } tag{ save } }
+}
+
+object{
+	name{ coalition_agreement }
+	storage_type{ erasable }
+	size{ 50000 }
+	tag{ save }
+	property{ name{ started_on } type{ sys::date } tag{ save } }
 }
 
 object{
@@ -8592,6 +8648,29 @@ relationship{
 	tag{ save }
 	link{ object{ platform_position } name{ platform_position } type{ unique } }
 	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ coalition_agreement_nation }
+	tag{ save }
+	link{ object{ coalition_agreement } name{ agreement } type{ unique } }
+	link{ object{ nation } name{ nation } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ coalition_agreement_member }
+	storage_type{ erasable }
+	size{ 16000 }
+	tag{ save }
+	link{ object{ coalition_agreement } name{ agreement } type{ many } index_storage{ array } }
+	link{ object{ organization } name{ party } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ coalition_agreement_position }
+	tag{ save }
+	link{ object{ platform_position } name{ platform_position } type{ unique } }
+	link{ object{ coalition_agreement } name{ agreement } type{ many } index_storage{ array } }
 }
 
 relationship{

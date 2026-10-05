@@ -49,6 +49,7 @@
 #include "economy/physical/household_mobility.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/social_entitlements.hpp"
 #include "world/spatial_runtime.hpp"
 #include "governance/public_administration.hpp"
 #include "governance/offices.hpp"
@@ -1118,6 +1119,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	::economy::firm_agency::post_output_asks(state);
 	::economy::physical::labor_dynamics::process_factory_labor_dynamics(state);
 	::economy::physical::job_market::process(state);
+	::economy::social_entitlements::process(state);
 	{
 		governance::public_administration::settle_public_payroll(state);
 		::economy::physical::household_mobility::update_employed_households(state);
