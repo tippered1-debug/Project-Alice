@@ -36,6 +36,16 @@ struct voter {
 	bool depositor = false;
 	bool union_member = false;
 	bool on_strike = false;
+	bool agreement_covered = false;
+	bool severance_claim = false;
+	bool recent_union_success = false;
+	bool recent_union_failure = false;
+	bool strike_income_loss = false;
+	// Ownership exposure is measured against the owner's share of operating
+	// payroll and current industrial disruption at firms they actually own.
+	float employer_labor_share = 0.0f;
+	float employer_disruption = 0.0f;
+	float employer_profit_rate = 0.0f;
 	policy::position ideal{};
 	policy::salience issue_salience;
 	float turnout = 0.0f;

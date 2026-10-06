@@ -138,3 +138,93 @@ TEST_CASE("an employer lockout withholds every contract in the bargaining unit",
 	REQUIRE(exact::labor_supplied_to_factory(*f.state, f.plant) == Approx(0.0f));
 	REQUIRE(f.state->world.strike_action_get_kind(action) == uint8_t(labor::conflict_kind::lockout));
 }
+
+TEST_CASE("profitable shared workplace conditions autonomously form a local union and bargaining unit", "[economy][labor][autonomous]") {
+	using namespace collective_labor_tests;
+	fixture f;
+	f.hire();
+	f.hire();
+	f.state->world.factory_set_agency_recent_profit(f.plant, 4.0f);
+	for(int32_t day = 0; day < 61; ++day) {
+		f.state->current_date = sys::date{uint16_t(30000 + day)};
+		labor::process(*f.state);
+	}
+	dcon::labor_union_id organized{};
+	f.state->world.for_each_labor_union([&](auto union_id) {
+		if(f.state->world.labor_union_get_nation(union_id) == f.nation
+			&& f.state->world.labor_union_get_scope_workplace(union_id) == f.plant)
+			organized = union_id;
+	});
+	REQUIRE(organized);
+	REQUIRE(labor::member_count(*f.state, organized) >= 2);
+	REQUIRE(labor::leader_for_union(*f.state, organized).source_population_cell != 0);
+	REQUIRE(f.state->world.labor_union_get_leader_profile(organized));
+	bool autonomous_unit = false;
+	f.state->world.for_each_collective_bargaining_unit([&](auto unit) {
+		if(f.state->world.collective_bargaining_unit_get_union_id(unit) == organized
+			&& f.state->world.collective_bargaining_unit_get_employer_organization(unit) == f.company)
+			autonomous_unit = true;
+	});
+	REQUIRE(autonomous_unit);
+}
+
+TEST_CASE("healthy low rent workplaces do not create a union without a shared grievance", "[economy][labor][autonomous]") {
+	using namespace collective_labor_tests;
+	fixture f;
+	f.hire();
+	f.hire();
+	for(int32_t day = 0; day < 61; ++day) {
+		f.state->current_date = sys::date{uint16_t(30000 + day)};
+		labor::process(*f.state);
+	}
+	uint32_t unions = 0;
+	f.state->world.for_each_labor_union([&](auto union_id) {
+		if(f.state->world.labor_union_get_nation(union_id) == f.nation) ++unions;
+	});
+	REQUIRE(unions == 0);
+}
+
+TEST_CASE("employer layoff transfers real severance and preserves any unpaid balance as a claim", "[economy][labor][severance]") {
+	using namespace collective_labor_tests;
+	fixture f;
+	f.hire();
+	auto contract_id = first_contract(f);
+	auto record = exact::contract(*f.state, contract_id);
+	REQUIRE(record);
+	REQUIRE(exact::end_contract(*f.state, contract_id,
+		exact::contract_status::terminated, f.state->current_date,
+		exact::contract_end_reason::employer_layoff));
+	auto wallet = exact::account_ref::from_exact(record->worker_account_id);
+	REQUIRE(exact::balance(*f.state, wallet) == Approx(7.0f));
+	REQUIRE(labor::severance_claim_for_worker(*f.state, record->worker) == Approx(0.0f));
+	float paid = 0.0f;
+	for(auto const& transaction : exact::transaction_records(*f.state))
+		if(transaction.kind == economy::relations::transaction_kind::severance
+			&& exact::owner_of(*f.state, transaction.destination) == record->worker)
+			paid += transaction.amount;
+	REQUIRE(paid == Approx(7.0f));
+
+	fixture insolvent;
+	insolvent.hire();
+	auto unpaid_id = first_contract(insolvent);
+	auto unpaid_record = exact::contract(*insolvent.state, unpaid_id);
+	REQUIRE(unpaid_record);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*insolvent.state, insolvent.payer, 0.0f));
+	REQUIRE(exact::end_contract(*insolvent.state, unpaid_id,
+		exact::contract_status::terminated, insolvent.state->current_date,
+		exact::contract_end_reason::employer_layoff));
+	REQUIRE(labor::severance_claim_for_worker(*insolvent.state, unpaid_record->worker) > 0.0f);
+}
+
+TEST_CASE("a worker quit does not create employer severance", "[economy][labor][severance]") {
+	using namespace collective_labor_tests;
+	fixture f;
+	f.hire();
+	auto contract_id = first_contract(f);
+	auto record = exact::contract(*f.state, contract_id);
+	REQUIRE(record);
+	REQUIRE(exact::end_contract(*f.state, contract_id,
+		exact::contract_status::terminated, f.state->current_date,
+		exact::contract_end_reason::voluntary_quit));
+	REQUIRE(labor::severance_claim_for_worker(*f.state, record->worker) == Approx(0.0f));
+}

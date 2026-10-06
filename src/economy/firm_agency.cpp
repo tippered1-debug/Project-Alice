@@ -10,6 +10,7 @@
 #include "economy/capital_projects.hpp"
 #include "economy/investment_ranking.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/collective_labor.hpp"
 #include "economy/physical/deposits.hpp"
 #include "economy/physical/factory_inputs.hpp"
 #include "economy/physical/extraction.hpp"
@@ -205,10 +206,12 @@ production_decision decide_factory(sys::state const& state, dcon::factory_id fac
 	auto payroll_cash = payroll_account ? std::max(0.0f, accounts::balance(state, payroll_account)
 		- physical::concrete_market::reserved_bid_amount(state, payroll_account)
 		- arrears_due(state, owner, payroll_settlement)
+		- collective_labor::severance_liability_for_actor(state, owner, factory)
 		- exact_person_economy::unpaid_wages_for_factory(state, factory)) : 0.0f;
 	if(account && payroll_account && account == payroll_account)
 		procurement_cash = payroll_cash = std::max(0.0f, procurement_cash
 			- arrears_due(state, owner, payroll_settlement)
+			- collective_labor::severance_liability_for_actor(state, owner, factory)
 			- exact_person_economy::unpaid_wages_for_factory(state, factory));
 	auto raw_procurement_cash = procurement_cash;
 	auto raw_payroll_cash = payroll_cash;

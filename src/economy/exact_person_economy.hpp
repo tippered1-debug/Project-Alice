@@ -36,6 +36,16 @@ struct account_ref {
 
 enum class application_status : uint8_t { pending = 0, accepted = 1, rejected = 2, withdrawn = 3 };
 enum class contract_status : uint8_t { active = 0, ended = 1, terminated = 2 };
+enum class contract_end_reason : uint8_t {
+	unspecified = 0,
+	employer_layoff = 1,
+	employer_closure = 2,
+	misconduct = 3,
+	voluntary_quit = 4,
+	arrears_quit = 5,
+	death = 6,
+	contract_expiry = 7
+};
 
 struct account_record {
 	uint64_t id = 0;
@@ -184,7 +194,8 @@ float unpaid_wages_for_factory(sys::state const&, dcon::factory_id);
 wage_settlement settle_contract_wage(sys::state&, uint64_t contract_id);
 wage_settlement settle_contract_arrears_only(sys::state&, uint64_t contract_id);
 wage_settlement settle_current_contract_wage_only(sys::state&, uint64_t contract_id);
-bool end_contract(sys::state&, uint64_t contract_id, contract_status, sys::date end_date);
+bool end_contract(sys::state&, uint64_t contract_id, contract_status, sys::date end_date,
+	contract_end_reason reason = contract_end_reason::unspecified);
 
 bool separated_on_date(sys::state const&, person_key, sys::date);
 std::optional<sys::date> last_separation_date(sys::state const&, person_key);

@@ -2,6 +2,7 @@
 #include "economy/households.hpp"
 
 #include "economy/exact_person_economy.hpp"
+#include "economy/collective_labor.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/firm_agency.hpp"
 #include "job_market.hpp"
@@ -64,8 +65,23 @@ bool separate_exact(sys::state& state, uint64_t contract_id, separation_reason r
 	auto record = exact_person_economy::contract(state, contract_id);
 	if(!record || record->status != exact_person_economy::contract_status::active) return false;
 	(void)exact_person_economy::withdraw_pending_applications(state, record->worker);
+	auto end_reason = exact_person_economy::contract_end_reason::employer_layoff;
+	switch(reason) {
+	case separation_reason::employer_layoff:
+		end_reason = exact_person_economy::contract_end_reason::employer_layoff;
+		break;
+	case separation_reason::worker_quit:
+		end_reason = exact_person_economy::contract_end_reason::voluntary_quit;
+		break;
+	case separation_reason::worker_quit_arrears:
+		end_reason = exact_person_economy::contract_end_reason::arrears_quit;
+		break;
+	case separation_reason::worker_death:
+		end_reason = exact_person_economy::contract_end_reason::death;
+		break;
+	}
 	if(!exact_person_economy::end_contract(state, contract_id,
-		exact_person_economy::contract_status::terminated, date)) return false;
+		exact_person_economy::contract_status::terminated, date, end_reason)) return false;
 	exact_person_economy::note_separation(state, record->worker, date);
 	if(reason != separation_reason::worker_death && persons::alive(state, record->worker) && exact_person_economy::is_labor_force_participant(state, record->worker))
 		exact_person_economy::enqueue_displaced_worker(state, record->worker);
@@ -141,7 +157,9 @@ void process_factory_labor_dynamics(sys::state& state) {
 			auto record = exact_person_economy::contract(state, contract_id);
 			if(!record || !std::isfinite(record->labor_capacity) || record->labor_capacity <= epsilon || !std::isfinite(record->wage_rate) || record->pay_period_days == 0) continue;
 			candidates.push_back({contract_id, record->labor_capacity,
-				record->wage_rate * record->labor_capacity / float(record->pay_period_days),
+				record->wage_rate * record->labor_capacity / float(record->pay_period_days)
+					+ economy::collective_labor::expected_severance_for_contract(state,
+						contract_id, state.current_date) / 365.0f,
 				record->start_date, record->causal_sequence});
 		}
 		std::sort(candidates.begin(), candidates.end(), candidate_before);

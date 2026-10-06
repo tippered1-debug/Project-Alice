@@ -181,8 +181,8 @@ uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::j
 		auto statutory = governance::law::effective_topic(state, governance::national(workplace_nation),
 			governance::policy::topic_id::minimum_wage, state.current_date);
 		auto floor = statutory ? std::get<float>(*statutory) : 0.0f;
-		floor = std::max(floor, collective_labor::wage_floor_for_employer(state,
-			actors::organizations::organization_for_actor(state, employer), state.current_date));
+		if(factory) floor = std::max(floor, collective_labor::wage_floor_for_workplace(state,
+			actors::organizations::organization_for_actor(state, employer), factory, state.current_date));
 		if(wage_rate / float(pay_period_days) + 1.0e-6f < floor) return 0;
 	}
 	auto store = ensure_store(state);
@@ -212,6 +212,7 @@ uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::j
 		|| !std::isfinite(record.wage_rate) || record.wage_rate < 0.0f
 		|| record.pay_period_days == 0) return 0;
 	store->contracts.push_back(record);
+	collective_labor::register_new_contract(state, record.id, state.current_date);
 	return record.id;
 }
 
@@ -825,17 +826,17 @@ wage_settlement settle_contract_wage(sys::state& state, uint64_t contract_id) {
 	return current;
 }
 
-bool end_contract(sys::state& state, uint64_t contract_id, contract_status new_status, sys::date end_date) {
+bool end_contract(sys::state& state, uint64_t contract_id, contract_status new_status, sys::date end_date,
+	contract_end_reason reason) {
 	if(new_status == contract_status::active || !end_date) return false;
 	for(auto& record : ensure_store(state)->contracts)
 		if(record.id == contract_id && record.status == contract_status::active
 			&& end_date >= record.start_date) {
 			if(new_status == contract_status::terminated
-				&& collective_labor::protection_for_contract(state, contract_id, end_date)
-					>= uint8_t(policy::labor_protection_level::just_cause)
-				&& collective_labor::contract_is_withheld(state, contract_id, end_date)) return false;
+				&& !collective_labor::prepare_contract_termination(state, contract_id, reason, end_date)) return false;
 			record.status = new_status;
 			record.end_date = end_date;
+			collective_labor::contract_ended(state, contract_id);
 			return true;
 		}
 	return false;

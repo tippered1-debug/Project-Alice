@@ -8642,9 +8642,38 @@ object{
 	size{ 10000 }
 	tag{ save }
 	property{ name{ nation } type{ nation_id } tag{ save } }
+	property{ name{ scope } type{ uint8_t } tag{ save } }
+	property{ name{ scope_employer } type{ organization_id } tag{ save } }
+	property{ name{ scope_workplace } type{ factory_id } tag{ save } }
+	property{ name{ scope_factory_type } type{ factory_type_id } tag{ save } }
+	property{ name{ leader_source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ leader_ordinal } type{ uint64_t } tag{ save } }
+	property{ name{ leader_profile } type{ person_id } tag{ save } }
 	property{ name{ dues_rate } type{ float } tag{ save } }
 	property{ name{ strike_benefit_rate } type{ float } tag{ save } }
 	property{ name{ formed_on } type{ sys::date } tag{ save } }
+	property{ name{ last_success_on } type{ sys::date } tag{ save } }
+	property{ name{ last_failure_on } type{ sys::date } tag{ save } }
+	property{ name{ success_count } type{ uint16_t } tag{ save } }
+	property{ name{ failure_count } type{ uint16_t } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ labor_workplace_observation }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ employer_organization } type{ organization_id } tag{ save } }
+	property{ name{ province } type{ province_id } tag{ save } }
+	property{ name{ factory_type } type{ factory_type_id } tag{ save } }
+	property{ name{ reviewed_on } type{ sys::date } tag{ save } }
+	property{ name{ last_separation_event_id } type{ uint64_t } tag{ save } }
+	property{ name{ average_daily_wage } type{ float } tag{ save } }
+	property{ name{ previous_average_daily_wage } type{ float } tag{ save } }
+	property{ name{ recent_profit } type{ float } tag{ save } }
+	property{ name{ previous_recent_profit } type{ float } tag{ save } }
+	property{ name{ organizing_failure_count } type{ uint16_t } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
 }
 
@@ -8668,6 +8697,7 @@ object{
 	size{ 10000 }
 	tag{ save }
 	property{ name{ nation } type{ nation_id } tag{ save } }
+	property{ name{ factory_type } type{ factory_type_id } tag{ save } }
 	property{ name{ formed_on } type{ sys::date } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
 }
@@ -8690,10 +8720,13 @@ object{
 	property{ name{ union_id } type{ labor_union_id } tag{ save } }
 	property{ name{ employer_organization } type{ organization_id } tag{ save } }
 	property{ name{ employer_association_id } type{ employer_association_id } tag{ save } }
+	property{ name{ workplace_factory } type{ factory_id } tag{ save } }
 	property{ name{ status } type{ uint8_t } tag{ save } }
 	property{ name{ created_on } type{ sys::date } tag{ save } }
 	property{ name{ recognized_on } type{ sys::date } tag{ save } }
 	property{ name{ bargaining_started_on } type{ sys::date } tag{ save } }
+	property{ name{ last_reviewed_on } type{ sys::date } tag{ save } }
+	property{ name{ representative_profile } type{ person_id } tag{ save } }
 	property{ name{ demand_daily_wage } type{ float } tag{ save } }
 	property{ name{ offer_daily_wage } type{ float } tag{ save } }
 	property{ name{ demand_protection_level } type{ uint8_t } tag{ save } }
@@ -8708,6 +8741,7 @@ object{
 	tag{ save }
 	property{ name{ unit_id } type{ collective_bargaining_unit_id } tag{ save } }
 	property{ name{ union_id } type{ labor_union_id } tag{ save } }
+	property{ name{ representative_profile } type{ person_id } tag{ save } }
 	property{ name{ employer_organization } type{ organization_id } tag{ save } }
 	property{ name{ employer_association_id } type{ employer_association_id } tag{ save } }
 	property{ name{ effective_from } type{ sys::date } tag{ save } }
@@ -8748,7 +8782,24 @@ object{
 	property{ name{ votes_against } type{ uint32_t } tag{ save } }
 	property{ name{ withheld_labor_today } type{ float } tag{ save } }
 	property{ name{ cumulative_lost_labor } type{ float } tag{ save } }
+	property{ name{ lost_revenue_today } type{ float } tag{ save } }
+	property{ name{ cumulative_lost_revenue } type{ float } tag{ save } }
 	property{ name{ opening_offer_daily_wage } type{ float } tag{ save } }
+}
+
+object{
+	name{ labor_severance_claim }
+	storage_type{ erasable }
+	size{ 1000000 }
+	tag{ save }
+	property{ name{ exact_contract_id } type{ uint64_t } tag{ save } }
+	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ ordinal } type{ uint64_t } tag{ save } }
+	property{ name{ settlement } type{ commodity_id } tag{ save } }
+	property{ name{ original_amount } type{ float } tag{ save } }
+	property{ name{ outstanding_amount } type{ float } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
 }
 
 object{
@@ -8846,6 +8897,13 @@ relationship{
 }
 
 relationship{
+	name{ labor_workplace_observation_factory }
+	tag{ save }
+	link{ object{ labor_workplace_observation } name{ observation } type{ unique } }
+	link{ object{ factory } name{ factory } type{ unique } }
+}
+
+relationship{
 	name{ union_membership_union }
 	tag{ save }
 	link{ object{ union_membership } name{ membership } type{ unique } }
@@ -8899,4 +8957,18 @@ relationship{
 	tag{ save }
 	link{ object{ strike_action_member } name{ member } type{ unique } }
 	link{ object{ strike_action } name{ strike } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ labor_severance_claim_employer }
+	tag{ save }
+	link{ object{ labor_severance_claim } name{ claim } type{ unique } }
+	link{ object{ economic_actor } name{ employer } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ labor_severance_claim_factory }
+	tag{ save }
+	link{ object{ labor_severance_claim } name{ claim } type{ unique } }
+	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
 }

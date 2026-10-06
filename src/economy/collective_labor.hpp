@@ -8,6 +8,7 @@
 #include <vector>
 
 namespace sys { class state; }
+namespace economy::exact_person_economy { enum class contract_end_reason : uint8_t; }
 
 namespace economy::collective_labor {
 
@@ -23,16 +24,20 @@ enum class bargaining_status : uint8_t {
 };
 enum class conflict_kind : uint8_t { strike = 1, lockout = 2 };
 enum class conflict_status : uint8_t { active = 1, resolved = 2, cancelled = 3 };
+enum class union_scope : uint8_t { workplace = 0, employer = 1, sectoral = 2 };
 
 // Union dues and strike benefits are cash flows through actual member wallets
 // and the union's settlement accounts.
 dcon::labor_union_id create_union(sys::state&, dcon::nation_id, float dues_rate = 0.02f,
+	float strike_benefit_rate = 0.25f, union_scope scope = union_scope::workplace);
+dcon::labor_union_id create_workplace_union(sys::state&, dcon::factory_id, float dues_rate = 0.02f,
 	float strike_benefit_rate = 0.25f);
 bool join_union(sys::state&, dcon::labor_union_id, person_key, sys::date joined_on = {});
 bool leave_union(sys::state&, dcon::labor_union_id, person_key, sys::date left_on = {});
 bool is_union_member(sys::state const&, dcon::labor_union_id, person_key);
 dcon::labor_union_id union_for_member(sys::state const&, person_key);
 uint32_t member_count(sys::state const&, dcon::labor_union_id);
+person_key leader_for_union(sys::state const&, dcon::labor_union_id);
 
 dcon::employer_association_id create_employer_association(sys::state&, dcon::nation_id);
 bool add_employer(sys::state&, dcon::employer_association_id, dcon::organization_id);
@@ -60,8 +65,21 @@ bool contract_is_withheld(sys::state const&, uint64_t exact_contract_id, sys::da
 bool on_strike(sys::state const&, person_key, sys::date);
 float wage_floor_for_contract(sys::state const&, uint64_t exact_contract_id, sys::date);
 float wage_floor_for_employer(sys::state const&, dcon::organization_id employer, sys::date);
+float wage_floor_for_workplace(sys::state const&, dcon::organization_id employer,
+	dcon::factory_id, sys::date);
+void register_new_contract(sys::state&, uint64_t exact_contract_id, sys::date);
+void contract_ended(sys::state&, uint64_t exact_contract_id);
 uint8_t protection_for_contract(sys::state const&, uint64_t exact_contract_id, sys::date);
 float strike_benefit_income(sys::state const&, person_key, sys::date);
+bool replacement_hiring_allowed(sys::state const&, dcon::organization_id, dcon::factory_id, sys::date);
+bool prepare_contract_termination(sys::state&, uint64_t,
+	economy::exact_person_economy::contract_end_reason, sys::date);
+float severance_liability_for_actor(sys::state const&, dcon::economic_actor_id,
+	dcon::factory_id factory = {});
+float expected_severance_for_contract(sys::state const&, uint64_t, sys::date);
+float settle_factory_severance_claims(sys::state&, dcon::factory_id,
+	dcon::monetary_account_id debtor_account, float limit);
+float severance_claim_for_worker(sys::state const&, person_key);
 void process(sys::state&);
 
 } // namespace economy::collective_labor

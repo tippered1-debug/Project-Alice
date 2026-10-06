@@ -6,6 +6,7 @@
 #include "economy/banking/banking.hpp"
 #include "economy/capital_market.hpp"
 #include "economy/capital_projects.hpp"
+#include "economy/collective_labor.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/households.hpp"
 #include "economy/investment_ranking.hpp"
@@ -146,6 +147,11 @@ float service_factory_claims(sys::state& state, dcon::factory_id factory,
 	float recovered = 0.0f;
 	if(!debtor_account || limit <= epsilon) return recovered;
 	auto borrower = accounts::owner_of(state, debtor_account);
+	// Exact worker severance claims have priority over secured factory loans
+	// during closure and liquidation; the claims remain if cash is insufficient.
+	recovered += collective_labor::settle_factory_severance_claims(state, factory,
+		debtor_account, limit);
+	if(recovered + epsilon >= limit) return recovered;
 	for(auto loan : factory_loans(state, factory)) {
 		auto original_status = state.world.obligation_get_status(loan);
 		if(original_status != uint8_t(obligation_status::active)
@@ -231,7 +237,8 @@ void close_factory(sys::state& state, dcon::factory_id factory) {
 	auto owner = actors::organizations::operator_actor_for_factory(state, factory);
 	for(auto contract : exact_person_economy::active_contracts_for_factory(state, factory))
 		(void)exact_person_economy::end_contract(state, contract,
-			exact_person_economy::contract_status::terminated, state.current_date);
+			exact_person_economy::contract_status::terminated, state.current_date,
+			exact_person_economy::contract_end_reason::employer_closure);
 	// Goods at a closed plant stay the operator's property; closing a plant
 	// destroys nothing.
 	(void)site;

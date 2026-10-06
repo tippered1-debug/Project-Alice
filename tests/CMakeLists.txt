@@ -121,3 +121,22 @@ else()
 endif()
 add_dependencies(consumer_purge_tests GENERATE_TEST_PARSERS GENERATE_PARSERS GENERATE_CONTAINER)
 catch_discover_tests(consumer_purge_tests WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets")
+
+# Focused labor runner avoids unrelated legacy test files in the consumer
+# runner while exercising the same production code and primary fixture.
+add_executable(collective_labor_focus_tests
+	"${PROJECT_SOURCE_DIR}/tests/collective_labor_main.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/collective_labor.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/social_entitlements.cpp"
+	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
+	${CONSUMER_PURGE_SOURCES})
+target_link_libraries(collective_labor_focus_tests PRIVATE AliceCommon Catch2::Catch2)
+target_compile_options(collective_labor_focus_tests PRIVATE
+	$<$<COMPILE_LANG_AND_ID:CXX,AppleClang,Clang,GNU>:-O0>)
+if(WIN32)
+	target_link_libraries(collective_labor_focus_tests PRIVATE ${PROJECT_SOURCE_DIR}/libs/LLVM-C.lib)
+else()
+	target_link_libraries(collective_labor_focus_tests PRIVATE fmt::fmt)
+endif()
+add_dependencies(collective_labor_focus_tests GENERATE_TEST_PARSERS GENERATE_PARSERS GENERATE_CONTAINER)
+catch_discover_tests(collective_labor_focus_tests WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets")
