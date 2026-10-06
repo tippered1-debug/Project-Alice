@@ -23,16 +23,25 @@ bool is_economic_kind(ownership::actor_kind kind) noexcept {
 }
 
 dcon::organization_id create_organization(sys::state& s, ownership::actor_kind kind) {
-	if(!is_economic_kind(kind) && kind != ownership::actor_kind::party) return {};
+	if(!is_economic_kind(kind) && kind != ownership::actor_kind::party
+		&& kind != ownership::actor_kind::political_organization
+		&& kind != ownership::actor_kind::party_committee
+		&& kind != ownership::actor_kind::media
+		&& kind != ownership::actor_kind::foundation
+		&& kind != ownership::actor_kind::civil_society
+		&& kind != ownership::actor_kind::security_service) return {};
 	auto organization = s.world.create_organization();
 	s.world.organization_set_kind(organization, uint8_t(kind));
 	auto actor = s.world.create_economic_actor();
 	s.world.economic_actor_set_kind(actor, uint8_t(kind));
 	s.world.force_create_organization_actor(organization, actor);
 	// A household cohort has no shareholders: its members are its residual
-	// claimants. A party has members, not owners.
+	// claimants. Political and social organizations have members, not owners.
 	if(kind == ownership::actor_kind::household || kind == ownership::actor_kind::party
-		|| kind == ownership::actor_kind::labor_union || kind == ownership::actor_kind::employer_association) return organization;
+		|| kind == ownership::actor_kind::labor_union || kind == ownership::actor_kind::employer_association
+		|| kind == ownership::actor_kind::political_organization || kind == ownership::actor_kind::party_committee
+		|| kind == ownership::actor_kind::media || kind == ownership::actor_kind::foundation
+		|| kind == ownership::actor_kind::civil_society || kind == ownership::actor_kind::security_service) return organization;
 	auto equity = s.world.create_asset();
 	s.world.force_create_organization_equity_asset(organization, equity);
 	return organization;

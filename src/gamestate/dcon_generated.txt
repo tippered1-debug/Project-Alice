@@ -8972,3 +8972,42 @@ relationship{
 	link{ object{ labor_severance_claim } name{ claim } type{ unique } }
 	link{ object{ factory } name{ factory } type{ many } index_storage{ array } }
 }
+
+object{
+	name{ power_relationship }
+	storage_type{ erasable }
+	size{ 500000 }
+	tag{ save }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ intensity } type{ float } tag{ save } }
+	property{ name{ valid_from } type{ sys::date } tag{ save } }
+	property{ name{ valid_until } type{ sys::date } tag{ save } }
+}
+
+relationship{
+	name{ power_relationship_source_actor }
+	tag{ save }
+	link{ object{ power_relationship } name{ relationship } type{ unique } }
+	link{ object{ economic_actor } name{ actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ power_relationship_source_office }
+	tag{ save }
+	link{ object{ power_relationship } name{ relationship } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ power_relationship_target_actor }
+	tag{ save }
+	link{ object{ power_relationship } name{ relationship } type{ unique } }
+	link{ object{ economic_actor } name{ actor } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ power_relationship_target_office }
+	tag{ save }
+	link{ object{ power_relationship } name{ relationship } type{ unique } }
+	link{ object{ office } name{ office } type{ many } index_storage{ array } }
+}

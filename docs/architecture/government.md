@@ -8,6 +8,8 @@ person -> office (tenure) -> institution -> authority grant -> jurisdiction -> l
 
 An institution may also act in its own name under its own grants: a ministry paying staff, the tax authority assessing taxes, a central bank lending reserves. No action happens because a nation exists, or because of a legacy flag. The modules are in `src/governance`.
 
+This describes formal public authority. Effective control and organization-to-organization ties live in the separate [regime architecture graph](regime-architecture.md); those ties can shape decisions but do not grant legal power.
+
 ## Institutions
 
 A state is a tree of institutions under a root `central_government` institution. That root is the state as a legal person: the owner of public property and the heir of last resort. It holds no power of its own.

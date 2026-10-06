@@ -51,6 +51,7 @@
 #include "governance/offices.cpp"
 #include "governance/legislature.cpp"
 #include "governance/constitution.cpp"
+#include "governance/power_topology.cpp"
 #include "governance/intelligence.cpp"
 #include "governance/policy.cpp"
 #include "governance/electorate.cpp"

@@ -15,6 +15,7 @@
 #include "governance/governance.hpp"
 #include "governance/constitution.hpp"
 #include "governance/offices.hpp"
+#include "governance/power_topology.hpp"
 #include "military/land_forces.hpp"
 #include "nations/nations.hpp"
 #include "parsing/parsers.hpp"
@@ -356,6 +357,9 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 // constitution_institutions.csv, constitution_offices.csv,
 // constitution_authorities.csv: the same rows as a built-in model with a
 // leading country column, for countries with their own constitution.
+// power_organizations.csv: stable IDs for non-firm political and social bodies.
+// power_relationships.csv: dated effective-power edges between actors and
+// offices; these never create legal authority, ownership, or cash transfers.
 // constitution_elections.csv: country;body;system;districts;term_days — the
 // electoral rules of a country with its own constitution (optional).
 // office_holders.csv: country;office;seat;person — the first holders of
@@ -373,13 +377,22 @@ bool load_constitutions(sys::state& state, simple_fs::directory const& common, p
 	static constexpr std::array<std::string_view, 6> authorities_header = { "country", "holder", "kind", "scope", "delegated_from", "source" };
 	static constexpr std::array<std::string_view, 4> holders_header = { "country", "office", "seat", "person" };
 	static constexpr std::array<std::string_view, 5> elections_header = { "country", "body", "system", "districts", "term_days" };
+	static constexpr std::array<std::string_view, 7> power_relationships_header = {
+		"country", "source", "relationship", "target", "intensity", "valid_from", "valid_until"
+	};
+	static constexpr std::array<std::string_view, 3> power_organizations_header = {
+		"organization_key", "country", "kind"
+	};
 	auto models = optional_rows("constitutions.csv", models_header);
 	auto custom_institutions = optional_rows("constitution_institutions.csv", institutions_header);
 	auto custom_offices = optional_rows("constitution_offices.csv", offices_header);
 	auto custom_authorities = optional_rows("constitution_authorities.csv", authorities_header);
 	auto holders = optional_rows("office_holders.csv", holders_header);
 	auto custom_elections = optional_rows("constitution_elections.csv", elections_header);
-	if(!models && !custom_institutions && !custom_offices && !custom_authorities && !custom_elections && !holders) return true;
+	auto power_organizations = optional_rows("power_organizations.csv", power_organizations_header);
+	auto power_relationships = optional_rows("power_relationships.csv", power_relationships_header);
+	if(!models && !custom_institutions && !custom_offices && !custom_authorities && !custom_elections && !holders
+		&& !power_organizations && !power_relationships) return true;
 	if(bool(custom_institutions) != bool(custom_offices) || bool(custom_offices) != bool(custom_authorities)) {
 		err.accumulated_errors += "common/canonical_runtime: custom constitution tables come together: institutions, offices and authorities\n";
 		return false;
@@ -442,6 +455,172 @@ bool load_constitutions(sys::state& state, simple_fs::directory const& common, p
 		std::string error;
 		if(!governance::constitution::appoint_founders(state, find_nation_by_tag(state, country), result, state.current_date, error))
 			add_row_error(err, "constitutions.csv", document_lines[country], country + ": " + error);
+	}
+	if(power_organizations) {
+		std::unordered_set<uint64_t> organization_ids;
+		state.world.for_each_organization([&](dcon::organization_id organization) {
+			auto id = state.world.organization_get_canonical_id(organization);
+			if(id != 0) organization_ids.insert(id);
+		});
+		for(auto const& row : power_organizations->rows) {
+			if(!valid_key(row.cells[0])) {
+				add_row_error(err, "power_organizations.csv", row.line, "organization_key must be a nonempty ASCII identifier");
+				continue;
+			}
+			auto canonical_id = stable_id("power-organization:" + row.cells[0]);
+			if(!organization_ids.insert(canonical_id).second) {
+				add_row_error(err, "power_organizations.csv", row.line, "organization_key collides with another canonical organization ID");
+				continue;
+			}
+			auto nation = find_nation_by_tag(state, row.cells[1]);
+			if(!nation) { add_row_error(err, "power_organizations.csv", row.line, "country tag is not active"); continue; }
+			auto kind = row.cells[2];
+			auto organization_kind = kind == "political_organization" ? actors::ownership::actor_kind::political_organization
+				: kind == "party_committee" ? actors::ownership::actor_kind::party_committee
+				: kind == "media" ? actors::ownership::actor_kind::media
+				: kind == "foundation" ? actors::ownership::actor_kind::foundation
+				: kind == "civil_society" ? actors::ownership::actor_kind::civil_society
+				: kind == "security_service" ? actors::ownership::actor_kind::security_service
+				: kind == "labor_union" ? actors::ownership::actor_kind::labor_union
+				: kind == "employer_association" ? actors::ownership::actor_kind::employer_association
+				: actors::ownership::actor_kind::invalid;
+			auto organization = organization_kind == actors::ownership::actor_kind::invalid
+				? dcon::organization_id{} : actors::organizations::create_organization(state, organization_kind);
+			if(!organization) {
+				add_row_error(err, "power_organizations.csv", row.line, "kind must be labor_union, employer_association, political_organization, party_committee, media, foundation, civil_society, or security_service");
+				continue;
+			}
+			state.world.organization_set_canonical_id(organization, canonical_id);
+		}
+	}
+	if(power_relationships) {
+		auto resolve_node = [&](std::string const& country, std::string const& reference,
+			governance::power_topology::node& result, std::string& error) {
+			auto separator = reference.find(':');
+			if(separator == std::string::npos || separator + 1 == reference.size()) {
+				error = "endpoint must be institution:<key>, office:<key>:<seat>, person:<cell>:<ordinal>, actor:<canonical_id>, or organization:<key-or-canonical_id>";
+				return false;
+			}
+			auto type = std::string_view(reference).substr(0, separator);
+			auto id = std::string_view(reference).substr(separator + 1);
+			if(type == "person") {
+				dcon::person_id person{};
+				if(!resolve_person_reference(state, std::string(id), person)) {
+					error = "person endpoint '" + reference + "' must resolve to a living exact person";
+					return false;
+				}
+				auto actor = persons::actor_for_person(state, person);
+				if(!actor) { error = "person endpoint '" + reference + "' has no economic actor"; return false; }
+				result = governance::power_topology::actor_node(actor);
+				return true;
+			}
+			if(type == "institution") {
+				auto model = founded.find(country);
+				auto institution = model == founded.end() ? dcon::institution_id{} : model->second.institution(std::string(id));
+				if(!institution) { error = "institution endpoint '" + reference + "' is not defined by this country's scenario constitution"; return false; }
+				result = governance::power_topology::actor_node(governance::actor_for_institution(state, institution));
+				return bool(result);
+			}
+			if(type == "office") {
+				auto seat_separator = id.rfind(':');
+				uint32_t seat = 0;
+				if(seat_separator == std::string_view::npos || seat_separator == 0
+					|| !parse_integer(id.substr(seat_separator + 1), seat) || seat == 0) {
+					error = "office endpoint must name a one-based seat as office:<key>:<seat>";
+					return false;
+				}
+				auto model = founded.find(country);
+				if(model == founded.end()) {
+					error = "office endpoint '" + reference + "' is not defined by this country's scenario constitution";
+					return false;
+				}
+				auto offices = model->second.offices.find(std::string(id.substr(0, seat_separator)));
+				if(offices == model->second.offices.end() || seat > offices->second.size()) {
+					error = "office endpoint '" + reference + "' is not defined by this country's scenario constitution";
+					return false;
+				}
+				result = governance::power_topology::office_node(offices->second[seat - 1]);
+				return true;
+			}
+			if(type == "organization" && !id.empty()) {
+				uint64_t canonical_id = 0;
+				bool numeric = parse_integer(id, canonical_id) && canonical_id != 0;
+				std::array<uint64_t, 3> ids{ numeric ? canonical_id : 0,
+					stable_id("power-organization:" + std::string(id)),
+					stable_id("organization:" + std::string(id)) };
+				dcon::economic_actor_id actor{};
+				state.world.for_each_organization([&](dcon::organization_id candidate) {
+					auto candidate_id = state.world.organization_get_canonical_id(candidate);
+					if(candidate_id != 0 && std::find(ids.begin(), ids.end(), candidate_id) != ids.end())
+						actor = actors::organizations::actor_for_organization(state, candidate);
+				});
+				if(actor && state.world.economic_actor_is_valid(actor)) {
+					result = governance::power_topology::actor_node(actor);
+					return true;
+				}
+				error = "organization endpoint '" + reference + "' does not resolve to a loaded organization key or canonical ID";
+				return false;
+			}
+			uint64_t canonical_id = 0;
+			if(type != "actor" || !parse_integer(id, canonical_id) || canonical_id == 0) {
+				error = "endpoint must be institution:<key>, office:<key>:<seat>, person:<cell>:<ordinal>, actor:<canonical_id>, or organization:<key-or-canonical_id>";
+				return false;
+			}
+			dcon::economic_actor_id actor{};
+			if(type == "actor") {
+				state.world.for_each_economic_actor([&](dcon::economic_actor_id candidate) {
+					if(state.world.economic_actor_get_canonical_id(candidate) == canonical_id) actor = candidate;
+				});
+			} else {
+				state.world.for_each_organization([&](dcon::organization_id candidate) {
+					if(state.world.organization_get_canonical_id(candidate) == canonical_id)
+						actor = actors::organizations::actor_for_organization(state, candidate);
+				});
+			}
+			if(!actor || !state.world.economic_actor_is_valid(actor)) {
+				error = "endpoint '" + reference + "' does not resolve to a loaded canonical actor";
+				return false;
+			}
+			result = governance::power_topology::actor_node(actor);
+			return true;
+		};
+
+		for(auto const& row : power_relationships->rows) {
+			auto nation = find_nation_by_tag(state, row.cells[0]);
+			if(!nation) { add_row_error(err, "power_relationships.csv", row.line, "country tag is not active"); continue; }
+			governance::power_topology::node source{}, target{};
+			std::string error;
+			if(!resolve_node(row.cells[0], row.cells[1], source, error)) {
+				add_row_error(err, "power_relationships.csv", row.line, "source " + error);
+				continue;
+			}
+			governance::power_topology::relation_kind kind{};
+			if(!governance::power_topology::parse_relation_kind(row.cells[2], kind)) {
+				add_row_error(err, "power_relationships.csv", row.line, "unknown relationship '" + row.cells[2] + "'");
+				continue;
+			}
+			if(!resolve_node(row.cells[0], row.cells[3], target, error)) {
+				add_row_error(err, "power_relationships.csv", row.line, "target " + error);
+				continue;
+			}
+			governance::power_topology::terms terms{};
+			if(!parse_float(row.cells[4], terms.intensity) || terms.intensity < 0.0f || terms.intensity > 1.0f) {
+				add_row_error(err, "power_relationships.csv", row.line, "intensity must be between 0 and 1");
+				continue;
+			}
+			if(!row.cells[5].empty()) {
+				auto date = parse_iso_date(row.cells[5]);
+				if(!date) { add_row_error(err, "power_relationships.csv", row.line, "valid_from must use YYYY-MM-DD or be empty"); continue; }
+				terms.valid_from = sys::date(*date, state.start_date);
+			}
+			if(!row.cells[6].empty()) {
+				auto date = parse_iso_date(row.cells[6]);
+				if(!date) { add_row_error(err, "power_relationships.csv", row.line, "valid_until must use YYYY-MM-DD or be empty"); continue; }
+				terms.valid_until = sys::date(*date, state.start_date);
+			}
+			if(!governance::power_topology::create(state, source, kind, target, terms))
+				add_row_error(err, "power_relationships.csv", row.line, "relationship is invalid, duplicated, or has an empty validity interval");
+		}
 	}
 	return err.accumulated_errors.size() == initial_errors;
 }

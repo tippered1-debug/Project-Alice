@@ -5,3 +5,10 @@ Actors are the accountable participants in canonical economic activity. Firms op
 A canonical action names the responsible actor and the resources it can use. Firm production requires an operator, productive capacity, and physical inputs. Purchases and sales name buyer and seller accounts and move ownership of physical stock. Credit links a borrower, lender, obligation, and collateral asset. Public spending uses institutional accounts and recorded obligations.
 
 Scenario-authored firm and owner identities, assets, and relationships are validated before simulation. See [Scenario format](../runtime/scenario-format.md), [Ownership](ownership.md), [Banking](banking.md), and [Economy](economy.md). The detailed v1 actor-market and firm-agency notes are retained as historical milestones in [Archive](../archive/README.md).
+
+Political organizations, embedded party committees, media, foundations, civil
+society groups, security services, unions, and employer associations can also
+be represented as organizations with economic actors. They have no shareholder
+equity by default. Their dated control ties and person memberships are in the
+[regime power topology](regime-architecture.md); recorded money transfers and
+asset claims continue to use the ordinary account and ownership systems.

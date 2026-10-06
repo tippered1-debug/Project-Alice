@@ -6,6 +6,9 @@ Politics decides who holds the offices of the [constitutional state](government.
 economy -> voters' interests -> parties -> elections -> seats and offices -> government -> fiscal law -> economy
 ```
 
+Effective control ties among parties, institutions, offices, and firms are
+described in [Regime architecture and power topology](regime-architecture.md).
+
 ## Voters and interests
 
 `governance::electorate` builds a nation's voters. There are two kinds:

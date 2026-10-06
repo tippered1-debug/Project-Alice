@@ -98,6 +98,40 @@ The rows mean the same as in the built-in models. A country named in these table
 
 Offices that no election, government or appointer fills are seated with living adults of the country. Elections, the government, and appointers fill the rest.
 
+## Effective power relationships
+
+`power_organizations.csv` optionally creates non-firm political and social
+organizations before loading power relationships. Its columns are
+`organization_key;country;kind`; `kind` is `political_organization`,
+`party_committee`, `media`, `foundation`, `civil_society`,
+`security_service`, `labor_union`, or `employer_association`. These bodies
+have members rather than shareholder equity.
+
+`power_relationships.csv` is optional. It adds dated effective-power ties
+between people, organizations, institutions, and offices. Its columns are
+`country;source;relationship;target;intensity;valid_from;valid_until`.
+
+An endpoint is `institution:<key>`, `office:<key>:<seat>`,
+`person:<cell>:<ordinal>`, `actor:<canonical_id>`,
+`organization:<organization_key-or-firm_id>`, or
+`organization:<canonical_id>`. Institution and office keys come from the
+country's selected or authored constitution. Actor IDs must already exist in
+the loaded scenario; organization keys can name a row in
+`power_organizations.csv` or a firm ID from `firms.csv`. `relationship` is one
+of `appoints`, `confirms`, `dismisses`, `commands`, `supervises`, `vetoes`,
+`controls_voting`, `controls_management`, `funds`, `funding_dependence`,
+`embeds_organization`, `member_of`, `nominates_cadres`,
+`sets_strategic_direction`, or `political_influence`. `intensity` is between 0
+and 1. Dates use `YYYY-MM-DD`; blank bounds are open and `valid_until` is
+exclusive. A `person` reference must name a living exact person.
+
+These edges do not change legal authority, ownership shares, or cash balances.
+They let scenario authors represent a party's influence over a ministry, an
+embedded committee in a firm, or a cadre pipeline into an office. See
+[Regime architecture](../architecture/regime-architecture.md) for examples
+and the distinction between these edges and the constitutional and ownership
+graphs.
+
 **Rejected constitutions.** The scenario is rejected when any of the following holds:
 
 - a constitution's rows do not validate;
