@@ -8,6 +8,10 @@
 #include "economy/capital_projects.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/households.hpp"
+#include "economy/liquidity.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/governance.hpp"
+#include "governance/policy.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -28,6 +32,12 @@ dcon::monetary_account_id first_operating_account(sys::state const& state, dcon:
 		if(!result || account.index() < result.index()) result = account;
 	});
 	return result;
+}
+
+dcon::nation_id tax_jurisdiction_for(sys::state const& state, dcon::economic_actor_id actor) {
+	if(auto nation = economy::liquidity::nation_for(state, actor)) return nation;
+	auto institution = state.world.economic_actor_get_institution_from_institution_actor(actor);
+	return institution ? governance::nation_of(state, institution) : dcon::nation_id{};
 }
 }
 
@@ -128,8 +138,13 @@ float distribute(sys::state& state, dcon::organization_id organization, float am
 	for(auto const& [owner, fraction] : holders) {
 		auto share = amount * fraction / total;
 		auto destination = wallets::open_for(state, owner, settlement);
-		if(share > epsilon && destination && wallets::pay(state, source, destination, share, relations::transaction_kind::dividend))
+		if(share > epsilon && destination && wallets::pay(state, source, destination, share, relations::transaction_kind::dividend)) {
 			paid += share;
+			if(auto nation = tax_jurisdiction_for(state, owner))
+				(void)governance::finance::assess_and_collect_topic_tax(state,
+					governance::policy::topic_id::dividend_tax, nation, owner, share,
+					destination, {}, state.current_date);
+		}
 	}
 	return paid;
 }

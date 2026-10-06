@@ -1,11 +1,15 @@
 #include "finance.hpp"
 
 #include "economy/accounts/accounts.hpp"
+#include "economy/banking/banking.hpp"
 #include "economy/consent/consent.hpp"
 #include "economy/relations/relations.hpp"
+#include "economy/wallets.hpp"
 #include "governance/governance.hpp"
 #include "governance/law/law.hpp"
 #include "governance/offices.hpp"
+#include "governance/public_administration.hpp"
+#include "persons/exact_population.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 
@@ -192,6 +196,115 @@ dcon::transaction_id pay_tax(sys::state& state, dcon::obligation_id tax_obligati
 		transaction_kind::tax_payment, date);
 	if(!transaction || economy::relations::repay_obligation(state, tax_obligation, accepted) != accepted) return {};
 	return transaction;
+}
+
+economy::exact_person_economy::transfer_result pay_tax(sys::state& state,
+	dcon::obligation_id tax_obligation, economy::exact_person_economy::account_ref taxpayer_account,
+	dcon::monetary_account_id treasury_account, float amount, sys::date date) {
+	using economy::exact_person_economy::account_kind;
+	using economy::exact_person_economy::account_ref;
+	using economy::exact_person_economy::transfer_result;
+	if(taxpayer_account.kind == account_kind::dcon) {
+		auto transaction = pay_tax(state, tax_obligation, taxpayer_account.dcon_account,
+			treasury_account, amount, date);
+		return { bool(transaction), 0, transaction };
+	}
+	if(taxpayer_account.kind != account_kind::exact || !valid_amount(amount)
+		|| !economy::exact_person_economy::account_exists(state, taxpayer_account)
+		|| !tax_obligation || !state.world.obligation_is_valid(tax_obligation)
+		|| state.world.obligation_get_kind(tax_obligation) != uint8_t(obligation_kind::tax)
+		|| !payable_obligation(state, tax_obligation)) return {};
+	auto debtor = state.world.obligation_get_economic_actor_from_obligation_debtor(tax_obligation);
+	auto creditor = state.world.obligation_get_economic_actor_from_obligation_creditor(tax_obligation);
+	auto settlement = state.world.obligation_get_settlement_commodity(tax_obligation);
+	auto key = economy::exact_person_economy::owner_of(state, taxpayer_account);
+	auto profile = persons::exact_population::profile_for_person(state, key);
+	auto taxpayer_actor = profile ? persons::actor_for_person(state, profile) : dcon::economic_actor_id{};
+	auto institution = institution_for_actor(state, creditor);
+	if(!taxpayer_actor || taxpayer_actor != debtor || !institution
+		|| !valid_treasury_account(state, treasury_account, institution, settlement)
+		|| economy::exact_person_economy::settlement_of(state, taxpayer_account) != settlement) return {};
+	auto accepted = std::min(amount, economy::relations::total_due(state, tax_obligation));
+	if(accepted <= 0.0f || economy::exact_person_economy::balance(state, taxpayer_account) < accepted) return {};
+	auto transfer = economy::exact_person_economy::transfer_with_result(state, taxpayer_account,
+		account_ref::from_dcon(treasury_account), accepted, transaction_kind::tax_payment, date);
+	if(!transfer.success || economy::relations::repay_obligation(state, tax_obligation, accepted) != accepted) return {};
+	return transfer;
+}
+
+policy_tax_result assess_and_collect_topic_tax(sys::state& state, policy::topic_id topic,
+	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor, float taxable_value,
+	economy::exact_person_economy::account_ref payer_wallet, dcon::deposit_account_id payer_deposit,
+	sys::date date) {
+	policy_tax_result result{};
+	if(!jurisdiction || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor)
+		|| !std::isfinite(taxable_value) || taxable_value <= 0.0f) return result;
+	auto policy_value = law::effective_topic(state, governance::national(jurisdiction), topic, date);
+	auto rate = policy_value ? std::get_if<float>(&*policy_value) : nullptr;
+	if(!rate || !std::isfinite(*rate) || *rate <= 0.0f) return result;
+	result.rate = std::clamp(*rate, 0.0f, 1.0f);
+	result.assessed = taxable_value * result.rate;
+	if(!std::isfinite(result.assessed) || result.assessed <= 1.0e-6f) {
+		result = {};
+		return result;
+	}
+	dcon::commodity_id settlement{};
+	if(payer_deposit) {
+		if(!state.world.deposit_account_is_valid(payer_deposit)
+			|| state.world.deposit_account_get_economic_actor_from_deposit_account_owner(payer_deposit) != taxpayer_actor) return {};
+		settlement = state.world.deposit_account_get_commodity_from_deposit_account_settlement(payer_deposit);
+	} else if(payer_wallet.kind == economy::exact_person_economy::account_kind::dcon) {
+		if(economy::accounts::owner_of(state, payer_wallet.dcon_account) != taxpayer_actor) return {};
+		settlement = economy::accounts::settlement_of(state, payer_wallet.dcon_account);
+	} else if(payer_wallet.kind == economy::exact_person_economy::account_kind::exact) {
+		auto key = economy::exact_person_economy::owner_of(state, payer_wallet);
+		auto profile = persons::exact_population::profile_for_person(state, key);
+		if(!profile || persons::actor_for_person(state, profile) != taxpayer_actor) return {};
+		settlement = economy::exact_person_economy::settlement_of(state, payer_wallet);
+	} else {
+		return {};
+	}
+	if(!settlement || !state.world.commodity_is_valid(settlement)) return {};
+	auto authority = public_administration::tax_authority_for(state, jurisdiction);
+	auto treasury = authority ? open_treasury_account(state, authority, settlement) : dcon::monetary_account_id{};
+	if(!authority || !treasury) return {};
+	result.assessment = authorized_assess_tax_by_institution(state, authority, taxpayer_actor,
+		treasury, result.assessed, date, date);
+	if(!result.assessment) {
+		result = {};
+		return result;
+	}
+	result.obligation = state.world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(result.assessment);
+	if(!result.obligation) return result;
+	if(payer_deposit) {
+		if(!state.world.deposit_account_is_valid(payer_deposit)
+			|| state.world.deposit_account_get_commodity_from_deposit_account_settlement(payer_deposit) != settlement) return result;
+		auto due = std::min(economy::relations::total_due(state, result.obligation),
+			economy::banking::deposit_balance(state, payer_deposit));
+		auto bank = state.world.deposit_account_get_organization_from_deposit_account_bank(payer_deposit);
+		auto reserve = economy::banking::reserve_account_for(state, bank, settlement);
+		if(reserve) due = std::min(due, economy::accounts::balance(state, reserve));
+		due = std::min(due, result.assessed);
+		if(due > 1.0e-6f) {
+			result.transaction = economy::banking::pay_from_deposit(state, payer_deposit, {},
+				economy::exact_person_economy::account_ref::from_dcon(treasury), due,
+				transaction_kind::tax_payment, date);
+			if(result.transaction && economy::relations::repay_obligation(state, result.obligation, due) == due)
+				result.collected = due;
+		}
+	} else if(payer_wallet) {
+		auto due = std::min({result.assessed, economy::relations::total_due(state, result.obligation),
+			economy::wallets::spendable(state, payer_wallet)});
+		if(due > 1.0e-6f) {
+			auto transfer = pay_tax(state, result.obligation, payer_wallet, treasury, due, date);
+			if(transfer.success) {
+				result.transaction = transfer.dcon_transaction_id;
+				result.exact_transaction_id = transfer.exact_transaction_id;
+				result.collected = due;
+			}
+		}
+	}
+	return result;
 }
 
 dcon::fiscal_action_id authorized_spend(sys::state& state, dcon::person_id initiator,

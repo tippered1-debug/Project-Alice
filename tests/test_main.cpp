@@ -132,6 +132,7 @@ std::unique_ptr<sys::state> load_testing_scenario_file_with_save(sys::network_mo
 #include "capital_income_tests.cpp"
 #include "deposit_payments_tests.cpp"
 #include "capital_allocation_tests.cpp"
+#include "capital_regulation_tests.cpp"
 #include "monetary_policy_tests.cpp"
 #include "constitution_tests.cpp"
 #include "politics_tests.cpp"

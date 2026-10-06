@@ -99,6 +99,50 @@ dcon::factory_id enterprise_for_deposit(sys::state const& state, dcon::resource_
 	return deposit ? state.world.resource_deposit_get_factory_from_factory_resource_deposit(deposit) : dcon::factory_id{};
 }
 
+dcon::nation_id royalty_jurisdiction_for_sale(sys::state const& state,
+	dcon::economic_actor_id seller, dcon::site_id sale_site, dcon::commodity_id commodity) {
+	auto organization = actors::organizations::organization_for_actor(state, seller);
+	if(!organization || !sale_site || !commodity) return {};
+	dcon::nation_id result{};
+	auto sale_province = state.world.site_get_province_from_site_location(sale_site);
+	auto sale_state = sale_province ? state.world.province_get_state_membership(sale_province)
+		: dcon::state_instance_id{};
+	auto sale_market = sale_state ? state.world.state_instance_get_market_from_local_market(sale_state)
+		: dcon::market_id{};
+	for(auto factory : actors::organizations::factories_operated_by(state, organization)) {
+		auto type = state.world.factory_get_building_type(factory);
+		if(!extracts_deposit(state, factory)
+			|| actors::organizations::operator_actor_for_factory(state, factory) != seller
+			|| !type || state.world.factory_type_get_output(type) != commodity) continue;
+		auto deposit = deposit_for_enterprise(state, factory);
+		if(!deposit || state.world.resource_deposit_get_commodity(deposit) != commodity
+			|| state.world.resource_deposit_get_site_from_resource_deposit_site(deposit)
+				!= state.world.factory_get_site_from_factory_site(factory)) continue;
+		// Primary output is shipped from the deposit site to the local market
+		// hub before it is offered. Follow that existing producer-to-market link;
+		// an unrelated commodity resale still has no matching extractive plant.
+		if(state.world.factory_get_site_from_factory_site(factory) != sale_site) {
+			auto factory_province = state.world.site_get_province_from_site_location(
+				state.world.factory_get_site_from_factory_site(factory));
+			auto factory_state = factory_province
+				? state.world.province_get_state_membership(factory_province) : dcon::state_instance_id{};
+			auto factory_market = factory_state
+				? state.world.state_instance_get_market_from_local_market(factory_state) : dcon::market_id{};
+			if(!sale_market || factory_market != sale_market) continue;
+		}
+		auto province = state.world.resource_deposit_get_site_from_resource_deposit_site(deposit)
+			? state.world.site_get_province_from_site_location(
+				state.world.resource_deposit_get_site_from_resource_deposit_site(deposit))
+			: dcon::province_id{};
+		auto nation = province ? state.world.province_get_nation_from_province_ownership(province)
+			: dcon::nation_id{};
+		if(!nation) continue;
+		if(result && result != nation) return {};
+		result = nation;
+	}
+	return result;
+}
+
 dcon::factory_id create_enterprise(sys::state& state, dcon::resource_deposit_id deposit,
 	dcon::factory_type_id type, dcon::organization_id operator_organization) {
 	if(!deposit || !state.world.resource_deposit_is_valid(deposit) || enterprise_for_deposit(state, deposit)

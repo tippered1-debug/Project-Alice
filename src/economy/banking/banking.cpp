@@ -6,6 +6,7 @@
 #include "economy/consent/consent.hpp"
 #include "economy/money/ontology.hpp"
 #include "economy/relations/relations.hpp"
+#include "governance/law/law.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -92,7 +93,7 @@ bool policy_configured(sys::state const& state, dcon::organization_id bank) {
 
 float required_reserves(balance_sheet const& sheet, sys::state const& state, dcon::organization_id bank) {
 	auto policy_target = std::max(state.world.organization_get_bank_liquidity_target(bank),
-		state.world.organization_get_bank_reserve_requirement(bank));
+		reserve_requirement_for(state, bank, state.current_date));
 	return sheet.deposit_liabilities * policy_target;
 }
 
@@ -150,7 +151,7 @@ float bank_credit_capacity(sys::state const& state, dcon::organization_id bank,
 	if(!reserve) return 0.0f;
 	auto reserve_balance = accounts::balance(state, reserve);
 	auto liquidity_ratio = state.world.organization_get_bank_liquidity_target(bank);
-	auto reserve_ratio = state.world.organization_get_bank_reserve_requirement(bank);
+	auto reserve_ratio = reserve_requirement_for(state, bank, state.current_date);
 	auto required_ratio = std::max(liquidity_ratio, reserve_ratio);
 	auto liability_headroom = required_ratio > 0.0f
 		? std::max(0.0f, reserve_balance / required_ratio - sheet.deposit_liabilities)
@@ -180,7 +181,7 @@ void refresh_bank_state(sys::state& state, dcon::organization_id bank) {
 		< state.world.organization_get_bank_minimum_capital_ratio(bank);
 	bool liquidity_breach = sheet.liquidity_ratio + balance_tolerance
 		< std::max(state.world.organization_get_bank_liquidity_target(bank),
-			state.world.organization_get_bank_reserve_requirement(bank))
+			reserve_requirement_for(state, bank, state.current_date))
 		|| sheet.settlement_assets + balance_tolerance < sheet.required_liquidity;
 	state.world.organization_set_bank_status(bank, uint8_t(capital_breach || liquidity_breach
 		? bank_status::constrained : bank_status::solvent));
@@ -189,6 +190,19 @@ void refresh_bank_state(sys::state& state, dcon::organization_id bank) {
 }
 
 } // namespace
+
+float reserve_requirement_for(sys::state const& state, dcon::organization_id bank, sys::date date) {
+	if(!valid_bank(state, bank)) return 0.0f;
+	if(policy_configured(state, bank)) {
+		auto nation = state.world.organization_get_bank_jurisdiction(bank);
+		if(auto enacted = governance::law::effective_topic(state, governance::national(nation),
+			governance::policy::topic_id::bank_reserve_requirement, date)) {
+			if(auto rate = std::get_if<float>(&*enacted); rate && std::isfinite(*rate))
+				return std::clamp(*rate, 0.0f, 0.5f);
+		}
+	}
+	return state.world.organization_get_bank_reserve_requirement(bank);
+}
 
 dcon::organization_id create_bank(sys::state& state) {
 	auto bank = actors::organizations::create_organization(state, actor_kind::bank);
@@ -835,7 +849,7 @@ bank_clearing_result clear_interbank_payments(sys::state& state, sys::date today
 		}
 		auto required = projected_deposits * std::max(
 			double(state.world.organization_get_bank_liquidity_target(bank)),
-			double(state.world.organization_get_bank_reserve_requirement(bank)));
+			double(reserve_requirement_for(state, bank, today)));
 		if(!std::isfinite(projected) || projected < 0.0
 			|| projected > std::numeric_limits<float>::max()
 			|| projected + balance_tolerance < required) {
@@ -1460,7 +1474,7 @@ void update_bank_statuses(sys::state& state, sys::date today) {
 			< state.world.organization_get_bank_minimum_capital_ratio(bank);
 		bool liquidity_breach = sheet.liquidity_ratio + balance_tolerance
 			< std::max(state.world.organization_get_bank_liquidity_target(bank),
-				state.world.organization_get_bank_reserve_requirement(bank))
+				reserve_requirement_for(state, bank, today))
 			|| sheet.settlement_assets + balance_tolerance < sheet.required_liquidity;
 		// Illiquidity is not insolvency. A reserve shortage leaves a bank
 		// constrained for as long as it lasts; only a capital shortfall that

@@ -24,6 +24,10 @@ bool extracts_deposit(sys::state const&, dcon::factory_type_id);
 bool extracts_deposit(sys::state const&, dcon::factory_id);
 dcon::resource_deposit_id deposit_for_enterprise(sys::state const&, dcon::factory_id);
 dcon::factory_id enterprise_for_deposit(sys::state const&, dcon::resource_deposit_id);
+// The national royalty jurisdiction for an operator's resource output sold at
+// its mine site or the mine's local market hub. Unrelated resales are excluded.
+dcon::nation_id royalty_jurisdiction_for_sale(sys::state const&, dcon::economic_actor_id seller,
+	dcon::site_id sale_site, dcon::commodity_id commodity);
 // Creates the enterprise at the deposit's site. Full capacity extracts the
 // deposit's daily capacity. Nothing is created unless every binding holds.
 dcon::factory_id create_enterprise(sys::state&, dcon::resource_deposit_id,

@@ -6,6 +6,9 @@
 #include "economy/relations/relations.hpp"
 #include "concrete_market.hpp"
 #include "exact_person_freight.hpp"
+#include "economy/physical/extraction.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/policy.hpp"
 #include "inventory.hpp"
 #include "economy/economy_pops.hpp"
 #include "system_state.hpp"
@@ -419,6 +422,11 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 		remove_stock(state, bid->buyer, source, commodity, quantity);
 		return 0;
 	}
+	if(auto nation = economy::physical::extraction::royalty_jurisdiction_for_sale(state,
+		seller, source, commodity))
+		(void)governance::finance::assess_and_collect_topic_tax(state,
+			governance::policy::topic_id::resource_royalty, nation, seller, quantity * price,
+			account_ref::from_dcon(seller_account), {}, date);
 	bid->remaining_quantity = std::max(0.0f, bid->remaining_quantity - quantity);
 	bid->reserved_amount = bid->remaining_quantity * bid->limit_price;
 	if(bid->remaining_quantity <= epsilon) bid->status = order_status::filled;

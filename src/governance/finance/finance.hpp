@@ -7,6 +7,7 @@
 #include <cstdint>
 
 namespace sys { class state; }
+namespace governance::policy { enum class topic_id : uint16_t; }
 
 namespace governance::finance {
 
@@ -34,6 +35,28 @@ dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state&, dcon::i
 dcon::transaction_id pay_tax(sys::state&, dcon::obligation_id tax_obligation,
 	dcon::monetary_account_id taxpayer_account, dcon::monetary_account_id treasury_account,
 	float amount, sys::date date);
+economy::exact_person_economy::transfer_result pay_tax(sys::state&, dcon::obligation_id tax_obligation,
+	economy::exact_person_economy::account_ref taxpayer_account,
+	dcon::monetary_account_id treasury_account, float amount, sys::date date);
+
+struct policy_tax_result {
+	float rate = 0.0f;
+	float assessed = 0.0f;
+	float collected = 0.0f;
+	dcon::fiscal_action_id assessment{};
+	dcon::obligation_id obligation{};
+	dcon::transaction_id transaction{};
+	uint64_t exact_transaction_id = 0;
+};
+
+// Reads the enacted national policy rate, records a tax obligation against the
+// exact liable actor, and collects from the supplied operating wallet or bank
+// deposit. Any amount the payment rail cannot settle remains due on the
+// obligation.
+policy_tax_result assess_and_collect_topic_tax(sys::state&, policy::topic_id,
+	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
+	float taxable_value, economy::exact_person_economy::account_ref payer_wallet,
+	dcon::deposit_account_id payer_deposit, sys::date date);
 
 dcon::fiscal_action_id authorized_spend(sys::state&, dcon::person_id initiator,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id recipient_account,

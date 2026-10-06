@@ -73,6 +73,9 @@ struct factory_credit_result {
 dcon::organization_id create_bank(sys::state&);
 bool set_bank_lending_base_rate(sys::state&, dcon::organization_id, float annual_rate);
 bool configure_bank_policy(sys::state&, dcon::organization_id, bank_policy const&);
+// The law in force controls runtime reserve constraints; the configured bank
+// policy value remains the opening fallback until a national rule takes effect.
+float reserve_requirement_for(sys::state const&, dcon::organization_id, sys::date);
 bank_status status_of(sys::state const&, dcon::organization_id);
 
 dcon::monetary_account_id open_reserve_account(sys::state&, dcon::organization_id bank,
