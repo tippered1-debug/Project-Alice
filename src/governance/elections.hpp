@@ -48,7 +48,7 @@ struct tally {
 };
 // Votes for the parties among the voters inside the district (none: all).
 tally count(sys::state const&, dcon::nation_id, std::vector<electorate::voter> const&, std::vector<dcon::organization_id> const& parties,
-	dcon::territorial_unit_id district, float incumbent_growth);
+	dcon::territorial_unit_id district, float incumbent_growth, sys::date election_date = {});
 std::vector<uint32_t> highest_averages(std::vector<float> const& votes, uint32_t seats);
 std::vector<uint32_t> largest_remainders(std::vector<float> const& weights, uint32_t seats);
 // Change in the median income since the government formed.

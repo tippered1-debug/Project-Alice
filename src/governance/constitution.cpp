@@ -32,8 +32,9 @@ constexpr std::array<std::string_view, 19> authority_kind_names{
 	"administer", "regulate", "levy_tax", "spend_public_funds", "license", "enforce", "adjudicate", "command_forces",
 	"appoint", "dismiss", "issue_currency", "expropriate", "other", "issue_public_debt", "legislate", "confirm", "assent",
 	"amend_constitution", "appropriate" };
-constexpr std::array<std::string_view, 10> service_kind_names{
-	"none", "administration", "education", "policing", "construction", "revenue", "monetary", "defense", "legislation", "justice" };
+constexpr std::array<std::string_view, 12> service_kind_names{
+	"none", "administration", "education", "policing", "construction", "revenue", "monetary", "defense", "legislation", "justice",
+	"intelligence", "counterintelligence" };
 
 template<size_t N>
 int32_t index_of(std::array<std::string_view, N> const& names, std::string_view value) {
@@ -127,6 +128,8 @@ cabinet;cabinet;state;national;0;none;0;0;1
 finance;finance_ministry;cabinet;national;0;administration;0.00035;2;1.25
 tax;tax_authority;finance;national;0;revenue;0;0;1
 interior;interior_ministry;cabinet;national;0;policing;0.0015;0;0.85
+intelligence;agency;state;national;0;intelligence;0.00008;2;1
+counterintelligence;agency;state;national;0;counterintelligence;0.00004;2;1
 education;education_ministry;cabinet;national;0;education;0.001;2;1.15
 works;public_works_ministry;cabinet;national;0;construction;0;0;1
 defense;military_command;head_of_state;national;0;defense;0;0;1
@@ -142,6 +145,8 @@ interior_minister;interior;minister;chief_executive;;appointer;;0;acting;chief_e
 education_minister;education;minister;chief_executive;;appointer;;0;acting;chief_executive;0;1
 works_minister;works;minister;chief_executive;;appointer;;0;acting;chief_executive;0;1
 tax_director;tax;agency_director;finance_minister;;appointer;;0;acting;finance_minister;0;1
+intelligence_director;intelligence;agency_director;chief_executive;;appointer;;0;none;;1;1
+counterintelligence_director;counterintelligence;agency_director;chief_executive;;appointer;;0;none;;1;1
 prosecutor_general;prosecution;prosecutor_general;chief_executive;;appointer;;0;none;;1;1
 commander;defense;chief_of_general_staff;chief_executive;;appointer;;0;none;;1;1
 )";
@@ -157,6 +162,10 @@ institution:tax;spend_public_funds;national;institution:finance;
 institution:interior;administer;national;institution:cabinet;
 institution:interior;spend_public_funds;national;;constitution
 institution:interior;enforce;national;;constitution
+institution:intelligence;administer;national;;constitution
+institution:counterintelligence;administer;national;;constitution
+office:intelligence_director;administer;national;institution:intelligence;
+office:counterintelligence_director;administer;national;institution:counterintelligence;
 institution:education;administer;national;institution:cabinet;
 institution:education;spend_public_funds;national;;constitution
 institution:works;administer;national;institution:cabinet;

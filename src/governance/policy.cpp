@@ -216,6 +216,7 @@ fiscal_rules rules_for(sys::state const& state, dcon::nation_id nation, position
 	result.tax_rates[1] = std::clamp(base, 0.0f, 1.0f);
 	result.tax_rates[2] = std::clamp(base * (1.0f + spread), 0.0f, 1.0f);
 	std::vector<dcon::institution_id> territorial;
+	std::vector<dcon::institution_id> policing_services;
 	for(auto institution : institutions_of(state, nation)) {
 		if(territory_of(state, institution)) {
 			if(state.world.institution_get_staffing_per_capita(institution) > 0.0f) territorial.push_back(institution);
@@ -224,9 +225,15 @@ fiscal_rules rules_for(sys::state const& state, dcon::nation_id nation, position
 		auto service = service_kind(state.world.institution_get_service(institution));
 		float share = -1.0f;
 		if(service == service_kind::education) share = numeric(value_or(value, topic_id::education_appropriation));
-		else if(service == service_kind::policing) share = numeric(value_or(value, topic_id::policing_appropriation));
+		else if(service == service_kind::policing || service == service_kind::intelligence
+			|| service == service_kind::counterintelligence) policing_services.push_back(institution);
 		else if(service == service_kind::construction) share = numeric(value_or(value, topic_id::public_works_appropriation));
 		if(share > 0.0f) result.shares.push_back({ institution, share });
+	}
+	auto policing_share = numeric(value_or(value, topic_id::policing_appropriation));
+	if(policing_share > 0.0f && !policing_services.empty()) {
+		auto per_institution = policing_share / float(policing_services.size());
+		for(auto institution : policing_services) result.shares.push_back({ institution, per_institution });
 	}
 	auto local = numeric(value_or(value, topic_id::local_government_appropriation));
 	if(local > 0.0f && !territorial.empty())
@@ -250,7 +257,10 @@ bool current(sys::state const& state, dcon::nation_id nation, sys::date date, po
 		}
 		auto service = service_kind(state.world.institution_get_service(entry.institution));
 		if(service == service_kind::education) (void)set(result, topic_id::education_appropriation, entry.share);
-		else if(service == service_kind::policing) (void)set(result, topic_id::policing_appropriation, entry.share);
+		else if(service == service_kind::policing || service == service_kind::intelligence
+			|| service == service_kind::counterintelligence)
+			(void)set(result, topic_id::policing_appropriation,
+				numeric(value_or(result, topic_id::policing_appropriation)) + entry.share);
 		else if(service == service_kind::construction) (void)set(result, topic_id::public_works_appropriation, entry.share);
 	}
 	for(auto const& spec : topics())

@@ -5,12 +5,17 @@
 #include "provinces/province.hpp"
 #include "nations.hpp"
 #include "demographics.hpp"
+#include "economy/information/information.hpp"
+#include "economy/money.hpp"
+#include "governance/governance.hpp"
+#include "governance/intelligence.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <vector>
 
 namespace nations::strategic_statecraft {
 namespace {
@@ -113,32 +118,9 @@ float relative_share(float subject, float observer) {
 	return unit(subject / (subject + observer + 0.01f));
 }
 
-void refresh_belief_values(sys::state& state, dcon::nation_id observer,
+void refresh_belief_metadata(sys::state& state, dcon::nation_id observer,
 	dcon::nation_id subject, belief& view) {
 	auto const quality = observation_quality(state, observer, subject);
-	if(observer == subject) {
-		view.military_power = 0.5f;
-		view.economic_power = 0.5f;
-	} else {
-		if(quality > 0.0f) {
-			auto const observed_military = relative_share(
-				estimate_military(state, subject), estimate_military(state, observer));
-			auto const observed_economic = relative_share(
-				estimate_economy(state, subject), estimate_economy(state, observer));
-			view.military_power += (observed_military - view.military_power) * quality;
-			view.economic_power += (observed_economic - view.economic_power) * quality;
-		}
-		// Stale intelligence drifts toward uncertainty rather than the world's
-		// current true values.
-		if(quality < 0.1f) {
-			view.military_power += (0.5f - view.military_power) * 0.025f;
-			view.economic_power += (0.5f - view.economic_power) * 0.025f;
-		}
-	}
-	view.military_power = unit(view.military_power);
-	view.economic_power = unit(view.economic_power);
-	if(quality > 0.0f)
-		view.last_observed_day = int32_t(day(state));
 	if(view.last_war_day + recent_war_window_days < int32_t(day(state)))
 		view.recent_wars = 0;
 	bool const at_war = observer != subject && quality > 0.0f
@@ -155,7 +137,108 @@ void refresh_belief_values(sys::state& state, dcon::nation_id observer,
 
 void refresh_belief(sys::state& state, dcon::nation_id observer, dcon::nation_id subject) {
 	if(auto* view = find_belief(state, observer, subject))
-		refresh_belief_values(state, observer, subject, *view);
+		refresh_belief_metadata(state, observer, subject, *view);
+}
+
+void refresh_reported_power_beliefs(sys::state& state) {
+	using information_kind = economy::information::information_fact_kind;
+	std::vector<dcon::belief_id> military_reports(state.world.nation_size());
+	std::vector<dcon::belief_id> economic_reports(state.world.nation_size());
+	for(auto observer : state.world.in_nation) {
+		auto government = governance::central_government_for(state, observer.id);
+		auto holder = governance::actor_for_institution(state, government);
+		if(!holder)
+			continue;
+
+		std::fill(military_reports.begin(), military_reports.end(), dcon::belief_id{});
+		std::fill(economic_reports.begin(), economic_reports.end(), dcon::belief_id{});
+		state.world.economic_actor_for_each_belief_holder_as_economic_actor(holder,
+			[&](dcon::belief_holder_id relation) {
+				auto report = state.world.belief_holder_get_belief(relation);
+				if(!report || state.world.belief_get_formed_on(report) > state.current_date)
+					return;
+				auto subject = state.world.belief_get_nation_from_belief_subject(report);
+				if(!subject || !state.world.nation_is_valid(subject)
+					|| subject.index() >= state.world.nation_size()
+					|| state.world.belief_get_commodity_from_belief_settlement(report) != economy::money)
+					return;
+				auto kind = state.world.belief_get_fact_kind(report);
+				dcon::belief_id* selected = nullptr;
+				if(kind == uint8_t(information_kind::national_military_power))
+					selected = &military_reports[subject.index()];
+				else if(kind == uint8_t(information_kind::national_economic_power))
+					selected = &economic_reports[subject.index()];
+				if(!selected)
+					return;
+				if(!*selected
+					|| state.world.belief_get_formed_on(report) > state.world.belief_get_formed_on(*selected)
+					|| (state.world.belief_get_formed_on(report) == state.world.belief_get_formed_on(*selected)
+						&& report.index() > selected->index()))
+					*selected = report;
+			});
+
+		for(auto subject : state.world.in_nation) {
+			if(observer.id == subject.id)
+				continue;
+			auto* view = find_belief(state, observer.id, subject.id);
+			if(!view)
+				continue;
+
+			auto apply_report = [&](dcon::belief_id report, float& estimate) {
+				if(!report) {
+					estimate += (0.5f - estimate) * 0.025f;
+					return;
+				}
+				auto const formed = state.world.belief_get_formed_on(report);
+				auto const age = std::max<int32_t>(0, int32_t(state.current_date.value - formed.value));
+				auto const confidence = unit(state.world.belief_get_confidence(report));
+				auto const freshness = std::exp(-float(age) / 365.0f);
+				auto const trust = freshness * (0.5f + 0.5f * confidence);
+				auto const reported = unit(state.world.belief_get_estimated_value(report));
+				estimate = unit(0.5f + (reported - 0.5f) * trust);
+				view->last_observed_day = std::max(view->last_observed_day, int32_t(formed.value));
+			};
+			apply_report(military_reports[subject.id.index()], view->military_power);
+			apply_report(economic_reports[subject.id.index()], view->economic_power);
+		}
+	}
+}
+
+void publish_monthly_intelligence(sys::state& state) {
+	using information_kind = economy::information::information_fact_kind;
+	auto const received_on = state.current_date + 30;
+	for(auto observer : state.world.in_nation) {
+		auto agency = governance::intelligence::agency_for(state, observer.id);
+		auto const readiness = governance::intelligence::operational_readiness(state, agency);
+		if(!(readiness > 0.0f))
+			continue;
+
+		for(auto subject : state.world.in_nation) {
+			if(observer.id == subject.id)
+				continue;
+			auto const access = observation_quality(state, observer.id, subject.id);
+			if(!(access > 0.0f))
+				continue;
+			auto const quality = unit(access * readiness);
+			auto const prior = find_belief(state, observer.id, subject.id);
+			auto const observed_military = relative_share(
+				estimate_military(state, subject.id), estimate_military(state, observer.id));
+			auto const observed_economic = relative_share(
+				estimate_economy(state, subject.id), estimate_economy(state, observer.id));
+			auto const military_value = prior
+				? prior->military_power + (observed_military - prior->military_power) * quality
+				: 0.5f + (observed_military - 0.5f) * quality;
+			auto const economic_value = prior
+				? prior->economic_power + (observed_economic - prior->economic_power) * quality
+				: 0.5f + (observed_economic - 0.5f) * quality;
+			(void)governance::intelligence::publish_assessment(state, observer.id, subject.id,
+				information_kind::national_military_power, unit(military_value), quality,
+				state.current_date, received_on);
+			(void)governance::intelligence::publish_assessment(state, observer.id, subject.id,
+				information_kind::national_economic_power, unit(economic_value), quality,
+				state.current_date, received_on);
+		}
+	}
 }
 
 bool holds_core_of(sys::state const& state, dcon::nation_id holder, dcon::nation_id claimant) {
@@ -666,11 +749,15 @@ void update_monthly(sys::state& state) {
 		if(state.strategic_interests[nation.id.index()].enabled == 0) std::abort();
 	}
 	ensure_belief_rows(state);
+	(void)economy::information::expire_old_intelligence_reports(state, state.current_date);
+	(void)economy::information::process_received_reports(state, state.current_date);
 	for(auto& view : state.strategic_beliefs) {
 		auto const observer = dcon::nation_id{ dcon::nation_id::value_base_t(uint32_t(view.key >> 32)) };
 		auto const subject = dcon::nation_id{ dcon::nation_id::value_base_t(uint32_t(view.key)) };
-		refresh_belief_values(state, observer, subject, view);
+		refresh_belief_metadata(state, observer, subject, view);
 	}
+	refresh_reported_power_beliefs(state);
+	publish_monthly_intelligence(state);
 	if(state.strategic_commitments.size() > 16384) {
 		state.strategic_commitments.erase(
 			std::remove_if(state.strategic_commitments.begin(), state.strategic_commitments.end(),

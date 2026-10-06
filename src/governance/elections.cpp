@@ -5,6 +5,7 @@
 #include "governance/legislature.hpp"
 #include "governance/offices.hpp"
 #include "governance/parties.hpp"
+#include "governance/political_resources.hpp"
 #include "persons/persons.hpp"
 
 #include <algorithm>
@@ -108,15 +109,32 @@ void set_rule(sys::state& state, dcon::office_id office, electoral_system system
 	state.world.office_set_next_election(office, first);
 }
 
-tally count(sys::state const& state, dcon::nation_id nation, std::vector<electorate::voter> const& voters,
-	std::vector<dcon::organization_id> const& candidates, dcon::territorial_unit_id district, float incumbent) {
+namespace {
+
+tally count_impl(sys::state const& state, dcon::nation_id nation, std::vector<electorate::voter> const& voters,
+	std::vector<dcon::organization_id> const& candidates, dcon::territorial_unit_id district, float incumbent,
+	sys::date election_date, std::map<uint32_t, float> const& campaign_amounts) {
 	tally result;
 	if(candidates.empty()) return result;
 	std::vector<policy::position> platforms;
 	std::vector<float> bonus;
+	double electorate_size = 0.0;
+	for(auto const& value : voters) electorate_size += std::max(0.0f, value.adults);
+	auto median_income = electorate::median_income(voters);
+	// Twenty organizers can make personal contact with roughly fifty adults
+	// apiece in one day; normalize payroll against that level of campaign reach.
+	auto campaign_scale = std::max(1.0, double(std::max(0.0f, median_income)) * electorate_size / 50.0);
 	for(auto party : candidates) {
 		platforms.push_back(parties::platform(state, party));
-		bonus.push_back(state.world.organization_get_party_governing(party) ? retrospective_weight * incumbent : 0.0f);
+		auto governing_bonus = state.world.organization_get_party_governing(party) ? retrospective_weight * incumbent : 0.0f;
+		auto campaign_bonus = 0.0f;
+		if(election_date) {
+			auto it = campaign_amounts.find(party.index());
+			auto spending = it == campaign_amounts.end() ? 0.0f : it->second;
+			if(spending > 0.0f && electorate_size > 0.0)
+				campaign_bonus = std::clamp(0.25f * std::log1p(float(double(spending) / campaign_scale)), 0.0f, 0.75f);
+		}
+		bonus.push_back(governing_bonus + campaign_bonus);
 	}
 	std::vector<double> votes(candidates.size(), 0.0);
 	for(auto const& value : voters) {
@@ -137,6 +155,17 @@ tally count(sys::state const& state, dcon::nation_id nation, std::vector<elector
 	for(size_t j = 0; j < candidates.size(); ++j) result.votes[candidates[j].index()] = float(votes[j]);
 	(void)nation;
 	return result;
+}
+
+} // namespace
+
+tally count(sys::state const& state, dcon::nation_id nation, std::vector<electorate::voter> const& voters,
+	std::vector<dcon::organization_id> const& candidates, dcon::territorial_unit_id district, float incumbent,
+	sys::date election_date) {
+	auto campaign_amounts = election_date
+		? political_resources::campaign_spending_by_party(state, candidates, election_date - 90, election_date)
+		: std::map<uint32_t, float>{};
+	return count_impl(state, nation, voters, candidates, district, incumbent, election_date, campaign_amounts);
 }
 
 std::vector<uint32_t> highest_averages(std::vector<float> const& votes, uint32_t seats) {
@@ -187,6 +216,7 @@ dcon::election_id hold(sys::state& state, dcon::institution_id chamber, std::vec
 	std::sort(seat_offices.begin(), seat_offices.end(), [](auto a, auto b) { return a.index() < b.index(); });
 	if(candidates.empty() || seat_offices.empty() || (system != electoral_system::proportional && system != electoral_system::plurality)) return {};
 	auto growth = incumbent_growth(state, nation, electorate::median_income(voters));
+	auto campaign_amounts = political_resources::campaign_spending_by_party(state, candidates, date - 90, date);
 	auto allocate = [&](tally const& counted, uint32_t seats, std::map<uint32_t, uint16_t>& won) {
 		std::vector<float> votes;
 		for(auto party : candidates) votes.push_back(counted.votes.at(party.index()));
@@ -212,12 +242,12 @@ dcon::election_id hold(sys::state& state, dcon::institution_id chamber, std::vec
 		}
 		auto apportioned = largest_remainders(weights, uint32_t(seat_offices.size()));
 		for(size_t r = 0; r < regions.size(); ++r) {
-			auto counted = count(state, nation, voters, candidates, regions[r], growth);
+			auto counted = count_impl(state, nation, voters, candidates, regions[r], growth, date, campaign_amounts);
 			add(total, counted);
 			if(apportioned[r] > 0) allocate(counted, apportioned[r], won);
 		}
 	} else {
-		total = count(state, nation, voters, candidates, {}, growth);
+		total = count_impl(state, nation, voters, candidates, {}, growth, date, campaign_amounts);
 		allocate(total, uint32_t(seat_offices.size()), won);
 	}
 	// The old members' terms end; the winners take the seats in list order.
@@ -259,14 +289,16 @@ dcon::election_id hold(sys::state& state, dcon::office_id office, std::vector<el
 		auto district = district_rule(state.world.office_get_election_districts(office)) == district_rule::own
 			? territory_of(state, institution) : dcon::territorial_unit_id{};
 		auto growth = incumbent_growth(state, nation, electorate::median_income(voters));
-		counted = count(state, nation, voters, candidates, district, growth);
+		auto campaign_amounts = political_resources::campaign_spending_by_party(state, candidates, date - 90, date);
+		counted = count_impl(state, nation, voters, candidates, district, growth, date, campaign_amounts);
 		std::vector<std::pair<float, dcon::organization_id>> ranking;
 		for(auto party : candidates) ranking.push_back({ counted.votes[party.index()], party });
 		std::stable_sort(ranking.begin(), ranking.end(), [](auto const& a, auto const& b) { return a.first > b.first; });
 		winner = ranking.front().second;
 		// Without a majority the top two meet in a runoff.
 		if(ranking.size() > 1 && ranking.front().first <= 0.5f * counted.cast) {
-			auto runoff = count(state, nation, voters, { ranking[0].second, ranking[1].second }, district, growth);
+			auto runoff_parties = std::vector{ranking[0].second, ranking[1].second};
+			auto runoff = count_impl(state, nation, voters, runoff_parties, district, growth, date, campaign_amounts);
 			winner = runoff.votes[ranking[1].second.index()] > runoff.votes[ranking[0].second.index()] ? ranking[1].second : ranking[0].second;
 		}
 	} else if(system == electoral_system::legislative) {
@@ -361,6 +393,7 @@ bool process(sys::state& state, dcon::nation_id nation, sys::date date) {
 	}
 	if(chambers.empty() && direct.empty() && legislative.empty()) return false;
 	auto voters = electorate::voters(state, nation);
+	political_resources::prepare_campaigns(state, nation, voters, date);
 	for(auto chamber : chambers) (void)hold(state, chamber, voters, date);
 	for(auto office : direct) (void)hold(state, office, voters, date);
 	for(auto office : legislative) (void)hold(state, office, voters, date);

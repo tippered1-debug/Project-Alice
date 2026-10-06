@@ -65,7 +65,7 @@ The constitution's election rows give each elected body a system, a district rul
 
 **Districts.** Districts are the nation, its regions (seats apportioned by adults with largest remainders), or the office's own territory.
 
-**Counting votes.** Each voter splits their turnout over the parties by a logit on policy distance. Governing parties gain or lose twice the change in median income since the government formed, capped at 20%. Votes are counted deterministically, without randomness.
+**Counting votes.** Each voter splits their turnout over the parties by a logit on policy distance. Governing parties gain or lose twice the change in median income since the government formed, capped at 20%. Recorded campaign organizer payroll from the preceding 90 days adds a capped, logarithmic utility bonus. Votes are counted deterministically, without randomness.
 
 **Taking office.** The winners take the seats in list order through ordinary office tenures. An office holder who wins an exclusive office leaves their other offices.
 
@@ -117,7 +117,8 @@ An office whose appointer is vacant stays vacant. An institution never fills it 
 
 ## Not yet modelled
 
-- Lobbying, campaign finance, and party money.
+- Firm-initiated political contributions, donor dependence, and lobbying.
+- Campaign staffing beyond party members and influence from unions or other organizations.
 - Protests and coups.
 - Policy beyond the fiscal law.
 - Ideological identity that persists apart from economic interest.

@@ -35,7 +35,8 @@ enum class authority_kind : uint8_t {
 };
 // What an institution's staff produce: the service its mandate funds.
 enum class service_kind : uint8_t {
-	none, administration, education, policing, construction, revenue, monetary, defense, legislation, justice
+	none, administration, education, policing, construction, revenue, monetary, defense, legislation, justice,
+	intelligence, counterintelligence
 };
 
 // An action's jurisdiction: a whole nation, or a territorial unit inside one.
