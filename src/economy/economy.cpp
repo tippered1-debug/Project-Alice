@@ -1166,20 +1166,11 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 	collect_taxes(state);
 
-	auto collected_tariff_buffer = state.world.nation_make_vectorizable_float_buffer();
 	for(auto mid : state.world.in_market) {
-		auto controller = mid.get_zone_from_local_market().get_capital().get_nation_from_province_control();
-		// skip if rebel controlled
-		if(!controller) {
-			continue;
-		}
-		auto old_value = collected_tariff_buffer.get(controller);
-		auto collected = mid.get_tariff_collected();
-		collected_tariff_buffer.set(controller, old_value + collected);
+		// This DCON field is a legacy market projection. Actual customs liabilities
+		// are assessed against buyer/seller accounts on concrete cross-border fills.
 		mid.set_tariff_collected(0.f);
 	};
-	// Tariff proceeds require an explicit concrete fiscal account; do not credit
-	// the legacy nation stockpile.
 
 
 	sanity_check(state);

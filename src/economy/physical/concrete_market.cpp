@@ -1,9 +1,12 @@
 #include "concrete_market.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/banking/banking.hpp"
+#include "economy/foreign_exchange.hpp"
+#include "economy/physical/exchange.hpp"
 
 #include "accounts/accounts.hpp"
 #include "economy/causal_order.hpp"
+#include "economy/economy_trade_routes.hpp"
 #include "exchange.hpp"
 #include "inventory.hpp"
 #include "shipments.hpp"
@@ -24,6 +27,7 @@ namespace economy::physical::concrete_market {
 namespace {
 constexpr uint8_t active = uint8_t(order_status::active);
 constexpr float epsilon = 1.0e-5f;
+constexpr float quote_budget_ceiling = std::numeric_limits<float>::max() / 4.0f;
 
 bool valid(float value) { return std::isfinite(value) && value > 0.0f; }
 
@@ -79,6 +83,24 @@ float route_distance_for_match(sys::state& state, dcon::site_id origin,
 		return std::max(0.0f, spatial.generalized_cost);
 	}
 	return std::numeric_limits<float>::infinity();
+}
+
+dcon::nation_id nation_for_site(sys::state const& state, dcon::site_id site) {
+	if(!site || !state.world.site_is_valid(site)) return {};
+	auto province = state.world.site_get_province_from_site_location(site);
+	if(!province || !state.world.province_is_valid(province)) return {};
+	auto controller = state.world.province_get_nation_from_province_control(province);
+	if(controller) return controller;
+	auto zone = state.world.province_get_state_membership(province);
+	return zone ? state.world.state_instance_get_nation_from_state_ownership(zone)
+		: dcon::nation_id{};
+}
+
+bool embargoed_route(sys::state& state, dcon::site_id origin, dcon::site_id destination) {
+	auto exporter = nation_for_site(state, origin);
+	auto importer = nation_for_site(state, destination);
+	return exporter && importer && exporter != importer
+		&& economy::embargo_exists(state, exporter, importer).combined;
 }
 
 struct ask_candidate {
@@ -239,10 +261,30 @@ std::vector<dcon::concrete_trade_fill_id> match_impl(sys::state& state,
 			std::vector<ask_candidate> exact_asks;
 			for(auto ask : asks) {
 				auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
+				if(embargoed_route(state, source, exact_bid->destination)) continue;
+				auto goods_price = state.world.concrete_market_ask_get_minimum_price(ask);
 				auto landed = landed_unit_cost(state, source, exact_bid->destination, commodity,
-					state.world.concrete_market_ask_get_minimum_price(ask));
-				exact_asks.push_back({ask, landed,
-					std::max(0.0f, landed - state.world.concrete_market_ask_get_minimum_price(ask))});
+					goods_price);
+				auto buyer_account = economy::exact_person_economy::account_ref::from_exact(
+					exact_bid->exact_account_id);
+				auto source_currency = economy::exact_person_economy::settlement_of(state, buyer_account);
+				auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
+				auto settlement = accounts::find_account(state, seller, source_currency)
+					? source_currency : accounts::first_settlement_for(state, seller);
+				if(!settlement) continue;
+				float converted_goods = goods_price;
+				float converted_landed = landed;
+				if(settlement != source_currency) {
+					auto goods_quote = economy::foreign_exchange::quote_conversion(state,
+						source_currency, settlement, goods_price, quote_budget_ceiling, buyer_account);
+					auto landed_quote = economy::foreign_exchange::quote_conversion(state,
+						source_currency, settlement, landed, quote_budget_ceiling, buyer_account);
+					if(!goods_quote.available || !landed_quote.available) continue;
+					converted_goods = goods_quote.source_amount;
+					converted_landed = landed_quote.source_amount;
+				}
+				exact_asks.push_back({ask, converted_landed,
+					std::max(0.0f, converted_landed - converted_goods)});
 			}
 			std::sort(exact_asks.begin(), exact_asks.end(), [&](auto const& left, auto const& right) {
 				if(left.landed_price != right.landed_price) return left.landed_price < right.landed_price;
@@ -262,14 +304,34 @@ std::vector<dcon::concrete_trade_fill_id> match_impl(sys::state& state,
 		auto buyer = state.world.concrete_market_bid_get_economic_actor_from_concrete_bid_buyer(bid);
 		auto destination = state.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid);
 		auto bid_limit = state.world.concrete_market_bid_get_limit_price(bid);
+		auto account = state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid);
+		auto funding = state.world.concrete_market_bid_get_deposit_account_from_concrete_bid_deposit(bid);
+		auto source_currency = funding
+			? state.world.deposit_account_get_commodity_from_deposit_account_settlement(funding)
+			: accounts::settlement_of(state, account);
 		for(auto ask : asks) {
 			auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 			auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
 			if(!seller || seller == buyer || !source || !destination) continue;
+			if(embargoed_route(state, source, destination)) continue;
 			auto goods_price = state.world.concrete_market_ask_get_minimum_price(ask);
 			auto landed = landed_unit_cost(state, source, destination, commodity, goods_price);
 			if(!std::isfinite(landed)) continue;
-			ranked_asks.push_back({ask, landed, std::max(0.0f, landed - goods_price)});
+			float converted_goods = goods_price;
+			float converted_landed = landed;
+			if(funding) {
+				if(!accounts::find_account(state, seller, source_currency)) continue;
+			} else {
+				auto goods_quote = exchange::quote_purchase_with_account(state, seller,
+					account, goods_price, quote_budget_ceiling);
+				auto landed_quote = exchange::quote_purchase_with_account(state, seller,
+					account, landed, quote_budget_ceiling);
+				if(!goods_quote.available || !landed_quote.available) continue;
+				converted_goods = goods_quote.buyer_source_amount;
+				converted_landed = landed_quote.buyer_source_amount;
+			}
+			ranked_asks.push_back({ask, converted_landed,
+				std::max(0.0f, converted_landed - converted_goods)});
 		}
 		std::sort(ranked_asks.begin(), ranked_asks.end(), [&](auto const& left, auto const& right) {
 			if(left.landed_price != right.landed_price) return left.landed_price < right.landed_price;
@@ -284,19 +346,42 @@ std::vector<dcon::concrete_trade_fill_id> match_impl(sys::state& state,
 			auto price = state.world.concrete_market_ask_get_minimum_price(ask);
 			if(ranked.landed_price > bid_limit) break;
 			auto source = state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask);
-			auto account = state.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid);
-			auto funding = state.world.concrete_market_bid_get_deposit_account_from_concrete_bid_deposit(bid);
 			auto quantity = std::min(state.world.concrete_market_bid_get_remaining_quantity(bid), state.world.concrete_market_ask_get_remaining_quantity(ask));
 			quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
 			auto free_funds = funding
 				? economy::banking::deposit_balance(state, funding) - reserved_deposit_funds(state, funding)
-				: accounts::balance(state, account) - reserved_funds(state, account);
-			quantity = std::min(quantity, std::max(0.0f, (free_funds + state.world.concrete_market_bid_get_reserved_amount(bid))
-				/ std::max(ranked.landed_price, price)));
+				: economy::foreign_exchange::available_balance(state,
+					economy::exact_person_economy::account_ref::from_dcon(account))
+					- reserved_funds(state, account);
+			auto source_budget = std::max(0.0f,
+				free_funds + state.world.concrete_market_bid_get_reserved_amount(bid));
+			float low = 0.0f;
+			float high = quantity;
+			for(int iteration = 0; iteration < 24; ++iteration) {
+				auto candidate_quantity = (low + high) * 0.5f;
+				auto allowed_for_goods = std::max(0.0f,
+					bid_limit - ranked.transport_price) * candidate_quantity;
+				auto budget = std::min(source_budget, allowed_for_goods);
+				bool affordable = false;
+				if(funding) {
+					affordable = candidate_quantity * price <= budget + epsilon;
+				} else {
+					auto payment = exchange::quote_purchase_with_account(state, seller,
+						account, candidate_quantity * price, budget);
+					affordable = payment.available
+						&& payment.buyer_source_amount <= budget + epsilon;
+				}
+				if(affordable) low = candidate_quantity;
+				else high = candidate_quantity;
+			}
+			quantity = low;
 			if(!valid(quantity)) continue;
+			auto max_payment_source = std::min(source_budget,
+				std::max(0.0f, bid_limit - ranked.transport_price) * quantity);
 			auto transaction = funding
 				? exchange::purchase_with_deposit(state, source, commodity, seller, buyer, funding, quantity, price, date)
-				: exchange::purchase_with_account(state, source, commodity, seller, buyer, account, quantity, price, date);
+				: exchange::purchase_with_account(state, source, commodity, seller, buyer,
+					account, quantity, price, max_payment_source, date);
 			if(!transaction) continue;
 			state.world.concrete_market_bid_set_remaining_quantity(bid, std::max(0.0f, state.world.concrete_market_bid_get_remaining_quantity(bid) - quantity));
 			state.world.concrete_market_bid_set_reserved_amount(bid, state.world.concrete_market_bid_get_remaining_quantity(bid) * state.world.concrete_market_bid_get_limit_price(bid));
@@ -310,6 +395,26 @@ std::vector<dcon::concrete_trade_fill_id> match_impl(sys::state& state,
 			auto request = freight_market::create_request(state, buyer, account, source, destination, commodity, quantity);
 			auto contract = request ? freight_market::match_request(state, request) : dcon::freight_contract_id{};
 			auto shipment = contract ? state.world.freight_contract_get_shipment_from_freight_contract_shipment(contract) : dcon::shipment_id{};
+			auto settlement = funding
+				? state.world.deposit_account_get_commodity_from_deposit_account_settlement(funding)
+				: state.world.transaction_get_settlement_commodity(transaction);
+			auto seller_deposit = funding
+				? economy::banking::deposit_account_for(state, seller, settlement,
+					state.world.deposit_account_get_organization_from_deposit_account_bank(funding))
+				: dcon::deposit_account_id{};
+			auto buyer_payment_wallet = funding ? dcon::monetary_account_id{}
+				: accounts::find_account(state, buyer, settlement);
+			auto seller_wallet = seller_deposit ? dcon::monetary_account_id{}
+				: accounts::find_account(state, seller, settlement);
+			economy::physical::exchange::assess_customs_duties(state, buyer, seller,
+				source, destination, commodity, quantity * price,
+				funding ? economy::exact_person_economy::account_ref{}
+					: buyer_payment_wallet
+						? economy::exact_person_economy::account_ref::from_dcon(buyer_payment_wallet)
+						: economy::exact_person_economy::account_ref{},
+				funding,
+				seller_wallet ? economy::exact_person_economy::account_ref::from_dcon(seller_wallet)
+					: economy::exact_person_economy::account_ref{}, seller_deposit, date);
 			auto fill = state.world.create_concrete_trade_fill();
 			state.world.concrete_trade_fill_set_quantity(fill, quantity);
 			state.world.concrete_trade_fill_set_execution_price(fill, price);

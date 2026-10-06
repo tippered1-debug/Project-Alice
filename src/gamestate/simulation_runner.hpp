@@ -239,8 +239,6 @@ struct aggregate_snapshot {
 	double trade_cargo_in_transit = 0.0;
 	double trade_land_capacity_demand = 0.0;
 	double trade_sea_capacity_demand = 0.0;
-	double minimum_foreign_settlement = 1.0;
-	double maximum_exchange_rate_multiplier = 1.0;
 	double market_quantity_traded = 0.0;
 	double market_unfilled_life_needs = 0.0;
 	double market_unfilled_intermediate = 0.0;
@@ -705,13 +703,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		result.trade_sea_capacity_demand += double(shipment_allocation.requested_capacity(
 			market, economy::world_trade::transport_mode::sea));
 	});
-	state.world.for_each_nation([&](dcon::nation_id nation) {
-		result.minimum_foreign_settlement = std::min(result.minimum_foreign_settlement,
-			double(shipment_allocation.import_settlement(nation)));
-		result.maximum_exchange_rate_multiplier = std::max(
-			result.maximum_exchange_rate_multiplier,
-			double(shipment_allocation.exchange_rate_multiplier(nation)));
-	});
 	state.world.for_each_trade_route([&](dcon::trade_route_id route) {
 		++result.trade_route_count;
 		auto const trade = economy::world_trade::evaluate_route_shipment_capacity(
@@ -886,8 +877,6 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.trade_cargo_in_transit);
 	validate_aggregate(snapshot.trade_land_capacity_demand);
 	validate_aggregate(snapshot.trade_sea_capacity_demand);
-	validate_aggregate(snapshot.minimum_foreign_settlement);
-	validate_aggregate(snapshot.maximum_exchange_rate_multiplier);
 	validate_aggregate(snapshot.market_quantity_traded);
 	validate_aggregate(snapshot.market_unfilled_life_needs);
 	validate_aggregate(snapshot.market_unfilled_intermediate);
@@ -1061,9 +1050,7 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"cargo_in_transit\":" << snapshot.trade_cargo_in_transit
 		<< ",\"land_capacity_demand\":" << snapshot.trade_land_capacity_demand
 		<< ",\"sea_capacity_demand\":" << snapshot.trade_sea_capacity_demand
-		<< ",\"minimum_foreign_settlement\":" << snapshot.minimum_foreign_settlement
-		<< ",\"maximum_exchange_rate_multiplier\":"
-		<< snapshot.maximum_exchange_rate_multiplier << "}"
+		<< "}"
 		<< ",\"market_clearing\":{\"quantity_traded\":" << snapshot.market_quantity_traded
 		<< ",\"unfilled_life_needs\":" << snapshot.market_unfilled_life_needs
 		<< ",\"unfilled_intermediate\":" << snapshot.market_unfilled_intermediate

@@ -74,8 +74,6 @@ struct shipment_allocation {
 	std::vector<float> requested_sea_capacity;
 	std::vector<float> land_scale;
 	std::vector<float> sea_scale;
-	std::vector<float> nation_import_settlement;
-	std::vector<float> nation_exchange_rate_multiplier;
 
 	float requested(dcon::trade_route_id route) const noexcept;
 	float actual(dcon::trade_route_id route) const noexcept;
@@ -87,8 +85,6 @@ struct shipment_allocation {
 	float scale(dcon::market_id market) const noexcept;
 	float requested_capacity(dcon::market_id market, transport_mode mode) const noexcept;
 	float scale(dcon::market_id market, transport_mode mode) const noexcept;
-	float import_settlement(dcon::nation_id nation) const noexcept;
-	float exchange_rate_multiplier(dcon::nation_id nation) const noexcept;
 };
 
 // Clears every route together because routes compete for shared endpoint

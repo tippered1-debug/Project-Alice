@@ -57,6 +57,13 @@ policy_tax_result assess_and_collect_topic_tax(sys::state&, policy::topic_id,
 	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
 	float taxable_value, economy::exact_person_economy::account_ref payer_wallet,
 	dcon::deposit_account_id payer_deposit, sys::date date);
+// Assesses a tax defined by a fiscal rule outside the policy-topic registry,
+// such as the existing import/export tariff settings.
+policy_tax_result assess_and_collect_tax_at_rate(sys::state&,
+	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
+	float taxable_value, float rate,
+	economy::exact_person_economy::account_ref payer_wallet,
+	dcon::deposit_account_id payer_deposit, sys::date date);
 
 dcon::fiscal_action_id authorized_spend(sys::state&, dcon::person_id initiator,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id recipient_account,

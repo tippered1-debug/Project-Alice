@@ -49,6 +49,7 @@
 #include "military/land_forces.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/foreign_exchange.hpp"
 #include "economy/physical/exact_person_freight.hpp"
 #include "technology/technology_kernel.hpp"
 #include "economy/physical/exact_person_goods.hpp"
@@ -3378,6 +3379,7 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 	if(!factory_sites_complete) std::abort();
 	::economy::causal_order::initialize_empty_store(*this);
 	::economy::exact_person_economy::initialize_empty_store(*this);
+	::economy::foreign_exchange::initialize_empty_store(*this);
 	::economy::physical::exact_person_goods::initialize_empty_store(*this);
 	::economy::physical::exact_person_freight::initialize_empty_store(*this);
 	::economy::physical::labor_dynamics::initialize_empty_store(*this);

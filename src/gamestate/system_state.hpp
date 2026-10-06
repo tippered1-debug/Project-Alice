@@ -58,6 +58,7 @@ namespace economy {
 struct capital_projects_store;
 struct exact_person_economy_store;
 struct causal_order_store;
+struct foreign_exchange_store;
 namespace physical {
 struct exact_person_goods_store;
 struct exact_person_freight_store;
@@ -769,6 +770,7 @@ struct alignas(64) state {
 	// canonical runtime stores initialized with a new scenario and restored from saves.
 	mutable std::shared_ptr<economy::exact_person_economy_store> exact_person_economy;
 	mutable std::shared_ptr<economy::causal_order_store> causal_order;
+	mutable std::shared_ptr<economy::foreign_exchange_store> foreign_exchange;
 	mutable std::shared_ptr<economy::physical::exact_person_goods_store> exact_person_goods;
 	mutable std::shared_ptr<economy::physical::exact_person_freight_store> exact_person_freight;
 	// Sparse labor-separation history and events. This does not allocate one

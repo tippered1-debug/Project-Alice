@@ -1,4 +1,5 @@
 #include "accounts.hpp"
+#include "economy/foreign_exchange.hpp"
 #include "economy/money/ontology.hpp"
 #include "system_state.hpp"
 
@@ -90,7 +91,8 @@ dcon::transaction_id transfer(sys::state& state, dcon::monetary_account_id sourc
 	auto settlement = settlement_of(state, source);
 	if(!source_owner || !destination_owner || !settlement || !state.world.commodity_is_valid(settlement)
 		|| settlement_of(state, destination) != settlement) return {};
-	if(balance(state, source) < amount) return {};
+	if(economy::foreign_exchange::available_balance(state,
+		economy::exact_person_economy::account_ref::from_dcon(source)) < amount) return {};
 	// All validation is complete before either balance or transaction is changed.
 	state.world.monetary_account_set_balance(source, balance(state, source) - amount);
 	state.world.monetary_account_set_balance(destination, balance(state, destination) + amount);

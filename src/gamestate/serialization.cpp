@@ -6,6 +6,7 @@
 #include "economy/causal_order.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/foreign_exchange.hpp"
 #include "economy/physical/exact_person_freight.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/labor_dynamics.hpp"
@@ -49,7 +50,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 15;
+constexpr uint16_t exact_runtime_save_version = 16;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -57,6 +58,7 @@ constexpr uint32_t exact_runtime_max_records = 64'000'000u;
 struct exact_runtime_snapshot {
 	persons::exact_population::catalog_snapshot population;
 	economy::exact_person_economy::economy_snapshot economy;
+	economy::foreign_exchange::snapshot foreign_exchange;
 	economy::physical::exact_person_goods::goods_snapshot goods;
 	economy::physical::exact_person_freight::freight_snapshot freight;
 	economy::physical::labor_dynamics::snapshot labor;
@@ -268,6 +270,7 @@ bool read_technology_snapshot(uint8_t const*& ptr, uint8_t const* end,
 std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	auto const& population = snapshot.population;
 	auto const& economy = snapshot.economy;
+	auto const& foreign_exchange = snapshot.foreign_exchange;
 	auto const& goods = snapshot.goods;
 	auto const& freight = snapshot.freight;
 	auto const& labor = snapshot.labor;
@@ -310,6 +313,9 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 		+ pod_vector_size(land_forces.equipment_losses) + pod_vector_size(land_forces.casualty_events);
 	size += technology_snapshot_size(technology);
 	size += pod_vector_size(snapshot.construction);
+	size += sizeof(foreign_exchange.version) + sizeof(foreign_exchange.next_order_id)
+		+ sizeof(foreign_exchange.next_fill_id) + pod_vector_size(foreign_exchange.orders)
+		+ pod_vector_size(foreign_exchange.fills);
 	return size;
 }
 
@@ -317,6 +323,7 @@ exact_runtime_snapshot capture_exact_runtime_snapshot(sys::state const& state) {
 	exact_runtime_snapshot result;
 	result.population = persons::exact_population::export_snapshot(state);
 	result.economy = economy::exact_person_economy::export_snapshot(state);
+	result.foreign_exchange = economy::foreign_exchange::export_snapshot(state);
 	result.goods = economy::physical::exact_person_goods::export_snapshot(state);
 	result.freight = economy::physical::exact_person_freight::export_snapshot(state);
 	result.labor = economy::physical::labor_dynamics::export_snapshot(state);
@@ -347,6 +354,7 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 
 	auto const& population = snapshot.population;
 	auto const& economy = snapshot.economy;
+	auto const& foreign_exchange = snapshot.foreign_exchange;
 	auto const& goods = snapshot.goods;
 	auto const& freight = snapshot.freight;
 	auto const& labor = snapshot.labor;
@@ -425,6 +433,11 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = write_pod_vector(ptr, land_forces.casualty_events);
 	ptr = write_technology_snapshot(ptr, technology);
 	ptr = write_pod_vector(ptr, snapshot.construction);
+	ptr = memcpy_serialize(ptr, foreign_exchange.version);
+	ptr = memcpy_serialize(ptr, foreign_exchange.next_order_id);
+	ptr = memcpy_serialize(ptr, foreign_exchange.next_fill_id);
+	ptr = write_pod_vector(ptr, foreign_exchange.orders);
+	ptr = write_pod_vector(ptr, foreign_exchange.fills);
 	assert(std::size_t(ptr - payload_start) == payload_size);
 	return ptr;
 }
@@ -581,6 +594,16 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	} else if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.casualty_events);
 	if(valid && version >= 12) valid = read_technology_snapshot(ptr, payload_end, result.technology);
 	if(valid && version >= 15) valid = read_pod_vector(ptr, payload_end, result.construction);
+	if(valid && version >= 16) {
+		if(std::size_t(payload_end - ptr) < sizeof(result.foreign_exchange.version)
+			+ sizeof(result.foreign_exchange.next_order_id)
+			+ sizeof(result.foreign_exchange.next_fill_id)) valid = false;
+	}
+	if(valid && version >= 16) ptr = memcpy_deserialize(ptr, result.foreign_exchange.version);
+	if(valid && version >= 16) ptr = memcpy_deserialize(ptr, result.foreign_exchange.next_order_id);
+	if(valid && version >= 16) ptr = memcpy_deserialize(ptr, result.foreign_exchange.next_fill_id);
+	if(valid && version >= 16) valid = read_pod_vector(ptr, payload_end, result.foreign_exchange.orders);
+	if(valid && version >= 16) valid = read_pod_vector(ptr, payload_end, result.foreign_exchange.fills);
 	valid = valid && ptr == payload_end;
 	if(valid) result.present = true;
 	else {
@@ -597,6 +620,7 @@ void clear_exact_runtime_state(sys::state& state) {
 	economy::capital_projects::clear_requests(state);
 	persons::exact_population::clear_store(state);
 	economy::exact_person_economy::clear_store(state);
+	economy::foreign_exchange::clear_store(state);
 	economy::physical::exact_person_goods::clear_store(state);
 	economy::physical::exact_person_freight::clear_store(state);
 	economy::physical::labor_dynamics::clear_store(state);
@@ -612,6 +636,7 @@ bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const
 	bool restored = persons::exact_population::import_snapshot(state, snapshot.population)
 		&& economy::causal_order::import_snapshot(state, snapshot.causal_order)
 		&& economy::exact_person_economy::import_snapshot(state, snapshot.economy)
+		&& economy::foreign_exchange::import_snapshot(state, snapshot.foreign_exchange)
 		&& economy::physical::exact_person_goods::import_snapshot(state, snapshot.goods)
 		&& economy::physical::exact_person_freight::import_snapshot(state, snapshot.freight)
 		&& economy::physical::labor_dynamics::import_snapshot(state, snapshot.labor);

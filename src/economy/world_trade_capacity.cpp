@@ -2,7 +2,6 @@
 
 #include "advanced_province_buildings.hpp"
 #include "commodity_logistics.hpp"
-#include "foreign_exchange.hpp"
 #include "market_clearing.hpp"
 #include "money.hpp"
 #include "economy_stats.hpp"
@@ -254,14 +253,6 @@ float shipment_allocation::scale(dcon::market_id market,
 		: indexed_or(land_scale, market, 1.0f);
 }
 
-float shipment_allocation::import_settlement(dcon::nation_id nation) const noexcept {
-	return indexed_or(nation_import_settlement, nation, 1.0f);
-}
-
-float shipment_allocation::exchange_rate_multiplier(dcon::nation_id nation) const noexcept {
-	return indexed_or(nation_exchange_rate_multiplier, nation, 1.0f);
-}
-
 capacity_result evaluate_shipment_capacity(
 		capacity_config const& config,
 		float requested_cargo,
@@ -303,8 +294,6 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 	result.requested_sea_capacity.resize(state.world.market_size(), 0.0f);
 	result.land_scale.resize(state.world.market_size(), 1.0f);
 	result.sea_scale.resize(state.world.market_size(), 1.0f);
-	result.nation_import_settlement.resize(state.world.nation_size(), 1.0f);
-	result.nation_exchange_rate_multiplier.resize(state.world.nation_size(), 1.0f);
 
 	std::vector<float> land_availability(state.world.market_size(), 0.0f);
 	std::vector<float> port_availability(state.world.market_size(), 0.0f);
@@ -614,103 +603,19 @@ shipment_allocation clear_trade_shipments(sys::state const& state) {
 		assert(result.actual_route_cargo[route_index] <= requested);
 	}
 
-	// Foreign purchases need a settlement asset. Net export receipts clear first;
-	// only a bounded daily share of treasury/bank liquidity can finance the gap.
-	// Domestic shipments bypass this layer entirely.
-	std::vector<double> import_bills(state.world.nation_size(), 0.0);
-	std::vector<double> export_receipts(state.world.nation_size(), 0.0);
-	auto market_nation = [&](dcon::market_id market) {
-		if(!market || !state.world.market_is_valid(market))
-			return dcon::nation_id{};
-		auto const state_instance =
-			state.world.market_get_zone_from_local_market(market);
-		if(!state_instance || !state.world.state_instance_is_valid(state_instance))
-			return dcon::nation_id{};
-		auto nation = state.world.state_instance_get_nation_from_state_ownership(
-			state_instance);
-		auto const capital = state.world.state_instance_get_capital(state_instance);
-		if(capital && state.world.province_is_valid(capital)) {
-			auto const controller =
-				state.world.province_get_nation_from_province_control(capital);
-			if(controller)
-				nation = controller;
-		}
-		return nation;
-	};
-
+	// DCON trade-route volume is a read model of concrete shipments, which have
+	// already passed goods payment and physical freight clearing. An aggregate
+	// settlement fraction here would retroactively erase cargo from that record.
 	state.world.for_each_trade_route([&](dcon::trade_route_id route) {
 		auto const route_index = size_t(route.index());
 		if(route_index >= route_count)
 			return;
-		auto const market_0 = state.world.trade_route_get_connected_markets(route, 0);
-		auto const market_1 = state.world.trade_route_get_connected_markets(route, 1);
-		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-			auto const shipment_index = route_index * result.commodity_count
-				+ size_t(commodity.index());
-			if(shipment_index >= result.actual_commodity_cargo.size())
-				return;
-			auto const quantity = result.actual_commodity_cargo[shipment_index];
-			if(quantity <= 0.0f)
-				return;
-			auto const volume = state.world.trade_route_get_volume(route, commodity);
-			auto const origin = volume > 0.0f ? market_0 : market_1;
-			auto const target = volume > 0.0f ? market_1 : market_0;
-			auto const exporter = market_nation(origin);
-			auto const importer = market_nation(target);
-			if(!exporter || !importer || exporter == importer)
-				return;
-			auto const exporter_index = size_t(exporter.index());
-			auto const importer_index = size_t(importer.index());
-			if(exporter_index >= export_receipts.size()
-					|| importer_index >= import_bills.size())
-				return;
-			auto const export_price = finite_nonnegative(
-				state.world.market_get_price(origin, commodity));
-			auto const import_price = finite_nonnegative(
-				state.world.market_get_price(target, commodity));
-			export_receipts[exporter_index] += double(quantity) * export_price;
-			import_bills[importer_index] += double(quantity) * import_price;
-		});
-	});
-
-	state.world.for_each_nation([&](dcon::nation_id nation) {
-		auto const index = size_t(nation.index());
-		if(index >= import_bills.size())
-			return;
-		auto const reserves = 0.0f;
-		auto const settlement = foreign_exchange::evaluate({
-			.enabled = true,
-			.import_bill = float(std::min(import_bills[index],
-				double(std::numeric_limits<float>::max()))),
-			.export_receipts = float(std::min(export_receipts[index],
-				double(std::numeric_limits<float>::max()))),
-			.liquid_reserves = reserves});
-		result.nation_import_settlement[index] = settlement.settlement_fraction;
-		result.nation_exchange_rate_multiplier[index] =
-			settlement.exchange_rate_multiplier;
-	});
-
-	state.world.for_each_trade_route([&](dcon::trade_route_id route) {
-		auto const route_index = size_t(route.index());
-		if(route_index >= route_count)
-			return;
-		auto const market_0 = state.world.trade_route_get_connected_markets(route, 0);
-		auto const market_1 = state.world.trade_route_get_connected_markets(route, 1);
 		double actual_cargo = 0.0;
 		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
 			auto const shipment_index = route_index * result.commodity_count
 				+ size_t(commodity.index());
 			if(shipment_index >= result.actual_commodity_cargo.size())
 				return;
-			auto const volume = state.world.trade_route_get_volume(route, commodity);
-			auto const origin = volume > 0.0f ? market_0 : market_1;
-			auto const target = volume > 0.0f ? market_1 : market_0;
-			auto const exporter = market_nation(origin);
-			auto const importer = market_nation(target);
-			auto settlement_scale = 1.0f;
-			if(exporter && importer && exporter != importer)
-				settlement_scale = result.import_settlement(importer);
-			result.actual_commodity_cargo[shipment_index] *= settlement_scale;
 			auto const requested = result.requested_commodity_cargo[shipment_index];
 			result.commodity_scale[shipment_index] = requested > 0.0f
 				? unit_interval(result.actual_commodity_cargo[shipment_index] / requested)

@@ -6,6 +6,7 @@
 #include "economy/physical/household_mobility.hpp"
 #include "economy/collective_labor.hpp"
 #include "economy/causal_order.hpp"
+#include "economy/foreign_exchange.hpp"
 #include "economy/money/ontology.hpp"
 #include "money.hpp"
 #include "governance/governance.hpp"
@@ -408,7 +409,7 @@ transfer_result transfer_with_result(sys::state& state, account_ref source, acco
 		|| source == destination || !finite_positive(amount)
 		|| settlement_of(state, source) != settlement_of(state, destination)
 		|| !std::isfinite(source_balance) || !std::isfinite(destination_balance)
-		|| source_balance < amount
+		|| foreign_exchange::available_balance(state, source) < amount
 		|| amount > std::numeric_limits<float>::max() - destination_balance) return result;
 	if(source.kind == account_kind::dcon) {
 		monetary::ontology::account_view view;

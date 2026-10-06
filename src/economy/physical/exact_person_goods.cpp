@@ -4,13 +4,17 @@
 #include "accounts/accounts.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/relations/relations.hpp"
+#include "economy/foreign_exchange.hpp"
 #include "concrete_market.hpp"
+#include "exchange.hpp"
 #include "exact_person_freight.hpp"
 #include "economy/physical/extraction.hpp"
 #include "governance/finance/finance.hpp"
 #include "governance/policy.hpp"
 #include "inventory.hpp"
 #include "economy/economy_pops.hpp"
+#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
@@ -344,7 +348,8 @@ uint64_t post_bid(sys::state& state, person_key buyer, economy::exact_person_eco
 	float quantity, float limit_price, order_purpose purpose) {
 	using namespace economy::exact_person_economy;
 	if(!persons::exists(state, buyer) || !persons::alive(state, buyer) || account.kind != account_kind::exact || owner_of(state, account) != buyer || !destination || !market || !commodity || !state.world.site_is_valid(destination) || !state.world.market_is_valid(market) || !state.world.commodity_is_valid(commodity) || !positive_finite(quantity) || !positive_finite(limit_price)) return 0;
-	auto free = balance(state, account) - reserved_exact(state, account.exact_account_id);
+	auto free = foreign_exchange::available_balance(state, account)
+		- reserved_exact(state, account.exact_account_id);
 	if(!std::isfinite(free) || free + epsilon < quantity * limit_price) return 0;
 	auto id = next_id(ensure_store(state)->next_bid_id);
 	if(!id) return 0;
@@ -385,18 +390,51 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 	auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
 	auto commodity = state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask);
 	auto price = state.world.concrete_market_ask_get_minimum_price(ask);
-	if(!source || commodity != bid->commodity || !seller || !positive_finite(price) || price > bid->limit_price || !positive_finite(bid->remaining_quantity)) return 0;
+	if(!source || commodity != bid->commodity || !seller || !positive_finite(price) || !positive_finite(bid->remaining_quantity)) return 0;
 	using namespace economy::exact_person_economy;
 	auto buyer_account = account_ref::from_exact(bid->exact_account_id);
-	auto settlement = settlement_of(state, buyer_account);
+	auto source_settlement = settlement_of(state, buyer_account);
+	auto settlement = accounts::find_account(state, seller, source_settlement)
+		? source_settlement : accounts::first_settlement_for(state, seller);
 	auto seller_account = accounts::find_account(state, seller, settlement);
-	if(!seller_account || accounts::owner_of(state, seller_account) != seller || inventory::quantity(state, source, commodity, seller) <= 0.0f) return 0;
+	if(!settlement || !seller_account || accounts::owner_of(state, seller_account) != seller
+		|| inventory::quantity(state, source, commodity, seller) <= 0.0f) return 0;
 	auto quantity = std::min(bid->remaining_quantity,
 		state.world.concrete_market_ask_get_remaining_quantity(ask));
 	quantity = std::min(quantity, inventory::quantity(state, source, commodity, seller));
-	auto free = balance(state, buyer_account) - reserved_exact(state, bid->exact_account_id) + bid->reserved_amount;
-	quantity = std::min(quantity, std::max(0.0f, free / price));
-	if(!positive_finite(quantity) || quantity * price > free + epsilon) return 0;
+	auto free = foreign_exchange::available_balance(state, buyer_account)
+		- reserved_exact(state, bid->exact_account_id) + bid->reserved_amount;
+	if(free <= epsilon) return 0;
+	float low = 0.0f;
+	float high = quantity;
+	for(int iteration = 0; iteration < 24; ++iteration) {
+		auto candidate = (low + high) * 0.5f;
+		auto cost = candidate * price;
+		auto budget = std::min(free, candidate * bid->limit_price);
+		bool affordable = false;
+		if(settlement == source_settlement) affordable = cost <= budget + epsilon;
+		else {
+			auto quote = foreign_exchange::quote_conversion(state, source_settlement,
+				settlement, cost, budget, buyer_account);
+			affordable = quote.available;
+		}
+		if(affordable) low = candidate;
+		else high = candidate;
+	}
+	quantity = low;
+	if(!positive_finite(quantity)) return 0;
+	auto max_source_amount = std::min(free, quantity * bid->limit_price);
+	auto buyer_payment_account = buyer_account;
+	if(settlement != source_settlement) {
+		buyer_payment_account = find_account(state, bid->buyer, settlement);
+		if(!buyer_payment_account) buyer_payment_account = open_account(state, bid->buyer, settlement);
+		if(!buyer_payment_account) return 0;
+		auto payment_position = foreign_exchange::account_position(state, buyer_payment_account);
+		if(payment_position.reserved > payment_position.balance + epsilon) return 0;
+		auto converted = foreign_exchange::convert(state, buyer_account,
+			buyer_payment_account, quantity * price, max_source_amount, date);
+		if(!converted.available) return 0;
+	}
 	auto fill_id = next_id(ensure_store(state)->next_fill_id);
 	if(!fill_id) return 0;
 	if(inventory::remove(state, source, commodity, quantity, seller) != quantity) return 0;
@@ -414,7 +452,7 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 			return 0;
 		}
 	}
-	auto transfer = transfer_with_result(state, buyer_account, account_ref::from_dcon(seller_account),
+	auto transfer = transfer_with_result(state, buyer_payment_account, account_ref::from_dcon(seller_account),
 		quantity * price, relations::transaction_kind::purchase, date);
 	if(!transfer.success) {
 		if(freight_request) exact_person_freight::cancel_request(state, freight_request);
@@ -426,6 +464,14 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 		seller, source, commodity))
 		(void)governance::finance::assess_and_collect_topic_tax(state,
 			governance::policy::topic_id::resource_royalty, nation, seller, quantity * price,
+			account_ref::from_dcon(seller_account), {}, date);
+	auto buyer_profile = persons::exact_population::profile_for_person(state, bid->buyer);
+	auto buyer_actor = buyer_profile ? persons::actor_for_person(state, buyer_profile)
+		: dcon::economic_actor_id{};
+	if(buyer_actor)
+		exchange::assess_customs_duties(state, buyer_actor, seller, source,
+			bid->destination, commodity, quantity * price,
+			buyer_payment_account, {},
 			account_ref::from_dcon(seller_account), {}, date);
 	bid->remaining_quantity = std::max(0.0f, bid->remaining_quantity - quantity);
 	bid->reserved_amount = bid->remaining_quantity * bid->limit_price;
@@ -483,22 +529,34 @@ bool process_purchase_decision(sys::state& state, person_key buyer, dcon::commod
 	if(!positive_finite(price)) return false;
 	economy::exact_person_economy::account_ref selected{};
 	float best_cash = -std::numeric_limits<float>::infinity();
+	float selected_limit_price = 0.0f;
 	for(auto settlement : seller_settlements(state, market, commodity))
 		for(auto candidate : economy::exact_person_economy::accounts_for_person(state, buyer))
-			if(economy::exact_person_economy::settlement_of(state, candidate) == settlement) {
-				auto cash = economy::exact_person_economy::balance(state, candidate)
+			{
+				auto source_settlement = economy::exact_person_economy::settlement_of(state, candidate);
+				auto cash = economy::foreign_exchange::available_balance(state, candidate)
 					- reserved_exact(state, candidate.exact_account_id);
+				float limit_price = price;
+				if(source_settlement != settlement) {
+					auto conversion = economy::foreign_exchange::quote_conversion(state,
+						source_settlement, settlement, price,
+						std::max(0.0f, cash), candidate);
+					if(!conversion.available) continue;
+					limit_price = conversion.source_amount;
+				}
+				if(!positive_finite(limit_price) || cash <= epsilon) continue;
 				auto const selected_settlement = selected
 					? economy::exact_person_economy::settlement_of(state, selected)
 					: dcon::commodity_id{};
 				if(cash > best_cash || (cash == best_cash
 					&& (!selected || settlement.index() < selected_settlement.index()))) {
 					selected = candidate; best_cash = cash;
+					selected_limit_price = limit_price;
 				}
 			}
-	if(!selected || best_cash <= epsilon) return false;
-	auto quantity = std::min(remaining_to_acquire, best_cash / price);
-	auto id = post_bid(state, buyer, selected, site, market, commodity, quantity, price);
+	if(!selected || best_cash <= epsilon || !positive_finite(selected_limit_price)) return false;
+	auto quantity = std::min(remaining_to_acquire, best_cash / selected_limit_price);
+	auto id = post_bid(state, buyer, selected, site, market, commodity, quantity, selected_limit_price);
 	return id != 0;
 }
 
@@ -582,6 +640,22 @@ bool validate_canonical_state(sys::state const& state) {
 			|| !account_keys.emplace(std::make_pair(account.owner.source_population_cell,
 				account.owner.ordinal), uint32_t(account.settlement.index())).second) return false;
 	}
+	auto fx_snapshot = economy::foreign_exchange::export_snapshot(state);
+	std::vector<std::pair<account_ref, double>> fx_reservations;
+	for(auto const& order : fx_snapshot.orders) {
+		if(order.status != economy::foreign_exchange::order_status::active
+			&& order.status != economy::foreign_exchange::order_status::partially_filled) continue;
+		if(!account_exists(state, order.source) || !account_exists(state, order.destination)
+			|| settlement_of(state, order.source) == settlement_of(state, order.destination)
+			|| !positive_finite(order.remaining_sell_amount)) return false;
+		auto found = std::find_if(fx_reservations.begin(), fx_reservations.end(),
+			[&](auto const& entry) { return entry.first == order.source; });
+		if(found == fx_reservations.end())
+			fx_reservations.emplace_back(order.source, order.remaining_sell_amount);
+		else found->second += order.remaining_sell_amount;
+	}
+	for(auto const& [account, amount] : fx_reservations)
+		if(amount > double(balance(state, account)) + epsilon) return false;
 	for(auto const& contract : economy_state.contracts) {
 		if(!persons::exists(state, contract.worker)
 			|| !contract.employer || !state.world.economic_actor_is_valid(contract.employer)
@@ -659,7 +733,9 @@ bool validate_canonical_state(sys::state const& state) {
 			|| fill.source != state.world.concrete_market_ask_get_site_from_concrete_ask_site(ask)
 			|| fill.commodity != state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask)
 			|| !close_enough(double(fill.quantity) * fill.execution_price, transfer->amount)
-			|| transfer->source != account_ref::from_exact(bid->exact_account_id)
+			|| transfer->source.kind != account_kind::exact
+			|| owner_of(state, transfer->source) != bid->buyer
+			|| settlement_of(state, transfer->source) != transfer->settlement
 			|| transfer->kind != relations::transaction_kind::purchase
 			|| transfer->timestamp != fill.occurred_on) return false;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
@@ -759,6 +835,44 @@ uint64_t canonical_household_checksum(sys::state const& state) {
 		hash_person(hash, account.owner);
 		hash_scalar(hash, uint32_t(account.settlement.index()));
 		hash_scalar(hash, account.balance);
+	}
+	auto fx = economy::foreign_exchange::export_snapshot(state);
+	hash_scalar(hash, fx.next_order_id);
+	hash_scalar(hash, fx.next_fill_id);
+	std::sort(fx.orders.begin(), fx.orders.end(), [](auto const& left, auto const& right) {
+		return left.id < right.id;
+	});
+	for(auto const& order : fx.orders) {
+		hash_scalar(hash, order.id);
+		hash_account_ref(state, hash, order.source);
+		hash_account_ref(state, hash, order.destination);
+		hash_scalar(hash, uint32_t(order.base_currency.index()));
+		hash_scalar(hash, uint32_t(order.quote_currency.index()));
+		hash_scalar(hash, order.original_sell_amount);
+		hash_scalar(hash, order.remaining_sell_amount);
+		hash_scalar(hash, order.original_target_amount);
+		hash_scalar(hash, order.remaining_target_amount);
+		hash_scalar(hash, order.limit_quote_per_base);
+		hash_scalar(hash, order.created_on.to_raw_value());
+		hash_scalar(hash, uint8_t(order.status));
+		hash_scalar(hash, order.sells_base);
+		hash_scalar(hash, order.immediate_or_cancel);
+	}
+	std::sort(fx.fills.begin(), fx.fills.end(), [](auto const& left, auto const& right) {
+		return left.id < right.id;
+	});
+	for(auto const& fill : fx.fills) {
+		hash_scalar(hash, fill.id);
+		hash_scalar(hash, fill.bid_order_id);
+		hash_scalar(hash, fill.ask_order_id);
+		hash_scalar(hash, fill.base_amount);
+		hash_scalar(hash, fill.quote_amount);
+		hash_scalar(hash, fill.execution_rate);
+		hash_scalar(hash, fill.occurred_on.to_raw_value());
+		hash_scalar(hash, fill.quote_exact_transaction_id);
+		hash_scalar(hash, uint32_t(fill.quote_dcon_transaction.index()));
+		hash_scalar(hash, fill.base_exact_transaction_id);
+		hash_scalar(hash, uint32_t(fill.base_dcon_transaction.index()));
 	}
 	auto contracts = economy_state.contracts;
 	std::sort(contracts.begin(), contracts.end(), [](auto const& left, auto const& right) {

@@ -232,17 +232,16 @@ economy::exact_person_economy::transfer_result pay_tax(sys::state& state,
 	return transfer;
 }
 
-policy_tax_result assess_and_collect_topic_tax(sys::state& state, policy::topic_id topic,
-	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor, float taxable_value,
-	economy::exact_person_economy::account_ref payer_wallet, dcon::deposit_account_id payer_deposit,
-	sys::date date) {
+policy_tax_result assess_and_collect_tax_at_rate(sys::state& state,
+	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
+	float taxable_value, float rate,
+	economy::exact_person_economy::account_ref payer_wallet,
+	dcon::deposit_account_id payer_deposit, sys::date date) {
 	policy_tax_result result{};
 	if(!jurisdiction || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor)
-		|| !std::isfinite(taxable_value) || taxable_value <= 0.0f) return result;
-	auto policy_value = law::effective_topic(state, governance::national(jurisdiction), topic, date);
-	auto rate = policy_value ? std::get_if<float>(&*policy_value) : nullptr;
-	if(!rate || !std::isfinite(*rate) || *rate <= 0.0f) return result;
-	result.rate = std::clamp(*rate, 0.0f, 1.0f);
+		|| !std::isfinite(taxable_value) || taxable_value <= 0.0f
+		|| !std::isfinite(rate) || rate <= 0.0f) return result;
+	result.rate = std::clamp(rate, 0.0f, 1.0f);
 	result.assessed = taxable_value * result.rate;
 	if(!std::isfinite(result.assessed) || result.assessed <= 1.0e-6f) {
 		result = {};
@@ -305,6 +304,18 @@ policy_tax_result assess_and_collect_topic_tax(sys::state& state, policy::topic_
 		}
 	}
 	return result;
+}
+
+policy_tax_result assess_and_collect_topic_tax(sys::state& state, policy::topic_id topic,
+	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor, float taxable_value,
+	economy::exact_person_economy::account_ref payer_wallet, dcon::deposit_account_id payer_deposit,
+	sys::date date) {
+	if(!jurisdiction) return {};
+	auto policy_value = law::effective_topic(state, governance::national(jurisdiction), topic, date);
+	auto rate = policy_value ? std::get_if<float>(&*policy_value) : nullptr;
+	if(!rate) return {};
+	return assess_and_collect_tax_at_rate(state, jurisdiction, taxpayer_actor,
+		taxable_value, *rate, payer_wallet, payer_deposit, date);
 }
 
 dcon::fiscal_action_id authorized_spend(sys::state& state, dcon::person_id initiator,

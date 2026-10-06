@@ -125,9 +125,9 @@ embargo_explanation embargo_exists(
 	return result;
 }
 
-// CAUTION: when we generate trade demand for a good, we promise to pay money to local producers during the next tick
-// it means that during economy update, rgo profits were calculated according to this promise
-// so local producers ALREADY received money for their production and local market take only a "merchant cut"
+// Legacy route estimates are a read model. Concrete market fills now move the
+// goods and settle buyer/seller accounts; this helper only describes projected
+// route quantities for compatibility UI and budget estimates.
 
 template<typename TRADE_ROUTE>
 trade_and_tariff<TRADE_ROUTE> explain_trade_route_commodity_internal(

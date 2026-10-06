@@ -147,7 +147,6 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(line.find("\"trade\":") != std::string::npos);
 	REQUIRE(line.find("\"requested_cargo\":") != std::string::npos);
 	REQUIRE(line.find("\"cargo_in_transit\":") != std::string::npos);
-	REQUIRE(line.find("\"minimum_foreign_settlement\":") != std::string::npos);
 	REQUIRE(line.find("\"market_clearing\":") != std::string::npos);
 	REQUIRE(line.find("\"unfilled_intermediate\":") != std::string::npos);
 	REQUIRE(line.find("\"crisis\":") != std::string::npos);

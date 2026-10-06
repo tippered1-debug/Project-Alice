@@ -58,7 +58,7 @@ def main() -> int:
               "factory_profit,unprofitable_factory_share,debt,treasury,cpi,daily_inflation,demand_pressure,real_wage_index,"
               "money_supply,money_net_to_gross,money_unaccounted_share,household_money_share,producer_till_balance,"
               "market_quantity_traded,unfilled_life_needs,unfilled_intermediate,"
-              "trade_requested,trade_delivered,cargo_in_transit,foreign_settlement_floor,"
+              "trade_requested,trade_delivered,cargo_in_transit,"
               "legitimacy,coalition_power,government_stability,cabinet_confidence,"
               "fragile_governments,government_turnovers")
         last_index = len(snapshots) - 1
@@ -99,7 +99,6 @@ def main() -> int:
                 number(snapshot, "trade", "requested_cargo"),
                 number(snapshot, "trade", "delivered_cargo"),
                 number(snapshot, "trade", "cargo_in_transit"),
-                number(snapshot, "trade", "minimum_foreign_settlement"),
                 number(snapshot, "tracked_nation", "legitimacy"),
                 number(snapshot, "tracked_nation", "coalition_power"),
                 number(snapshot, "tracked_nation", "government_stability"),
