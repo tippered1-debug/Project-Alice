@@ -32,6 +32,7 @@ list(APPEND ALICE_SOURCE_BLOB "${PROJECT_SOURCE_DIR}/src/main.cpp")
 
 list(APPEND ALICE_CORE_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/economy/social_entitlements.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/collective_labor.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
 	"${PROJECT_SOURCE_DIR}/src/map/projections.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/alice_ui.cpp"

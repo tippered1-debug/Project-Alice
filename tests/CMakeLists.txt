@@ -111,6 +111,7 @@ list(REMOVE_ITEM CONSUMER_PURGE_SOURCES "${PROJECT_SOURCE_DIR}/tests/test_main.c
 add_executable(consumer_purge_tests "${PROJECT_SOURCE_DIR}/tests/consumer_purge_main.cpp"
  "${PROJECT_SOURCE_DIR}/tests/legacy_consumer_purge_tests.cpp"
  "${PROJECT_SOURCE_DIR}/tests/canonical_construction_tests.cpp"
+ "${PROJECT_SOURCE_DIR}/src/economy/collective_labor.cpp"
  "${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp" ${CONSUMER_PURGE_SOURCES})
 target_link_libraries(consumer_purge_tests PRIVATE AliceCommon Catch2::Catch2)
 if(WIN32)

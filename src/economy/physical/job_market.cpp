@@ -4,6 +4,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/collective_labor.hpp"
 #include "economy/households.hpp"
 #include "economy/economy_stats.hpp"
 #include "economy/price.hpp"
@@ -32,14 +33,16 @@ constexpr uint8_t professional_occupation = 2;
 constexpr float voluntary_quit_wage_gain = 1.12f;
 constexpr float reservation_premium = 1.1f;
 
-float minimum_daily_wage(sys::state const& state, dcon::site_id workplace, sys::date date) {
+float minimum_daily_wage(sys::state const& state, dcon::site_id workplace, sys::date date,
+	dcon::organization_id employer = {}) {
 	if(!workplace || !state.world.site_is_valid(workplace)) return 0.0f;
 	auto province = state.world.site_get_province_from_site_location(workplace);
 	auto nation = province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
 	if(!nation) return 0.0f;
 	auto value = governance::law::effective_topic(state, governance::national(nation),
 		governance::policy::topic_id::minimum_wage, date);
-	return value ? std::max(0.0f, std::get<float>(*value)) : 0.0f;
+	auto statutory = value ? std::max(0.0f, std::get<float>(*value)) : 0.0f;
+	return std::max(statutory, collective_labor::wage_floor_for_employer(state, employer, date));
 }
 
 sys::date normalized_date(sys::state const& state, sys::date date) {
@@ -116,7 +119,8 @@ dcon::job_offer_id post_job_offer(sys::state& state, dcon::economic_actor_id emp
 	if(!workplace) workplace = world::site::site_for_factory(state, factory);
 	if(!workplace || !state.world.site_is_valid(workplace)) return {};
 	created_on = normalized_date(state, created_on);
-	if(wage_rate / float(pay_period_days) + epsilon < minimum_daily_wage(state, workplace, created_on)) return {};
+	if(wage_rate / float(pay_period_days) + epsilon < minimum_daily_wage(state, workplace, created_on,
+		actors::organizations::organization_for_actor(state, employer))) return {};
 	auto settlement = accounts::settlement_of(state, payer_account);
 	auto factory_settlement = state.world.factory_get_payroll_settlement(factory);
 	if(!settlement || factory_settlement && factory_settlement != settlement) return {};

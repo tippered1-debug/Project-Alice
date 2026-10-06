@@ -4,6 +4,7 @@
 #include "actors/organizations/organizations.hpp"
 #include "economy/banking/banking.hpp"
 #include "economy/capital_market.hpp"
+#include "economy/collective_labor.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/households.hpp"
 #include "economy/wallets.hpp"
@@ -78,9 +79,12 @@ std::vector<voter> voters(sys::state const& state, dcon::nation_id nation) {
 			if(!contract || contract->pay_period_days == 0) continue;
 			value.worker = true;
 			value.wage_arrears = value.wage_arrears || contract->unpaid_wages > 1.0e-5f;
-			value.income += contract->wage_rate * contract->labor_capacity / float(contract->pay_period_days);
+			value.income += economy::exact_person_economy::wage_due(state, contract_id);
 			if(contract->institution) value.public_employee = true;
 		}
+		value.union_member = bool(economy::collective_labor::union_for_member(state, key));
+		value.on_strike = economy::collective_labor::on_strike(state, key, state.current_date);
+		value.income += economy::collective_labor::strike_benefit_income(state, key, state.current_date);
 		value.unemployed = economy::exact_person_economy::is_unemployed(state, key);
 		value.income /= value.adults;
 		float cash = 0.0f;
@@ -160,6 +164,12 @@ void assess(voter& value, float median) {
 			value.unemployed ? 1.0f : 0.25f);
 		prefer(topic_id::unemployment_duration, int32_t(value.unemployed ? 180 : 90),
 			value.unemployed ? 1.0f : 0.2f);
+	}
+	if(value.union_member || value.on_strike) {
+		prefer(topic_id::collective_bargaining, policy::category_value{uint16_t(
+			policy::collective_bargaining_mode::sectoral_recognition)}, value.on_strike ? 1.5f : 1.1f);
+		prefer(topic_id::labor_protection, int32_t(policy::labor_protection_level::just_cause),
+			value.on_strike ? 1.5f : 1.0f);
 	}
 	if(value.shareholder) prefer(topic_id::dividend_tax, riches > 0.5f ? 0.05f : 0.15f, 0.9f);
 	if(value.rural) prefer(topic_id::resource_royalty, 0.1f, 0.45f);

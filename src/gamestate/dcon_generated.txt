@@ -8636,6 +8636,134 @@ object{
 	property{ name{ seats } type{ uint16_t } tag{ save } }
 }
 
+object{
+	name{ labor_union }
+	storage_type{ erasable }
+	size{ 10000 }
+	tag{ save }
+	property{ name{ nation } type{ nation_id } tag{ save } }
+	property{ name{ dues_rate } type{ float } tag{ save } }
+	property{ name{ strike_benefit_rate } type{ float } tag{ save } }
+	property{ name{ formed_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ union_membership }
+	storage_type{ erasable }
+	size{ 2000000 }
+	tag{ save }
+	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ ordinal } type{ uint64_t } tag{ save } }
+	property{ name{ joined_on } type{ sys::date } tag{ save } }
+	property{ name{ left_on } type{ sys::date } tag{ save } }
+	property{ name{ last_dues_date } type{ sys::date } tag{ save } }
+	property{ name{ dues_arrears } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ employer_association }
+	storage_type{ erasable }
+	size{ 10000 }
+	tag{ save }
+	property{ name{ nation } type{ nation_id } tag{ save } }
+	property{ name{ formed_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ employer_association_membership }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ employer_organization } type{ organization_id } tag{ save } }
+	property{ name{ joined_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ collective_bargaining_unit }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ union_id } type{ labor_union_id } tag{ save } }
+	property{ name{ employer_organization } type{ organization_id } tag{ save } }
+	property{ name{ employer_association_id } type{ employer_association_id } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ created_on } type{ sys::date } tag{ save } }
+	property{ name{ recognized_on } type{ sys::date } tag{ save } }
+	property{ name{ bargaining_started_on } type{ sys::date } tag{ save } }
+	property{ name{ demand_daily_wage } type{ float } tag{ save } }
+	property{ name{ offer_daily_wage } type{ float } tag{ save } }
+	property{ name{ demand_protection_level } type{ uint8_t } tag{ save } }
+	property{ name{ offer_protection_level } type{ uint8_t } tag{ save } }
+	property{ name{ active_strike_id } type{ strike_action_id } tag{ save } }
+}
+
+object{
+	name{ collective_agreement }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ unit_id } type{ collective_bargaining_unit_id } tag{ save } }
+	property{ name{ union_id } type{ labor_union_id } tag{ save } }
+	property{ name{ employer_organization } type{ organization_id } tag{ save } }
+	property{ name{ employer_association_id } type{ employer_association_id } tag{ save } }
+	property{ name{ effective_from } type{ sys::date } tag{ save } }
+	property{ name{ expires_on } type{ sys::date } tag{ save } }
+	property{ name{ minimum_daily_wage } type{ float } tag{ save } }
+	property{ name{ protection_level } type{ uint8_t } tag{ save } }
+	property{ name{ severance_days } type{ uint16_t } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ collective_agreement_coverage }
+	storage_type{ erasable }
+	size{ 1000000 }
+	tag{ save }
+	property{ name{ agreement_id } type{ collective_agreement_id } tag{ save } }
+	property{ name{ exact_contract_id } type{ uint64_t } tag{ save } }
+	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ ordinal } type{ uint64_t } tag{ save } }
+	property{ name{ covered_on } type{ sys::date } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
+object{
+	name{ strike_action }
+	storage_type{ erasable }
+	size{ 100000 }
+	tag{ save }
+	property{ name{ unit_id } type{ collective_bargaining_unit_id } tag{ save } }
+	property{ name{ union_id } type{ labor_union_id } tag{ save } }
+	property{ name{ employer_organization } type{ organization_id } tag{ save } }
+	property{ name{ employer_association_id } type{ employer_association_id } tag{ save } }
+	property{ name{ kind } type{ uint8_t } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+	property{ name{ started_on } type{ sys::date } tag{ save } }
+	property{ name{ ended_on } type{ sys::date } tag{ save } }
+	property{ name{ votes_for } type{ uint32_t } tag{ save } }
+	property{ name{ votes_against } type{ uint32_t } tag{ save } }
+	property{ name{ withheld_labor_today } type{ float } tag{ save } }
+	property{ name{ cumulative_lost_labor } type{ float } tag{ save } }
+	property{ name{ opening_offer_daily_wage } type{ float } tag{ save } }
+}
+
+object{
+	name{ strike_action_member }
+	storage_type{ erasable }
+	size{ 2000000 }
+	tag{ save }
+	property{ name{ strike_id } type{ strike_action_id } tag{ save } }
+	property{ name{ exact_contract_id } type{ uint64_t } tag{ save } }
+	property{ name{ source_population_cell } type{ uint32_t } tag{ save } }
+	property{ name{ ordinal } type{ uint64_t } tag{ save } }
+	property{ name{ withheld_labor } type{ float } tag{ save } }
+	property{ name{ status } type{ uint8_t } tag{ save } }
+}
+
 relationship{
 	name{ party_nation }
 	tag{ save }
@@ -8708,4 +8836,67 @@ relationship{
 	tag{ save }
 	link{ object{ election_result } name{ election_result } type{ unique } }
 	link{ object{ organization } name{ organization } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ labor_union_organization }
+	tag{ save }
+	link{ object{ labor_union } name{ labor_union } type{ unique } }
+	link{ object{ organization } name{ organization } type{ unique } }
+}
+
+relationship{
+	name{ union_membership_union }
+	tag{ save }
+	link{ object{ union_membership } name{ membership } type{ unique } }
+	link{ object{ labor_union } name{ labor_union } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ employer_association_organization }
+	tag{ save }
+	link{ object{ employer_association } name{ association } type{ unique } }
+	link{ object{ organization } name{ organization } type{ unique } }
+}
+
+relationship{
+	name{ employer_association_membership_association }
+	tag{ save }
+	link{ object{ employer_association_membership } name{ membership } type{ unique } }
+	link{ object{ employer_association } name{ association } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ employer_association_membership_employer }
+	tag{ save }
+	link{ object{ employer_association_membership } name{ membership } type{ unique } }
+	link{ object{ organization } name{ employer } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ collective_agreement_unit }
+	tag{ save }
+	link{ object{ collective_agreement } name{ agreement } type{ unique } }
+	link{ object{ collective_bargaining_unit } name{ unit } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ collective_agreement_coverage_agreement }
+	tag{ save }
+	link{ object{ collective_agreement_coverage } name{ coverage } type{ unique } }
+	link{ object{ collective_agreement } name{ agreement } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ strike_action_unit }
+	tag{ save }
+	link{ object{ strike_action } name{ strike } type{ unique } }
+	link{ object{ collective_bargaining_unit } name{ unit } type{ many } index_storage{ array } }
+}
+
+relationship{
+	name{ strike_action_member_action }
+	tag{ save }
+	link{ object{ strike_action_member } name{ member } type{ unique } }
+	link{ object{ strike_action } name{ strike } type{ many } index_storage{ array } }
 }

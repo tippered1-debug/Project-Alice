@@ -50,6 +50,7 @@
 #include "economy/physical/concrete_market.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/social_entitlements.hpp"
+#include "economy/collective_labor.hpp"
 #include "world/spatial_runtime.hpp"
 #include "governance/public_administration.hpp"
 #include "governance/offices.hpp"
@@ -1114,6 +1115,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	::economy::monetary_policy::process(state);
 	::economy::liquidity::process(state);
 	::economy::households::refresh_membership(state);
+	::economy::collective_labor::process(state);
 	update_factories_production(state);
 	::economy::physical::land::settle_rents(state);
 	::economy::firm_agency::post_output_asks(state);

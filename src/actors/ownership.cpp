@@ -87,7 +87,8 @@ bool has_organization_graph(sys::state const& state, dcon::organization_id organ
 		&& state.world.economic_actor_get_canonical_id(actor) != 0
 		&& actor_kind(state.world.economic_actor_get_kind(actor)) == kind;
 	// A household cohort's members are its residual claimants; it has no equity.
-	if(kind == actor_kind::household) return identity && !equity_asset;
+	if(kind == actor_kind::household || kind == actor_kind::labor_union
+		|| kind == actor_kind::employer_association) return identity && !equity_asset;
 	return identity
 		&& equity_asset && state.world.asset_is_valid(equity_asset)
 		&& state.world.asset_get_canonical_id(equity_asset) != 0

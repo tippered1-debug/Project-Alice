@@ -17,6 +17,7 @@
 #include "economy/physical/deposits.hpp"
 #include "economy/payroll.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/collective_labor.hpp"
 #include "world/site.hpp"
 #include "actors/organizations/organizations.hpp"
 
@@ -1441,8 +1442,9 @@ void update_employment(sys::state& state, bool, float) {
 	if(!state.exact_population) std::abort();
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		float by_occupation[3]{};
-		for(auto contract_id : ::economy::exact_person_economy::active_contracts_for_factory(state, factory)) {
-			auto contract = ::economy::exact_person_economy::contract(state, contract_id);
+	for(auto contract_id : ::economy::exact_person_economy::active_contracts_for_factory(state, factory)) {
+		if(::economy::collective_labor::contract_is_withheld(state, contract_id, state.current_date)) continue;
+		auto contract = ::economy::exact_person_economy::contract(state, contract_id);
 			if(!contract || contract->occupation >= 3 || !std::isfinite(contract->labor_capacity)
 				|| contract->labor_capacity <= 0.0f) continue;
 			by_occupation[contract->occupation] += contract->labor_capacity;

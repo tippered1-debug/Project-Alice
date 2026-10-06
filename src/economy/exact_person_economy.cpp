@@ -4,11 +4,13 @@
 #include "actors/organizations/organizations.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/household_mobility.hpp"
+#include "economy/collective_labor.hpp"
 #include "economy/causal_order.hpp"
 #include "economy/money/ontology.hpp"
 #include "money.hpp"
 #include "governance/governance.hpp"
 #include "governance/law/law.hpp"
+#include "governance/policy.hpp"
 #include "governance/finance/finance.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -178,7 +180,10 @@ uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::j
 	if(workplace_nation) {
 		auto statutory = governance::law::effective_topic(state, governance::national(workplace_nation),
 			governance::policy::topic_id::minimum_wage, state.current_date);
-		if(statutory && wage_rate / float(pay_period_days) + 1.0e-6f < std::get<float>(*statutory)) return 0;
+		auto floor = statutory ? std::get<float>(*statutory) : 0.0f;
+		floor = std::max(floor, collective_labor::wage_floor_for_employer(state,
+			actors::organizations::organization_for_actor(state, employer), state.current_date));
+		if(wage_rate / float(pay_period_days) + 1.0e-6f < floor) return 0;
 	}
 	auto store = ensure_store(state);
 	for(auto const& existing : store->contracts)
@@ -693,6 +698,7 @@ std::vector<person_key> engaged_workers(sys::state const& state) {
 float labor_supplied_to_factory(sys::state const& state, dcon::factory_id factory) {
 	float result = 0.0f;
 	for(auto id : active_contracts_for_factory(state, factory)) {
+		if(collective_labor::contract_is_withheld(state, id, state.current_date)) continue;
 		auto record = contract(state, id);
 		if(record && std::isfinite(record->labor_capacity) && record->labor_capacity > 0.0f)
 			result += record->labor_capacity;
@@ -705,7 +711,10 @@ float wage_due(sys::state const& state, uint64_t contract_id) {
 	if(!record || !active_contract_on(state, *record) || !std::isfinite(record->wage_rate)
 		|| record->wage_rate < 0.0f || !std::isfinite(record->labor_capacity)
 		|| record->labor_capacity <= 0.0f || record->pay_period_days == 0) return 0.0f;
-	auto due = record->wage_rate * record->labor_capacity / float(record->pay_period_days);
+	if(collective_labor::contract_is_withheld(state, contract_id, state.current_date)) return 0.0f;
+	auto contractual_daily_rate = record->wage_rate / float(record->pay_period_days);
+	auto covered_daily_rate = collective_labor::wage_floor_for_contract(state, contract_id, state.current_date);
+	auto due = std::max(contractual_daily_rate, covered_daily_rate) * record->labor_capacity;
 	return std::isfinite(due) && due > 0.0f ? due : 0.0f;
 }
 
@@ -821,6 +830,10 @@ bool end_contract(sys::state& state, uint64_t contract_id, contract_status new_s
 	for(auto& record : ensure_store(state)->contracts)
 		if(record.id == contract_id && record.status == contract_status::active
 			&& end_date >= record.start_date) {
+			if(new_status == contract_status::terminated
+				&& collective_labor::protection_for_contract(state, contract_id, end_date)
+					>= uint8_t(policy::labor_protection_level::just_cause)
+				&& collective_labor::contract_is_withheld(state, contract_id, end_date)) return false;
 			record.status = new_status;
 			record.end_date = end_date;
 			return true;

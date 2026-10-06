@@ -34,6 +34,8 @@ struct voter {
 	bool shareholder = false;
 	bool debtor = false;
 	bool depositor = false;
+	bool union_member = false;
+	bool on_strike = false;
 	policy::position ideal{};
 	policy::salience issue_salience;
 	float turnout = 0.0f;

@@ -37,6 +37,18 @@ enum class topic_id : uint16_t {
 enum class value_kind : uint8_t { continuous = 0, ordinal = 1, categorical = 2, binary = 3, structured = 4 };
 enum class implementation : uint8_t { statute = 0, delegated_regulation = 1, appropriation = 2 };
 enum class jurisdiction_kind : uint8_t { national = 0, territorial = 1 };
+enum class collective_bargaining_mode : uint16_t {
+	prohibited = 0,
+	voluntary_recognition = 1,
+	majority_recognition = 2,
+	sectoral_recognition = 3
+};
+enum class labor_protection_level : uint8_t {
+	none = 0,
+	basic = 1,
+	due_process = 2,
+	just_cause = 3
+};
 
 struct category_value { uint16_t value = 0; friend bool operator==(category_value, category_value) = default; };
 struct structured_value {

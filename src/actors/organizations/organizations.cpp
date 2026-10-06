@@ -14,6 +14,8 @@ bool is_economic_kind(ownership::actor_kind kind) noexcept {
 	case ownership::actor_kind::state_entity:
 	case ownership::actor_kind::other:
 	case ownership::actor_kind::household:
+	case ownership::actor_kind::labor_union:
+	case ownership::actor_kind::employer_association:
 		return true;
 	default:
 		return false;
@@ -29,7 +31,8 @@ dcon::organization_id create_organization(sys::state& s, ownership::actor_kind k
 	s.world.force_create_organization_actor(organization, actor);
 	// A household cohort has no shareholders: its members are its residual
 	// claimants. A party has members, not owners.
-	if(kind == ownership::actor_kind::household || kind == ownership::actor_kind::party) return organization;
+	if(kind == ownership::actor_kind::household || kind == ownership::actor_kind::party
+		|| kind == ownership::actor_kind::labor_union || kind == ownership::actor_kind::employer_association) return organization;
 	auto equity = s.world.create_asset();
 	s.world.force_create_organization_equity_asset(organization, equity);
 	return organization;

@@ -4,6 +4,7 @@
 #define ALICE_NO_ENTRY_POINT 1
 #include "main.cpp"
 #include "primary_production_tests.cpp"
+#include "collective_labor_tests.cpp"
 #include "rural_economy_tests.cpp"
 #include "capital_income_tests.cpp"
 #include "deposit_payments_tests.cpp"
