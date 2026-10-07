@@ -3,6 +3,7 @@
 #include "system_state.hpp"
 #include "governance/actions/actions.hpp"
 #include "governance/legislature.hpp"
+#include "governance/power_topology.hpp"
 #include "persons/persons.hpp"
 
 #include <vector>
@@ -92,7 +93,8 @@ void vacate_at_depth(sys::state& state, dcon::office_id office, sys::date date, 
 	if(mode == succession_mode::none || !successor || depth > 8) return;
 	auto successor_tenure = current_tenure(state, successor);
 	auto heir = successor_tenure ? state.world.office_tenure_get_person_from_office_tenure_person(successor_tenure) : dcon::person_id{};
-	if(!heir || !persons::alive(state, heir)) return;
+	if(!heir || !persons::alive(state, heir)
+		|| !power_topology::appointment_candidate_eligible(state, office, heir, date)) return;
 	if(mode == succession_mode::acting) {
 		(void)start_tenure(state, heir, office, date, true);
 		(void)record(state, institutional_action_kind::succession, {}, heir, office, date);
@@ -208,6 +210,7 @@ dcon::institutional_action_id appoint(sys::state& state, dcon::person_id initiat
 	if(!rules.appointer || !tenure_of(state, initiator, rules.appointer, date)
 		|| !has_authority(state, rules.appointer, authority_kind::appoint, jurisdiction_of(state, office), date)) return {};
 	if(rules.confirmer && !legislature::confirmation_passed(state, office, candidate, date)) return {};
+	if(!power_topology::appointment_candidate_eligible(state, office, candidate, date)) return {};
 	if(exclusivity_conflict(state, candidate, office)) return {};
 	for(auto tenure : active_tenures(state, office)) end_tenure(state, tenure, date);
 	(void)start_tenure(state, candidate, office, date, false);
@@ -223,6 +226,7 @@ dcon::institutional_action_id dismiss(sys::state& state, dcon::person_id initiat
 	if(!deciding || !tenure_of(state, initiator, deciding, date)
 		|| !has_authority(state, deciding, authority_kind::dismiss, jurisdiction_of(state, office), date)) return {};
 	auto target = state.world.office_tenure_get_person_from_office_tenure_person(tenure);
+	if(!power_topology::dismissal_allowed(state, office, initiator, target, date)) return {};
 	auto action = record(state, institutional_action_kind::dismissal, initiator, target, office, date);
 	vacate(state, office, date);
 	return action;
@@ -234,6 +238,7 @@ dcon::institutional_action_id remove_by_no_confidence(sys::state& state, dcon::o
 	if(!tenure || rules.removal != removal_rule::by_no_confidence
 		|| !legislature::no_confidence_passed(state, office, date)) return {};
 	auto target = state.world.office_tenure_get_person_from_office_tenure_person(tenure);
+	if(power_topology::dismissal_vetoed(state, office, target, date)) return {};
 	auto action = record(state, institutional_action_kind::dismissal, {}, target, office, date);
 	legislature::carry_no_confidence(state, office);
 	vacate(state, office, date);

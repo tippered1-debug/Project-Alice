@@ -9,6 +9,7 @@
 #include "governance/legislature.hpp"
 #include "governance/offices.hpp"
 #include "governance/parties.hpp"
+#include "governance/power_topology.hpp"
 #include "persons/exact_population.hpp"
 #include "persons/persons.hpp"
 
@@ -216,6 +217,7 @@ bool appoint_first(sys::state& state, dcon::office_id office, dcon::person_id ap
 	auto confirmer = offices::rules_of(state, office).confirmer;
 	for(auto candidate : candidates) {
 		if(!candidate || candidate == appointer && state.world.office_get_exclusive(office)) continue;
+		if(!power_topology::appointment_candidate_eligible(state, office, candidate, date)) continue;
 		if(confirmer) whip_confirmation(state, office, candidate, date);
 		if(offices::appoint(state, appointer, candidate, office, date)) return true;
 	}
@@ -336,13 +338,17 @@ bool form(sys::state& state, dcon::nation_id nation, sys::date date) {
 			}
 		}
 		set_governing(state, nation, governing);
-		auto candidate = parties::leader(state, formateur);
+		auto candidate = parties::leader(state, formateur, date);
 		auto current = holder_on(state, chief, date);
 		if(current != candidate) {
 			// The outgoing chief executive resigns for the new government.
 			if(current) (void)offices::resign(state, current, chief, date);
 			auto appointer = holder_on(state, rules.appointer, date);
-			if(!appointer || !appoint_first(state, chief, appointer, { candidate }, date)) return false;
+			std::vector<dcon::person_id> candidates;
+			if(candidate) candidates.push_back(candidate);
+			for(auto member : parties::members(state, formateur))
+				if(member != candidate) candidates.push_back(member);
+			if(!appointer || !appoint_first(state, chief, appointer, candidates, date)) return false;
 		}
 	}
 	if(!governing.empty()) record_coalition_agreement(state, nation, governing, date);
@@ -405,7 +411,8 @@ void fill_vacancies(sys::state& state, dcon::nation_id nation, sys::date date) {
 					bool seated = false;
 					for(auto held : persons::active_offices_of(state, member))
 						if(state.world.office_get_kind(held) == uint8_t(office_kind::legislator)) seated = true;
-					if(!seated && offices::install(state, member, office, date)) break;
+					if(!seated && power_topology::appointment_candidate_eligible(state, office, member, date)
+						&& offices::install(state, member, office, date)) break;
 				}
 				continue;
 			}

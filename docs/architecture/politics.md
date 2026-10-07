@@ -6,6 +6,8 @@ Politics decides who holds the offices of the [constitutional state](government.
 economy -> voters' interests -> parties -> elections -> seats and offices -> government -> fiscal law -> economy
 ```
 
+The political runtime also records organization-level campaign resources and
+information; see [Political power and information](political_power_and_information.md).
 Effective control ties among parties, institutions, offices, and firms are
 described in [Regime architecture and power topology](regime-architecture.md).
 

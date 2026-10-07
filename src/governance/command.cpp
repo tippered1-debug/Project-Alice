@@ -3,6 +3,7 @@
 #include "system_state.hpp"
 #include "governance/governance.hpp"
 #include "governance/offices.hpp"
+#include "governance/power_topology.hpp"
 
 namespace governance::command {
 namespace {
@@ -19,7 +20,13 @@ dcon::institution_id commanding_institution(sys::state const& state, dcon::natio
 }
 
 bool may_command(sys::state const& state, dcon::person_id person, dcon::nation_id nation, sys::date date) {
-	return nation && bool(offices::exercising(state, person, authority_kind::command_forces, national(nation), date));
+	if(!nation || !person || !persons::alive(state, person)) return false;
+	for(auto office : persons::active_offices_of(state, person)) {
+		if(!offices::tenure_of(state, person, office, date)
+			|| !has_authority(state, office, authority_kind::command_forces, national(nation), date)) continue;
+		if(power_topology::command_chain_allows(state, office, person, nation, date)) return true;
+	}
+	return false;
 }
 
 bool authorized_move(sys::state& state, dcon::person_id person, military::land_forces::stable_id formation, dcon::site_id destination) {

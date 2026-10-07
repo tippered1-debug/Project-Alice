@@ -158,7 +158,7 @@ void prepare_campaigns(sys::state& state, dcon::nation_id nation,
 	if(!nation || !election_date) return;
 	std::vector<dcon::organization_id> active_parties;
 	for(auto party : parties::parties_of(state, nation))
-		if(parties::leader(state, party)) active_parties.push_back(party);
+		if(parties::leader(state, party, election_date)) active_parties.push_back(party);
 	if(active_parties.empty()) return;
 	std::unordered_set<uint32_t> contributors_with_dcon_accounts;
 	std::unordered_set<uint64_t> contributors_with_exact_accounts;

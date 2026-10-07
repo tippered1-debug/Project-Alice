@@ -65,6 +65,8 @@ bool process(sys::state&, dcon::nation_id, sys::date);
 // member after the leader who holds none of the excluded offices, else the
 // leader. The leader is kept for the government.
 dcon::person_id senior_member(sys::state const&, dcon::organization_id party, bool seated_only);
+dcon::person_id senior_member(sys::state const&, dcon::organization_id party, bool seated_only,
+	dcon::office_id, sys::date);
 // Fills a chamber's vacant presiding office with a senior member of its largest party.
 void fill_presiding(sys::state&, dcon::institution_id chamber, sys::date);
 

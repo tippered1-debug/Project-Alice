@@ -2,6 +2,7 @@
 
 #include "system_state.hpp"
 #include "governance/offices.hpp"
+#include "governance/power_topology.hpp"
 #include "persons/persons.hpp"
 
 namespace governance::legislature {
@@ -105,7 +106,8 @@ dcon::vote_id vote_on_instrument(sys::state& state, dcon::person_id person, dcon
 dcon::vote_id vote_on_confirmation(sys::state& state, dcon::person_id person, dcon::institution_id chamber,
 	dcon::office_id office, dcon::person_id candidate, bool in_favor, sys::date date) {
 	if(!office || !candidate || !is_chamber(state, chamber) || offices::rules_of(state, office).confirmer != chamber
-		|| !seat_of(state, person, chamber, date)) return {};
+		|| !seat_of(state, person, chamber, date)
+		|| !power_topology::confirmation_vote_eligible(state, office, chamber, person, date)) return {};
 	auto motion = find_confirmation_motion(state, chamber, office, candidate);
 	if(!motion) {
 		motion = create_motion(state, chamber, motion_kind::confirm, date);

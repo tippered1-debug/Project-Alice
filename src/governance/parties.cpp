@@ -5,6 +5,7 @@
 #include "actors/ownership.hpp"
 #include "economy/households.hpp"
 #include "governance/offices.hpp"
+#include "governance/power_topology.hpp"
 #include "persons/exact_population.hpp"
 #include "persons/persons.hpp"
 
@@ -201,8 +202,14 @@ std::vector<dcon::person_id> members(sys::state const& state, dcon::organization
 }
 
 dcon::person_id leader(sys::state const& state, dcon::organization_id party) {
+	return leader(state, party, state.current_date);
+}
+
+dcon::person_id leader(sys::state const& state, dcon::organization_id party, sys::date date) {
 	auto list = members(state, party);
-	return list.empty() ? dcon::person_id{} : list.front();
+	if(list.empty()) return {};
+	auto actor = actors::organizations::actor_for_organization(state, party);
+	return power_topology::nominated_member(state, power_topology::actor_node(actor), list, date);
 }
 
 void dissolve(sys::state& state, dcon::organization_id party) {

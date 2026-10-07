@@ -125,12 +125,14 @@ of `appoints`, `confirms`, `dismisses`, `commands`, `supervises`, `vetoes`,
 and 1. Dates use `YYYY-MM-DD`; blank bounds are open and `valid_until` is
 exclusive. A `person` reference must name a living exact person.
 
-These edges do not change legal authority, ownership shares, or cash balances.
-They let scenario authors represent a party's influence over a ministry, an
-embedded committee in a firm, or a cadre pipeline into an office. See
-[Regime architecture](../architecture/regime-architecture.md) for examples
-and the distinction between these edges and the constitutional and ownership
-graphs.
+These edges do not create legal authority, ownership shares, or cash balances.
+Positive active ties now constrain office nominations, confirmation votes,
+vetoes, dismissal, exact military command, and person-level company decisions.
+Majority voting owners can authorize company investment decisions; company
+management ties can authorize its borrowing, lending, and investment decisions. See
+[Regime architecture](../architecture/regime-architecture.md) for the runtime
+rules and the separation between effective control, legal authority, ownership,
+and settlement.
 
 **Rejected constitutions.** The scenario is rejected when any of the following holds:
 

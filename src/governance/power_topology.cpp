@@ -1,7 +1,11 @@
 #include "power_topology.hpp"
 
 #include "system_state.hpp"
+#include "actors/organizations/organizations.hpp"
 #include "governance/governance.hpp"
+#include "governance/offices.hpp"
+#include "governance/parties.hpp"
+#include "persons/persons.hpp"
 
 #include <algorithm>
 #include <array>
@@ -64,6 +68,60 @@ bool is_active(sys::state const& state, dcon::power_relationship_id id, sys::dat
 	if(from && date < from) return false;
 	if(until && !(date < until)) return false;
 	return true;
+}
+
+bool active_positive(relationship const& edge) {
+	return edge.intensity > 0.0f;
+}
+
+bool member_of(sys::state const& state, dcon::person_id person, node organization, sys::date date) {
+	if(!person || !organization) return false;
+	auto person_actor = persons::actor_for_person(state, person);
+	if(!person_actor) return false;
+	for(auto const& edge : from(state, actor_node(person_actor), date))
+		if(active_positive(edge) && edge.kind == relation_kind::member_of && edge.target == organization) return true;
+	// Political party membership is already represented by the party subsystem;
+	// it also qualifies a cadre where a scenario names the party itself.
+	if(organization.actor) {
+		auto party = actors::organizations::organization_for_actor(state, organization.actor);
+		if(party && parties::party_of(state, person) == party) return true;
+	}
+	return false;
+}
+
+bool controlled_by(sys::state const& state, dcon::person_id person, node controller, sys::date date) {
+	if(!person || !controller) return false;
+	auto person_actor = persons::actor_for_person(state, person);
+	if(controller.actor && controller.actor == person_actor) return true;
+	if(controller.office && offices::tenure_of(state, person, controller.office, date)) return true;
+	return member_of(state, person, controller, date);
+}
+
+bool nomination_relation(relation_kind kind) {
+	return kind == relation_kind::appoints || kind == relation_kind::controls_management
+		|| kind == relation_kind::nominates_cadres;
+}
+
+std::vector<node> office_targets(sys::state const& state, dcon::office_id office) {
+	std::vector<node> result;
+	if(!office || !state.world.office_is_valid(office)) return result;
+	result.push_back(office_node(office));
+	auto institution = institution_for_office(state, office);
+	auto actor = institution ? actor_for_institution(state, institution) : dcon::economic_actor_id{};
+	if(actor) result.push_back(actor_node(actor));
+	return result;
+}
+
+bool has_electoral_rule(sys::state const& state, dcon::office_id office) {
+	if(state.world.office_get_electoral_system(office) != 0) return true;
+	auto institution = institution_for_office(state, office);
+	return institution && state.world.institution_get_electoral_system(institution) != 0;
+}
+
+bool vetoes_node(sys::state const& state, node target, sys::date date) {
+	for(auto const& edge : to(state, target, date))
+		if(active_positive(edge) && edge.kind == relation_kind::vetoes) return true;
+	return false;
 }
 
 } // namespace
@@ -165,6 +223,144 @@ std::vector<relationship> to(sys::state const& state, node target, sys::date dat
 	}
 	std::sort(result.begin(), result.end(), [](auto const& a, auto const& b) { return a.id.index() < b.id.index(); });
 	return result;
+}
+
+bool appointment_candidate_eligible(sys::state const& state, dcon::office_id office,
+	dcon::person_id candidate, sys::date date) {
+	if(!office || !state.world.office_is_valid(office) || !candidate
+		|| !persons::alive(state, candidate) || !persons::born_on_or_before(state, candidate, date)) return false;
+	auto candidate_actor = persons::actor_for_person(state, candidate);
+	if(!candidate_actor) return false;
+	auto targets = office_targets(state, office);
+	for(auto target : targets)
+		if(vetoes_node(state, target, date)) return false;
+	if(vetoes_node(state, actor_node(candidate_actor), date)) return false;
+
+	std::vector<node> nominators;
+	for(auto target : targets)
+		for(auto const& edge : to(state, target, date))
+			if(active_positive(edge) && (nomination_relation(edge.kind)
+				|| (edge.kind == relation_kind::controls_voting
+					&& has_electoral_rule(state, office))))
+				nominators.push_back(edge.source);
+	if(nominators.empty()) return true;
+	for(auto nominator : nominators)
+		if(controlled_by(state, candidate, nominator, date)) return true;
+	return false;
+}
+
+bool dismissal_allowed(sys::state const& state, dcon::office_id office,
+	dcon::person_id initiator, dcon::person_id incumbent, sys::date date) {
+	if(!office || !state.world.office_is_valid(office) || !initiator || !incumbent
+		|| !persons::alive(state, initiator)) return false;
+	if(dismissal_vetoed(state, office, incumbent, date)) return false;
+	auto initiator_actor = persons::actor_for_person(state, initiator);
+	if(!initiator_actor) return false;
+	auto targets = office_targets(state, office);
+	std::vector<node> dismissers;
+	for(auto target : targets)
+		for(auto const& edge : to(state, target, date))
+			if(active_positive(edge) && edge.kind == relation_kind::dismisses)
+				dismissers.push_back(edge.source);
+	if(dismissers.empty()) return true;
+	for(auto source : dismissers)
+		if(controlled_by(state, initiator, source, date)) return true;
+	return false;
+}
+
+bool dismissal_vetoed(sys::state const& state, dcon::office_id office,
+	dcon::person_id incumbent, sys::date date) {
+	if(!office || !state.world.office_is_valid(office)) return true;
+	for(auto target : office_targets(state, office))
+		if(vetoes_node(state, target, date)) return true;
+	auto incumbent_actor = persons::actor_for_person(state, incumbent);
+	return incumbent_actor && vetoes_node(state, actor_node(incumbent_actor), date);
+}
+
+bool confirmation_vote_eligible(sys::state const& state, dcon::office_id office,
+	dcon::institution_id chamber, dcon::person_id voter, sys::date date) {
+	if(!office || !state.world.office_is_valid(office) || !chamber || !voter) return false;
+	std::vector<node> targets{ office_node(office) };
+	if(auto institution = institution_for_office(state, office)) {
+		if(auto actor = actor_for_institution(state, institution)) targets.push_back(actor_node(actor));
+	}
+	std::vector<node> confirmers;
+	for(auto target : targets)
+		for(auto const& edge : to(state, target, date))
+			if(active_positive(edge) && edge.kind == relation_kind::confirms)
+				confirmers.push_back(edge.source);
+	if(confirmers.empty()) return true;
+	auto chamber_actor = actor_for_institution(state, chamber);
+	for(auto source : confirmers)
+		if(source.actor == chamber_actor || controlled_by(state, voter, source, date)) return true;
+	return false;
+}
+
+dcon::person_id nominated_member(sys::state const& state, node target,
+	std::vector<dcon::person_id> const& candidates, sys::date date) {
+	if(!target || vetoes_node(state, target, date)) return {};
+	std::vector<node> nominators;
+	for(auto const& edge : to(state, target, date))
+		if(active_positive(edge) && edge.kind == relation_kind::nominates_cadres)
+			nominators.push_back(edge.source);
+	for(auto candidate : candidates) {
+		if(!candidate || !persons::alive(state, candidate)
+			|| !persons::born_on_or_before(state, candidate, date)) continue;
+		auto actor = persons::actor_for_person(state, candidate);
+		if(!actor || vetoes_node(state, actor_node(actor), date)) continue;
+		if(nominators.empty()) return candidate;
+		for(auto nominator : nominators)
+			if(controlled_by(state, candidate, nominator, date)) return candidate;
+	}
+	return {};
+}
+
+bool command_chain_allows(sys::state const& state, dcon::office_id exercising_office,
+	dcon::person_id commander, dcon::nation_id nation, sys::date date) {
+	if(!exercising_office || !commander || !nation) return false;
+	auto defense = find_institution(state, nation, institution_kind::military_command);
+	std::vector<relationship> command_edges;
+	if(defense) {
+		auto defense_actor = actor_for_institution(state, defense);
+		if(defense_actor) {
+			for(auto const& edge : to(state, actor_node(defense_actor), date))
+				if(active_positive(edge) && edge.kind == relation_kind::commands)
+					command_edges.push_back(edge);
+		}
+	}
+	for(auto const& edge : to(state, office_node(exercising_office), date))
+		if(active_positive(edge) && edge.kind == relation_kind::commands)
+			command_edges.push_back(edge);
+	if(command_edges.empty()) return true;
+	auto commander_actor = persons::actor_for_person(state, commander);
+	for(auto const& edge : command_edges) {
+		if(edge.source.actor == commander_actor || controlled_by(state, commander, edge.source, date)) return true;
+	}
+	return false;
+}
+
+bool management_authorized(sys::state const& state, dcon::person_id person,
+	dcon::economic_actor_id target, sys::date date) {
+	if(!person || !target) return false;
+	auto person_actor = persons::actor_for_person(state, person);
+	if(!person_actor) return false;
+	for(auto const& edge : to(state, actor_node(target), date)) {
+		if(!active_positive(edge) || !nomination_relation(edge.kind)) continue;
+		if(edge.source.actor == person_actor || controlled_by(state, person, edge.source, date)) return true;
+	}
+	return false;
+}
+
+bool voting_authorized(sys::state const& state, dcon::person_id person,
+	dcon::economic_actor_id target, sys::date date) {
+	if(!person || !target) return false;
+	auto person_actor = persons::actor_for_person(state, person);
+	if(!person_actor) return false;
+	for(auto const& edge : to(state, actor_node(target), date)) {
+		if(!active_positive(edge) || edge.kind != relation_kind::controls_voting) continue;
+		if(edge.source.actor == person_actor || controlled_by(state, person, edge.source, date)) return true;
+	}
+	return false;
 }
 
 } // namespace governance::power_topology

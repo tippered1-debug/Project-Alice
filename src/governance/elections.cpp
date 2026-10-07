@@ -5,6 +5,7 @@
 #include "governance/legislature.hpp"
 #include "governance/offices.hpp"
 #include "governance/parties.hpp"
+#include "governance/power_topology.hpp"
 #include "governance/political_resources.hpp"
 #include "persons/persons.hpp"
 
@@ -16,10 +17,10 @@
 namespace governance::elections {
 namespace {
 
-std::vector<dcon::organization_id> contenders(sys::state const& state, dcon::nation_id nation) {
+std::vector<dcon::organization_id> contenders(sys::state const& state, dcon::nation_id nation, sys::date date) {
 	std::vector<dcon::organization_id> result;
 	for(auto party : parties::parties_of(state, nation))
-		if(parties::leader(state, party)) result.push_back(party);
+		if(parties::leader(state, party, date)) result.push_back(party);
 	return result;
 }
 
@@ -58,7 +59,7 @@ bool holds_seat(sys::state const& state, dcon::person_id person) {
 // Seats a person in an office, first resigning the offices an exclusive
 // office cannot be combined with.
 bool seat(sys::state& state, dcon::person_id person, dcon::office_id office, sys::date date) {
-	if(!person) return false;
+	if(!person || !power_topology::appointment_candidate_eligible(state, office, person, date)) return false;
 	if(state.world.office_get_exclusive(office))
 		for(auto held : persons::active_offices_of(state, person))
 			if(held != office) (void)offices::resign(state, person, held, date);
@@ -211,7 +212,7 @@ dcon::election_id hold(sys::state& state, dcon::institution_id chamber, std::vec
 	auto nation = nation_of(state, chamber);
 	auto system = electoral_system(state.world.institution_get_electoral_system(chamber));
 	schedule(state, chamber, date);
-	auto candidates = contenders(state, nation);
+	auto candidates = contenders(state, nation, date);
 	auto seat_offices = legislature::seats_of(state, chamber);
 	std::sort(seat_offices.begin(), seat_offices.end(), [](auto a, auto b) { return a.index() < b.index(); });
 	if(candidates.empty() || seat_offices.empty() || (system != electoral_system::proportional && system != electoral_system::plurality)) return {};
@@ -262,10 +263,15 @@ dcon::election_id hold(sys::state& state, dcon::institution_id chamber, std::vec
 			for(auto person : parties::members(state, party)) {
 				if(filled >= seats || next_seat >= seat_offices.size()) break;
 				if(holds_seat(state, person)) continue;
+				if(!power_topology::appointment_candidate_eligible(state, seat_offices[next_seat], person, date)) continue;
 				if(offices::install(state, person, seat_offices[next_seat], date)) { ++next_seat; ++filled; }
 			}
 			if(filled < seats) (void)parties::recruit(state, party, voters, uint32_t(parties::members(state, party).size()) + seats - filled, date);
 		}
+		// A topology veto or cadre restriction can leave a legally won seat
+		// vacant. Reserve its list position so another party cannot inherit it.
+		auto unfilled = uint32_t(seats - filled);
+		next_seat = std::min(seat_offices.size(), next_seat + unfilled);
 	}
 	auto election = record(state, total, won, date);
 	state.world.force_create_election_institution(election, chamber);
@@ -280,7 +286,7 @@ dcon::election_id hold(sys::state& state, dcon::office_id office, std::vector<el
 	auto nation = nation_of(state, institution);
 	auto system = electoral_system(state.world.office_get_electoral_system(office));
 	schedule(state, office, date);
-	auto candidates = contenders(state, nation);
+	auto candidates = contenders(state, nation, date);
 	if(candidates.empty()) return {};
 	tally counted;
 	std::map<uint32_t, uint16_t> won;
@@ -316,7 +322,11 @@ dcon::election_id hold(sys::state& state, dcon::office_id office, std::vector<el
 	offices::vacate(state, office, date);
 	// A directly elected office goes to the party's leader; one the legislature
 	// fills goes to a senior member, the leader staying for the government.
-	(void)seat(state, system == electoral_system::direct ? parties::leader(state, winner) : senior_member(state, winner, false), office, date);
+	auto elected = system == electoral_system::direct ? parties::leader(state, winner, date)
+		: senior_member(state, winner, false, office, date);
+	if(!power_topology::appointment_candidate_eligible(state, office, elected, date))
+		elected = senior_member(state, winner, false, office, date);
+	(void)seat(state, elected, office, date);
 	// A running mate comes from the winner's list.
 	for(auto other : offices_of(state, institution)) {
 		if(other == office || state.world.office_get_electoral_system(other) != uint8_t(electoral_system::running_mate)) continue;
@@ -340,12 +350,26 @@ dcon::person_id senior_member(sys::state const& state, dcon::organization_id par
 	return list.empty() ? dcon::person_id{} : list.front();
 }
 
+dcon::person_id senior_member(sys::state const& state, dcon::organization_id party, bool seated_only,
+	dcon::office_id office, sys::date date) {
+	auto list = parties::members(state, party);
+	for(auto person : list) {
+		bool seated = holds_seat(state, person);
+		auto held = persons::active_offices_of(state, person);
+		if((seated_only ? (seated && held.size() == 1) : held.empty())
+			&& power_topology::appointment_candidate_eligible(state, office, person, date)) return person;
+	}
+	for(auto person : list)
+		if(power_topology::appointment_candidate_eligible(state, office, person, date)) return person;
+	return {};
+}
+
 void fill_presiding(sys::state& state, dcon::institution_id chamber, sys::date date) {
 	auto largest = largest_party(state, seats_held(state, chamber, date));
 	if(!largest) return;
 	for(auto office : offices_of(state, chamber)) {
 		if(state.world.office_get_electoral_system(office) != uint8_t(electoral_system::presiding) || !offices::vacant(state, office)) continue;
-		(void)seat(state, senior_member(state, largest, true), office, date);
+		(void)seat(state, senior_member(state, largest, true, office, date), office, date);
 	}
 }
 

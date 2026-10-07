@@ -55,12 +55,44 @@ The C++ API exposes `create`, `revoke`, `valid_at`, `from`, and `to` for dated
 graph updates and lookups. Scenario-authored edges use the same validation and
 storage path.
 
-The graph is descriptive. An edge does not by itself authorize a law, appoint
-someone contrary to constitutional rules, transfer ownership, or move cash.
-Legal actions still pass through `governance` authority checks. Ownership
-fractions remain in the ownership graph, and actual funding remains a money
-transaction. This separation allows formal rules and effective control to
-disagree without erasing either record.
+Legal authority remains constitutional: an effective tie cannot authorize a
+public action or appoint someone contrary to the constitution. Active ties now
+change who can exercise authority inside those legal boundaries.
+
+## Runtime effects
+
+**Appointments and dismissal.** `offices::appoint` first checks the named
+appointer, that office's legal authority, and any required chamber confirmation.
+Then it checks active topology. A `vetoes` edge to the office, its institution,
+or the candidate blocks the appointment. `appoints`, `controls_management`, or
+`nominates_cadres` edges to the office or its institution require the candidate
+to be a member of a source organization or holder of a source office. Explicit
+`member_of` ties supply organization membership; existing party membership also
+counts when the source is a party. `confirms` ties restrict who may cast votes
+in the legally required confirmation chamber. Active `dismisses` ties similarly
+require the lawful initiator to belong to a dismissing organization or hold its
+source office. A topology veto can block dismissal. Elections apply the same
+candidate gate; `controls_voting` can restrict who may fill elected seats.
+
+**Military command.** Exact-person command actions still require an office
+holder with constitutional `command_forces` authority. If a scenario authors an
+active `commands` edge into its military-command institution or the exercising
+office, the person must match that command source or belong to its organization.
+Without an authored command edge, the constitutional chain remains sufficient.
+
+**Company decisions.** A person with majority voting ownership of a company's
+equity can approve its investment proposals. Active `controls_voting` ties
+provide the same investor authority to members of the controlling organization.
+Active `controls_management`, `appoints`, or `nominates_cadres` ties let their
+members make the company's existing person-level borrowing, lending, and
+investment decisions. The company remains the contracting actor and supplies
+the cash. This connects power to real consent and settlement; the project still
+does not have a persistent board-seat roster or board election process.
+
+These hooks keep ownership, effective control, legal authority, and money
+transfers as separate records. A topology edge grants decision access only
+where the corresponding runtime action already exists; it never transfers
+ownership or cash by itself.
 
 ## Scenario authoring
 

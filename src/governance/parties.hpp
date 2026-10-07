@@ -39,6 +39,7 @@ void leave(sys::state&, dcon::person_id);
 // Living members in list order.
 std::vector<dcon::person_id> members(sys::state const&, dcon::organization_id party);
 dcon::person_id leader(sys::state const&, dcon::organization_id party);
+dcon::person_id leader(sys::state const&, dcon::organization_id party, sys::date);
 void dissolve(sys::state&, dcon::organization_id party);
 
 // The party whose platform is nearest the voter's ideal, if any is within reach.

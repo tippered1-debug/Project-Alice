@@ -22,6 +22,11 @@
 #include "validation.hpp"
 #include "nations/strategic_statecraft.hpp"
 #include "military/land_forces.hpp"
+#include "governance/governance.hpp"
+#include "governance/offices.hpp"
+#include "governance/power_topology.hpp"
+
+#include <utility>
 
 namespace military {
 
@@ -2680,22 +2685,60 @@ dcon::ship_id create_new_ship(sys::state& state, dcon::nation_id n, dcon::unit_t
 	return shp.id;
 }
 
-dcon::nation_id get_effective_unit_commander(const sys::state& state, dcon::army_id unit) {
-	auto army_controller = state.world.army_get_controller_from_army_control(unit);
-	auto potential_overlord = state.world.nation_get_overlord_as_subject(army_controller);
-	if(bool(potential_overlord) && state.world.nation_get_overlord_commanding_units(army_controller)) {
-		return state.world.overlord_get_ruler(potential_overlord);
+namespace {
+
+bool effective_command_chain_exists(sys::state const& state, dcon::nation_id commander) {
+	auto defense = governance::find_institution(state, commander, governance::institution_kind::military_command);
+	if(!defense) return true;
+	auto actor = governance::actor_for_institution(state, defense);
+	if(!actor) return true;
+	bool institution_chain_declared = false;
+	for(auto const& edge : governance::power_topology::to(state,
+		governance::power_topology::actor_node(actor), state.current_date))
+		institution_chain_declared = institution_chain_declared
+			|| (edge.kind == governance::power_topology::relation_kind::commands && edge.intensity > 0.0f);
+	std::vector<std::pair<dcon::office_id, dcon::person_id>> officials;
+	std::vector<bool> official_command_edges;
+	bool office_chain_declared = false;
+	for(auto institution : governance::institutions_of(state, commander))
+		for(auto office : governance::offices_of(state, institution)) {
+			auto holder = governance::offices::holder(state, office);
+			if(!holder || !governance::has_authority(state, office, governance::authority_kind::command_forces,
+				governance::national(commander), state.current_date)) continue;
+			officials.emplace_back(office, holder);
+			bool declared_for_office = false;
+			for(auto const& edge : governance::power_topology::to(state,
+				governance::power_topology::office_node(office), state.current_date))
+				declared_for_office = declared_for_office
+					|| (edge.kind == governance::power_topology::relation_kind::commands && edge.intensity > 0.0f);
+			office_chain_declared = office_chain_declared || declared_for_office;
+			official_command_edges.push_back(declared_for_office);
+		}
+	if(!institution_chain_declared && !office_chain_declared) return true;
+	for(size_t i = 0; i < officials.size(); ++i) {
+		auto const& [office, holder] = officials[i];
+		if((institution_chain_declared || official_command_edges[i])
+			&& governance::power_topology::command_chain_allows(state, office, holder, commander, state.current_date)) return true;
 	}
-	return army_controller;
+	return false;
+}
+
+dcon::nation_id effective_commander(sys::state const& state, dcon::nation_id controller) {
+	if(!controller) return {};
+	auto potential_overlord = state.world.nation_get_overlord_as_subject(controller);
+	if(bool(potential_overlord) && state.world.nation_get_overlord_commanding_units(controller))
+		controller = state.world.overlord_get_ruler(potential_overlord);
+	return effective_command_chain_exists(state, controller) ? controller : dcon::nation_id{};
+}
+
+} // namespace
+
+dcon::nation_id get_effective_unit_commander(const sys::state& state, dcon::army_id unit) {
+	return effective_commander(state, state.world.army_get_controller_from_army_control(unit));
 }
 
 dcon::nation_id get_effective_unit_commander(const sys::state& state, dcon::navy_id unit) {
-	auto navy_controller = state.world.navy_get_controller_from_navy_control(unit);
-	auto potential_overlord = state.world.nation_get_overlord_as_subject(navy_controller);
-	if(bool(potential_overlord) && state.world.nation_get_overlord_commanding_units(navy_controller)) {
-		return state.world.overlord_get_ruler(potential_overlord);
-	}
-	return navy_controller;
+	return effective_commander(state, state.world.navy_get_controller_from_navy_control(unit));
 }
 
 void give_military_access(sys::state& state, dcon::nation_id accessing_nation, dcon::nation_id target) {

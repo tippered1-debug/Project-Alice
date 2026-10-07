@@ -1,6 +1,7 @@
 #include "consent.hpp"
 
 #include "actors/organizations/organizations.hpp"
+#include "governance/power_topology.hpp"
 #include "persons/persons.hpp"
 #include "system_state.hpp"
 
@@ -65,6 +66,35 @@ bool valid_basis(sys::state const& state, dcon::economic_actor_id actor, sys::da
 	}
 	return true;
 }
+
+bool majority_voting_owner(sys::state const& state, dcon::person_id person,
+	dcon::economic_actor_id target, sys::date date) {
+	auto person_actor = persons::actor_for_person(state, person);
+	auto organization = actors::organizations::organization_for_actor(state, target);
+	auto equity = actors::organizations::equity_asset_for_organization(state, organization);
+	if(!person_actor || !equity || !state.world.asset_is_valid(equity)) return false;
+	double controlled_voting_share = 0.0;
+	double total_voting_share = 0.0;
+	state.world.asset_for_each_ownership_stake_asset_as_asset(equity, [&](auto relation) {
+		auto stake = state.world.ownership_stake_asset_get_ownership_stake(relation);
+		if(!stake || !state.world.ownership_stake_is_valid(stake)) return;
+		auto share = state.world.ownership_stake_get_voting_fraction(stake);
+		if(!std::isfinite(share) || share < 0.0f) return;
+		total_voting_share += share;
+		auto owner = state.world.ownership_stake_get_economic_actor_from_ownership_stake_owner(stake);
+		if(owner == person_actor) {
+			controlled_voting_share += share;
+			return;
+		}
+		auto owner_organization = actors::organizations::organization_for_actor(state, owner);
+		if(owner_organization && (mandate_active(state, owner_organization, person,
+			decision_kind::invest, date)
+			|| governance::power_topology::management_authorized(state, person, owner, date)))
+			controlled_voting_share += share;
+	});
+	return std::isfinite(controlled_voting_share) && std::isfinite(total_voting_share)
+		&& std::abs(total_voting_share - 1.0) <= 1.0e-4 && controlled_voting_share > 0.5;
+}
 }
 
 dcon::organization_decision_mandate_id create_mandate(sys::state& state, dcon::organization_id organization,
@@ -85,6 +115,10 @@ bool can_decide_for_actor(sys::state const& state, dcon::person_id person, dcon:
 	if(!person || !state.world.person_is_valid(person) || !persons::alive(state, person)
 		|| !actor || !state.world.economic_actor_is_valid(actor) || !valid_decision_kind(kind)) return false;
 	if(persons::actor_for_person(state, person) == actor) return true;
+	if(governance::power_topology::management_authorized(state, person, actor, date)) return true;
+	if(kind == decision_kind::invest
+		&& (governance::power_topology::voting_authorized(state, person, actor, date)
+			|| majority_voting_owner(state, person, actor, date))) return true;
 	auto organization = actors::organizations::organization_for_actor(state, actor);
 	if(!organization) return false;
 	return mandate_active(state, organization, person, kind, date);
