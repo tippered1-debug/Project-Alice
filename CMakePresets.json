@@ -336,13 +336,15 @@
       "name": "macos-arm64-release",
       "displayName": "Build macOS Apple Silicon Release",
       "configurePreset": "macos-arm64-release",
-      "targets": ["Alice"]
+      "targets": ["Alice"],
+      "jobs": 1
     },
     {
       "name": "macos-arm64-debug",
       "displayName": "Build macOS Apple Silicon Debug",
       "configurePreset": "macos-arm64-debug",
-      "targets": ["Alice"]
+      "targets": ["Alice"],
+      "jobs": 1
     }
   ]
 }

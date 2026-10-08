@@ -1,6 +1,49 @@
 #94723 <-- DO NOT REMOVE ... the file system tests are looking for this
 
-add_executable(tests_project "${PROJECT_SOURCE_DIR}/tests/test_main.cpp"
+function(alice_configure_test_compile target)
+	# Test binaries do not ship; their compile cost matters more than optimized
+	# test runtime.
+	if(MSVC)
+		target_compile_options(${target} PRIVATE /Od)
+	else()
+		target_compile_options(${target} PRIVATE -O0)
+	endif()
+endfunction()
+
+set(ALICE_TEST_GROUP_SOURCES
+	"${PROJECT_SOURCE_DIR}/tests/test_group_foundation.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_group_data.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_group_person_economy.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_group_person_modules.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_group_simulation.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_group_pathfinding.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_group_government.cpp")
+
+# Compile the game implementation once as the same bounded translation units
+# used by Alice. Keep the platform entry point out of Catch2's executables.
+set(ALICE_TEST_ENGINE_SOURCES ${ALICE_MAIN_TRANSLATION_UNITS})
+list(REMOVE_ITEM ALICE_TEST_ENGINE_SOURCES
+	"${PROJECT_SOURCE_DIR}/src/platform_specific.cpp")
+add_library(alice_test_engine OBJECT
+	${ALICE_TEST_ENGINE_SOURCES}
+	"${PROJECT_SOURCE_DIR}/tests/test_platform_specific.cpp")
+target_link_libraries(alice_test_engine PRIVATE AliceCommon)
+target_compile_definitions(alice_test_engine PRIVATE
+	GLM_ENABLE_EXPERIMENTAL
+	ALICE_SPLIT_BUILD=1
+	DCON_TRAP_INVALID_STORE=1)
+target_precompile_headers(alice_test_engine REUSE_FROM Alice)
+add_dependencies(alice_test_engine
+	GENERATE_CONTAINER
+	GENERATE_CONTAINERIFACE
+	GENERATE_CONTAINER_LUA
+	GENERATE_CONTAINER_OOS
+	GENERATE_PARSERS)
+
+add_executable(tests_project
+	"${PROJECT_SOURCE_DIR}/tests/test_main.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_support.cpp"
+	${ALICE_TEST_GROUP_SOURCES}
 	"${PROJECT_SOURCE_DIR}/src/gui/alice_ui.cpp"
 	"${PROJECT_SOURCE_DIR}/src/map/map_state.cpp"
 	"${PROJECT_SOURCE_DIR}/src/map/map_data_loading.cpp"
@@ -36,7 +79,6 @@ add_executable(tests_project "${PROJECT_SOURCE_DIR}/tests/test_main.cpp"
 	"${PROJECT_SOURCE_DIR}/src/gui/factory_details.cpp"
 	"${PROJECT_SOURCE_DIR}/src/alice.rc")
 
-
 set_source_files_properties(${PROJECT_SOURCE_DIR}/src/lunasvg/plutovg-blend.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(${PROJECT_SOURCE_DIR}/src/lunasvg/plutovg-canvas.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(${PROJECT_SOURCE_DIR}/src/lunasvg/plutovg-font.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
@@ -50,7 +92,7 @@ set_source_files_properties(${PROJECT_SOURCE_DIR}/src/lunasvg/plutovg-rasterize.
 set_source_files_properties(${PROJECT_SOURCE_DIR}/src/lunasvg/plutovg-surface.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
 
-target_link_libraries(tests_project PRIVATE AliceCommon)
+target_link_libraries(tests_project PRIVATE AliceCommon alice_test_engine)
 
 FetchContent_MakeAvailable(Catch2)
 
@@ -107,13 +149,18 @@ catch_discover_tests(tests_project
 # Independent canonical-consumer runner: legacy tests referring to removed APIs
 # must not prevent the consumer hard-cut regressions from building and running.
 get_target_property(CONSUMER_PURGE_SOURCES tests_project SOURCES)
-list(REMOVE_ITEM CONSUMER_PURGE_SOURCES "${PROJECT_SOURCE_DIR}/tests/test_main.cpp")
+list(REMOVE_ITEM CONSUMER_PURGE_SOURCES
+	"${PROJECT_SOURCE_DIR}/tests/test_main.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/test_support.cpp"
+	${ALICE_TEST_GROUP_SOURCES})
 add_executable(consumer_purge_tests "${PROJECT_SOURCE_DIR}/tests/consumer_purge_main.cpp"
  "${PROJECT_SOURCE_DIR}/tests/legacy_consumer_purge_tests.cpp"
  "${PROJECT_SOURCE_DIR}/tests/canonical_construction_tests.cpp"
  "${PROJECT_SOURCE_DIR}/src/economy/collective_labor.cpp"
  "${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp" ${CONSUMER_PURGE_SOURCES})
+alice_configure_test_compile(consumer_purge_tests)
 target_link_libraries(consumer_purge_tests PRIVATE AliceCommon Catch2::Catch2)
+target_link_libraries(consumer_purge_tests PRIVATE alice_test_engine)
 if(WIN32)
  target_link_libraries(consumer_purge_tests PRIVATE ${PROJECT_SOURCE_DIR}/libs/LLVM-C.lib)
 else()
@@ -130,9 +177,9 @@ add_executable(collective_labor_focus_tests
 	"${PROJECT_SOURCE_DIR}/src/economy/social_entitlements.cpp"
 	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
 	${CONSUMER_PURGE_SOURCES})
+alice_configure_test_compile(collective_labor_focus_tests)
 target_link_libraries(collective_labor_focus_tests PRIVATE AliceCommon Catch2::Catch2)
-target_compile_options(collective_labor_focus_tests PRIVATE
-	$<$<COMPILE_LANG_AND_ID:CXX,AppleClang,Clang,GNU>:-O0>)
+target_link_libraries(collective_labor_focus_tests PRIVATE alice_test_engine)
 if(WIN32)
 	target_link_libraries(collective_labor_focus_tests PRIVATE ${PROJECT_SOURCE_DIR}/libs/LLVM-C.lib)
 else()

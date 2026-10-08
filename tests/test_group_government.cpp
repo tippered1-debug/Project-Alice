@@ -1,12 +1,10 @@
-#define CATCH_CONFIG_MAIN 1
-#define CATCH_CONFIG_DISABLE_EXCEPTIONS 1
-#include "catch2/catch.hpp"
-#include "primary_production_tests.cpp"
-#include "collective_labor_tests.cpp"
+#include "test_support.hpp"
+
 #include "rural_economy_tests.cpp"
 #include "capital_income_tests.cpp"
 #include "deposit_payments_tests.cpp"
 #include "capital_allocation_tests.cpp"
+#include "capital_regulation_tests.cpp"
 #include "monetary_policy_tests.cpp"
 #include "constitution_tests.cpp"
 #include "politics_tests.cpp"

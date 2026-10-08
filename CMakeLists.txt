@@ -8,6 +8,33 @@ project (ProjectAlice LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "The C++ standard to use")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# CMake's job pools are scoped to one build tree. Serialize compiler processes
+# across all Project Alice checkouts on this machine as well, so two agents or
+# IDEs cannot each start their own set of memory-heavy Clang processes.
+option(ALICE_SERIALIZE_COMPILERS "Serialize Project Alice compiler processes machine-wide" ON)
+if(UNIX AND ALICE_SERIALIZE_COMPILERS)
+	find_package(Python3 COMPONENTS Interpreter REQUIRED)
+	set(_ALICE_COMPILER_GATE "${PROJECT_SOURCE_DIR}/tools/serialize_compiler.py")
+	set(_ALICE_C_COMPILER_LAUNCHER "${Python3_EXECUTABLE};${_ALICE_COMPILER_GATE}")
+	if(CMAKE_C_COMPILER_LAUNCHER)
+		list(APPEND _ALICE_C_COMPILER_LAUNCHER ${CMAKE_C_COMPILER_LAUNCHER})
+	endif()
+	set(CMAKE_C_COMPILER_LAUNCHER "${_ALICE_C_COMPILER_LAUNCHER}")
+	set(_ALICE_CXX_COMPILER_LAUNCHER "${Python3_EXECUTABLE};${_ALICE_COMPILER_GATE}")
+	if(CMAKE_CXX_COMPILER_LAUNCHER)
+		list(APPEND _ALICE_CXX_COMPILER_LAUNCHER ${CMAKE_CXX_COMPILER_LAUNCHER})
+	endif()
+	set(CMAKE_CXX_COMPILER_LAUNCHER "${_ALICE_CXX_COMPILER_LAUNCHER}")
+endif()
+
+# Keep a small per-build cap too, including builds that opt out of the global
+# compiler gate or use a generator without compiler launcher support.
+if(CMAKE_GENERATOR STREQUAL "Ninja")
+	set_property(GLOBAL APPEND PROPERTY JOB_POOLS alice_compile_pool=1 alice_link_pool=1)
+	set(CMAKE_JOB_POOL_COMPILE alice_compile_pool)
+	set(CMAKE_JOB_POOL_LINK alice_link_pool)
+endif()
+
 # A build without an explicit configuration is a player-facing build.  Keep
 # Debug available for developers, but do not silently ship an unoptimised game.
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -29,6 +56,48 @@ if(WIN32)
 endif()
 
 list(APPEND ALICE_SOURCE_BLOB "${PROJECT_SOURCE_DIR}/src/main.cpp")
+
+# Keep src/main.cpp as the checked-in source manifest for the legacy game
+# implementation, but compile the listed files separately for the player
+# executable. This makes a one-file edit rebuild only that translation unit
+# and bounds compiler memory to one implementation file at a time.
+file(GLOB_RECURSE ALICE_CPP_FILES CONFIGURE_DEPENDS
+	"${PROJECT_SOURCE_DIR}/src/*.cpp")
+file(STRINGS "${PROJECT_SOURCE_DIR}/src/main.cpp" _ALICE_MAIN_CPP_INCLUDES
+	REGEX [=[^#include "[^"]+\.cpp"$]=])
+set(ALICE_MAIN_TRANSLATION_UNITS)
+foreach(_include_line IN LISTS _ALICE_MAIN_CPP_INCLUDES)
+	string(REGEX REPLACE [=[^#include "([^"]+\.cpp)"$]=] [=[\1]=]
+		_included_source "${_include_line}")
+	get_filename_component(_included_basename "${_included_source}" NAME)
+	if(_included_basename STREQUAL "common_types.cpp")
+		# DataContainer provides this implementation through FetchContent below.
+		continue()
+	endif()
+
+	set(_source_matches)
+	if(EXISTS "${PROJECT_SOURCE_DIR}/src/${_included_source}")
+		list(APPEND _source_matches "${PROJECT_SOURCE_DIR}/src/${_included_source}")
+	else()
+		foreach(_candidate IN LISTS ALICE_CPP_FILES)
+			get_filename_component(_candidate_basename "${_candidate}" NAME)
+			if(_candidate_basename STREQUAL "${_included_basename}")
+				list(APPEND _source_matches "${_candidate}")
+			endif()
+		endforeach()
+	endif()
+
+	list(LENGTH _source_matches _source_match_count)
+	if(NOT _source_match_count EQUAL 1)
+		message(FATAL_ERROR
+			"Expected one source for src/main.cpp include '${_included_source}', found ${_source_match_count}")
+	endif()
+	list(GET _source_matches 0 _translation_unit)
+	if(_translation_unit IN_LIST ALICE_MAIN_TRANSLATION_UNITS)
+		message(FATAL_ERROR "Duplicate src/main.cpp source: ${_translation_unit}")
+	endif()
+	list(APPEND ALICE_MAIN_TRANSLATION_UNITS "${_translation_unit}")
+endforeach()
 
 list(APPEND ALICE_CORE_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/economy/social_entitlements.cpp"
@@ -262,6 +331,7 @@ list(APPEND ALICE_INCREMENTAL_SOURCES_LIST
 if(WIN32)
 add_executable(Alice WIN32
 	${ALICE_SOURCE_BLOB}
+	${ALICE_MAIN_TRANSLATION_UNITS}
 	${ALICE_CORE_SOURCES_LIST}
 	"${PROJECT_SOURCE_DIR}/src/alice.rc"
 	${ASSET_FILES})
@@ -278,6 +348,7 @@ add_executable(AliceProfile WIN32 EXCLUDE_FROM_ALL
 else()
 add_executable(Alice WIN32
 	${ALICE_SOURCE_BLOB}
+	${ALICE_MAIN_TRANSLATION_UNITS}
 	${ALICE_CORE_SOURCES_LIST}
 	${ASSET_FILES})
 add_executable(AliceIncremental WIN32 EXCLUDE_FROM_ALL
@@ -305,7 +376,7 @@ target_compile_definitions(AliceProfile PRIVATE DO_NOT_USE_LLVM=1)
 endif()
 
 target_compile_definitions(AliceIncremental PRIVATE INCREMENTAL=1)
-target_compile_definitions(Alice PRIVATE GLM_ENABLE_EXPERIMENTAL)
+target_compile_definitions(Alice PRIVATE GLM_ENABLE_EXPERIMENTAL ALICE_SPLIT_BUILD=1 DCON_TRAP_INVALID_STORE=1)
 target_compile_definitions(AliceIncremental PRIVATE GLM_ENABLE_EXPERIMENTAL)
 if(NOT WIN32)
 	add_compile_definitions(PREFER_ONE_TBB)
@@ -315,6 +386,17 @@ endif()
 add_subdirectory(dependencies EXCLUDE_FROM_ALL)
 add_subdirectory(ParserGenerator EXCLUDE_FROM_ALL)
 add_subdirectory(FifInterfaceGenerator EXCLUDE_FROM_ALL)
+
+# The original amalgamation also contains DataContainer's common type
+# implementation, which is supplied by the fetched dependency rather than
+# the repository's src tree.
+set(ALICE_DCON_COMMON_TYPES_SOURCE
+	"${datacontainer_SOURCE_DIR}/CommonIncludes/common_types.cpp")
+if(NOT EXISTS "${ALICE_DCON_COMMON_TYPES_SOURCE}")
+	message(FATAL_ERROR "DataContainer common_types.cpp was not found: ${ALICE_DCON_COMMON_TYPES_SOURCE}")
+endif()
+list(APPEND ALICE_MAIN_TRANSLATION_UNITS "${ALICE_DCON_COMMON_TYPES_SOURCE}")
+target_sources(Alice PRIVATE "${ALICE_DCON_COMMON_TYPES_SOURCE}")
 
 add_library(AliceCommon INTERFACE)
 target_compile_definitions(AliceCommon INTERFACE GLM_ENABLE_EXPERIMENTAL)

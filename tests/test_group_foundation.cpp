@@ -1,0 +1,10 @@
+#include "test_support.hpp"
+
+#include "determinism_tests.cpp"
+#include "gui_graphics_parsing_tests.cpp"
+#include "misc_tests.cpp"
+#include "parsers_tests.cpp"
+#include "file_system_tests.cpp"
+#include "text_tests.cpp"
+#include "defines_tests.cpp"
+#include "triggers_tests.cpp"

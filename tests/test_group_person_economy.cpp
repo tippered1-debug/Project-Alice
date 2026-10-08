@@ -1,0 +1,11 @@
+#include "test_support.hpp"
+
+#include "concrete_market_tests.cpp"
+#include "individual_concrete_labor_tests.cpp"
+#include "population_materialization_tests.cpp"
+#include "exact_population_tests.cpp"
+#include "exact_person_economy_tests.cpp"
+#include "person_kernel_tests.cpp"
+#include "exact_person_goods_tests.cpp"
+#include "exact_person_freight_tests.cpp"
+#include "layoffs_quits_tests.cpp"
