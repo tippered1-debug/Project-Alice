@@ -1,7 +1,5 @@
 #pragma once
 
-#include "dcon_generated.hpp"
-
 #include <cstdint>
 #include <string>
 #include <string_view>

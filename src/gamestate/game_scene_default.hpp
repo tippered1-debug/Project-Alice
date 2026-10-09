@@ -70,4 +70,24 @@ struct scene_properties {
 	// graphics
 	std::function <void(sys::state& state, std::vector<uint32_t>& data, dcon::province_id selected_province)> update_highlight_texture = highlight_given_province;
 };
+
+inline scene_properties simulation_scene_properties() {
+	return scene_properties{
+		.id = scene_id{},
+		.get_root = {},
+		.based_on_map = false,
+		.game_in_progress = false,
+		.allow_drag_selection = false,
+		.render_ui = {},
+		.render_map = {},
+		.recalculate_mouse_probe = {},
+		.recalculate_tooltip_probe = {},
+		.clean_up = {},
+		.on_game_state_update = {},
+		.on_game_state_update_update_ui = {},
+		.open_chat = {},
+		.on_map_movement_stopped = {},
+		.update_highlight_texture = {}
+	};
+}
 }

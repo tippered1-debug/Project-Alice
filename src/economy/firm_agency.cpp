@@ -6,6 +6,7 @@
 #include "compat/alice/legacy_bridge.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/deposits.hpp"
+#include "economy/physical/exact_person_goods.hpp"
 #include "economy/capital_market.hpp"
 #include "economy/capital_projects.hpp"
 #include "economy/investment_ranking.hpp"
@@ -323,17 +324,21 @@ void update_decisions(sys::state& state) {
 		auto output = state.world.factory_type_get_output(type);
 		auto hub = physical::deposits::market_hub_for(state, market);
 		auto cursor = state.world.factory_get_agency_last_observation_date(factory);
+		if(!cursor) cursor = state.current_date;
+		// Decisions run before today's production, payroll, asks, and purchases.
+		// Treat the saved date as inclusive: today's events are observed tomorrow.
+		auto observation_through = state.current_date - 1;
 		float offered = 0.0f, sold = 0.0f, revenue = 0.0f, sold_quantity = 0.0f;
 		state.world.for_each_concrete_market_ask([&](auto ask) {
 			if(state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask) != factory
-				|| state.world.concrete_market_ask_get_created_on(ask) <= cursor
-				|| state.world.concrete_market_ask_get_created_on(ask) > state.current_date
+				|| state.world.concrete_market_ask_get_created_on(ask) < cursor
+				|| state.world.concrete_market_ask_get_created_on(ask) > observation_through
 				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output) return;
 			offered += std::max(0.0f, state.world.concrete_market_ask_get_original_quantity(ask));
 		});
 		state.world.for_each_concrete_trade_fill([&](auto fill) {
 			auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
-			if(occurred <= cursor || occurred > state.current_date) return;
+			if(occurred < cursor || occurred > observation_through) return;
 			auto ask = state.world.concrete_trade_fill_get_concrete_market_ask_from_concrete_fill_ask(fill);
 			if(!ask || state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask) != factory
 				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output) return;
@@ -342,6 +347,16 @@ void update_decisions(sys::state& state) {
 			revenue += quantity * std::max(0.0f, state.world.concrete_trade_fill_get_execution_price(fill));
 			sold_quantity += quantity;
 		});
+		for(auto const& fill : physical::exact_person_goods::fill_records(state)) {
+			if(fill.occurred_on < cursor || fill.occurred_on > observation_through) continue;
+			auto ask = fill.dcon_ask;
+			if(!ask || state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask) != factory
+				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output) continue;
+			auto quantity = std::max(0.0f, fill.quantity);
+			sold += quantity;
+			revenue += quantity * std::max(0.0f, fill.execution_price);
+			sold_quantity += quantity;
+		}
 		if(offered > epsilon) {
 			auto expected = state.world.factory_get_agency_expected_sell_through(factory);
 			if(!std::isfinite(expected) || expected <= epsilon) expected = default_sell_through;
@@ -380,7 +395,7 @@ void update_decisions(sys::state& state) {
 		std::unordered_set<uint32_t> freight_contracts;
 		state.world.for_each_concrete_trade_fill([&](auto fill) {
 			auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
-			if(occurred <= cursor || occurred > state.current_date) return;
+			if(occurred < cursor || occurred > observation_through) return;
 			auto bid = state.world.concrete_trade_fill_get_concrete_market_bid_from_concrete_fill_bid(fill);
 			if(!bid || state.world.concrete_market_bid_get_factory_from_concrete_bid_factory(bid) != factory) return;
 			realized_input_cost += std::max(0.0f, state.world.concrete_trade_fill_get_quantity(fill))
@@ -391,8 +406,8 @@ void update_decisions(sys::state& state) {
 				[&](dcon::freight_contract_request_id relation) {
 					auto contract = state.world.freight_contract_request_get_freight_contract(relation);
 					if(contract && freight_contracts.insert(contract.index()).second
-						&& state.world.freight_contract_get_created_on(contract) > cursor
-						&& state.world.freight_contract_get_created_on(contract) <= state.current_date)
+						&& state.world.freight_contract_get_created_on(contract) >= cursor
+						&& state.world.freight_contract_get_created_on(contract) <= observation_through)
 						realized_input_cost += std::max(0.0f,
 							state.world.freight_contract_get_agreed_freight_price(contract));
 				});
@@ -401,8 +416,8 @@ void update_decisions(sys::state& state) {
 		float realized_payroll_paid = 0.0f;
 		state.world.for_each_payroll_event([&](auto event) {
 			if(state.world.payroll_event_get_factory_from_payroll_event_factory(event) == factory
-				&& state.world.payroll_event_get_occurred_on(event) > cursor
-				&& state.world.payroll_event_get_occurred_on(event) <= state.current_date) {
+				&& state.world.payroll_event_get_occurred_on(event) >= cursor
+				&& state.world.payroll_event_get_occurred_on(event) <= observation_through) {
 				realized_payroll_due += std::max(0.0f, state.world.payroll_event_get_gross_due(event));
 				realized_payroll_paid += std::max(0.0f, state.world.payroll_event_get_paid(event));
 			}

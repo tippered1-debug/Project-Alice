@@ -56,7 +56,7 @@ struct handles {
 };
 
 struct lab_world {
-	std::unique_ptr<sys::state> state = std::make_unique<sys::state>();
+	std::unique_ptr<sys::state> state = std::make_unique<sys::state>(sys::simulation_only);
 	handles h{};
 	float initial_money = 0.0f;
 };

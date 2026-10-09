@@ -99,6 +99,98 @@ foreach(_include_line IN LISTS _ALICE_MAIN_CPP_INCLUDES)
 	list(APPEND ALICE_MAIN_TRANSLATION_UNITS "${_translation_unit}")
 endforeach()
 
+# src/main.cpp still hosts both runtimes. OUR TIME is the canonical runtime;
+# the classic block contains the old Victoria 2 political and economic engines
+# as well as its UI, map, and content pipeline. Keep a separate manifest and
+# reject those engines if they ever cross the boundary.
+file(STRINGS "${PROJECT_SOURCE_DIR}/src/main.cpp" _ALICE_MAIN_SOURCE_LINES)
+set(_ALICE_IN_CLASSIC_GAME_BLOCK FALSE)
+set(_ALICE_OUR_TIME_CPP_INCLUDES)
+foreach(_source_line IN LISTS _ALICE_MAIN_SOURCE_LINES)
+	if(_source_line STREQUAL "#ifndef INCREMENTAL")
+		set(_ALICE_IN_CLASSIC_GAME_BLOCK TRUE)
+	endif()
+	if(NOT _ALICE_IN_CLASSIC_GAME_BLOCK AND _source_line MATCHES [=[^#include "[^"]+\.cpp"$]=])
+		list(APPEND _ALICE_OUR_TIME_CPP_INCLUDES "${_source_line}")
+	endif()
+endforeach()
+
+set(ALICE_OUR_TIME_TRANSLATION_UNITS)
+set(_ALICE_OUR_TIME_FORBIDDEN_V2_SYSTEMS
+	"nations.cpp"
+	"diplomatic_crisis_dynamics.cpp"
+	"politics.cpp"
+	"economy.cpp"
+	"economy_stats.cpp"
+	"price_level.cpp"
+	"market_clearing.cpp"
+	"commodity_logistics.cpp"
+	"investment_ranking.cpp"
+	"market_access.cpp"
+	"cargo_transit.cpp"
+	"human_development.cpp"
+	"world_trade_capacity.cpp"
+	"economy_pops.cpp"
+	"economy_trade_routes.cpp"
+	"economy_government.cpp"
+	"economy_production.cpp"
+	"construction.cpp"
+	"advanced_province_buildings.cpp"
+	"demographics.cpp"
+)
+set(_ALICE_OUR_TIME_EXCLUDED_SOURCES
+	"lua_alice_api.cpp"
+	"system_state.cpp"
+	"dcon_oos_reporter_generated.cpp"
+	"firm_agency.cpp"
+	"industrial_production.cpp"
+	"payroll.cpp"
+	"capital_projects.cpp"
+)
+foreach(_include_line IN LISTS _ALICE_OUR_TIME_CPP_INCLUDES)
+	string(REGEX REPLACE [=[^#include "([^"]+\.cpp)"$]=] [=[\1]=]
+		_included_source "${_include_line}")
+	get_filename_component(_included_basename "${_included_source}" NAME)
+	if(_included_basename IN_LIST _ALICE_OUR_TIME_FORBIDDEN_V2_SYSTEMS)
+		message(FATAL_ERROR
+			"Classic Victoria 2 system '${_included_source}' crossed into the OUR TIME runtime")
+	endif()
+	if(_included_basename STREQUAL "common_types.cpp"
+		OR _included_source STREQUAL "compat/alice/legacy_bridge.cpp"
+		OR _included_basename IN_LIST _ALICE_OUR_TIME_EXCLUDED_SOURCES)
+		# DataContainer supplies the first implementation. The V2 import adapter,
+		# UI-owned state implementation, Lua bridge, and factory/construction
+		# adapters that still depend on V2 province/factory state stay out of the
+		# standalone fiscal lab runtime.
+		continue()
+	endif()
+
+	set(_source_matches)
+	if(EXISTS "${PROJECT_SOURCE_DIR}/src/${_included_source}")
+		list(APPEND _source_matches "${PROJECT_SOURCE_DIR}/src/${_included_source}")
+	else()
+		foreach(_candidate IN LISTS ALICE_CPP_FILES)
+			get_filename_component(_candidate_basename "${_candidate}" NAME)
+			if(_candidate_basename STREQUAL "${_included_basename}")
+				list(APPEND _source_matches "${_candidate}")
+			endif()
+		endforeach()
+	endif()
+
+	list(LENGTH _source_matches _source_match_count)
+	if(NOT _source_match_count EQUAL 1)
+		message(FATAL_ERROR
+			"Expected one OUR TIME source for src/main.cpp include '${_included_source}', found ${_source_match_count}")
+	endif()
+	list(GET _source_matches 0 _translation_unit)
+	if(_translation_unit IN_LIST ALICE_OUR_TIME_TRANSLATION_UNITS)
+		message(FATAL_ERROR "Duplicate OUR TIME source: ${_translation_unit}")
+	endif()
+	list(APPEND ALICE_OUR_TIME_TRANSLATION_UNITS "${_translation_unit}")
+endforeach()
+list(APPEND ALICE_OUR_TIME_TRANSLATION_UNITS
+	"${PROJECT_SOURCE_DIR}/src/gamestate/sovereign_debt_crisis_lab.cpp")
+
 list(APPEND ALICE_CORE_SOURCES_LIST
 	"${PROJECT_SOURCE_DIR}/src/economy/social_entitlements.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/collective_labor.cpp"
@@ -592,6 +684,61 @@ target_include_directories(AliceCommon INTERFACE
 target_link_libraries(Alice PRIVATE AliceCommon)
 target_link_libraries(AliceIncremental PRIVATE AliceCommon)
 
+# OUR TIME gets its own headless entry point and compiles only the simulation
+# side of the source manifest. The existing Alice executable remains the
+# compatibility runtime while this boundary is being migrated.
+if(UNIX)
+	find_package(Threads REQUIRED)
+	add_library(AliceOurTimeCommon INTERFACE)
+	get_target_property(_ALICE_COMMON_INCLUDE_DIRS AliceCommon INTERFACE_INCLUDE_DIRECTORIES)
+	get_target_property(_ALICE_COMMON_DEFINITIONS AliceCommon INTERFACE_COMPILE_DEFINITIONS)
+	if(_ALICE_COMMON_INCLUDE_DIRS)
+		target_include_directories(AliceOurTimeCommon SYSTEM INTERFACE ${_ALICE_COMMON_INCLUDE_DIRS})
+	endif()
+	if(_ALICE_COMMON_DEFINITIONS)
+		target_compile_definitions(AliceOurTimeCommon INTERFACE ${_ALICE_COMMON_DEFINITIONS})
+	endif()
+	# Read header paths from existing dependency targets without linking the UI,
+	# sound, Lua, or renderer libraries into this executable.
+	foreach(_dependency_target IN ITEMS
+		dependency_DataContainer dependency_DataContainerLua dependency_DataContainerOOSReporter
+		libglew_static stb_image freetype harfbuzz glm lib_luajit dependency_tbb glfw miniaudio dependency_icu)
+		if(TARGET ${_dependency_target})
+			get_target_property(_dependency_includes ${_dependency_target} INTERFACE_INCLUDE_DIRECTORIES)
+			if(_dependency_includes)
+				target_include_directories(AliceOurTimeCommon SYSTEM INTERFACE ${_dependency_includes})
+			endif()
+			get_target_property(_dependency_definitions ${_dependency_target} INTERFACE_COMPILE_DEFINITIONS)
+			if(_dependency_definitions)
+				target_compile_definitions(AliceOurTimeCommon INTERFACE ${_dependency_definitions})
+			endif()
+		endif()
+	endforeach()
+	target_compile_options(AliceOurTimeCommon INTERFACE
+		$<$<CONFIG:Debug>:-g>
+		"$<$<NOT:$<CONFIG:Debug>>:-O1;-fno-rtti;-DNDEBUG>"
+		-fno-fast-math -ffp-contract=off)
+	target_link_libraries(AliceOurTimeCommon INTERFACE dependency_DataContainer glm Threads::Threads)
+
+	add_library(AliceOurTimeCore STATIC EXCLUDE_FROM_ALL
+		${ALICE_OUR_TIME_TRANSLATION_UNITS}
+		"${ALICE_DCON_COMMON_TYPES_SOURCE}")
+	target_link_libraries(AliceOurTimeCore PUBLIC AliceOurTimeCommon)
+	target_compile_definitions(AliceOurTimeCore PRIVATE
+		GLM_ENABLE_EXPERIMENTAL ALICE_SPLIT_BUILD=1 DCON_TRAP_INVALID_STORE=1)
+	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		target_compile_options(AliceOurTimeCore PRIVATE -ffunction-sections -fdata-sections)
+	endif()
+
+	add_executable(AliceOurTime EXCLUDE_FROM_ALL src/entry_point_our_time.cpp)
+	target_link_libraries(AliceOurTime PRIVATE AliceOurTimeCore)
+	if(APPLE)
+		target_link_options(AliceOurTime PRIVATE -Wl,-dead_strip)
+	else()
+		target_link_options(AliceOurTime PRIVATE -Wl,--gc-sections)
+	endif()
+endif()
+
 if (WIN32)
 	target_link_libraries(AliceProfile PRIVATE AliceCommon)
 	target_link_libraries(Alice PRIVATE ${PROJECT_SOURCE_DIR}/libs/LLVM-C.lib)
@@ -681,6 +828,19 @@ target_precompile_headers(Alice
 	PRIVATE <cstdarg>
 	PRIVATE <cmath>
 )
+
+if(TARGET AliceOurTimeCore)
+	# Share the generated model schema once inside this target. Keep its PCH
+	# independent of Alice so building OUR TIME never schedules the legacy app.
+	target_precompile_headers(AliceOurTimeCore PRIVATE
+		<vector>
+		<string>
+		<algorithm>
+		<memory>
+		<functional>
+		[["dcon_generated.hpp"]]
+	)
+endif()
 target_precompile_headers(AliceIncremental
 	PRIVATE <cstdlib>
 	PRIVATE <cstddef>
@@ -765,10 +925,16 @@ add_custom_command(
 add_custom_target(GENERATE_CONTAINER DEPENDS ${CONTAINER_PATH}.hpp)
 add_dependencies(Alice GENERATE_CONTAINER ParserGenerator)
 add_dependencies(AliceIncremental GENERATE_CONTAINER ParserGenerator)
+if(TARGET AliceOurTimeCore)
+	add_dependencies(AliceOurTimeCore GENERATE_CONTAINER ParserGenerator)
+endif()
 
 add_custom_target(GENERATE_CONTAINERIFACE DEPENDS ${PROJECT_SOURCE_DIR}/src/gamestate/fif_dcon_generated.hpp)
 add_dependencies(Alice GENERATE_CONTAINERIFACE)
 add_dependencies(AliceIncremental GENERATE_CONTAINERIFACE)
+if(TARGET AliceOurTimeCore)
+	add_dependencies(AliceOurTimeCore GENERATE_CONTAINERIFACE)
+endif()
 
 add_custom_target(GENERATE_CONTAINER_LUA DEPENDS ${PROJECT_SOURCE_DIR}/src/gamestate/lua_dcon_generated.hpp)
 add_dependencies(Alice GENERATE_CONTAINER_LUA)
@@ -854,6 +1020,9 @@ add_custom_target(GENERATE_PARSERS DEPENDS
 	${PROJECT_SOURCE_DIR}/src/text/font_defs_generated.hpp)
 add_dependencies(Alice GENERATE_PARSERS)
 add_dependencies(AliceIncremental GENERATE_PARSERS)
+if(TARGET AliceOurTimeCore)
+	add_dependencies(AliceOurTimeCore GENERATE_PARSERS)
+endif()
 
 if(WIN32)
 add_dependencies(AliceProfile GENERATE_PARSERS)

@@ -36,6 +36,7 @@
 
 namespace game_scene {
 scene_properties nation_picker();
+scene_properties simulation_scene_properties();
 }
 
 namespace ui {
@@ -759,6 +760,12 @@ struct ui_cache {
 /// <summary>
 /// Holds important data about the game world, state, and other data regarding windowing, audio, and more.
 /// </summary>
+struct simulation_only_t {
+	explicit simulation_only_t() = default;
+};
+
+inline constexpr simulation_only_t simulation_only{};
+
 struct alignas(64) state {
 	dcon::data_container world; // Holds data regarding the game world. Also contains user locales.
 	// Exact mass-population identity is imported once from scenario POP rows and
@@ -1154,9 +1161,16 @@ struct alignas(64) state {
 		logger_thread = start_logger_thread(); // create logger thread to handle incoming log message asynchronously
 	}
 
+	// Simulation-only consumers do not create the Victoria 2 nation-picker
+	// scene or its asynchronous UI log thread.
+	explicit state(simulation_only_t) : untrans_key_to_text_sequence(0, text::vector_backed_ci_hash(key_data), text::vector_backed_ci_eq(key_data)), locale_key_to_text_sequence(0, text::vector_backed_ci_hash(key_data), text::vector_backed_ci_eq(key_data)), current_scene(game_scene::simulation_scene_properties()), singleplayer_commands(4096), new_n_event(1024), new_f_n_event(1024), new_p_event(1024), new_requests(256), new_messages(2048), naval_battle_reports(256), land_battle_reports(256), error_windows(256), pending_log_messages(256) {
+		key_data.push_back(0);
+	}
+
 	~state() {
 		quit_signaled.store(true, std::memory_order::release);
-		logger_thread.join(); // wait for logger thread to quit after signalling
+		if(logger_thread.joinable())
+			logger_thread.join(); // wait for logger thread to quit after signalling
 	}
 
 	void save_user_settings() const;
