@@ -1,7 +1,29 @@
 # Sovereign debt crisis audit
 
-Status: implementation audit and lifecycle specification. This document does
-not claim a 540-day experiment has run.
+Status: lifecycle audit plus a deterministic 540-day experiment implementation.
+The experiment runner has not been run against a newly built executable, so
+this document does not claim measured results.
+
+## Experiment v1
+
+`experiments/sovereign_debt_crisis/` contains the runner and scenario notes.
+The native fixture recreates the same government, treasury, taxpayer, creditor
+bank, opening deposit liability, and consented sovereign bond for each case.
+It compares a balanced baseline, a day-90 persistent revenue shock, and that
+shock paired with lower planned public-service spending. It uses the real tax
+assessment and collection APIs, account transfers, debt servicing and default
+lifecycle, and bank balance sheet.
+
+The daily CSV reports tax assessed and collected, planned and funded service,
+shortfall, debt principal and interest, treasury cash, creditor reserves and
+claims, bank status, and account-cash conservation. The event CSV records bond
+issuance, tax collection, public spending, debt service, and default. The
+comparison runner repeats each case with the same seed and verifies checksum
+reproducibility and the expected default/funding outcomes.
+
+Recovery-adjusted bank net worth is reported as a stress sensitivity only. The
+base banking system still carries a defaulted sovereign claim at face value;
+the lab does not mutate that balance sheet or simulate a recapitalization.
 
 ## Existing causal links
 
@@ -48,7 +70,11 @@ not claim a 540-day experiment has run.
   separate existing systems, but a full-game 540-day crisis path through
   public-service quality, household consumption, party choice, election, and
   government replacement has not yet been demonstrated.
-- A full experiment still needs an identical-state canonical fixture, scenario
-  interventions, creditor and institutional daily outputs, comparison metrics,
-  and reproducibility checks. Until those run, conclusions about political
-  contagion and recovery are not supported.
+- The fixture is a small finance-only world, not a full-game scenario. It does
+  not run production, household consumption, voter preferences, elections, or
+  government replacement. It demonstrates fiscal distress, public-service
+  funding shortfalls, and creditor exposure, but does not establish political
+  contagion.
+- No measured run output has been committed yet. Until the runner executes
+  against a built binary, claims about the observed timing and magnitude of
+  default, service shortfalls, or recovery are not supported.

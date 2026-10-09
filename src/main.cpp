@@ -143,6 +143,7 @@
 #include "notifications.cpp"
 #include "map_tooltip.cpp"
 #include "gamestate/supply_chain_contagion_lab.cpp"
+#include "gamestate/sovereign_debt_crisis_lab.cpp"
 #include "unit_tooltip.cpp"
 #include "gui_leaders_window.cpp"
 #include "gui_stats_window.cpp"

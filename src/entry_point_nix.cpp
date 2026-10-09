@@ -4,6 +4,7 @@
 #include "parsers_declarations.hpp"
 #include "simulation_runner.hpp"
 #include "gamestate/supply_chain_contagion_lab.hpp"
+#include "gamestate/sovereign_debt_crisis_lab.hpp"
 
 #include <oneapi/tbb/global_control.h>
 
@@ -273,10 +274,13 @@ int main(int argc, char* argv[]) {
 	bool force_flat_map = false;
 	bool synthetic_lab = false;
 	bool supply_chain_lab = false;
+	bool sovereign_debt_lab = false;
 	sys::simulation::synthetic_lab_result synthetic_lab_state{};
 	sys::simulation::supply_chain_lab::config supply_chain_config{};
+	sys::simulation::sovereign_debt_lab::config sovereign_debt_config{};
 	uint32_t supply_chain_save_restore_day = 0;
 	std::string supply_chain_output_dir = "supply-chain-contagion-output";
+	std::string sovereign_debt_output_dir = "sovereign-debt-crisis-output";
 	std::string report_jsonl_path;
 	std::string load_save_name;
 	std::string save_at_end_name;
@@ -302,6 +306,10 @@ int main(int argc, char* argv[]) {
 				supply_chain_lab = true;
 				continue;
 			}
+			if(argument == NATIVE("--sovereign-debt-crisis-lab")) {
+				sovereign_debt_lab = true;
+				continue;
+			}
 			auto const consumes_value =
 				argument == NATIVE("--mod")
 				|| argument == NATIVE("-name")
@@ -323,6 +331,12 @@ int main(int argc, char* argv[]) {
 				++i;
 				continue;
 			}
+			if(argument == NATIVE("--debt-lab-scenario") || argument == NATIVE("--debt-lab-days")
+				|| argument == NATIVE("--debt-lab-seed") || argument == NATIVE("--debt-lab-shock-day")
+				|| argument == NATIVE("--debt-lab-output")) {
+				++i;
+				continue;
+			}
 			if(consumes_value) {
 				++i;
 				continue;
@@ -334,7 +348,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// No scenario file was provided, but mod(s) might have been. Try finding the corresponding scenario file if mods were indeed specified. 			
-		if(selected_scenario_file.empty() && !synthetic_lab && !supply_chain_lab) {
+		if(selected_scenario_file.empty() && !synthetic_lab && !supply_chain_lab && !sovereign_debt_lab) {
 			for(int i = 0; i < argc; ++i) {
 				if(strstr(argv[i], "--mod") != NULL) {
 					//Beginning of seemingly unnecessary code
@@ -465,6 +479,37 @@ int main(int argc, char* argv[]) {
 			} else if(native_string(argv[i]) == NATIVE("--supply-chain-contagion-lab")) {
 				supply_chain_lab = true;
 				headless = true;
+			} else if(native_string(argv[i]) == NATIVE("--sovereign-debt-crisis-lab")) {
+				sovereign_debt_lab = true;
+				headless = true;
+			} else if(native_string(argv[i]) == NATIVE("--debt-lab-scenario")) {
+				if(i + 1 >= argc) window::emit_error_message("Usage: --debt-lab-scenario <baseline|revenue-shock|austerity>\n", true);
+				sovereign_debt_config.experiment = sys::simulation::sovereign_debt_lab::parse_scenario(
+					simple_fs::native_to_utf8(native_string(argv[++i])));
+			} else if(native_string(argv[i]) == NATIVE("--debt-lab-days")) {
+				uint64_t days = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], days)
+					|| days > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --debt-lab-days <1..50000>\n", true);
+				sovereign_debt_config.days = uint32_t(days);
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--debt-lab-seed")) {
+				uint64_t seed = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], seed)
+					|| seed > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --debt-lab-seed <0..4294967295>\n", true);
+				sovereign_debt_config.seed = uint32_t(seed);
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--debt-lab-shock-day")) {
+				uint64_t day = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], day)
+					|| day > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --debt-lab-shock-day <positive integer>\n", true);
+				sovereign_debt_config.shock_day = uint32_t(day);
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--debt-lab-output")) {
+				if(i + 1 >= argc) window::emit_error_message("Usage: --debt-lab-output <directory>\n", true);
+				sovereign_debt_output_dir = simple_fs::native_to_utf8(native_string(argv[++i]));
 			} else if(native_string(argv[i]) == NATIVE("--lab-shock")) {
 				if(i + 1 >= argc) window::emit_error_message("Usage: --lab-shock <baseline|embargo|blockade|substitution>\n", true);
 				supply_chain_config.shock = sys::simulation::supply_chain_lab::parse_intervention(argv[++i]);
@@ -534,7 +579,7 @@ int main(int argc, char* argv[]) {
 		// Runtime-only flags should not prevent the normal scenario selection flow. This is especially
 		// important for macOS .app launches, where the bundle supplies ruleset
 		// flags but the user's scenario still lives in Alice's data directory.
-		if(selected_scenario_file.empty() && !synthetic_lab && !supply_chain_lab) {
+		if(selected_scenario_file.empty() && !synthetic_lab && !supply_chain_lab && !sovereign_debt_lab) {
 			find_scenario_file();
 			if(selected_scenario_file.empty()) {
 				window::emit_error_message(
@@ -550,6 +595,10 @@ int main(int argc, char* argv[]) {
 	if(synthetic_lab && (!load_save_name.empty() || !save_at_end_name.empty())) {
 		window::emit_error_message(
 			"--synthetic-lab does not use scenario or checkpoint save files.\n", true);
+	}
+	if(sovereign_debt_lab && (!load_save_name.empty() || !save_at_end_name.empty())) {
+		window::emit_error_message(
+			"--sovereign-debt-crisis-lab uses its own synthetic fixture and does not load scenario saves.\n", true);
 	}
 	if(save_at_end_name.find('/') != std::string::npos
 		|| save_at_end_name.find('\\') != std::string::npos) {
@@ -567,7 +616,7 @@ int main(int argc, char* argv[]) {
 		game_state.local_player_nation = synthetic_lab_state.nation;
 		window::emit_error_message(
 			"Using the built-in synthetic simulation lab; no scenario .bin is required.\n", false);
-	} else if(supply_chain_lab) {
+	} else if(supply_chain_lab || sovereign_debt_lab) {
 		// This fixture initializes its own minimal world and does not load a scenario.
 	} else if(sys::try_read_scenario_and_save_file(game_state, selected_scenario_file)) {
 		auto msg = "Running scenario file " + simple_fs::native_to_utf8(selected_scenario_file) + "\n";
@@ -592,7 +641,7 @@ int main(int argc, char* argv[]) {
 		window::emit_error_message("Scenario file could not be read.", true);
 	}
 
-	if(!synthetic_lab && !supply_chain_lab) {
+	if(!synthetic_lab && !supply_chain_lab && !sovereign_debt_lab) {
 		network::init(game_state);
 		game_state.load_user_settings();
 		if(force_flat_map) {
@@ -609,6 +658,27 @@ int main(int argc, char* argv[]) {
 		serial_scheduler = std::make_unique<oneapi::tbb::global_control>(
 			oneapi::tbb::global_control::max_allowed_parallelism, 1);
 		window::emit_error_message("Scheduler pinned to a single worker.\n", false);
+	}
+	if(sovereign_debt_lab) {
+		try {
+			auto result = sys::simulation::sovereign_debt_lab::run(sovereign_debt_config);
+			if(!sys::simulation::sovereign_debt_lab::write_outputs(result, sovereign_debt_output_dir)) {
+				window::emit_error_message("Could not write sovereign-debt lab output.\n", false);
+				return EXIT_FAILURE;
+			}
+			std::cout << "{\"scenario\":\"" << sys::simulation::sovereign_debt_lab::scenario_name(result.experiment)
+				<< "\",\"days_completed\":" << result.ticks_completed
+				<< ",\"debt_defaulted\":" << (result.debt_reached_default ? "true" : "false")
+				<< ",\"defaulted_claim\":" << result.final_defaulted_debt
+				<< ",\"bank_base_net_worth\":" << result.final_bank_net_worth
+				<< ",\"bank_zero_recovery_net_worth\":" << result.bank_net_worth_at_0pct_recovery
+				<< ",\"money_error\":" << result.maximum_money_conservation_error
+				<< ",\"checksum\":" << result.final_checksum << "}\n";
+			return result.ticks_completed == sovereign_debt_config.days ? EXIT_SUCCESS : EXIT_FAILURE;
+		} catch(std::exception const& error) {
+			window::emit_error_message(std::string("Sovereign-debt lab failed: ") + error.what() + "\n", false);
+			return EXIT_FAILURE;
+		}
 	}
 	if(supply_chain_lab) {
 		if(!single_thread) {
