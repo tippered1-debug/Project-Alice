@@ -3,6 +3,9 @@
 #include "economy/accounts/accounts.hpp"
 #include "economy/banking/banking.hpp"
 #include "economy/consent/consent.hpp"
+#include "economy/foreign_exchange.hpp"
+#include "economy/money/ontology.hpp"
+#include "economy/physical/concrete_market.hpp"
 #include "economy/relations/relations.hpp"
 #include "economy/wallets.hpp"
 #include "governance/governance.hpp"
@@ -15,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace governance::finance {
 
@@ -36,7 +40,8 @@ bool live_obligation(sys::state const& state, dcon::obligation_id obligation) {
 
 bool payable_obligation(sys::state const& state, dcon::obligation_id obligation) {
 	return live_obligation(state, obligation)
-		&& state.world.obligation_get_status(obligation) == uint8_t(obligation_status::active);
+		&& (state.world.obligation_get_status(obligation) == uint8_t(obligation_status::active)
+			|| state.world.obligation_get_status(obligation) == uint8_t(obligation_status::defaulted));
 }
 
 struct authority_context {
@@ -86,6 +91,29 @@ bool valid_treasury_account(sys::state const& state, dcon::monetary_account_id a
 
 dcon::institution_id institution_for_actor(sys::state const& state, dcon::economic_actor_id actor) {
 	return actor ? state.world.economic_actor_get_institution_from_institution_actor(actor) : dcon::institution_id{};
+}
+
+dcon::monetary_account_id payment_account_for(sys::state const& state,
+	dcon::economic_actor_id holder, dcon::commodity_id settlement) {
+	if(!holder || !settlement) return {};
+	std::vector<dcon::monetary_account_id> candidates;
+	state.world.economic_actor_for_each_monetary_account_owner_as_economic_actor(holder,
+		[&](dcon::monetary_account_owner_id relation) {
+			auto account = state.world.monetary_account_owner_get_monetary_account(relation);
+			if(!account || economy::accounts::settlement_of(state, account) != settlement) return;
+			economy::monetary::ontology::account_view view;
+			if(!economy::monetary::ontology::describe(state,
+				economy::monetary::ontology::account_ref::from_monetary(account), view)) return;
+			if(view.instrument == economy::monetary::ontology::instrument_kind::operating_account
+				|| view.instrument == economy::monetary::ontology::instrument_kind::base_money_reserve)
+				candidates.push_back(account);
+		});
+	std::sort(candidates.begin(), candidates.end(), [&](auto left, auto right) {
+		auto left_id = state.world.monetary_account_get_canonical_id(left);
+		auto right_id = state.world.monetary_account_get_canonical_id(right);
+		return left_id != right_id ? left_id < right_id : left.index() < right.index();
+	});
+	return candidates.empty() ? dcon::monetary_account_id{} : candidates.front();
 }
 
 } // namespace
@@ -442,13 +470,103 @@ dcon::transaction_id service_public_debt(sys::state& state, dcon::obligation_id 
 	auto creditor = state.world.obligation_get_economic_actor_from_obligation_creditor(obligation);
 	auto settlement = state.world.obligation_get_settlement_commodity(obligation);
 	auto institution = institution_for_actor(state, debtor);
-	if(!institution || !valid_treasury_account(state, treasury_account, institution, settlement) || economy::accounts::owner_of(state, holder_account) != creditor || economy::accounts::settlement_of(state, holder_account) != settlement) return {};
-	auto accepted = std::min(amount, economy::relations::total_due(state, obligation));
-	if(accepted <= 0.0f || economy::accounts::balance(state, treasury_account) < accepted) return {};
-	auto transaction = economy::accounts::transfer(state, treasury_account, holder_account, accepted,
-		transaction_kind::public_debt_service, date);
-	if(!transaction || economy::relations::repay_obligation(state, obligation, accepted) != accepted) return {};
-	return transaction;
+	if(!institution || !valid_treasury_account(state, treasury_account, institution, settlement)
+		|| economy::accounts::owner_of(state, holder_account) != creditor
+		|| economy::accounts::settlement_of(state, holder_account) != settlement) return {};
+	auto reserved = economy::physical::concrete_market::reserved_bid_amount(state, treasury_account);
+	auto free_cash = std::max(0.0f, economy::accounts::balance(state, treasury_account) - reserved);
+	free_cash = std::min(free_cash, economy::foreign_exchange::available_balance(state,
+		economy::exact_person_economy::account_ref::from_dcon(treasury_account)));
+	auto accepted = std::min({amount, economy::relations::total_due(state, obligation), free_cash});
+	if(accepted <= 0.0f) return {};
+	return economy::accounts::settle_obligation_payment(state, obligation, treasury_account,
+		holder_account, accepted, date, transaction_kind::public_debt_service, true);
+}
+
+public_debt_service_result process_public_debt(sys::state& state,
+	dcon::institution_id institution, sys::date date, uint32_t default_grace_days) {
+	public_debt_service_result result{};
+	if(!institution || !state.world.institution_is_valid(institution)) return result;
+	auto debtor = governance::actor_for_institution(state, institution);
+	if(!debtor) return result;
+	std::vector<dcon::obligation_id> obligations;
+	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(debtor,
+		[&](dcon::obligation_debtor_id relation) {
+			auto obligation = state.world.obligation_debtor_get_obligation(relation);
+			if(obligation && state.world.obligation_is_valid(obligation)
+				&& state.world.obligation_get_economic_actor_from_obligation_debtor(obligation) == debtor
+				&& state.world.obligation_get_kind(obligation) == uint8_t(obligation_kind::public_debt)
+				&& live_obligation(state, obligation)) obligations.push_back(obligation);
+		});
+	std::sort(obligations.begin(), obligations.end(), [&](auto left, auto right) {
+		auto left_due = state.world.obligation_get_due_date(left).to_raw_value();
+		auto right_due = state.world.obligation_get_due_date(right).to_raw_value();
+		if(left_due != right_due) return left_due < right_due;
+		auto left_id = state.world.obligation_get_canonical_id(left);
+		auto right_id = state.world.obligation_get_canonical_id(right);
+		return left_id != right_id ? left_id < right_id : left.index() < right.index();
+	});
+
+	constexpr float epsilon = 1.0e-5f;
+	for(auto obligation : obligations) {
+		auto last_accrual = state.world.obligation_get_last_interest_accrual_date(obligation);
+		if(!last_accrual) last_accrual = state.world.obligation_get_creation_date(obligation);
+		auto elapsed = date.to_raw_value() > last_accrual.to_raw_value()
+			? uint32_t(date.to_raw_value() - last_accrual.to_raw_value()) : 0u;
+		if(elapsed > 0) {
+			result.interest_accrued += accrue_public_debt_interest(state, obligation, elapsed);
+			state.world.obligation_set_last_interest_accrual_date(obligation, date);
+		}
+
+		auto due_date = state.world.obligation_get_due_date(obligation);
+		auto settlement = state.world.obligation_get_settlement_commodity(obligation);
+		if(due_date && due_date <= date) {
+			auto treasury = treasury_account_for(state, institution, settlement);
+			auto holder = payment_account_for(state,
+				state.world.obligation_get_economic_actor_from_obligation_creditor(obligation), settlement);
+			if(treasury && holder) {
+				auto before = economy::relations::total_due(state, obligation);
+				auto transaction = service_public_debt(state, obligation, treasury, holder, before, date);
+				if(transaction) {
+					result.amount_paid += state.world.transaction_get_amount(transaction);
+					++result.payments;
+				}
+			}
+		}
+
+		auto remaining = economy::relations::total_due(state, obligation);
+		if(remaining <= epsilon || !due_date || due_date > date) continue;
+		auto status = state.world.obligation_get_status(obligation);
+		if(status == uint8_t(obligation_status::active)
+			&& date >= due_date + int32_t(default_grace_days)) {
+			state.world.obligation_set_status(obligation, uint8_t(obligation_status::defaulted));
+			auto treasury = treasury_account_for(state, institution, settlement);
+			(void)record_action(state, fiscal_action_kind::public_debt_default, {}, {}, institution,
+				treasury, date, obligation);
+			++result.newly_defaulted;
+			status = uint8_t(obligation_status::defaulted);
+		}
+		if(status == uint8_t(obligation_status::defaulted)) result.defaulted_amount += remaining;
+		else {
+			result.overdue_amount += remaining;
+			++result.overdue_obligations;
+		}
+	}
+	return result;
+}
+
+sys::date last_public_debt_payment_date(sys::state const& state, dcon::obligation_id obligation) {
+	sys::date latest{};
+	if(!obligation || !state.world.obligation_is_valid(obligation)) return latest;
+	state.world.obligation_for_each_transaction_obligation_as_obligation(obligation,
+		[&](dcon::transaction_obligation_id relation) {
+			auto transaction = state.world.transaction_obligation_get_transaction(relation);
+			if(transaction && state.world.transaction_get_kind(transaction) == uint8_t(transaction_kind::public_debt_service)) {
+				auto timestamp = state.world.transaction_get_timestamp(transaction);
+				if(!latest || latest < timestamp) latest = timestamp;
+			}
+		});
+	return latest;
 }
 
 float public_debt_held_by(sys::state const& state, dcon::economic_actor_id holder, dcon::commodity_id settlement) {
@@ -478,7 +596,19 @@ fiscal_position fiscal_position_for(sys::state const& state, dcon::institution_i
 	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(actor,
 		[&](dcon::obligation_debtor_id relation) {
 			auto obligation = state.world.obligation_debtor_get_obligation(relation);
-			if(obligation && state.world.obligation_get_kind(obligation) == uint8_t(obligation_kind::public_debt) && state.world.obligation_get_settlement_commodity(obligation) == settlement && live_obligation(state, obligation)) result.public_debt_outstanding += economy::relations::total_due(state, obligation);
+			if(!obligation || state.world.obligation_get_kind(obligation) != uint8_t(obligation_kind::public_debt)
+				|| state.world.obligation_get_settlement_commodity(obligation) != settlement
+				|| !live_obligation(state, obligation)) return;
+			auto principal = state.world.obligation_get_principal_outstanding(obligation);
+			auto interest = state.world.obligation_get_accrued_interest(obligation);
+			auto due = principal + interest;
+			result.public_debt_principal_outstanding += principal;
+			result.public_debt_accrued_interest += interest;
+			result.public_debt_outstanding += due;
+			auto status = state.world.obligation_get_status(obligation);
+			if(status == uint8_t(obligation_status::defaulted)) result.public_debt_defaulted += due;
+			else if(state.world.obligation_get_due_date(obligation) <= state.current_date)
+				result.public_debt_overdue += due;
 		});
 	result.net_financial_position = result.treasury_cash + result.tax_receivables - result.public_debt_outstanding;
 	return result;

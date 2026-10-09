@@ -142,6 +142,7 @@
 #include "diplomatic_messages.cpp"
 #include "notifications.cpp"
 #include "map_tooltip.cpp"
+#include "gamestate/supply_chain_contagion_lab.cpp"
 #include "unit_tooltip.cpp"
 #include "gui_leaders_window.cpp"
 #include "gui_stats_window.cpp"

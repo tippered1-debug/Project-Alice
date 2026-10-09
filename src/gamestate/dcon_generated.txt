@@ -7127,6 +7127,13 @@ relationship{
 }
 
 relationship{
+	name{ transaction_obligation }
+	tag{ save }
+	link{ object{ transaction } name{ transaction } type{ unique } }
+	link{ object{ obligation } name{ obligation } type{ many } index_storage{ array } }
+}
+
+relationship{
 	name{ market_hub_site }
 	tag{ save }
 	link{ object{ market } name{ market } type{ unique } }

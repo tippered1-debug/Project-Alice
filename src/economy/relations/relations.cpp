@@ -49,7 +49,10 @@ dcon::obligation_id create_obligation(sys::state& state, dcon::economic_actor_id
 }
 
 float accrue_interest(sys::state& state, dcon::obligation_id obligation, uint32_t days) {
-	if(!obligation || days == 0 || state.world.obligation_get_status(obligation) != uint8_t(obligation_status::active)) return 0.0f;
+	if(!obligation || days == 0) return 0.0f;
+	auto status = state.world.obligation_get_status(obligation);
+	if(status != uint8_t(obligation_status::active)
+		&& status != uint8_t(obligation_status::defaulted)) return 0.0f;
 	auto outstanding = state.world.obligation_get_principal_outstanding(obligation);
 	auto rate = state.world.obligation_get_annual_interest_rate(obligation);
 	auto accrued = state.world.obligation_get_accrued_interest(obligation);
@@ -70,8 +73,11 @@ float total_due(sys::state const& state, dcon::obligation_id obligation) {
 		+ state.world.obligation_get_accrued_interest(obligation);
 }
 
-float repay_obligation(sys::state& state, dcon::obligation_id obligation, float amount) {
-	if(!obligation || !finite_nonnegative(amount) || state.world.obligation_get_status(obligation) != uint8_t(obligation_status::active)) return 0.0f;
+float repay_obligation(sys::state& state, dcon::obligation_id obligation, float amount, bool allow_defaulted) {
+	if(!obligation || !finite_nonnegative(amount)) return 0.0f;
+	auto status = state.world.obligation_get_status(obligation);
+	if(status != uint8_t(obligation_status::active)
+		&& !(allow_defaulted && status == uint8_t(obligation_status::defaulted))) return 0.0f;
 	auto interest = state.world.obligation_get_accrued_interest(obligation);
 	auto principal = state.world.obligation_get_principal_outstanding(obligation);
 	auto paid = std::min(amount, interest + principal);
@@ -99,7 +105,10 @@ float outstanding_between(sys::state const& state, dcon::economic_actor_id debto
 	float total = 0.0f;
 	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(debtor, [&](dcon::obligation_debtor_id relation) {
 		auto obligation = state.world.obligation_debtor_get_obligation(relation);
-		if(state.world.obligation_get_economic_actor_from_obligation_debtor(obligation) == debtor && state.world.obligation_get_economic_actor_from_obligation_creditor(obligation) == creditor && state.world.obligation_get_settlement_commodity(obligation) == settlement && state.world.obligation_get_status(obligation) == uint8_t(obligation_status::active))
+		auto status = state.world.obligation_get_status(obligation);
+		if(state.world.obligation_get_economic_actor_from_obligation_debtor(obligation) == debtor && state.world.obligation_get_economic_actor_from_obligation_creditor(obligation) == creditor && state.world.obligation_get_settlement_commodity(obligation) == settlement
+			&& (status == uint8_t(obligation_status::active)
+				|| status == uint8_t(obligation_status::defaulted)))
 			total += total_due(state, obligation);
 	});
 	return total;

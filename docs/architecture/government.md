@@ -176,8 +176,10 @@ Money moves only between real accounts; allocating a budget never creates money.
 
 1. The tax authority assesses wage taxes under its delegated `levy_tax` power, at the rates of the fiscal law in force. Without a law, nothing is due.
 2. On the first of the month, the tax authority hands collected revenue to the finance ministry's national treasury.
-3. The finance ministry disburses the share the law sets. It transfers to each institution the law appropriates, using its `appropriate` and `spend_public_funds` powers.
-4. Institutions spend their own treasuries on staff, procurement, and projects under their own spending powers:
+3. Every day, each institution accrues interest on its own public-debt obligations for the elapsed days. At maturity, its treasury pays available cash to the recorded holder; partial payments pay accrued interest first and then principal. Other institutions' balances are never used to pay the debt.
+4. An unpaid maturity remains an active, overdue obligation. After a 30-day grace period it is marked defaulted and a fiscal action records the event. Default does not write off the claim; later cash payments can still reduce it. Outstanding defaulted bonds remain on creditor bank balance sheets at face amount because the banking model has no impairment valuation rule yet.
+5. On the first of the month, debt service runs after tax remittance and before appropriations. The finance ministry then disburses the share the law sets, transferring to each institution the law appropriates using its `appropriate` and `spend_public_funds` powers. On other days, debt service runs from each debtor institution's existing treasury.
+6. Institutions spend their own treasuries on staff, procurement, and projects under their own spending powers:
    - ministries recruit staff where they govern, paid from their own treasury;
    - municipal administrations buy office supplies;
    - the public works ministry commissions and pays for public construction.

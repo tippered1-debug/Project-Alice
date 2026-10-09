@@ -1402,22 +1402,28 @@ balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id 
 	std::sort(creditor_obligations.begin(), creditor_obligations.end(), [&](auto left, auto right) {
 		return state.world.obligation_get_canonical_id(left) < state.world.obligation_get_canonical_id(right);
 	});
-	double performing_principal = 0.0, interest_receivable = 0.0, public_debt = 0.0;
+	double performing_principal = 0.0, interest_receivable = 0.0, public_debt = 0.0,
+		defaulted_public_debt = 0.0;
 	for(auto obligation : creditor_obligations) {
 		auto status = state.world.obligation_get_status(obligation);
-		if(status != uint8_t(relations::obligation_status::active)) continue;
 		auto principal = state.world.obligation_get_principal_outstanding(obligation);
 		auto interest = state.world.obligation_get_accrued_interest(obligation);
-		if(state.world.obligation_get_kind(obligation) == uint8_t(relations::obligation_kind::loan)) {
+		if(state.world.obligation_get_kind(obligation) == uint8_t(relations::obligation_kind::loan)
+			&& status == uint8_t(relations::obligation_status::active)) {
 			performing_principal += principal;
 			interest_receivable += interest;
-		} else if(state.world.obligation_get_kind(obligation) == uint8_t(relations::obligation_kind::public_debt)) {
+		} else if(state.world.obligation_get_kind(obligation) == uint8_t(relations::obligation_kind::public_debt)
+			&& (status == uint8_t(relations::obligation_status::active)
+				|| status == uint8_t(relations::obligation_status::defaulted))) {
 			public_debt += principal + interest;
+			if(status == uint8_t(relations::obligation_status::defaulted))
+				defaulted_public_debt += principal + interest;
 		}
 	}
 	result.loan_assets = float(performing_principal);
 	result.accrued_interest_receivable = float(interest_receivable);
 	result.public_debt_assets = float(public_debt);
+	result.defaulted_public_debt_assets = float(defaulted_public_debt);
 	std::vector<dcon::obligation_id> bank_debts;
 	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(bank_actor,
 		[&](dcon::obligation_debtor_id relation) {
@@ -1555,6 +1561,7 @@ bool validate_canonical_banking_state(sys::state const& state, std::vector<std::
 		auto sheet = bank_balance_sheet(state, bank, policy.settlement);
 		if(!std::isfinite(sheet.settlement_assets) || !std::isfinite(sheet.loan_assets)
 			|| !std::isfinite(sheet.accrued_interest_receivable) || !std::isfinite(sheet.public_debt_assets)
+			|| !std::isfinite(sheet.defaulted_public_debt_assets)
 			|| !std::isfinite(sheet.deposit_liabilities) || !std::isfinite(sheet.other_financial_liabilities)
 			|| !std::isfinite(sheet.total_assets) || !std::isfinite(sheet.total_liabilities)
 			|| !std::isfinite(sheet.net_worth) || !std::isfinite(sheet.capital_ratio)
@@ -1562,6 +1569,7 @@ bool validate_canonical_banking_state(sys::state const& state, std::vector<std::
 			add_error("bank " + std::to_string(bank_id) + " has a non-finite balance sheet value");
 		if(sheet.settlement_assets < -balance_tolerance || sheet.loan_assets < -balance_tolerance
 			|| sheet.accrued_interest_receivable < -balance_tolerance || sheet.public_debt_assets < -balance_tolerance
+			|| sheet.defaulted_public_debt_assets < -balance_tolerance
 			|| sheet.deposit_liabilities < -balance_tolerance || sheet.other_financial_liabilities < -balance_tolerance)
 			add_error("bank " + std::to_string(bank_id) + " has a negative asset or liability balance");
 		auto identity_error = std::abs(sheet.total_assets - sheet.total_liabilities - sheet.net_worth);
@@ -1748,7 +1756,8 @@ bool canonical_banking_checksum(sys::state const& state, uint64_t& checksum) {
 		add_u64(state.world.organization_get_bank_status(bank));
 		auto sheet = bank_balance_sheet(state, bank, state.world.organization_get_bank_settlement_currency(bank));
 		add_float(sheet.settlement_assets); add_float(sheet.loan_assets); add_float(sheet.accrued_interest_receivable);
-		add_float(sheet.public_debt_assets); add_float(sheet.deposit_liabilities);
+		add_float(sheet.public_debt_assets); add_float(sheet.defaulted_public_debt_assets);
+		add_float(sheet.deposit_liabilities);
 		add_float(sheet.other_financial_liabilities); add_float(sheet.net_worth);
 		add_float(sheet.capital_ratio); add_float(sheet.liquidity_ratio); add_float(sheet.required_liquidity);
 	}

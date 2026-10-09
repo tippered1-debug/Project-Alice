@@ -20,6 +20,7 @@
 #include "economy/consent/consent.hpp"
 #include "economy/information/information.hpp"
 #include "governance/finance/finance.hpp"
+#include "governance/public_administration.hpp"
 #include "governance/law/law.hpp"
 #include "governance/governance.hpp"
 #include "persons/persons.hpp"
@@ -1310,7 +1311,8 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	REQUIRE(::economy::relations::total_due(*state, debt) == Approx(50.0f + 50.0f * 0.10f * 10.0f / 365.0f - 10.0f).epsilon(0.0001));
 	REQUIRE(::governance::finance::fiscal_position_for(*state, institution, settlement).treasury_cash == Approx(100.0f));
 
-	// Defaulted claims remain visible to derived views but are not payable by these APIs.
+	// Defaulted tax claims remain visible but the tax collection API does not
+	// silently revive them.
 	auto defaulted_tax = ::economy::relations::create_obligation(*state, taxpayer,
 		::governance::actor_for_institution(*state, institution), 10.0f, settlement,
 		sys::date{25}, sys::date{30}, 0.0f, ::economy::relations::obligation_kind::tax);
@@ -1349,12 +1351,108 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	REQUIRE(::economy::accounts::balance(*state, bank_reserve) == Approx(440.0f));
 	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, settlement).public_debt_assets == Approx(60.0f));
 	state->world.obligation_set_status(bank_debt, uint8_t(::economy::relations::obligation_status::defaulted));
+	auto defaulted_bank_sheet = ::economy::banking::bank_balance_sheet(*state, bank, settlement);
+	REQUIRE(defaulted_bank_sheet.public_debt_assets == Approx(60.0f));
+	REQUIRE(defaulted_bank_sheet.defaulted_public_debt_assets == Approx(60.0f));
 	auto treasury_before_default_service = ::economy::accounts::balance(*state, treasury);
 	auto reserve_before_default_service = ::economy::accounts::balance(*state, bank_reserve);
-	REQUIRE_FALSE(::governance::finance::service_public_debt(*state, bank_debt, treasury, bank_reserve, 1.0f, sys::date{29}));
-	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(treasury_before_default_service));
-	REQUIRE(::economy::accounts::balance(*state, bank_reserve) == Approx(reserve_before_default_service));
-	REQUIRE(::economy::relations::total_due(*state, bank_debt) == Approx(60.0f));
+	REQUIRE(::governance::finance::service_public_debt(*state, bank_debt, treasury, bank_reserve, 1.0f, sys::date{29}));
+	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(treasury_before_default_service - 1.0f));
+	REQUIRE(::economy::accounts::balance(*state, bank_reserve) == Approx(reserve_before_default_service + 1.0f));
+	REQUIRE(::economy::relations::total_due(*state, bank_debt) == Approx(59.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, settlement).defaulted_public_debt_assets == Approx(59.0f));
+}
+
+TEST_CASE("daily public debt lifecycle accrues once pays partially and records default", "[governance][finance][debt]" ) {
+	auto state = std::make_unique<sys::state>();
+	auto nation = state->world.create_nation();
+	auto institution = ::governance::create_institution(*state, nation,
+		::governance::institution_kind::central_government);
+	auto office = ::governance::create_office(*state, institution,
+		::governance::office_kind::finance_minister);
+	auto issuer = ::persons::create_person(*state, sys::date{1});
+	REQUIRE(::persons::appoint_person(*state, issuer, office, sys::date{1}));
+	REQUIRE(::governance::grant_authority_to_office(*state, office,
+		::governance::authority_kind::issue_public_debt, nation));
+	REQUIRE(::governance::grant_authority_to_office(*state, office,
+		::governance::authority_kind::spend_public_funds, nation));
+	auto settlement = state->world.create_commodity();
+	auto treasury = ::governance::finance::open_treasury_account(*state, institution, settlement);
+	auto investor = ::persons::create_person(*state, sys::date{1});
+	auto investor_actor = ::persons::actor_for_person(*state, investor);
+	auto investor_account = ::economy::accounts::open_account(*state, investor_actor, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, investor_account, 100.0f));
+	auto action = test_issue_public_debt(*state, issuer, treasury, investor_account,
+		100.0f, sys::date{3}, 0.365f, sys::date{1}, investor);
+	REQUIRE(action);
+	auto debt = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(action);
+	auto other_actor = state->world.create_economic_actor();
+	auto public_spending = ::economy::accounts::open_account(*state, other_actor, settlement);
+	REQUIRE(::governance::finance::authorized_spend(*state, issuer, treasury,
+		public_spending, 50.0f, sys::date{1}));
+	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(50.0f));
+
+	state->current_date = sys::date{2};
+	::governance::public_administration::allocate_budget(*state, nation);
+	REQUIRE(state->world.obligation_get_accrued_interest(debt) == Approx(0.1f));
+	::governance::public_administration::allocate_budget(*state, nation);
+	REQUIRE(state->world.obligation_get_accrued_interest(debt) == Approx(0.1f));
+	REQUIRE(state->world.obligation_get_last_interest_accrual_date(debt) == sys::date{2});
+
+	state->current_date = sys::date{3};
+	::governance::public_administration::allocate_budget(*state, nation);
+	REQUIRE(state->world.obligation_get_status(debt)
+		== uint8_t(::economy::relations::obligation_status::active));
+	REQUIRE(::economy::relations::total_due(*state, debt) == Approx(50.2f).epsilon(0.0001));
+	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(0.0f));
+	REQUIRE(::economy::accounts::balance(*state, investor_account) == Approx(50.0f));
+	REQUIRE(::governance::finance::last_public_debt_payment_date(*state, debt) == sys::date{3});
+	bool payment_linked = false;
+	state->world.obligation_for_each_transaction_obligation_as_obligation(debt,
+		[&](dcon::transaction_obligation_id relation) {
+			auto transaction = state->world.transaction_obligation_get_transaction(relation);
+			payment_linked = payment_linked
+				|| state->world.transaction_get_kind(transaction)
+					== uint8_t(::economy::relations::transaction_kind::public_debt_service);
+		});
+	REQUIRE(payment_linked);
+
+	for(uint32_t day = 4; day <= 32; ++day) {
+		state->current_date = sys::date{uint16_t(day)};
+		::governance::public_administration::allocate_budget(*state, nation);
+	}
+	REQUIRE(state->world.obligation_get_status(debt)
+		== uint8_t(::economy::relations::obligation_status::active));
+	state->current_date = sys::date{33};
+	::governance::public_administration::allocate_budget(*state, nation);
+	REQUIRE(state->world.obligation_get_status(debt)
+		== uint8_t(::economy::relations::obligation_status::defaulted));
+	REQUIRE(::governance::finance::national_public_debt(*state, nation, settlement)
+		== Approx(::economy::relations::total_due(*state, debt)));
+	auto default_actions = 0u;
+	state->world.for_each_fiscal_action([&](dcon::fiscal_action_id fiscal_action) {
+		if(state->world.fiscal_action_get_kind(fiscal_action)
+			== uint8_t(::governance::finance::fiscal_action_kind::public_debt_default))
+			++default_actions;
+	});
+	REQUIRE(default_actions == 1u);
+
+	// A later real transfer restores the cash needed to pay the surviving
+	// defaulted claim; repayment does not erase the historical payment link.
+	auto donor_actor = state->world.create_economic_actor();
+	auto donor_account = ::economy::accounts::open_account(*state, donor_actor, settlement);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, donor_account, 100.0f));
+	REQUIRE(::economy::accounts::transfer(*state, donor_account, treasury, 100.0f,
+		::economy::relations::transaction_kind::transfer, sys::date{33}));
+	auto treasury_cash_before_recovery = ::economy::accounts::balance(*state, treasury);
+	state->current_date = sys::date{33};
+	auto recovered = ::governance::finance::process_public_debt(*state, institution, sys::date{33});
+	REQUIRE(recovered.amount_paid + ::economy::accounts::balance(*state, treasury)
+		== Approx(treasury_cash_before_recovery));
+	REQUIRE(state->world.obligation_get_status(debt)
+		== uint8_t(::economy::relations::obligation_status::paid));
+	REQUIRE(::economy::relations::total_due(*state, debt) == Approx(0.0f));
+	REQUIRE(::governance::finance::last_public_debt_payment_date(*state, debt) == sys::date{33});
 }
 
 TEST_CASE("law_policy_controls_public_debt_with_historical_effectiveness", "[governance][law][finance]") {
@@ -1532,6 +1630,8 @@ TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][se
 	auto debt_action = test_issue_public_debt(*state, person, treasury, reserve, 40.0f, sys::date{100}, 0.0f, sys::date{22}, bank_representative);
 	auto debt = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(debt_action);
 	REQUIRE(tax_action); REQUIRE(tax_payment); REQUIRE(debt_action); REQUIRE(debt);
+	REQUIRE(::governance::finance::service_public_debt(*state, debt, treasury, reserve, 10.0f, sys::date{23}));
+	REQUIRE(::governance::finance::last_public_debt_payment_date(*state, debt) == sys::date{23});
 
 	std::vector<uint8_t> bytes(sys::sizeof_save_section(*state));
 	auto const* end = sys::write_save_section(bytes.data(), *state);
@@ -1560,15 +1660,16 @@ TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][se
 	sys::read_save_section(bytes.data(), end, *loaded);
 	REQUIRE(::governance::finance::treasury_institution_for(*loaded, ltreasury) == linstitution);
 	REQUIRE(::economy::relations::total_due(*loaded, ltax) == Approx(0.0f));
-	REQUIRE(::economy::relations::total_due(*loaded, ldebt) == Approx(40.0f));
+	REQUIRE(::economy::relations::total_due(*loaded, ldebt) == Approx(30.0f));
 	REQUIRE(loaded->world.fiscal_action_get_person_from_fiscal_action_initiator(ltax_action) == lperson);
 	REQUIRE(loaded->world.fiscal_action_get_office_from_fiscal_action_authorizing_office(ldebt_action) == loffice);
 	REQUIRE(loaded->world.fiscal_action_get_institution_from_fiscal_action_treasury_institution(ldebt_action) == linstitution);
 	REQUIRE(loaded->world.fiscal_action_get_monetary_account_from_fiscal_action_treasury_account(ldebt_action) == ltreasury);
 	REQUIRE(loaded->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(ldebt_action) == ldebt);
 	REQUIRE(loaded->world.fiscal_action_get_transaction_from_fiscal_action_resulting_transaction(ldebt_action));
-	REQUIRE(::governance::finance::fiscal_position_for(*loaded, linstitution, lsettlement).treasury_cash == Approx(60.0f));
-	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, lbank, lsettlement).public_debt_assets == Approx(40.0f));
+	REQUIRE(::governance::finance::last_public_debt_payment_date(*loaded, ldebt) == sys::date{23});
+	REQUIRE(::governance::finance::fiscal_position_for(*loaded, linstitution, lsettlement).treasury_cash == Approx(50.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*loaded, lbank, lsettlement).public_debt_assets == Approx(30.0f));
 }
 
 TEST_CASE("actor_consent_gates_loans_and_public_debt", "[economy][consent][finance]") {

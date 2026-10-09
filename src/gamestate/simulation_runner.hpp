@@ -14,6 +14,9 @@
 #include "economy/world_trade_capacity.hpp"
 #include "gamerule/gamerule.hpp"
 #include "gamestate/system_state.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/governance.hpp"
+#include "governance/public_administration.hpp"
 #include "military/military.hpp"
 #include "nations/diplomatic_crisis_dynamics.hpp"
 #include "nations/strategic_statecraft.hpp"
@@ -222,6 +225,10 @@ struct aggregate_snapshot {
 	double depot_stockpile = 0.0;
 	double treasury = 0.0;
 	double government_debt = 0.0;
+	double government_debt_principal = 0.0;
+	double government_debt_accrued_interest = 0.0;
+	double government_debt_overdue = 0.0;
+	double government_debt_defaulted = 0.0;
 	double market_gdp = 0.0;
 	// Profit is deliberately signed: a negative value is an economic signal,
 	// not an invariant violation.
@@ -387,10 +394,22 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	state.world.for_each_nation([&](dcon::nation_id nation) {
 		++result.nation_count;
 		auto const entity = int32_t(nation.index());
-		auto const debt = 0.0f;
+		auto const treasury = governance::public_administration::treasury_cash(state, nation);
+		auto const debt = governance::finance::national_public_debt(state, nation, economy::money);
+		if(detail::observe_nonnegative(result.observed_violations, invariant_field::nation_treasury,
+				entity, -1, treasury)) {
+			result.treasury += double(treasury);
+		}
 		if(detail::observe_nonnegative(result.observed_violations, invariant_field::nation_debt,
 				entity, -1, debt)) {
 			result.government_debt += double(debt);
+		}
+		for(auto institution : governance::institutions_of(state, nation)) {
+			auto const fiscal = governance::finance::fiscal_position_for(state, institution, economy::money);
+			result.government_debt_principal += double(fiscal.public_debt_principal_outstanding);
+			result.government_debt_accrued_interest += double(fiscal.public_debt_accrued_interest);
+			result.government_debt_overdue += double(fiscal.public_debt_overdue);
+			result.government_debt_defaulted += double(fiscal.public_debt_defaulted);
 		}
 
 	});
@@ -858,6 +877,10 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 	validate_aggregate(snapshot.depot_stockpile);
 	validate_aggregate(snapshot.treasury);
 	validate_aggregate(snapshot.government_debt);
+	validate_aggregate(snapshot.government_debt_principal);
+	validate_aggregate(snapshot.government_debt_accrued_interest);
+	validate_aggregate(snapshot.government_debt_overdue);
+	validate_aggregate(snapshot.government_debt_defaulted);
 	validate_aggregate(snapshot.market_gdp);
 	if(!std::isfinite(snapshot.factory_profit)) {
 		++report.violations.nonfinite;
@@ -1009,6 +1032,10 @@ inline void write_checksum_hex(std::ostringstream& out, sys::checksum_key const&
 		<< ",\"unemployed_population\":" << snapshot.unemployed_population << "}"
 		<< ",\"finance\":{\"treasury\":" << snapshot.treasury
 		<< ",\"government_debt\":" << snapshot.government_debt
+		<< ",\"government_debt_principal\":" << snapshot.government_debt_principal
+		<< ",\"government_debt_accrued_interest\":" << snapshot.government_debt_accrued_interest
+		<< ",\"government_debt_overdue\":" << snapshot.government_debt_overdue
+		<< ",\"government_debt_defaulted\":" << snapshot.government_debt_defaulted
 		<< ",\"industry\":{\"value\":" << snapshot.industry_value
 		<< ",\"turnover\":" << snapshot.industry_turnover << "}"
 		<< ",\"labor\":{\"price_sum\":" << snapshot.labor_price_sum

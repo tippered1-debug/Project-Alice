@@ -228,18 +228,26 @@ float daily_budget(sys::state const& state, dcon::nation_id nation) {
 }
 
 void allocate_budget(sys::state& state, dcon::nation_id nation) {
-	if(state.current_date.to_ymd(state.start_date).day != 1) return;
 	auto date = state.current_date;
+	auto first_of_month = state.current_date.to_ymd(state.start_date).day == 1;
 	auto finance_ministry = governance::find_institution(state, nation, governance::institution_kind::finance_ministry);
 	auto treasury = finance_ministry ? finance::treasury_account_for(state, finance_ministry, economy::money) : dcon::monetary_account_id{};
-	if(!treasury) return;
-	// Revenue collected by the tax authority goes to the national treasury.
-	auto tax_authority = tax_authority_for(state, nation);
-	auto tax_treasury = tax_treasury_for(state, nation);
-	if(tax_authority && tax_treasury && tax_treasury != treasury) {
-		auto collected = economy::accounts::balance(state, tax_treasury) - economy::physical::concrete_market::reserved_bid_amount(state, tax_treasury);
-		if(collected > 0.001f) (void)finance::authorized_spend_by_institution(state, tax_authority, tax_treasury, treasury, collected, date);
+	// On month start, first sweep collected taxes into the finance ministry.
+	// Debt service then competes with ordinary appropriations for the actual
+	// treasury balances. Other institutions can service only obligations owed
+	// by their own actor, using their own treasury.
+	if(first_of_month && treasury) {
+		auto tax_authority = tax_authority_for(state, nation);
+		auto tax_treasury = tax_treasury_for(state, nation);
+		if(tax_authority && tax_treasury && tax_treasury != treasury) {
+			auto collected = economy::accounts::balance(state, tax_treasury) - economy::physical::concrete_market::reserved_bid_amount(state, tax_treasury);
+			if(collected > 0.001f) (void)finance::authorized_spend_by_institution(state, tax_authority, tax_treasury, treasury, collected, date);
+		}
 	}
+	for(auto institution : governance::institutions_of(state, nation))
+		(void)finance::process_public_debt(state, institution, date);
+	if(!first_of_month || !treasury) return;
+
 	// The national treasury disburses what the fiscal law appropriates.
 	auto scope = governance::jurisdiction_of(state, finance_ministry);
 	auto rate = governance::law::effective_amount(state, scope, governance::law::policy_rule_kind::disbursement_rate, date);

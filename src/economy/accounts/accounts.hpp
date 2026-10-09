@@ -17,7 +17,9 @@ bool bootstrap_set_balance(sys::state&, dcon::monetary_account_id, float);
 dcon::transaction_id transfer(sys::state&, dcon::monetary_account_id, dcon::monetary_account_id,
 	float, relations::transaction_kind, sys::date);
 dcon::transaction_id settle_obligation_payment(sys::state&, dcon::obligation_id,
-	dcon::monetary_account_id, dcon::monetary_account_id, float, sys::date);
+	dcon::monetary_account_id, dcon::monetary_account_id, float, sys::date,
+	relations::transaction_kind kind = relations::transaction_kind::repayment,
+	bool allow_defaulted = false);
 
 float cash_inflow(sys::state const&, dcon::economic_actor_id,
 	dcon::commodity_id settlement);

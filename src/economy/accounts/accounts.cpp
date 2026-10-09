@@ -109,9 +109,12 @@ dcon::transaction_id transfer(sys::state& state, dcon::monetary_account_id sourc
 
 dcon::transaction_id settle_obligation_payment(sys::state& state, dcon::obligation_id obligation,
 	dcon::monetary_account_id debtor_account, dcon::monetary_account_id creditor_account,
-	float requested_amount, sys::date timestamp) {
-	if(!obligation || !valid_amount(requested_amount)
-		|| state.world.obligation_get_status(obligation) != uint8_t(relations::obligation_status::active)) return {};
+	float requested_amount, sys::date timestamp, relations::transaction_kind kind,
+	bool allow_defaulted) {
+	if(!obligation || !valid_amount(requested_amount)) return {};
+	auto status = state.world.obligation_get_status(obligation);
+	if(status != uint8_t(relations::obligation_status::active)
+		&& !(allow_defaulted && status == uint8_t(relations::obligation_status::defaulted))) return {};
 	economy::monetary::ontology::account_view debtor_view, creditor_view;
 	if(!economy::monetary::ontology::describe(state,
 		economy::monetary::ontology::account_ref::from_monetary(debtor_account), debtor_view)
@@ -135,29 +138,30 @@ dcon::transaction_id settle_obligation_payment(sys::state& state, dcon::obligati
 	auto const creditor_balance = balance(state, creditor_account);
 	auto const principal = state.world.obligation_get_principal_outstanding(obligation);
 	auto const interest = state.world.obligation_get_accrued_interest(obligation);
-	auto const status = state.world.obligation_get_status(obligation);
+	auto const previous_status = state.world.obligation_get_status(obligation);
 	auto rollback = [&]() {
 		state.world.monetary_account_set_balance(debtor_account, debtor_balance);
 		state.world.monetary_account_set_balance(creditor_account, creditor_balance);
 		state.world.obligation_set_principal_outstanding(obligation, principal);
 		state.world.obligation_set_accrued_interest(obligation, interest);
-		state.world.obligation_set_status(obligation, status);
+		state.world.obligation_set_status(obligation, previous_status);
 	};
 	state.world.monetary_account_set_balance(debtor_account, debtor_balance - accepted);
 	state.world.monetary_account_set_balance(creditor_account, creditor_balance + accepted);
-	auto paid = relations::repay_obligation(state, obligation, accepted);
+	auto paid = relations::repay_obligation(state, obligation, accepted, allow_defaulted);
 	if(paid != accepted) {
 		rollback();
 		return {};
 	}
 	auto transaction = relations::record_transaction(state, debtor, creditor, accepted, settlement,
-		relations::transaction_kind::repayment, timestamp);
+		kind, timestamp);
 	if(!transaction) {
 		rollback();
 		return {};
 	}
 	state.world.force_create_transaction_source_account(transaction, debtor_account);
 	state.world.force_create_transaction_destination_account(transaction, creditor_account);
+	state.world.force_create_transaction_obligation(transaction, obligation);
 	return transaction;
 }
 

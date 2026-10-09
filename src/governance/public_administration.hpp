@@ -18,9 +18,9 @@ dcon::monetary_account_id tax_treasury_for(sys::state const&, dcon::nation_id);
 float treasury_cash(sys::state const&, dcon::nation_id);
 // Interface projection of public cash, not a spending authorization.
 float daily_budget(sys::state const&, dcon::nation_id);
-// On the first of each month: the tax authority hands collected revenue to the
-// national treasury (the finance ministry's), which disburses the share the
-// fiscal law sets to each institution the law appropriates.
+// Every day this services each institution's own due sovereign obligations.
+// On the first of each month, collected tax revenue is swept into the finance
+// ministry before debt service; remaining funds are then disbursed by law.
 void allocate_budget(sys::state&, dcon::nation_id);
 void plan_public_staffing(sys::state&, dcon::nation_id);
 void settle_public_payroll(sys::state&);

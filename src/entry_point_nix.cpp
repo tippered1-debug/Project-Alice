@@ -3,12 +3,16 @@
 #include "game_scene.hpp"
 #include "parsers_declarations.hpp"
 #include "simulation_runner.hpp"
+#include "gamestate/supply_chain_contagion_lab.hpp"
 
 #include <oneapi/tbb/global_control.h>
 
 #include <cerrno>
+#include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 
@@ -31,6 +35,16 @@ static bool parse_unsigned_argument(char const* text, uint64_t& value) {
 	auto parsed = std::strtoull(text, &end, 10);
 	if(errno != 0 || end == text || *end != '\0')
 		return false;
+	value = parsed;
+	return true;
+}
+
+static bool parse_float_argument(char const* text, float& value) {
+	if(!text || text[0] == '\0') return false;
+	errno = 0;
+	char* end = nullptr;
+	auto parsed = std::strtof(text, &end);
+	if(errno != 0 || end == text || *end != '\0' || !std::isfinite(parsed)) return false;
 	value = parsed;
 	return true;
 }
@@ -258,7 +272,11 @@ int main(int argc, char* argv[]) {
 	bool fail_on_invariant = true;
 	bool force_flat_map = false;
 	bool synthetic_lab = false;
+	bool supply_chain_lab = false;
 	sys::simulation::synthetic_lab_result synthetic_lab_state{};
+	sys::simulation::supply_chain_lab::config supply_chain_config{};
+	uint32_t supply_chain_save_restore_day = 0;
+	std::string supply_chain_output_dir = "supply-chain-contagion-output";
 	std::string report_jsonl_path;
 	std::string load_save_name;
 	std::string save_at_end_name;
@@ -280,6 +298,10 @@ int main(int argc, char* argv[]) {
 				synthetic_lab = true;
 				continue;
 			}
+			if(argument == NATIVE("--supply-chain-contagion-lab")) {
+				supply_chain_lab = true;
+				continue;
+			}
 			auto const consumes_value =
 				argument == NATIVE("--mod")
 				|| argument == NATIVE("-name")
@@ -295,6 +317,12 @@ int main(int argc, char* argv[]) {
 				|| argument == NATIVE("-report-jsonl")
 				|| argument == NATIVE("--load-save")
 				|| argument == NATIVE("--save-at-end");
+			if(argument == NATIVE("--lab-shock") || argument == NATIVE("--lab-seed")
+				|| argument == NATIVE("--lab-days") || argument == NATIVE("--lab-dependency")
+				|| argument == NATIVE("--lab-output") || argument == NATIVE("--lab-save-restore-day")) {
+				++i;
+				continue;
+			}
 			if(consumes_value) {
 				++i;
 				continue;
@@ -306,7 +334,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// No scenario file was provided, but mod(s) might have been. Try finding the corresponding scenario file if mods were indeed specified. 			
-		if(selected_scenario_file.empty() && !synthetic_lab) {
+		if(selected_scenario_file.empty() && !synthetic_lab && !supply_chain_lab) {
 			for(int i = 0; i < argc; ++i) {
 				if(strstr(argv[i], "--mod") != NULL) {
 					//Beginning of seemingly unnecessary code
@@ -434,6 +462,42 @@ int main(int argc, char* argv[]) {
 					headless_days = 365;
 					headless_days_were_requested = true;
 				}
+			} else if(native_string(argv[i]) == NATIVE("--supply-chain-contagion-lab")) {
+				supply_chain_lab = true;
+				headless = true;
+			} else if(native_string(argv[i]) == NATIVE("--lab-shock")) {
+				if(i + 1 >= argc) window::emit_error_message("Usage: --lab-shock <baseline|embargo|blockade|substitution>\n", true);
+				supply_chain_config.shock = sys::simulation::supply_chain_lab::parse_intervention(argv[++i]);
+			} else if(native_string(argv[i]) == NATIVE("--lab-days")) {
+				uint64_t days = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], days)
+					|| days > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --lab-days <positive integer>\n", true);
+				supply_chain_config.days = uint32_t(days);
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--lab-seed")) {
+				uint64_t seed = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], seed)
+					|| seed > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --lab-seed <0..4294967295>\n", true);
+				supply_chain_config.seed = uint32_t(seed);
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--lab-dependency")) {
+				float share = 0.0f;
+				if(i + 1 >= argc || !parse_float_argument(argv[i + 1], share) || share < 0.02f || share > 0.98f)
+					window::emit_error_message("Usage: --lab-dependency <0.02..0.98>\n", true);
+				supply_chain_config.a_dependency_share = share;
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--lab-output")) {
+				if(i + 1 >= argc) window::emit_error_message("Usage: --lab-output <directory>\n", true);
+				supply_chain_output_dir = simple_fs::native_to_utf8(native_string(argv[++i]));
+			} else if(native_string(argv[i]) == NATIVE("--lab-save-restore-day")) {
+				uint64_t day = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], day)
+					|| day > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --lab-save-restore-day <0..4294967295>\n", true);
+				supply_chain_save_restore_day = uint32_t(day);
+				++i;
 			} else if(native_string(argv[i]) == NATIVE("--days") || native_string(argv[i]) == NATIVE("-days")) {
 				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], headless_days))
 					window::emit_error_message("Usage: --days <non-negative integer>\n", true);
@@ -470,7 +534,7 @@ int main(int argc, char* argv[]) {
 		// Runtime-only flags should not prevent the normal scenario selection flow. This is especially
 		// important for macOS .app launches, where the bundle supplies ruleset
 		// flags but the user's scenario still lives in Alice's data directory.
-		if(selected_scenario_file.empty() && !synthetic_lab) {
+		if(selected_scenario_file.empty() && !synthetic_lab && !supply_chain_lab) {
 			find_scenario_file();
 			if(selected_scenario_file.empty()) {
 				window::emit_error_message(
@@ -503,6 +567,8 @@ int main(int argc, char* argv[]) {
 		game_state.local_player_nation = synthetic_lab_state.nation;
 		window::emit_error_message(
 			"Using the built-in synthetic simulation lab; no scenario .bin is required.\n", false);
+	} else if(supply_chain_lab) {
+		// This fixture initializes its own minimal world and does not load a scenario.
 	} else if(sys::try_read_scenario_and_save_file(game_state, selected_scenario_file)) {
 		auto msg = "Running scenario file " + simple_fs::native_to_utf8(selected_scenario_file) + "\n";
 		window::emit_error_message(msg, false);
@@ -526,7 +592,7 @@ int main(int argc, char* argv[]) {
 		window::emit_error_message("Scenario file could not be read.", true);
 	}
 
-	if(!synthetic_lab) {
+	if(!synthetic_lab && !supply_chain_lab) {
 		network::init(game_state);
 		game_state.load_user_settings();
 		if(force_flat_map) {
@@ -543,6 +609,33 @@ int main(int argc, char* argv[]) {
 		serial_scheduler = std::make_unique<oneapi::tbb::global_control>(
 			oneapi::tbb::global_control::max_allowed_parallelism, 1);
 		window::emit_error_message("Scheduler pinned to a single worker.\n", false);
+	}
+	if(supply_chain_lab) {
+		if(!single_thread) {
+			window::emit_error_message("Supply-chain lab requires --single-thread for reproducible comparisons.\n", false);
+			return EXIT_FAILURE;
+		}
+		try {
+			std::filesystem::create_directories(supply_chain_output_dir);
+			auto result = sys::simulation::supply_chain_lab::run(
+				supply_chain_config, supply_chain_save_restore_day);
+			auto timeseries_path = (std::filesystem::path(supply_chain_output_dir) / "timeseries.csv").string();
+			auto events_path = (std::filesystem::path(supply_chain_output_dir) / "events.csv").string();
+			if(!sys::simulation::supply_chain_lab::write_csv(result, timeseries_path, events_path)) {
+				window::emit_error_message("Could not write supply-chain lab output.\n", false);
+				return EXIT_FAILURE;
+			}
+			std::cout << "{\"ticks_completed\":" << result.ticks_completed
+				<< ",\"baseline_trade_valid\":" << (result.baseline_trade_valid ? "true" : "false")
+				<< ",\"checksum\":" << result.final_checksum
+				<< ",\"money_error\":" << result.maximum_money_conservation_error
+				<< ",\"household_invariants_valid\":" << (result.household_invariants_valid ? "true" : "false")
+				<< "}\n";
+			return result.ticks_completed == supply_chain_config.days ? EXIT_SUCCESS : EXIT_FAILURE;
+		} catch(std::exception const& error) {
+			window::emit_error_message(std::string("Supply-chain lab failed: ") + error.what() + "\n", false);
+			return EXIT_FAILURE;
+		}
 	}
 
 

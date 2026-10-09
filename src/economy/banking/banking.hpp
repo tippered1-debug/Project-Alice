@@ -17,6 +17,7 @@ struct balance_sheet {
 	float loan_assets = 0.0f; // performing principal only
 	float accrued_interest_receivable = 0.0f;
 	float public_debt_assets = 0.0f;
+	float defaulted_public_debt_assets = 0.0f;
 	float total_assets = 0.0f;
 	float deposit_liabilities = 0.0f;
 	float other_financial_liabilities = 0.0f;

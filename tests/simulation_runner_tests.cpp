@@ -152,6 +152,35 @@ TEST_CASE("simulation diagnostics collect stable economy labor and logistics agg
 	REQUIRE(line.find("\"crisis\":") != std::string::npos);
 }
 
+TEST_CASE("simulation diagnostics read real public treasury and debt balances",
+		"[simulation][diagnostics][finance]") {
+	auto fixture = make_simulation_diagnostics_fixture();
+	auto institution = ::governance::create_institution(*fixture.state, fixture.nation,
+		::governance::institution_kind::finance_ministry);
+	auto office = ::governance::create_office(*fixture.state, institution,
+		::governance::office_kind::finance_minister);
+	auto issuer = ::persons::create_person(*fixture.state, sys::date{1});
+	REQUIRE(::persons::appoint_person(*fixture.state, issuer, office, sys::date{1}));
+	REQUIRE(::governance::grant_authority_to_office(*fixture.state, office,
+		::governance::authority_kind::issue_public_debt, fixture.nation));
+	auto treasury = ::governance::finance::open_treasury_account(*fixture.state, institution, economy::money);
+	auto investor = ::persons::create_person(*fixture.state, sys::date{1});
+	auto investor_account = ::economy::accounts::open_account(*fixture.state,
+		::persons::actor_for_person(*fixture.state, investor), economy::money);
+	REQUIRE(::economy::accounts::bootstrap_set_balance(*fixture.state, investor_account, 100.0f));
+	REQUIRE(test_issue_public_debt(*fixture.state, issuer, treasury, investor_account,
+		100.0f, sys::date{100}, 0.0f, sys::date{1}, investor));
+
+	auto snapshot = sys::simulation::collect_snapshot(*fixture.state, 1);
+	REQUIRE(snapshot.treasury == Approx(100.0));
+	REQUIRE(snapshot.government_debt == Approx(100.0));
+	REQUIRE(snapshot.government_debt_principal == Approx(100.0));
+	REQUIRE(snapshot.government_debt_accrued_interest == Approx(0.0));
+	REQUIRE(snapshot.government_debt_overdue == Approx(0.0));
+	REQUIRE(snapshot.government_debt_defaulted == Approx(0.0));
+	REQUIRE(snapshot.observed_violations.total() == 0);
+}
+
 TEST_CASE("simulation diagnostics classify invalid values without emitting invalid JSON",
 		"[simulation][diagnostics]") {
 	auto fixture = make_simulation_diagnostics_fixture();

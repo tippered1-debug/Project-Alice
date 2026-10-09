@@ -11,12 +11,16 @@ namespace governance::policy { enum class topic_id : uint16_t; }
 
 namespace governance::finance {
 
-enum class fiscal_action_kind : uint8_t { tax_assessment = 0, public_spending = 1, public_debt_issuance = 2 };
+enum class fiscal_action_kind : uint8_t { tax_assessment = 0, public_spending = 1, public_debt_issuance = 2, public_debt_default = 3 };
 
 struct fiscal_position {
 	float treasury_cash = 0.0f;
 	float tax_receivables = 0.0f;
 	float public_debt_outstanding = 0.0f;
+	float public_debt_principal_outstanding = 0.0f;
+	float public_debt_accrued_interest = 0.0f;
+	float public_debt_overdue = 0.0f;
+	float public_debt_defaulted = 0.0f;
 	float net_financial_position = 0.0f;
 };
 
@@ -47,6 +51,16 @@ struct policy_tax_result {
 	dcon::obligation_id obligation{};
 	dcon::transaction_id transaction{};
 	uint64_t exact_transaction_id = 0;
+};
+
+struct public_debt_service_result {
+	float interest_accrued = 0.0f;
+	float amount_paid = 0.0f;
+	float overdue_amount = 0.0f;
+	float defaulted_amount = 0.0f;
+	uint32_t payments = 0;
+	uint32_t overdue_obligations = 0;
+	uint32_t newly_defaulted = 0;
 };
 
 // Reads the enacted national policy rate, records a tax obligation against the
@@ -90,6 +104,13 @@ float accrue_public_debt_interest(sys::state&, dcon::obligation_id, uint32_t day
 dcon::transaction_id service_public_debt(sys::state&, dcon::obligation_id,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id holder_account,
 	float amount, sys::date date);
+// Accrues interest through `date`, attempts due payments from this institution's
+// own treasury, and formally defaults unpaid maturity balances after the fixed
+// 30-day grace period. Call once per simulation day; repeated same-day calls do
+// not accrue interest twice.
+public_debt_service_result process_public_debt(sys::state&, dcon::institution_id,
+	sys::date date, uint32_t default_grace_days = 30);
+sys::date last_public_debt_payment_date(sys::state const&, dcon::obligation_id);
 
 fiscal_position fiscal_position_for(sys::state const&, dcon::institution_id,
 	dcon::commodity_id settlement);
