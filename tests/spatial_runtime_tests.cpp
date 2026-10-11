@@ -2,6 +2,7 @@
 
 #include "economy/cargo_transit.hpp"
 #include "economy/market_access.hpp"
+#include "economy/physical/household_mobility.hpp"
 #include "serialization.hpp"
 #include "system_state.hpp"
 #include "world/spatial_runtime.hpp"
@@ -138,6 +139,22 @@ TEST_CASE("spatial routes handle disconnection and deterministic equal-cost ties
 	REQUIRE(first_to == f.nodes[1]);
 	auto disconnected = world::spatial_runtime::shortest_path(*f.state, f.nodes[0], f.nodes[3]);
 	REQUIRE_FALSE(disconnected.connected);
+}
+
+TEST_CASE("job accessibility requires an infrastructure route and prices its routed distance",
+	"[spatial][routing][labor]") {
+	spatial_runtime_tests::fixture f(2);
+	auto nation = f.state->world.create_nation();
+	for(auto province : f.provinces)
+		f.state->world.province_set_nation_from_province_ownership(province, nation);
+	REQUIRE(economy::physical::household_mobility::commute_adjusted_daily_wage(
+		*f.state, f.sites[0], f.sites[1], 100.0f) == Approx(0.0f));
+	auto edge = f.edge(0, 1, 35.0f);
+	REQUIRE(economy::physical::household_mobility::commute_adjusted_daily_wage(
+		*f.state, f.sites[0], f.sites[1], 100.0f) == Approx(89.5f));
+	f.state->world.infrastructure_edge_set_distance(edge, 200.0f);
+	REQUIRE(economy::physical::household_mobility::commute_adjusted_daily_wage(
+		*f.state, f.sites[0], f.sites[1], 100.0f) == Approx(55.0f));
 }
 
 TEST_CASE("spatial route replay is deterministic", "[spatial][determinism]") {

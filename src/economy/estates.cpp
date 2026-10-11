@@ -2,6 +2,7 @@
 
 #include "system_state.hpp"
 #include "actors/ownership.hpp"
+#include "actors/organizations/organizations.hpp"
 #include "economy/banking/banking.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/households.hpp"

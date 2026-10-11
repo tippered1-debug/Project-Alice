@@ -397,6 +397,32 @@ bool transfer_population_membership(sys::state& state, person_key key, dcon::pop
 	return true;
 }
 
+bool transfer_population_memberships(sys::state& state,
+	std::vector<population_membership_move> const& moves,
+	population_transition_cause cause) {
+	if(moves.empty() || !exact_population::can_project_population_membership(state)) return false;
+	std::unordered_set<person_key, person_key_hash> seen;
+	for(auto const& move : moves) {
+		auto destination_cell = source_population_cell_for_population(state, move.destination);
+		if(!move.destination || !state.world.pop_is_valid(move.destination)
+			|| !exists(state, move.person) || !alive(state, move.person)
+			|| !seen.insert(move.person).second
+			|| destination_cell == 0
+			|| current_population_cell(state, move.person) == destination_cell) return false;
+	}
+	auto before = exact_population::export_snapshot(state);
+	for(auto const& move : moves) {
+		if(transfer_population_membership(state, move.person, move.destination, cause)) continue;
+		if(!exact_population::import_snapshot(state, before)
+			|| !exact_population::project_population_membership(state)) {
+			assert(false && "exact household membership rollback must restore its preflight snapshot");
+			std::abort();
+		}
+		return false;
+	}
+	return true;
+}
+
 int64_t adjust_population_size(sys::state& state, dcon::pop_id pop, double size_delta, death_cause cause) {
 	if(!pop || !state.world.pop_is_valid(pop) || !std::isfinite(size_delta)) return 0;
 	auto death_day = state.current_date ? int32_t(state.current_date.to_raw_value()) - 1 : 0;

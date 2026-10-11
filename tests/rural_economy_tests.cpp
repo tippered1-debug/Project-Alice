@@ -19,12 +19,15 @@
 #include "governance/finance/finance.hpp"
 #include "economy/physical/concrete_market.hpp"
 #include "economy/physical/household_mobility.hpp"
+#include "economy/advanced_province_buildings.hpp"
 #include "persons/persons.hpp"
+#include "gamestate/serialization.hpp"
 #include "gamestate/system_state.hpp"
 #include "military/land_forces.hpp"
 #include "nations/strategic_statecraft.hpp"
 #include "persons/exact_population.hpp"
 #include "technology/technology_kernel.hpp"
+#include "world/spatial_runtime.hpp"
 
 #include <cmath>
 
@@ -284,6 +287,61 @@ struct cohort_fixture : fixture {
 	}
 };
 
+struct remote_destination {
+	dcon::province_id province{};
+	dcon::market_id market{};
+	dcon::site_id site{};
+	dcon::infrastructure_node_id node{};
+	dcon::factory_id factory{};
+	dcon::economic_actor_id employer{};
+	dcon::monetary_account_id payer{};
+	dcon::job_offer_id offer{};
+};
+
+remote_destination create_remote_destination(cohort_fixture& f, bool connect = true) {
+	auto& state = *f.state;
+	remote_destination result{};
+	result.province = state.world.create_province();
+	state.world.province_set_nation_from_province_ownership(result.province, f.nation);
+	state.world.province_set_mid_point_b(result.province, {1.05f, 0.0f, 0.0f});
+	auto zone = state.world.create_state_instance();
+	result.market = state.world.create_market();
+	state.world.state_instance_set_market_from_local_market(zone, result.market);
+	state.world.market_set_zone_from_local_market(result.market, zone);
+	state.world.province_set_state_membership(result.province, zone);
+	state.world.market_resize_price(state.world.commodity_size());
+	state.world.market_set_price(result.market, f.grain, 2.0f);
+	result.site = state.world.create_site();
+	state.world.force_create_site_location(result.site, result.province);
+	result.node = state.world.create_infrastructure_node();
+	state.world.force_create_infrastructure_node_location(result.node, result.province);
+	if(connect) {
+		auto edge = state.world.create_infrastructure_edge();
+		state.world.infrastructure_edge_set_distance(edge, 120.0f);
+		state.world.force_create_infrastructure_edge_from(edge,
+			world::spatial_runtime::node_for_province(state, f.province));
+		state.world.force_create_infrastructure_edge_to(edge, result.node);
+	}
+	services::initialize_size_of_dcon_arrays(state);
+	state.world.province_set_service_supply_private(result.province,
+		services::list::urban_housing, 0.5f);
+
+	result.factory = state.world.create_factory();
+	state.world.factory_set_building_type(result.factory, f.grain_farm);
+	state.world.factory_set_size(result.factory, 1.0f);
+	state.world.factory_set_productive_capacity(result.factory, 1.0f);
+	state.world.factory_set_productivity_factor(result.factory, 1.0f);
+	state.world.force_create_factory_location(result.factory, result.province);
+	state.world.force_create_factory_site(result.factory, result.site);
+	state.world.factory_set_payroll_settlement(result.factory, f.settlement);
+	auto organization = actors::organizations::create_company(state);
+	REQUIRE(actors::organizations::bind_factory_operator(state, organization, result.factory));
+	result.employer = actors::organizations::actor_for_organization(state, organization);
+	result.payer = economy::accounts::open_account(state, result.employer, f.settlement);
+	REQUIRE(economy::accounts::bootstrap_set_balance(state, result.payer, 10000.0f));
+	return result;
+}
+
 } // namespace rural_economy_tests
 
 TEST_CASE("a cohort's members are the rural people without individual records", "[economy][rural][households]") {
@@ -307,6 +365,30 @@ TEST_CASE("a cohort's members are the rural people without individual records", 
 		economy::households::individual_consumers(*f.state));
 	REQUIRE(family == 4);
 	REQUIRE(economy::households::members(*f.state, f.cohort) == Approx(20.0f - float(family)));
+}
+
+TEST_CASE("an employed family member keeps their own budget during another member's move",
+	"[economy][rural][households][labor][mobility]") {
+	rural_economy_tests::cohort_fixture f;
+	using economy::exact_person_economy::person_key;
+	person_key worker{f.peasant_cell, 0};
+	person_key employed_dependent{f.peasant_cell, 2};
+	REQUIRE(economy::exact_person_economy::is_work_eligible(*f.state, employed_dependent));
+	REQUIRE(economy::exact_person_economy::set_labor_force_participation(*f.state,
+		employed_dependent, true));
+	auto offer = economy::physical::job_market::post_job_offer(*f.state,
+		f.estate_actor, f.farm, f.site, 0, 1.0f, 20.0f, 1, f.estate_account, 2,
+		f.state->current_date);
+	REQUIRE(offer);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, worker,
+		offer, f.state->current_date));
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, employed_dependent,
+		offer, f.state->current_date));
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	REQUIRE(economy::exact_person_economy::person_has_active_contract(*f.state,
+		employed_dependent));
+	REQUIRE((economy::households::budget_members(*f.state, worker)
+		== std::vector<person_key>{{f.peasant_cell, 0}, {f.peasant_cell, 1}, {f.peasant_cell, 3}}));
 }
 
 TEST_CASE("a peasant cohort works its own land unpaid and keeps its harvest", "[economy][rural][households]") {
@@ -399,6 +481,170 @@ TEST_CASE("cohort members take a job only above their reservation wage", "[econo
 	auto hired = economy::exact_person_economy::active_contracts_for_factory(*f.state, f.farm);
 	REQUIRE(hired.size() == 1);
 	REQUIRE(persons::current_population(*f.state, economy::exact_person_economy::contract(*f.state, hired.front())->worker) == f.peasants);
+}
+
+TEST_CASE("a displaced worker moves with the family to a connected province and resumes identically after save load",
+	"[economy][rural][households][labor][mobility][serialization][determinism]") {
+	rural_economy_tests::cohort_fixture f;
+	using economy::exact_person_economy::account_ref;
+	auto destination = rural_economy_tests::create_remote_destination(f, false);
+	persons::person_key worker{f.peasant_cell, 0};
+	std::vector<persons::person_key> family;
+	for(uint64_t offset = 0; offset < 4; ++offset) family.push_back({f.peasant_cell, offset});
+	auto total_money = [](sys::state const& state) {
+		double total = 0.0;
+		state.world.for_each_monetary_account([&](dcon::monetary_account_id account) {
+			total += double(state.world.monetary_account_get_balance(account));
+		});
+		for(auto const& account : economy::exact_person_economy::export_snapshot(state).accounts)
+			total += double(account.balance);
+		return total;
+	};
+
+	// Hire the source worker, then close the first factory before the remote vacancy opens.
+	auto source_offer = economy::physical::job_market::post_job_offer(*f.state,
+		f.estate_actor, f.farm, f.site, 0, 1.0f, 20.0f, 1, f.estate_account, 1,
+		f.state->current_date);
+	REQUIRE(economy::exact_person_economy::submit_application(*f.state, worker,
+		source_offer, f.state->current_date));
+	economy::physical::job_market::process_pending_applications(*f.state);
+	auto source_contract_id = economy::exact_person_economy::active_contracts_for_person(*f.state, worker).front();
+	auto source_contract = economy::exact_person_economy::contract(*f.state, source_contract_id);
+	REQUIRE(source_contract);
+	auto family_account = account_ref::from_exact(source_contract->worker_account_id);
+	REQUIRE(economy::exact_person_economy::set_balance(*f.state, family_account, 57.0f));
+	REQUIRE(economy::physical::exact_person_goods::add_stock(*f.state, worker,
+		f.site, f.grain, 2.0f) == Approx(2.0f));
+	REQUIRE(economy::physical::exact_person_goods::add_stock(*f.state, family[1],
+		f.site, f.grain, 3.0f) == Approx(3.0f));
+	f.state->world.factory_set_size(f.farm, 0.0f);
+	REQUIRE(economy::physical::job_market::close_job_offer(*f.state, source_offer));
+	REQUIRE(economy::exact_person_economy::end_contract(*f.state, source_contract_id,
+		economy::exact_person_economy::contract_status::terminated, f.state->current_date,
+		economy::exact_person_economy::contract_end_reason::employer_closure));
+	economy::exact_person_economy::note_separation(*f.state, worker, f.state->current_date);
+	economy::exact_person_economy::enqueue_displaced_worker(*f.state, worker);
+	f.state->current_date += 1;
+	destination.offer = economy::physical::job_market::post_job_offer(*f.state,
+		destination.employer, destination.factory, destination.site, 0, 1.0f, 20.0f, 1,
+		destination.payer, 1, f.state->current_date);
+	REQUIRE(destination.offer);
+	auto money_before = total_money(*f.state);
+	auto dcon_accounts_before = f.state->world.monetary_account_size();
+
+	// The vacancy exists, but no infrastructure route blocks both application and move.
+	REQUIRE_FALSE(economy::physical::household_mobility::job_offer_accessible(*f.state,
+		worker, destination.offer));
+	REQUIRE_FALSE(economy::physical::household_mobility::relocate_for_job(*f.state,
+		worker, destination.site));
+	for(auto member : family) {
+		REQUIRE(persons::current_population(*f.state, member) == f.peasants);
+		REQUIRE(persons::home_site(*f.state, member) == f.site);
+	}
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, worker,
+		f.site, f.grain) == Approx(2.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, family[1],
+		f.site, f.grain) == Approx(3.0f));
+
+	// A route alone is insufficient: 0.5 housing units cannot fit a four-person family.
+	auto edge = f.state->world.create_infrastructure_edge();
+	f.state->world.infrastructure_edge_set_distance(edge, 120.0f);
+	f.state->world.force_create_infrastructure_edge_from(edge,
+		world::spatial_runtime::node_for_province(*f.state, f.province));
+	f.state->world.force_create_infrastructure_edge_to(edge, destination.node);
+	REQUIRE_FALSE(economy::physical::household_mobility::job_offer_accessible(*f.state,
+		worker, destination.offer));
+	REQUIRE_FALSE(economy::physical::household_mobility::relocate_for_job(*f.state,
+		worker, destination.site));
+	for(auto member : family) {
+		REQUIRE(persons::current_population(*f.state, member) == f.peasants);
+		REQUIRE(persons::home_site(*f.state, member) == f.site);
+	}
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, worker,
+		f.site, f.grain) == Approx(2.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, family[1],
+		f.site, f.grain) == Approx(3.0f));
+
+	// Four people occupy one capacity unit. A 1.5-unit supply fits the family once.
+	f.state->world.province_set_service_supply_private(destination.province,
+		services::list::urban_housing, 1.5f);
+	REQUIRE(economy::physical::household_mobility::job_offer_accessible(*f.state,
+		worker, destination.offer));
+	REQUIRE(economy::exact_person_economy::account_count(*f.state) == 1);
+	REQUIRE(economy::exact_person_economy::balance(*f.state, family_account) == Approx(57.0f));
+
+	// Save with the household displaced but before it applies. Continuing either side
+	// of this boundary must choose, hire, and relocate the same family.
+	std::vector<uint8_t> bytes(sys::sizeof_save_section(*f.state));
+	auto const* end = sys::write_save_section(bytes.data(), *f.state);
+	REQUIRE(end == bytes.data() + bytes.size());
+	rural_economy_tests::cohort_fixture loaded;
+	auto const* loaded_end = sys::read_save_section(bytes.data(), end, *loaded.state);
+	REQUIRE(loaded_end == end);
+	REQUIRE(sys::canonical_runtime_loaded(*loaded.state));
+
+	auto continue_simulation = [&](sys::state& state) {
+		economy::physical::labor_dynamics::process_displaced_job_search(state);
+		auto applications = economy::exact_person_economy::applications_for_person(state, worker);
+		REQUIRE(applications.size() == 2); // the source application and the new destination application
+		REQUIRE(economy::exact_person_economy::application(state, applications.back())->offer == destination.offer);
+		economy::exact_person_economy::process_pending_applications(state);
+		REQUIRE(economy::exact_person_economy::active_contracts_for_person(state, worker).size() == 1);
+		economy::physical::household_mobility::update_employed_households(state);
+	};
+	continue_simulation(*f.state);
+	continue_simulation(*loaded.state);
+
+	auto loaded_account = account_ref::from_exact(source_contract->worker_account_id);
+	REQUIRE(economy::exact_person_economy::balance(*f.state, family_account) == Approx(57.0f));
+	REQUIRE(economy::exact_person_economy::balance(*loaded.state, loaded_account) == Approx(57.0f));
+	REQUIRE(economy::exact_person_economy::account_count(*f.state) == 1);
+	REQUIRE(economy::exact_person_economy::account_count(*loaded.state) == 1);
+	REQUIRE(total_money(*f.state) == Approx(money_before));
+	REQUIRE(total_money(*loaded.state) == Approx(money_before));
+	REQUIRE(f.state->world.monetary_account_size() == dcon_accounts_before);
+	REQUIRE(loaded.state->world.monetary_account_size() == dcon_accounts_before);
+	for(auto member : family) {
+		auto current = persons::current_population(*f.state, member);
+		auto restored = persons::current_population(*loaded.state, member);
+		REQUIRE(current);
+		REQUIRE(restored);
+		REQUIRE(f.state->world.pop_get_province_from_pop_location(current) == destination.province);
+		REQUIRE(loaded.state->world.pop_get_province_from_pop_location(restored) == destination.province);
+		REQUIRE(persons::current_population_cell(*f.state, member)
+			== persons::current_population_cell(*loaded.state, member));
+		REQUIRE(persons::home_site(*f.state, member) == destination.site);
+		REQUIRE(persons::home_site(*loaded.state, member) == destination.site);
+	}
+	REQUIRE(economy::households::budget_members(*f.state, worker) == family);
+	REQUIRE(economy::households::budget_members(*loaded.state, worker) == family);
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, worker,
+		destination.site, f.grain) == Approx(2.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*loaded.state, worker,
+		destination.site, f.grain) == Approx(2.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, worker,
+		f.site, f.grain) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*loaded.state, worker,
+		f.site, f.grain) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, family[1],
+		destination.site, f.grain) == Approx(3.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*loaded.state, family[1],
+		destination.site, f.grain) == Approx(3.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*f.state, family[1],
+		f.site, f.grain) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::stock_quantity(*loaded.state, family[1],
+		f.site, f.grain) == Approx(0.0f));
+	REQUIRE(economy::physical::exact_person_goods::canonical_household_checksum(*f.state)
+		== economy::physical::exact_person_goods::canonical_household_checksum(*loaded.state));
+	REQUIRE(persons::person_kernel_checksum(*f.state) == persons::person_kernel_checksum(*loaded.state));
+	REQUIRE(economy::exact_person_economy::contract(*f.state,
+		economy::exact_person_economy::active_contracts_for_person(*f.state, worker).front())->workplace
+		== destination.site);
+	REQUIRE(economy::exact_person_economy::contract(*loaded.state,
+		economy::exact_person_economy::active_contracts_for_person(*loaded.state, worker).front())->workplace
+		== destination.site);
+	REQUIRE_FALSE(economy::physical::household_mobility::job_offer_accessible(*f.state,
+		{f.peasant_cell, 4}, destination.offer)); // the first household filled the remaining space
 }
 
 TEST_CASE("a displaced rural worker without a job returns to the cohort with their cash", "[economy][rural][households][labor]") {

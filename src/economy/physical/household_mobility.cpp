@@ -5,13 +5,16 @@
 #include "economy/advanced_province_buildings.hpp"
 #include "economy/demographics.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/physical/concrete_market.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/inventory.hpp"
 #include "governance/governance.hpp"
 #include "persons/persons.hpp"
+#include "persons/exact_population.hpp"
 #include "provinces/province.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
+#include "world/spatial_runtime.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -28,6 +31,7 @@ constexpr float epsilon = 1.0e-5f;
 constexpr float long_commute_km = 90.0f;
 constexpr float maximum_commute_penalty = 0.45f;
 constexpr float commute_penalty_per_km = 0.003f;
+constexpr float household_cash_buffer_days = 30.0f;
 
 dcon::market_id market_for_site(sys::state const& state, dcon::site_id site) {
 	if(!site || !state.world.site_is_valid(site)) return {};
@@ -81,26 +85,9 @@ dcon::pop_id find_or_create_population_cell(sys::state& state, dcon::province_id
 			state.world.pop_get_is_primary_or_accepted_culture(source));
 	}
 	if(persons::source_population_cell_for_population(state, result) == 0) {
-		if(!persons::register_population_cell(state, result)) {
-			assert(false && "new household population cell must register in exact population");
-			std::abort();
-		}
+		if(!persons::register_population_cell(state, result)) return {};
 	}
 	return result;
-}
-
-bool transfer_population_unit(sys::state& state, uint32_t source_cell,
-	dcon::province_id origin, dcon::province_id destination,
-	dcon::culture_id culture, dcon::religion_id religion, dcon::pop_type_id type,
-	persons::person_key member) {
-	if(!source_cell || !origin || !destination || origin == destination) return false;
-	if(persons::current_population_cell(state, member) != source_cell) return false;
-	auto source = pop_for_person_cell(state, source_cell, origin, culture, religion, type);
-	if(!source) return false;
-	auto target = find_or_create_population_cell(state, destination, source);
-	if(!target || target == source) return false;
-	return persons::transfer_population_membership(state, member,
-		target, persons::population_transition_cause::household_relocation);
 }
 
 bool same_nation(sys::state const& state, dcon::province_id left, dcon::province_id right) {
@@ -110,23 +97,209 @@ bool same_nation(sys::state const& state, dcon::province_id left, dcon::province
 	return left_nation && right_nation && left_nation == right_nation;
 }
 
-bool destination_has_urban_housing(sys::state const& state, dcon::province_id province) {
-	return province && state.world.province_is_valid(province)
-		&& state.world.province_get_advanced_province_building_private_size(
-			province, advanced_province_buildings::list::local_cities_and_towns) > epsilon;
+world::spatial_runtime::route route_for_mobility(sys::state const& state,
+	dcon::site_id home, dcon::site_id workplace) {
+	if(!home || !workplace || !state.world.site_is_valid(home)
+		|| !state.world.site_is_valid(workplace)) return {};
+	if(home == workplace) {
+		world::spatial_runtime::route local{};
+		local.connected = true;
+		local.bottleneck_capacity = std::numeric_limits<float>::infinity();
+		return local;
+	}
+	return world::spatial_runtime::route_for_sites(state, home, workplace);
 }
 
-void move_exact_household_stock(sys::state& state, persons::person_key person,
-	dcon::site_id origin, dcon::site_id destination) {
-	if(!origin || !destination || origin == destination) return;
-	state.world.for_each_commodity([&](dcon::commodity_id commodity) {
-		auto amount = exact_person_goods::stock_quantity(state, person, origin, commodity);
-		if(!std::isfinite(amount) || amount <= epsilon) return;
-		auto removed = exact_person_goods::remove_stock(state, person, origin, commodity, amount);
-		auto added = exact_person_goods::add_stock(state, person, destination, commodity, removed);
-		if(added + epsilon < removed)
-			(void)exact_person_goods::add_stock(state, person, origin, commodity, removed - added);
+float occupied_urban_housing(sys::state const& state, dcon::province_id province) {
+	if(!province || !state.world.province_is_valid(province)) return std::numeric_limits<float>::infinity();
+	float population = 0.0f;
+	state.world.province_for_each_pop_location(province, [&](auto relation) {
+		auto pop = state.world.pop_location_get_pop(relation);
+		if(!pop) return;
+		auto size = state.world.pop_get_size(pop);
+		if(std::isfinite(size) && size > 0.0f) population += size;
 	});
+	auto measured_demand = state.world.province_get_service_demand_forbidden_public_supply(
+		province, services::list::urban_housing);
+	if(!std::isfinite(measured_demand) || measured_demand < 0.0f) measured_demand = 0.0f;
+	// Exact population bootstrapping maps one POP size unit to one four-person
+	// household unit. Prefer measured service demand when present; current POP
+	// sizes provide a resident-based occupancy projection while that demand is
+	// not yet populated.
+	return std::max(population, measured_demand);
+}
+
+bool destination_has_urban_housing(sys::state const& state, dcon::province_id province,
+	float incoming_capacity) {
+	if(!province || !state.world.province_is_valid(province) || !std::isfinite(incoming_capacity)
+		|| incoming_capacity <= 0.0f
+		|| state.world.province_get_service_supply_private_size() <= uint32_t(services::list::urban_housing)
+		|| state.world.province_get_service_demand_forbidden_public_supply_size() <= uint32_t(services::list::urban_housing)) return false;
+	auto supply = state.world.province_get_service_supply_private(
+		province, services::list::urban_housing);
+	if(!std::isfinite(supply) || supply <= 0.0f) return false;
+	auto occupied = occupied_urban_housing(state, province);
+	return std::isfinite(occupied) && supply - occupied + epsilon >= incoming_capacity;
+}
+
+struct stock_move {
+	persons::person_key owner{};
+	dcon::site_id origin{};
+	dcon::commodity_id commodity{};
+	float quantity = 0.0f;
+};
+
+std::optional<std::vector<stock_move>> move_exact_household_stock(sys::state& state,
+	std::vector<persons::person_key> const& members,
+	dcon::site_id destination) {
+	std::vector<stock_move> moves;
+	for(auto member : members) {
+		auto origin = persons::home_site(state, member);
+		if(!origin || !destination || origin == destination) continue;
+		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+			auto amount = exact_person_goods::stock_quantity(state, member, origin, commodity);
+			if(std::isfinite(amount) && amount > epsilon)
+				moves.push_back({member, origin, commodity, amount});
+		});
+	}
+	for(auto const& move : moves) {
+		auto target = exact_person_goods::stock_quantity(state, move.owner, destination, move.commodity);
+		if(!std::isfinite(target) || move.quantity > std::numeric_limits<float>::max() - target) return std::nullopt;
+		if(exact_person_goods::stock_quantity(state, move.owner, move.origin, move.commodity) + epsilon < move.quantity) return std::nullopt;
+	}
+	std::vector<stock_move> completed;
+	for(auto const& move : moves) {
+		if(exact_person_goods::add_stock(state, move.owner, destination, move.commodity,
+			move.quantity) + epsilon < move.quantity) {
+			for(auto it = completed.rbegin(); it != completed.rend(); ++it) {
+				(void)exact_person_goods::remove_stock(state, it->owner, destination,
+					it->commodity, it->quantity);
+				(void)exact_person_goods::add_stock(state, it->owner, it->origin,
+					it->commodity, it->quantity);
+			}
+			return std::nullopt;
+		}
+		auto removed = exact_person_goods::remove_stock(state, move.owner, move.origin,
+			move.commodity, move.quantity);
+		if(removed + epsilon < move.quantity) {
+			(void)exact_person_goods::remove_stock(state, move.owner, destination,
+				move.commodity, move.quantity);
+			(void)exact_person_goods::add_stock(state, move.owner, move.origin,
+				move.commodity, removed);
+			for(auto it = completed.rbegin(); it != completed.rend(); ++it) {
+				(void)exact_person_goods::remove_stock(state, it->owner, destination,
+					it->commodity, it->quantity);
+				(void)exact_person_goods::add_stock(state, it->owner, it->origin,
+					it->commodity, it->quantity);
+			}
+			return std::nullopt;
+		}
+		completed.push_back(move);
+	}
+	return moves;
+}
+
+void restore_household_goods(sys::state& state,
+	economy::physical::exact_person_goods::goods_snapshot const& before) {
+	if(!exact_person_goods::import_snapshot(state, before)) {
+		assert(false && "household relocation rollback must restore its exact goods snapshot");
+		std::abort();
+	}
+}
+
+float expected_daily_household_cost(sys::state const& state, persons::person_key person,
+	dcon::site_id destination) {
+	auto province = destination && state.world.site_is_valid(destination)
+		? state.world.site_get_province_from_site_location(destination) : dcon::province_id{};
+	auto market = market_for_site(state, destination);
+	if(!province) return 0.0f;
+	auto family = households::budget_members(state, person);
+	if(family.empty()) return std::numeric_limits<float>::infinity();
+	double cost = 0.0;
+	auto price_for = [&](dcon::commodity_id commodity) {
+		auto fallback = std::max(0.0f, state.world.commodity_get_cost(commodity));
+		if(market && state.world.market_get_price_size() > uint32_t(commodity.index())) {
+			auto current_price = state.world.market_get_price(market, commodity);
+			if(std::isfinite(current_price) && current_price > 0.0f)
+				fallback = std::max(fallback, current_price);
+		}
+		return market ? concrete_market::concrete_reference_price(state, market,
+			commodity, state.current_date, fallback) : fallback;
+	};
+	for(auto member : family) {
+		auto needs = exact_person_goods::needs_for_person(state, member);
+		if(!needs.empty()) {
+			for(auto commodity : needs) {
+				auto record = exact_person_goods::need(state, member, commodity);
+				if(!record) continue;
+				auto price = price_for(commodity);
+				if(std::isfinite(price) && price > 0.0f
+					&& std::isfinite(record->desired_quantity_per_period))
+					cost += double(price) * std::max(0.0f, record->desired_quantity_per_period);
+			}
+			continue;
+		}
+		auto type = persons::pop_type(state, member);
+		if(!type || !state.world.pop_type_is_valid(type)) continue;
+		state.world.for_each_commodity([&](dcon::commodity_id commodity) {
+			auto quantity = std::max(0.0f, state.world.pop_type_get_life_needs(type, commodity))
+				+ std::max(0.0f, state.world.pop_type_get_everyday_needs(type, commodity))
+				+ std::max(0.0f, state.world.pop_type_get_luxury_needs(type, commodity));
+			auto price = price_for(commodity);
+			if(std::isfinite(quantity) && quantity > 0.0f && std::isfinite(price) && price > 0.0f)
+				cost += double(quantity) * double(price);
+		});
+	}
+	if(state.world.province_get_service_price_size() > uint32_t(services::list::urban_housing)) {
+		auto rent = state.world.province_get_service_price(province, services::list::urban_housing);
+		if(std::isfinite(rent) && rent > 0.0f)
+			cost += double(rent) * double(family.size()) / double(households::persons_per_family);
+	}
+	return std::isfinite(cost) && cost <= double(std::numeric_limits<float>::max())
+		? float(cost) : std::numeric_limits<float>::infinity();
+}
+
+float family_cash_buffer(sys::state const& state, persons::person_key person) {
+	double cash = 0.0;
+	for(auto account : exact_person_economy::accounts_for_person(state, person)) {
+		auto balance = exact_person_economy::balance(state, account);
+		if(std::isfinite(balance) && balance > 0.0f) cash += balance;
+	}
+	return std::isfinite(cash) ? float(std::min(cash / double(household_cash_buffer_days),
+		double(std::numeric_limits<float>::max()))) : 0.0f;
+}
+
+float household_offer_surplus_if_accessible(sys::state const& state,
+	persons::person_key person, dcon::job_offer_id offer) {
+	if(!persons::exists(state, person) || !persons::alive(state, person)
+		|| !offer || !state.world.job_offer_is_valid(offer))
+		return -std::numeric_limits<float>::infinity();
+	auto home = persons::home_site(state, person);
+	auto workplace = state.world.job_offer_get_site_from_job_offer_site(offer);
+	if(!home || !workplace || !state.world.site_is_valid(home)
+		|| !state.world.site_is_valid(workplace)) return -std::numeric_limits<float>::infinity();
+	auto route = route_for_mobility(state, home, workplace);
+	if(!route.connected || !std::isfinite(route.distance)) return -std::numeric_limits<float>::infinity();
+	auto origin = state.world.site_get_province_from_site_location(home);
+	auto destination = state.world.site_get_province_from_site_location(workplace);
+	if(!same_nation(state, origin, destination)) return -std::numeric_limits<float>::infinity();
+	if(route.distance >= long_commute_km && origin != destination) {
+		auto family = households::budget_members(state, person);
+		auto incoming_capacity = float(family.size()) / float(households::persons_per_family);
+		if(!destination_has_urban_housing(state, destination, incoming_capacity))
+			return -std::numeric_limits<float>::infinity();
+	}
+	auto net_wage = commute_adjusted_daily_wage(state, home, offer);
+	if(net_wage <= 0.0f) return -std::numeric_limits<float>::infinity();
+	auto expected_cost = expected_daily_household_cost(state, person, workplace);
+	if(!std::isfinite(expected_cost)) return -std::numeric_limits<float>::infinity();
+	auto cash_buffer = family_cash_buffer(state, person);
+	double surplus = double(net_wage) + double(cash_buffer) - double(expected_cost);
+	if(!std::isfinite(surplus) || surplus + double(epsilon) < 0.0)
+		return -std::numeric_limits<float>::infinity();
+	return float(std::clamp(surplus,
+		-double(std::numeric_limits<float>::max()),
+		double(std::numeric_limits<float>::max())));
 }
 
 void import_scenario_need_profile_once(sys::state& state, persons::person_key person,
@@ -166,10 +339,20 @@ float commute_adjusted_daily_wage(sys::state const& state, dcon::site_id home,
 	auto home_province = state.world.site_get_province_from_site_location(home);
 	auto work_province = state.world.site_get_province_from_site_location(workplace);
 	if(!home_province || !work_province || !same_nation(state, home_province, work_province)) return 0.0f;
-	auto distance = province::direct_distance_km(const_cast<sys::state&>(state), home_province, work_province);
-	if(!std::isfinite(distance) || distance < 0.0f) return 0.0f;
-	auto penalty = std::clamp(distance * commute_penalty_per_km, 0.0f, maximum_commute_penalty);
+	auto route = route_for_mobility(state, home, workplace);
+	if(!route.connected || !std::isfinite(route.distance) || route.distance < 0.0f) return 0.0f;
+	auto penalty = std::clamp(route.distance * commute_penalty_per_km, 0.0f, maximum_commute_penalty);
 	return std::max(0.0f, gross_daily_wage * (1.0f - penalty));
+}
+
+bool job_offer_accessible(sys::state const& state, persons::person_key person,
+	dcon::job_offer_id offer) {
+	return std::isfinite(household_offer_surplus_if_accessible(state, person, offer));
+}
+
+float expected_household_daily_surplus(sys::state const& state, persons::person_key person,
+	dcon::job_offer_id offer) {
+	return household_offer_surplus_if_accessible(state, person, offer);
 }
 
 uint8_t qualification_rank(sys::state const& state, dcon::pop_type_id type) {
@@ -183,24 +366,75 @@ bool relocate_for_job(sys::state& state, persons::person_key person,
 	dcon::site_id workplace) {
 	if(!persons::exists(state, person) || !persons::alive(state, person) || !workplace || !state.world.site_is_valid(workplace)) return false;
 	auto home = persons::home_site(state, person);
-	if(!home || home == workplace) return false;
+	if(!home || !state.world.site_is_valid(home) || home == workplace) return false;
 	auto origin = state.world.site_get_province_from_site_location(home);
 	auto destination = state.world.site_get_province_from_site_location(workplace);
-	if(!origin || !destination || !same_nation(state, origin, destination) || !destination_has_urban_housing(state, destination)) return false;
-	auto distance = province::direct_distance_km(state, origin, destination);
-	if(!std::isfinite(distance) || distance < long_commute_km) return false;
-	auto source_cell = persons::current_population_cell(state, person);
-	auto culture = persons::current_culture(state, person);
-	auto religion = persons::current_religion(state, person);
-	auto type = persons::pop_type(state, person);
-	auto source = persons::population_for_source_cell(state, source_cell);
-	if(!source || state.world.pop_get_culture(source) != culture
-		|| state.world.pop_get_religion(source) != religion
-		|| state.world.pop_get_poptype(source) != type) return false;
-	if(!transfer_population_unit(state, source_cell, origin, destination,
-		culture, religion, type, person)) return false;
-	if(!persons::set_home_site(state, person, workplace)) return false;
-	move_exact_household_stock(state, person, home, workplace);
+	if(!origin || !destination || origin == destination || !same_nation(state, origin, destination)) return false;
+	auto route = route_for_mobility(state, home, workplace);
+	if(!route.connected || !std::isfinite(route.distance) || route.distance < long_commute_km) return false;
+	auto members = households::budget_members(state, person);
+	if(members.empty()) return false;
+	auto incoming_capacity = float(members.size()) / float(households::persons_per_family);
+	if(!destination_has_urban_housing(state, destination, incoming_capacity)) return false;
+
+	struct member_move {
+		persons::person_key person{};
+		dcon::site_id home{};
+		dcon::pop_id source{};
+		dcon::pop_id target{};
+	};
+	std::vector<member_move> moves;
+	moves.reserve(members.size());
+	for(auto member : members) {
+		auto old_home = persons::home_site(state, member);
+		auto source_cell = persons::current_population_cell(state, member);
+		auto culture = persons::current_culture(state, member);
+		auto religion = persons::current_religion(state, member);
+		auto type = persons::pop_type(state, member);
+		if(!old_home || !state.world.site_is_valid(old_home)
+			|| state.world.site_get_province_from_site_location(old_home) != origin
+			|| source_cell == 0 || !culture || !religion || !type) return false;
+		auto source = pop_for_person_cell(state, source_cell, origin, culture, religion, type);
+		if(!source) return false;
+		auto target = find_or_create_population_cell(state, destination, source);
+		if(!target || target == source) return false;
+		moves.push_back({member, old_home, source, target});
+	}
+	if(!persons::exact_population::can_project_population_membership(state)) return false;
+	auto membership_before = persons::exact_population::export_snapshot(state);
+	auto goods_before = exact_person_goods::export_snapshot(state);
+	auto stock_moves = move_exact_household_stock(state, members, workplace);
+	if(!stock_moves) {
+		restore_household_goods(state, goods_before);
+		return false;
+	}
+	std::vector<persons::population_membership_move> membership_moves;
+	membership_moves.reserve(moves.size());
+	for(auto const& move : moves) {
+		membership_moves.push_back({move.person, move.target});
+	}
+	if(!persons::transfer_population_memberships(state, membership_moves,
+		persons::population_transition_cause::household_relocation)) {
+		restore_household_goods(state, goods_before);
+		return false;
+	}
+	for(auto const& move : moves) {
+		if(!persons::set_home_site(state, move.person, workplace)) {
+			if(!persons::exact_population::import_snapshot(state, membership_before)
+				|| !persons::project_population_membership(state)) {
+				assert(false && "household relocation rollback must restore its preflight snapshot");
+				std::abort();
+			}
+			for(auto const& reset : moves) {
+				if(!persons::set_home_site(state, reset.person, reset.home)) {
+					assert(false && "household relocation rollback must restore every home site");
+					std::abort();
+				}
+			}
+			restore_household_goods(state, goods_before);
+			return false;
+		}
+	}
 	return true;
 }
 

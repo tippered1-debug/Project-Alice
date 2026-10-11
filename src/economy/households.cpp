@@ -139,6 +139,33 @@ int32_t family_size(sys::state const& state, persons::person_key person,
 	return result;
 }
 
+std::vector<persons::person_key> budget_members(sys::state const& state,
+	persons::person_key person) {
+	std::vector<persons::person_key> result;
+	if(!persons::alive(state, person)) return result;
+	result.push_back(person);
+	if(!persons::is_source_workforce_anchor(state, person)) return result;
+	auto population = persons::current_population(state, person);
+	for(uint64_t offset = 1; offset < uint64_t(persons_per_family); ++offset) {
+		persons::person_key dependent{person.source_population_cell, person.ordinal + offset};
+		if(!persons::exists(state, dependent) || !persons::alive(state, dependent)
+			|| persons::current_population(state, dependent) != population
+			|| persons::exact_population::has_military_assignment(state, dependent)) continue;
+		bool has_own_cash = false;
+		for(auto account : economy::exact_person_economy::accounts_for_person(state, dependent)) {
+			if(economy::exact_person_economy::balance(state, account) > 0.0f) {
+				has_own_cash = true;
+				break;
+			}
+		}
+		if(!economy::physical::exact_person_goods::needs_for_person(state, dependent).empty()
+			|| has_own_cash
+			|| economy::exact_person_economy::person_has_active_contract(state, dependent)) continue;
+		result.push_back(dependent);
+	}
+	return result;
+}
+
 dcon::organization_id create(sys::state& state, dcon::province_id home, role cohort_role, dcon::commodity_id settlement) {
 	if(!home || !state.world.province_is_valid(home) || cohort_role == role::none || household_for(state, home, cohort_role)
 		|| !settlement || !state.world.commodity_is_valid(settlement)) return {};

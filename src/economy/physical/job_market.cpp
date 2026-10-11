@@ -285,6 +285,7 @@ void process_worker_choices(sys::state& state) {
 			contract->workplace, current_wage);
 		for(auto offer : offers) {
 			if(!open_for_application(state, offer) || state.world.job_offer_get_openings(offer) == 0 || state.world.job_offer_get_factory_from_job_offer_factory(offer) == factory || state.world.job_offer_get_institution_from_job_offer_institution(offer) == institution || !exact_worker_qualifies_for_offer(state, contract->worker, offer)) continue;
+			if(!household_mobility::job_offer_accessible(state, contract->worker, offer)) continue;
 			auto net = household_mobility::commute_adjusted_daily_wage(state, home, offer);
 			if(net > current_net * voluntary_quit_wage_gain + epsilon) {
 				(void)labor_dynamics::quit_exact_employment(state, contract_id,
@@ -409,7 +410,8 @@ void recruit_local_applicants(sys::state& state) {
 					|| std::find(applied.begin(), applied.end(), worker) != applied.end()
 					|| persons::exact_population::has_military_assignment(state, worker)
 					|| !economy::exact_person_economy::is_labor_force_participant(state, worker)
-					|| !exact_worker_qualifies_for_offer(state, worker, offer)) continue;
+					|| !exact_worker_qualifies_for_offer(state, worker, offer)
+					|| !household_mobility::job_offer_accessible(state, worker, offer)) continue;
 				auto home = persons::home_site(state, worker);
 				if(!home || state.world.site_get_province_from_site_location(home) != province) continue;
 				if(economy::exact_person_economy::submit_application(state, worker, offer, state.current_date)) {

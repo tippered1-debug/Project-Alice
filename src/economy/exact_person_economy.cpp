@@ -141,8 +141,7 @@ bool accepts_exact_worker(sys::state const& state, person_key worker, dcon::job_
 	auto type = persons::pop_type(state, worker);
 	return state.world.job_offer_get_occupation(offer)
 		<= physical::household_mobility::qualification_rank(state, type)
-		&& physical::household_mobility::commute_adjusted_daily_wage(state,
-			persons::home_site(state, worker), offer) > 0.0f;
+		&& physical::household_mobility::job_offer_accessible(state, worker, offer);
 }
 
 uint64_t create_contract_for_offer(sys::state& state, person_key worker, dcon::job_offer_id offer) {
@@ -612,20 +611,25 @@ void process_pending_applications(sys::state& state) {
 void process_job_search_for_exact_person(sys::state& state, person_key worker) {
 	if(!persons::exists(state, worker) || !is_work_eligible(state, worker)
 		|| !is_labor_force_participant(state, worker) || person_has_active_contract(state, worker)
+		|| separated_on_date(state, worker, state.current_date)
 		|| has_open_pending_application(state, worker)) return;
 	std::vector<dcon::job_offer_id> offers;
 	state.world.for_each_job_offer([&](auto offer) { if(offer_open(state, offer)) offers.push_back(offer); });
 	std::sort(offers.begin(), offers.end(), [](auto left, auto right) { return left.index() < right.index(); });
 	dcon::job_offer_id best{};
+	float best_surplus = -std::numeric_limits<float>::infinity();
 	for(auto offer : offers) {
-		if(!accepts_exact_worker(state, worker, offer)) continue;
-		auto offer_wage = physical::household_mobility::commute_adjusted_daily_wage(state,
-			persons::home_site(state, worker), offer);
-		auto best_wage = best ? physical::household_mobility::commute_adjusted_daily_wage(state,
-			persons::home_site(state, worker), best) : 0.0f;
-		if(!best || offer_wage > best_wage
-			|| (offer_wage == best_wage
-				&& offer.index() < best.index())) best = offer;
+		if(!offer_open(state, offer) || state.world.job_offer_get_openings(offer) == 0
+			|| state.world.job_offer_get_occupation(offer)
+				> physical::household_mobility::qualification_rank(state, persons::pop_type(state, worker))) continue;
+		auto surplus = physical::household_mobility::expected_household_daily_surplus(state,
+			worker, offer);
+		if(!std::isfinite(surplus)) continue;
+		if(!best || surplus > best_surplus
+			|| (surplus == best_surplus && offer.index() < best.index())) {
+			best = offer;
+			best_surplus = surplus;
+		}
 	}
 	if(best) (void)submit_application(state, worker, best, state.current_date);
 }

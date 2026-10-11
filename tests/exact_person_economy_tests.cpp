@@ -1,10 +1,16 @@
 #include "catch.hpp"
 
+#include "actors/organizations/organizations.hpp"
+#include "economy/accounts/accounts.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/firm_agency.hpp"
 #include "economy/payroll.hpp"
 #include "economy/physical/concrete_labor.hpp"
 #include "economy/physical/job_market.hpp"
+#include "economy/physical/household_mobility.hpp"
+#include "economy/physical/exact_person_goods.hpp"
+#include "economy/advanced_province_buildings.hpp"
+#include "world/spatial_runtime.hpp"
 
 namespace exact_person_economy_tests {
 
@@ -200,6 +206,77 @@ TEST_CASE("exact job search is explicit and does not bridge the worker", "[econo
 	REQUIRE(economy::exact_person_economy::application(*f.state, applications.front())->offer == higher);
 	REQUIRE_FALSE(persons::materialized_profile(*f.state, worker));
 	REQUIRE(f.state->world.job_offer_get_openings(lower) == 1);
+}
+
+TEST_CASE("displaced exact workers search connected provinces by affordable deterministic offer",
+	"[economy][exact][job_market][mobility]") {
+	individual_concrete_labor_tests::fixture f;
+	auto worker = exact_person_economy_tests::register_anchor(f);
+	// Use a canonical family budget with a daily need worth 10 currency units.
+	REQUIRE(economy::physical::exact_person_goods::set_need(*f.state, worker, f.output, 1.0f));
+
+	auto nation = f.state->world.create_nation();
+	f.state->world.province_set_nation_from_province_ownership(f.province, nation);
+	auto destination = f.state->world.create_province();
+	f.state->world.province_set_nation_from_province_ownership(destination, nation);
+	auto zone = f.state->world.create_state_instance();
+	auto market = f.state->world.create_market();
+	f.state->world.state_instance_set_market_from_local_market(zone, market);
+	f.state->world.market_set_zone_from_local_market(market, zone);
+	f.state->world.province_set_state_membership(destination, zone);
+	f.state->world.market_resize_price(f.state->world.commodity_size());
+	f.state->world.market_set_price(market, f.output, 10.0f);
+	auto site = f.state->world.create_site();
+	f.state->world.force_create_site_location(site, destination);
+	auto source_node = f.state->world.create_infrastructure_node();
+	f.state->world.force_create_infrastructure_node_location(source_node, f.province);
+	auto destination_node = f.state->world.create_infrastructure_node();
+	f.state->world.force_create_infrastructure_node_location(destination_node, destination);
+	auto edge = f.state->world.create_infrastructure_edge();
+	f.state->world.infrastructure_edge_set_distance(edge, 120.0f);
+	f.state->world.force_create_infrastructure_edge_from(edge, source_node);
+	f.state->world.force_create_infrastructure_edge_to(edge, destination_node);
+	services::initialize_size_of_dcon_arrays(*f.state);
+	f.state->world.province_set_service_supply_private(destination,
+		services::list::urban_housing, 1.0f);
+
+	auto factory = f.state->world.create_factory();
+	f.state->world.factory_set_building_type(factory, f.type);
+	f.state->world.factory_set_size(factory, 1.0f);
+	f.state->world.force_create_factory_location(factory, destination);
+	f.state->world.force_create_factory_site(factory, site);
+	f.state->world.factory_set_payroll_settlement(factory, f.settlement);
+	auto employer_org = actors::organizations::create_company(*f.state);
+	REQUIRE(actors::organizations::bind_factory_operator(*f.state, employer_org, factory));
+	auto employer = actors::organizations::actor_for_organization(*f.state, employer_org);
+	auto payer = economy::accounts::open_account(*f.state, employer, f.settlement);
+	REQUIRE(economy::accounts::bootstrap_set_balance(*f.state, payer, 1000.0f));
+	auto low = economy::physical::job_market::post_job_offer(*f.state, employer,
+	factory, site, 0, 1.0f, 15.0f, 1, payer, 1, f.state->current_date);
+	auto better = economy::physical::job_market::post_job_offer(*f.state, employer,
+		factory, site, 0, 1.0f, 20.0f, 1, payer, 1, f.state->current_date);
+	auto tied = economy::physical::job_market::post_job_offer(*f.state, employer,
+		factory, site, 0, 1.0f, 20.0f, 1, payer, 1, f.state->current_date);
+	auto unqualified = economy::physical::job_market::post_job_offer(*f.state, employer,
+		factory, site, 1, 1.0f, 500.0f, 1, payer, 1, f.state->current_date);
+	REQUIRE(low);
+	REQUIRE(better);
+	REQUIRE(tied);
+	REQUIRE(unqualified);
+	REQUIRE_FALSE(economy::physical::household_mobility::job_offer_accessible(*f.state, worker, low));
+	REQUIRE(economy::physical::household_mobility::job_offer_accessible(*f.state, worker, better));
+
+	economy::exact_person_economy::process_job_search_for_exact_person(*f.state, worker);
+	auto applications = economy::exact_person_economy::applications_for_person(*f.state, worker);
+	REQUIRE(applications.size() == 1);
+	REQUIRE(economy::exact_person_economy::application(*f.state, applications.front())->offer == better);
+	economy::exact_person_economy::process_pending_applications(*f.state);
+	auto contracts = economy::exact_person_economy::active_contracts_for_person(*f.state, worker);
+	REQUIRE(contracts.size() == 1);
+	REQUIRE(economy::exact_person_economy::contract(*f.state, contracts.front())->workplace == site);
+	REQUIRE(f.state->world.job_offer_get_openings(better) == 0);
+	REQUIRE(f.state->world.job_offer_get_openings(tied) == 1);
+	REQUIRE(f.state->world.job_offer_get_openings(unqualified) == 1);
 }
 
 TEST_CASE("million logical humans activate one exact economic record set", "[economy][exact][scale]") {

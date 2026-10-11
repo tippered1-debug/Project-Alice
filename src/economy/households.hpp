@@ -50,6 +50,10 @@ std::set<std::pair<uint32_t, uint64_t>> individual_consumers(sys::state const&);
 // living dependents of their family who share their population and have no
 // individual budget or military service of their own.
 int32_t family_size(sys::state const&, persons::person_key, std::set<std::pair<uint32_t, uint64_t>> const& individuals);
+// The living people covered by one individual budget. The head remains first;
+// dependents are included only while they still share the head's population and
+// are not covered by another budget or military assignment.
+std::vector<persons::person_key> budget_members(sys::state const&, persons::person_key);
 
 float members(sys::state const&, dcon::organization_id);
 float workers(sys::state const&, dcon::organization_id);
