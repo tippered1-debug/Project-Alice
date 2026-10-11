@@ -4553,6 +4553,25 @@ bool merge_cleanup_pop(sys::state& state, dcon::pop_id source) {
 
 }
 
+} // namespace demographics
+
+namespace persons::exact_population {
+// Defined in exact_population.cpp; declared here to keep it out of the widely included header.
+void rebind_population_cell(sys::state& state, dcon::pop_id previous, dcon::pop_id current);
+}
+
+namespace demographics {
+
+// Deleting a pop moves the last pop into the freed index. The person registry
+// binds pops by index, so the moved pop's binding follows it here.
+void delete_pop_keeping_registry(sys::state& state, dcon::pop_id pop) {
+	dcon::pop_id last{ dcon::pop_id::value_base_t(state.world.pop_size() - 1) };
+	persons::retire_population_cell(state, pop);
+	state.world.delete_pop(pop);
+	if(last != pop)
+		persons::exact_population::rebind_population_cell(state, last, pop);
+}
+
 template<bool DeletePops>
 void fixup_state_only_pops(sys::state& state) {
 
@@ -4579,8 +4598,7 @@ void fixup_state_only_pops(sys::state& state) {
 					}
 					relink_pop_dependents(state, pop, new_pop);
 					if constexpr(DeletePops) {
-						persons::retire_population_cell(state, pop);
-						state.world.delete_pop(pop);
+						delete_pop_keeping_registry(state, pop);
 					}
 				}
 			}
@@ -4595,8 +4613,7 @@ void remove_size_zero_pops(sys::state& state) {
 		dcon::pop_id m{dcon::pop_id::value_base_t(last)};
 		if(state.world.pop_get_size(m) < 1.0f) {
 			if(merge_cleanup_pop(state, m)) {
-				persons::retire_population_cell(state, m);
-				state.world.delete_pop(m);
+				delete_pop_keeping_registry(state, m);
 			}
 		}
 	}
@@ -4608,8 +4625,7 @@ void remove_small_pops(sys::state& state) {
 		dcon::pop_id m{ dcon::pop_id::value_base_t(last) };
 		if(state.world.pop_get_size(m) < 20.0f) {
 			if(merge_cleanup_pop(state, m)) {
-				persons::retire_population_cell(state, m);
-				state.world.delete_pop(m);
+				delete_pop_keeping_registry(state, m);
 			}
 		}
 	}

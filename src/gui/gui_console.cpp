@@ -4,6 +4,10 @@
 #include <variant>
 #include <filesystem>
 #include "gui_console.hpp"
+#include "gamestate/commands.hpp"
+#include "serialization.hpp"
+#include "gamestate/game_scene.hpp"
+#include "scripting/events.hpp"
 #include "gui_fps_counter.hpp"
 #include "nations.hpp"
 #include "fif.hpp"

@@ -40,6 +40,7 @@ struct state {
 	bool scrollbar_continuous_movement = false;
 	float last_fps = 0.f;
 	bool lazy_load_in_game = false;
+	bool title_screen_entered = false; // set on entering the title scene, cleared once the screen has reset itself
 	element_base* scroll_target = nullptr;
 	element_base* drag_target = nullptr;
 	element_base* edit_target_internal = nullptr;
@@ -61,6 +62,7 @@ struct state {
 	std::unique_ptr<element_base> military_root;
 	std::unique_ptr<element_base> nation_picker;
 	std::unique_ptr<element_base> end_screen;
+	std::unique_ptr<element_base> title_screen;
 	std::unique_ptr<element_base> select_states_legend;
 	std::unique_ptr<element_base> select_national_identity_root;
 	std::unique_ptr<element_base> army_group_selector_root;
@@ -80,6 +82,8 @@ struct state {
 			func(*military_root);
 		if(nation_picker)
 			func(*nation_picker);
+		if(title_screen)
+			func(*title_screen);
 		if(select_national_identity_root)
 			func(*select_national_identity_root);
 		if(army_group_selector_root)

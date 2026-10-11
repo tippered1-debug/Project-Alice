@@ -57,7 +57,7 @@ jobs:
       run: |
         cmake -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DCMAKE_INSTALL_PREFIX=/usr -B build
 
-    - name: Build Project Alice
+    - name: Build KATECHON
       run: |
         cmake --build build --parallel --target Alice
 
@@ -140,7 +140,7 @@ jobs:
       run: |
         cmake -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DCMAKE_INSTALL_PREFIX=/usr -B build
 
-    - name: Build Project Alice
+    - name: Build KATECHON
       run: |
         cmake --build build --parallel --target Alice
 

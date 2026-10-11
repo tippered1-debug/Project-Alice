@@ -200,7 +200,7 @@ void port_forwarder::start_forwarding(uint16_t port) {
 			IStaticPortMapping* opened_port = nullptr;
 
 			BSTR proto = SysAllocString(L"TCP");
-			BSTR desc = SysAllocString(L"Project Alice Host");
+			BSTR desc = SysAllocString(L"KATECHON Host");
 			auto tmpwstr = simple_fs::utf8_to_native(found_locals[0].address);
 			BSTR local_host = SysAllocString(tmpwstr.c_str());
 			VARIANT_BOOL enabled = VARIANT_TRUE;

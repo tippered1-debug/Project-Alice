@@ -1,4 +1,4 @@
-# OUR TIME architecture
+# KATECHON architecture
 
 This is the entry point for the architecture that describes the current runtime. Each domain has one canonical owner; other representations are authored inputs or one-way read projections.
 

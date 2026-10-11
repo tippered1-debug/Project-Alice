@@ -1,6 +1,9 @@
 #pragma once
 
 #include "dcon_generated.hpp"
+#include "date_interface.hpp"
+
+#include <utility>
 
 namespace sys { class state; }
 
@@ -22,5 +25,7 @@ void record_public_payroll(sys::state&, dcon::province_id, dcon::commodity_id se
 	float due_no, float due_basic, float due_high,
 	float paid_no, float paid_basic, float paid_high);
 province_payroll for_province(sys::state const&, dcon::province_id, sys::date);
+std::pair<float, float> factory_payroll_between(sys::state const&, dcon::factory_id,
+	sys::date from_inclusive, sys::date to_inclusive);
 
 } // namespace economy::payroll

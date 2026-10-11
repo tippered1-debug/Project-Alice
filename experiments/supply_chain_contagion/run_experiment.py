@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and compare the canonical OUR TIME supply-chain contagion fixture."""
+"""Run and compare the canonical KATECHON supply-chain contagion fixture."""
 
 from __future__ import annotations
 
@@ -237,7 +237,7 @@ def write_report(root: Path, runs: list[dict[str, Any]], comparisons: list[dict[
         for item in comparisons
     }
     lines = [
-        "# OUR TIME — Experiment 002: Supply Chain Contagion",
+        "# KATECHON — Experiment 002: Supply Chain Contagion",
         "",
         f"Seed `{seed}`; horizon `{days}` days; shock begins day `{SHOCK_DAY}` and ends day `{SHOCK_END_DAY}`.",
         "All executable runs use `--single-thread`. Each intervention is compared with a baseline initialized from the same fixture parameters and seed.",

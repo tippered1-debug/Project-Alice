@@ -1,3 +1,5 @@
+#include "gui_map_hud_state.hpp"
+#include "backing_scale.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <functional>
@@ -174,6 +176,9 @@ void state::on_lbutton_up(int32_t x, int32_t y, key_modifiers mod) {
 }
 void state::on_mouse_move(int32_t x, int32_t y, key_modifiers mod) {
 	map_state.on_mouse_move(x, y, x_size, y_size, mod);
+	// Only scenes that select units by dragging show the selection box.
+	if(!current_scene.allow_drag_selection)
+		map_state.map_data.set_drag_box(false, {}, {}, {});
 	if(map_state.is_dragging) {
 		if(ui_state.mouse_sensitive_target) {
 			ui_state.mouse_sensitive_target->set_visible(*this, false);
@@ -917,12 +922,17 @@ void state::render() { // called to render the frame may (and should) delay retu
 			ui_state.under_mouse->on_hover(*this);
 	}
 
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	// Beyond the edge of the map the KATECHON map screen shows its own dark
+	// ground, not the wallpaper of the Victoria 2 country windows.
+	if(ui::map_hud_enabled)
+		glClearColor(0.020f, 0.027f, 0.043f, 1.0f);
+	else
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	if(ui_state.bg_gfx_id && current_scene.based_on_map) {
+	if(ui_state.bg_gfx_id && current_scene.based_on_map && !ui::map_hud_enabled) {
 		// Render default background
 		glUseProgram(open_gl.ui_shader_program);
 		glUniform1i(open_gl.ui_shader_texture_sampler_uniform, 0);
@@ -1064,6 +1074,28 @@ void state::on_create() {
 		serialization::in_buffer buffer(content.data, content.file_size);
 		ui_templates = template_project::bytes_to_project(buffer);
 		ui_templates.svg_directory.pop_back();
+		// KATECHON skin: the same templates, drawn from the dark-and-gold set
+		// that tools/katechon_theme.py derives from assets/svg, with text
+		// colours chosen to read on dark panels.
+		ui_templates.svg_directory = u"svg_katechon";
+		{
+			struct themed_colour { std::string_view name; float r; float g; float b; };
+			static constexpr themed_colour palette[] = {
+				{ "black", 0.86f, 0.83f, 0.76f }, { "ink", 0.90f, 0.80f, 0.60f }, { "faded", 0.55f, 0.52f, 0.47f },
+				{ "eggshell", 0.93f, 0.90f, 0.84f }, { "dark red", 0.82f, 0.32f, 0.27f }, { "med red", 0.90f, 0.40f, 0.34f },
+				{ "dark orange", 0.85f, 0.55f, 0.22f }, { "med orange", 0.92f, 0.66f, 0.30f }, { "light orange", 0.95f, 0.76f, 0.38f },
+				{ "neutral", 0.70f, 0.68f, 0.63f }, { "light blue", 0.62f, 0.78f, 0.86f }, { "med blue", 0.50f, 0.70f, 0.82f },
+				{ "dark blue", 0.44f, 0.62f, 0.78f }, { "very dark blue", 0.64f, 0.73f, 0.83f }
+			};
+			for(auto const& entry : palette) {
+				if(auto index = template_project::color_by_name(ui_templates, entry.name); index >= 0) {
+					auto& colour = ui_templates.colors[size_t(index)];
+					colour.r = entry.r;
+					colour.g = entry.g;
+					colour.b = entry.b;
+				}
+			}
+		}
 		svg_image_files.root_directory = simple_fs::utf16_to_native(ui_templates.svg_directory);
 		auto svgdir = simple_fs::open_directory(assets, simple_fs::utf16_to_native(ui_templates.svg_directory));
 		for(auto& i : ui_templates.icons) {
@@ -1096,6 +1128,15 @@ void state::on_create() {
 
 	ui::adjust_in_game_windows(*this);
 	map_mode::set_map_mode(*this, map_mode::mode::political);
+
+	// A networked session is already committed to its lobby, so only a
+	// single-player launch opens on the title screen. KATECHON_SKIP_TITLE keeps
+	// the old direct-to-lobby start for screenshots and smoke tests.
+	if(network_mode == sys::network_mode_type::single_player) {
+		auto const* skip_title = std::getenv("KATECHON_SKIP_TITLE");
+		if(!skip_title || skip_title[0] != '1')
+			game_scene::switch_scene(*this, game_scene::scene_id::title_screen);
+	}
 
 	// Opt-in visual QA hook for native UI work. It is intentionally controlled
 	// by the environment so normal players always keep the nation picker flow,
@@ -1426,7 +1467,12 @@ void state::save_user_settings() const {
 #define US_SAVE(x) \
 		std::memcpy(ptr, &user_settings.x, sizeof(user_settings.x)); \
 		ptr += sizeof(user_settings.x);
-	US_SAVE(ui_scale);
+	{
+		// Stored as the player chose it, without the display's pixel density.
+		float const chosen_scale = user_settings.ui_scale / window::backing_scale;
+		std::memcpy(ptr, &chosen_scale, sizeof(chosen_scale));
+		ptr += sizeof(chosen_scale);
+	}
 	US_SAVE(master_volume);
 	US_SAVE(music_volume);
 	US_SAVE(effects_volume);
@@ -1673,7 +1719,8 @@ void state::save_gamerule_settings() const {
 
 
 void state::update_ui_scale(float new_scale) {
-	user_settings.ui_scale = new_scale;
+	// new_scale is the player's choice; see window::backing_scale.
+	user_settings.ui_scale = new_scale * window::backing_scale;
 	ui_state.for_each_root([&](ui::element_base& elm) {
 		elm.base_data.size.x = int16_t(x_size / user_settings.ui_scale);
 		elm.base_data.size.y = int16_t(y_size / user_settings.ui_scale);
@@ -1754,15 +1801,21 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 			auto opened_file = open_file(province_file);
 			if(opened_file) {
 				auto content = view_contents(*opened_file);
+				// Each wrapper declares its own file-level locals. A Lua chunk
+				// allows 200 of them, and there are more wrappers than that, so
+				// every file gets a scope of its own inside the combined chunk.
+				lua_combined_script += "do\n";
 				lua_combined_script.append(content.data, content.file_size);
 				simple_fs::standardize_newlines(lua_combined_script);
-				lua_combined_script += "\n";
+				lua_combined_script += "\nend\n";
 			}
 		}
 
 		auto hand_written_wrappers = open_file(assets_lua, NATIVE("custom_ffi.lua"));
 		if(hand_written_wrappers) {
 			auto content = view_contents(*hand_written_wrappers);
+			// The hand-written wrappers used the generated files' local.
+			lua_combined_script += "local ffi = require(\"ffi\")\n";
 			lua_combined_script.append(content.data, content.file_size);
 			simple_fs::standardize_newlines(lua_combined_script);
 			lua_combined_script += "\n";
@@ -3076,11 +3129,19 @@ void state::load_scenario_data(parsers::error_handler& err, sys::year_month_day 
 				culture::apply_technology(*this, n, t);
 		}
 	}
+	// Everything a nation knows on the first day was discovered before it, by
+	// all holders at once. Mark the holders first and apply afterwards: applied
+	// one nation at a time, the shared prestige of each invention went almost
+	// entirely to whichever nation happened to come first in the list.
 	for(auto t : world.in_invention) {
 		for(auto n : world.in_nation) {
 			if(trigger::evaluate(*this, t.get_limit(), trigger::to_generic(n), trigger::to_generic(n), -1) && trigger::evaluate_additive_modifier(*this, t.get_chance(), trigger::to_generic(n), trigger::to_generic(n), -1) > 0.f) {
 				n.set_active_inventions(t, true);
 			}
+		}
+	}
+	for(auto t : world.in_invention) {
+		for(auto n : world.in_nation) {
 			if(n.get_active_inventions(t)) {
 				culture::apply_invention(*this, n, t);
 			}
@@ -3638,6 +3699,7 @@ void state::flush_pending_log_messages() {
 }
 
 void state::preload() {
+	payroll_event_index.reset();
 
 	adjacency_data_out_of_date = true;
 	for(auto si : world.in_state_instance) {

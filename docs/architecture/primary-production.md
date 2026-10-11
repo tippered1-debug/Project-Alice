@@ -1,6 +1,6 @@
 # Primary production
 
-Primary production is how raw goods enter the physical economy: mining, farming, herding, fishing, and forestry. OUR TIME has no RGO. A Victoria II RGO fused five different things: a natural endowment, a productive facility, an employer, a land tenure, and a province label used by scripts and POP types. Each of those has its own owner here.
+Primary production is how raw goods enter the physical economy: mining, farming, herding, fishing, and forestry. KATECHON has no RGO. A Victoria II RGO fused five different things: a natural endowment, a productive facility, an employer, a land tenure, and a province label used by scripts and POP types. Each of those has its own owner here.
 
 ## Target architecture
 

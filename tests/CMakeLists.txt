@@ -17,7 +17,8 @@ set(ALICE_TEST_GROUP_SOURCES
 	"${PROJECT_SOURCE_DIR}/tests/test_group_person_modules.cpp"
 	"${PROJECT_SOURCE_DIR}/tests/test_group_simulation.cpp"
 	"${PROJECT_SOURCE_DIR}/tests/test_group_pathfinding.cpp"
-	"${PROJECT_SOURCE_DIR}/tests/test_group_government.cpp")
+	"${PROJECT_SOURCE_DIR}/tests/test_group_government.cpp"
+	"${PROJECT_SOURCE_DIR}/tests/supply_chain_contagion_lab_tests.cpp")
 
 # Compile the game implementation once as the same bounded translation units
 # used by Alice. Keep the platform entry point out of Catch2's executables.

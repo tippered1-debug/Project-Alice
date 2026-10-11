@@ -479,7 +479,7 @@ void create_window(sys::state& game_state, creation_parameters const& params) {
 																												 WS_SYSMENU | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
 																									 : WS_VISIBLE | WS_BORDER | WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 
-	game_state.win_ptr->hwnd = CreateWindowExW(0, L"project_alice_class", L"Project Alice", win32Style, CW_USEDEFAULT,
+	game_state.win_ptr->hwnd = CreateWindowExW(0, L"project_alice_class", L"KATECHON", win32Style, CW_USEDEFAULT,
 			CW_USEDEFAULT, 0, 0, NULL, NULL, GetModuleHandleW(nullptr), &game_state);
 
 	if(!game_state.win_ptr->hwnd)
@@ -662,8 +662,8 @@ int32_t double_click_ms() {
 }
 
 void emit_error_message(std::string const& content, bool fatal) {
-	static const char* msg1 = "Project Alice has encountered a fatal error";
-	static const char* msg2 = "Project Alice has encountered the following problems";
+	static const char* msg1 = "KATECHON has encountered a fatal error";
+	static const char* msg2 = "KATECHON has encountered the following problems";
 	MessageBoxA(nullptr, content.c_str(), fatal ? msg1 : msg2, MB_OK | (fatal ? MB_ICONERROR : MB_ICONWARNING));
 	if(fatal) {
 		std::exit(EXIT_FAILURE);

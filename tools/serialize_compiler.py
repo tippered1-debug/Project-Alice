@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Machine-wide compiler gate for memory-heavy Project Alice translation units."""
+"""Machine-wide compiler gate for memory-heavy KATECHON translation units."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def wait_for_memory() -> bool:
 	while True:
 		memory = available_memory()
 		if memory is None:
-			print("Project Alice compiler gate: RAM availability could not be read; proceeding under the global lock.", file=sys.stderr)
+			print("KATECHON compiler gate: RAM availability could not be read; proceeding under the global lock.", file=sys.stderr)
 			return True
 		free_bytes, total_bytes = memory
 		minimum = minimum_free_bytes(total_bytes)
@@ -99,7 +99,7 @@ def wait_for_memory() -> bool:
 		elapsed = time.monotonic() - started
 		if elapsed >= wait_limit:
 			print(
-				"Project Alice compiler gate: not starting compiler; "
+				"KATECHON compiler gate: not starting compiler; "
 				f"available RAM is {free_bytes / GIB:.1f} GiB, "
 				f"required is {minimum / GIB:.1f} GiB. "
 				"Free memory or adjust ALICE_BUILD_MIN_FREE_GIB.",
@@ -108,7 +108,7 @@ def wait_for_memory() -> bool:
 			return False
 		if elapsed - last_notice >= 30.0:
 			print(
-				"Project Alice compiler gate: waiting for memory; "
+				"KATECHON compiler gate: waiting for memory; "
 				f"available {free_bytes / GIB:.1f} GiB, "
 				f"required {minimum / GIB:.1f} GiB.",
 				file=sys.stderr,
@@ -127,7 +127,7 @@ def acquire_global_lock(lock_fd: int) -> None:
 		except BlockingIOError:
 			if not notice_printed:
 				print(
-					"Project Alice compiler gate: another checkout is compiling; "
+					"KATECHON compiler gate: another checkout is compiling; "
 					"waiting for the machine-wide lock.",
 					file=sys.stderr,
 					flush=True,
@@ -149,7 +149,7 @@ def main() -> int:
 		finally:
 			os.umask(previous_umask)
 	except OSError as error:
-		print(f"Project Alice compiler gate: cannot open {LOCK_PATH}: {error}", file=sys.stderr)
+		print(f"KATECHON compiler gate: cannot open {LOCK_PATH}: {error}", file=sys.stderr)
 		return 2
 
 	try:
@@ -165,7 +165,7 @@ def main() -> int:
 				peak *= 1024
 			elapsed = time.monotonic() - compile_started
 			print(
-				f"Project Alice compiler gate: elapsed {elapsed:.1f}s, "
+				f"KATECHON compiler gate: elapsed {elapsed:.1f}s, "
 				f"compiler peak RSS {peak / GIB:.2f} GiB",
 				file=sys.stderr,
 			)

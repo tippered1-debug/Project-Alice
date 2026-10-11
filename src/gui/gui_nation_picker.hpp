@@ -4,6 +4,11 @@
 #include "gui_chat_window.hpp"
 #include "serialization.hpp"
 #include "gui_containers.hpp"
+#include "game_scene_constants.hpp"
+
+namespace game_scene {
+void switch_scene(sys::state& state, scene_id ui_scene);
+}
 
 namespace ui {
 
@@ -605,7 +610,11 @@ public:
 class quit_game_button : public button_element_base {
 public:
 	void button_action(sys::state& state) noexcept override {
-		window::close_window(state);
+		// A multiplayer lobby has no title screen behind it to return to.
+		if(state.network_mode == sys::network_mode_type::single_player)
+			game_scene::switch_scene(state, game_scene::scene_id::title_screen);
+		else
+			window::close_window(state);
 	}
 };
 

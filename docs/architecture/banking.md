@@ -37,6 +37,10 @@ It fails without change when the payer's deposit or, for an external payment, th
 
 **Liquidity policy** (`economy::liquidity`). Each day every actor holding a deposit keeps its free wallet cash near 30% of its free liquid money, withdrawing below 20% and depositing above 40%. A depositor of a bank that is not solvent withdraws everything the bank can pay, so runs and contagion follow from balance sheets rather than scripts. An actor with more than 10 of idle cash and no deposit opens one at the solvent bank of its country with the most liquidity. A person without a profile whose wallet holds more than 50 gains one first, so savers bank. Public treasuries hold base money. Deposits are the savings that investors commit to equity; see [Capital allocation](capital-allocation.md).
 
+## Sovereign claims
+
+An active public-debt obligation is carried at principal plus accrued interest. Once the canonical debt service process marks it defaulted, the creditor's legal claim and the debtor's amount due remain recorded at face value, while the bank carries the claim at zero and records an equal impairment. This loss reduces net worth and bank equity once; it does not change cash or write off the obligation. Any later recovery must settle through the real payment API, reducing the legal claim and increasing bank reserves.
+
 ## Monetary policy
 
 `economy::monetary_policy` gives each nation a central bank per settlement. The central bank is a state-owned organization, opened when the nation first has a configured bank. Its income goes to the government. Who controls it politically is not modelled yet.

@@ -17,6 +17,8 @@
 #include "gui_leaders.hpp"
 #include "gui_units.hpp"
 #include "gui_nation_picker.hpp"
+#include "gui_title_screen.hpp"
+#include "gui_map_hud.hpp"
 #include "gui_end_window.hpp"
 #include "gui_map_legend.hpp"
 #include "map_tooltip.hpp"
@@ -100,6 +102,10 @@ class go_to_battleplanner_button : public button_element_base {
 
 void create_in_game_windows(sys::state& state) {
 	state.ui_state.lazy_load_in_game = true;
+	{
+		auto const* classic = std::getenv("KATECHON_CLASSIC_HUD");
+		ui::map_hud_enabled = !(classic && classic[0] == '1');
+	}
 
 	state.ui_state.unit_details_box = ui::make_element_by_type<ui::grid_box>(state, state.ui_state.defs_by_name.find(state.lookup_key("alice_grid_panel"))->second.definition);
 	state.ui_state.unit_details_box->set_visible(state, false);
@@ -228,7 +234,8 @@ void create_in_game_windows(sys::state& state) {
 		// The topbar has this button within, however since the button isn't properly displayed, it is better to make
 		// it into an independent element of it's own, living freely on the UI root so it can be flexibly moved around when
 		// the window is resized for example.
-		for(size_t i = state.ui_defs.gui.size(); i-- > 0;) {
+		// The map HUD has its own outliner switch.
+		for(size_t i = state.ui_defs.gui.size(); !ui::map_hud_enabled && i-- > 0;) {
 			auto gdef = dcon::gui_def_id(dcon::gui_def_id::value_base_t(i));
 			if(state.to_string_view(state.ui_defs.gui[gdef].name) == "topbar_outlinerbutton_bg") {
 				auto new_bg = ui::make_element_by_type<ui::outliner_button>(state, gdef);
@@ -237,7 +244,7 @@ void create_in_game_windows(sys::state& state) {
 			}
 		}
 		// Then create button atop
-		for(size_t i = state.ui_defs.gui.size(); i-- > 0;) {
+		for(size_t i = state.ui_defs.gui.size(); !ui::map_hud_enabled && i-- > 0;) {
 			auto gdef = dcon::gui_def_id(dcon::gui_def_id::value_base_t(i));
 			if(state.to_string_view(state.ui_defs.gui[gdef].name) == "topbar_outlinerbutton") {
 				auto new_btn = ui::make_element_by_type<ui::outliner_button>(state, gdef);
@@ -252,7 +259,7 @@ void create_in_game_windows(sys::state& state) {
 		state.ui_state.menubar_window = new_elm.get();
 		state.ui_state.root->add_child_to_front(std::move(new_elm));
 	}
-	{
+	if(!ui::map_hud_enabled) {
 		auto new_elm = ui::make_element_by_type<ui::minimap_picture_window>(state, "minimap_pic");
 		state.ui_state.root->add_child_to_front(std::move(new_elm));
 	}
@@ -321,6 +328,10 @@ void create_in_game_windows(sys::state& state) {
 		auto new_elm = ui::make_element_by_type<ui::topbar_window>(state, "topbar");
 		new_elm->impl_on_update(state);
 		state.ui_state.root->add_child_to_front(std::move(new_elm));
+	}
+	if(ui::map_hud_enabled) {
+		// In front of the old bar, which it replaces on screen.
+		state.ui_state.root->add_child_to_front(std::make_unique<ui::map_hud_element>());
 	}
 	{
 		auto legend_win = ui::make_element_by_type<ui::map_legend_gradient>(state, "alice_map_legend_gradient_window");
@@ -449,5 +460,18 @@ void adjust_in_game_windows(sys::state& state) {
 		state.ui_state.r_chat_window = new_elm.get();
 		state.ui_state.nation_picker->add_child_to_front(std::move(new_elm));
 	}
+
+	// Single player gets the KATECHON country selection in place of the
+	// lobby's own controls; a networked lobby keeps them, since it needs the
+	// player list and chat that the new screen does not show yet.
+	if(state.network_mode == sys::network_mode_type::single_player) {
+		auto* lobby = static_cast<ui::container_base*>(state.ui_state.nation_picker.get());
+		for(auto& child : lobby->children)
+			child->set_visible(state, false);
+		lobby->add_child_to_back(std::make_unique<ui::country_select_element>());
+	}
+
+	state.ui_state.title_screen = std::make_unique<ui::container_base>();
+	state.ui_state.title_screen->add_child_to_front(std::make_unique<ui::title_screen_element>());
 }
 }

@@ -12,6 +12,7 @@ enum class scene_id : uint8_t {
 	in_game_economy_viewer,
 	in_game_production_view,
 	end_screen,
+	title_screen,
 	count
 };
 

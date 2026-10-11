@@ -25,6 +25,10 @@ struct config {
 	uint32_t shock_day = 90;
 	uint32_t shock_end_day = 180;
 	float a_dependency_share = 0.80f;
+	// An elected finance ministry may issue a consented stabilizer bond when
+	// collected wage taxes show a sustained shortfall against the same run's
+	// pre-shock baseline. The principal is calculated from that realized gap.
+	bool countercyclical_borrowing = false;
 };
 
 struct run_output {
@@ -45,6 +49,13 @@ struct run_output {
 	float a_cargo_arrived_after_shock = 0.0f;
 	float paid_cargo_reconciled_error = 0.0f;
 	float maximum_money_conservation_error = 0.0f;
+	float maximum_defaulted_bank_claims = 0.0f;
+	float minimum_post_default_credit_available = 0.0f;
+	uint32_t elections_recorded = 0;
+	uint32_t statutes_recorded = 0;
+	bool sovereign_default_observed = false;
+	bool banking_invariants_valid = true;
+	bool monetary_invariants_valid = true;
 	bool household_invariants_valid = true;
 };
 

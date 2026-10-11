@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure how reproducible a Project Alice headless run actually is.
+"""Measure how reproducible a KATECHON headless run actually is.
 
 Two matching runs prove nothing when divergence is intermittent. This runs the
 same command many times and reports how many distinct outcomes appear, at which

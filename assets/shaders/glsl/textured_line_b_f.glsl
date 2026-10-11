@@ -18,17 +18,22 @@ vec4 gamma_correct(vec4 colour) {
 	return vec4(pow(colour.rgb, vec3(1.f / gamma)), colour.a);
 }
 
+uniform float width;
+
+// Borders are drawn as clean ink. The line texture only gives the profile
+// across the line; the kind of border is told apart by the width it is drawn
+// with: frontiers are firm, internal divisions faint, the outline of a
+// selection is gold.
 void main() {
-	// frag_color = vec4(tex_coord, tex_coord, tex_coord, 1.0);
-	// return;
-
-
-	vec4 out_color = texture(line_texture, vec2(o_dist, border_width_coord));
-	out_color.a *= texture(printbrush, vec2(o_dist * 10.f, tex_coord) / 10.f).r;
-
-	//vec2 prov_id = texture(provinces_texture_sampler, gl_FragCoord.xy / screen_size).xy;
-	//out_color.rgb *= texture(province_fow, prov_id).rgb;
+	float profile = texture(line_texture, vec2(o_dist, border_width_coord)).a;
+	vec4 out_color;
+	if(abs(width - 0.0004) < 0.00003 || abs(width - 0.00085) < 0.00003) {
+		out_color = vec4(1.0, 0.84, 0.50, profile * 0.95);
+	} else if(width > 0.00012) {
+		out_color = vec4(0.035, 0.040, 0.055, profile * 0.92);
+	} else {
+		out_color = vec4(0.035, 0.040, 0.055, profile * 0.34);
+	}
 	out_color.rgb *= out_color.a;
-
 	frag_color = gamma_correct(out_color);
 }

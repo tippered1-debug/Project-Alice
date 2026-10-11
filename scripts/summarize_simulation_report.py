@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print balance-relevant checkpoints from a Project Alice JSONL simulation report."""
+"""Print balance-relevant checkpoints from a KATECHON JSONL simulation report."""
 
 from __future__ import annotations
 

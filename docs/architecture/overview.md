@@ -1,4 +1,4 @@
-# OUR TIME runtime overview
+# KATECHON runtime overview
 
 The canonical runtime is the normal simulation. There is no Age of Transformation gamerule, runtime override, or parallel legacy economy selected by a ruleset switch.
 

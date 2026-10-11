@@ -16,8 +16,12 @@ struct balance_sheet {
 	float settlement_assets = 0.0f;
 	float loan_assets = 0.0f; // performing principal only
 	float accrued_interest_receivable = 0.0f;
+	// Legal face claims remain on the creditor record after default. The
+	// carrying value excludes defaulted claims until a recovery is settled.
+	float public_debt_claims = 0.0f;
 	float public_debt_assets = 0.0f;
-	float defaulted_public_debt_assets = 0.0f;
+	float defaulted_public_debt_assets = 0.0f; // defaulted legal face value
+	float defaulted_public_debt_impairment = 0.0f;
 	float total_assets = 0.0f;
 	float deposit_liabilities = 0.0f;
 	float other_financial_liabilities = 0.0f;
@@ -164,6 +168,11 @@ factory_credit_result underwrite_project_credit(sys::state&, dcon::capital_proje
 
 float indicative_factory_loan_rate(sys::state const&, dcon::factory_id,
 	dcon::commodity_id settlement, float requested_amount, float collateral_value);
+// The maximum additional working credit a solvent bank in the factory's own
+// country can currently support from its capital, liquidity and borrower
+// exposure limits. This quote changes no account or obligation.
+float available_factory_credit(sys::state const&, dcon::factory_id,
+	dcon::commodity_id settlement);
 
 balance_sheet bank_balance_sheet(sys::state const&, dcon::organization_id bank,
 	dcon::commodity_id settlement);

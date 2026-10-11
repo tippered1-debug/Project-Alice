@@ -1,3 +1,4 @@
+#include "gui_templates.hpp"
 #include "gui_message_settings_window.hpp"
 
 namespace ui {

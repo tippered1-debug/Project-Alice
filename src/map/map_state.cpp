@@ -2769,7 +2769,9 @@ void map_state::on_mouse_move(int32_t x, int32_t y, int32_t screen_size_x, int32
 		shift_pos({last_camera_drag_pos.data - map_pos.data}, 1.f);
 	}
 	glm::vec2 mouse_diff = glm::abs(last_unit_box_drag_pos - mouse_pos.data);
-	if(mouse_diff.x > std::ceil(screen_size_x * 0.0025f) || mouse_diff.y > std::ceil(screen_size_y * 0.0025f) && left_mouse_down)
+	// The box belongs to a held left button. Without the parentheses any
+	// horizontal movement drew it from the last click to the cursor.
+	if((mouse_diff.x > std::ceil(screen_size_x * 0.0025f) || mouse_diff.y > std::ceil(screen_size_y * 0.0025f)) && left_mouse_down)
 	{
 		auto pos1 = last_unit_box_drag_pos / screen_size;
 		auto pos2 = mouse_pos.data / screen_size;

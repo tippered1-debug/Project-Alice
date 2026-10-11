@@ -74,6 +74,12 @@ void switch_scene(sys::state& state, scene_id ui_scene) {
 
 		break;
 
+	case scene_id::title_screen:
+		state.current_scene = title_screen();
+		state.ui_state.title_screen_entered = true;
+
+		break;
+
 	case scene_id::in_game_military_selector:
 		state.current_scene = battleplan_editor_add_army();
 
@@ -346,6 +352,9 @@ void handle_rbutton_down_map_interaction(sys::state& state, int32_t x, int32_t y
 void handle_lbutton_down_map_interaction(sys::state& state, int32_t x, int32_t y, sys::key_modifiers mod) {
 	on_lbutton_down_map(state, x, y, mod);
 	state.current_scene.on_drag_start(state, x, y, mod);
+	// Where dragging selects nothing, holding the left button moves the map.
+	if(!state.current_scene.allow_drag_selection && state.current_scene.based_on_map)
+		state.map_state.on_mbuttom_down(x, y, state.x_size, state.y_size, mod);
 }
 
 void on_rbutton_down(sys::state& state, int32_t x, int32_t y, sys::key_modifiers mod) {
@@ -575,6 +584,8 @@ void handle_drag_stop(sys::state& state, int32_t x, int32_t y, sys::key_modifier
 
 void on_lbutton_up(sys::state& state, int32_t x, int32_t y, sys::key_modifiers mod) {
 	stop_dragging(state, x, y, mod);
+	if(!state.current_scene.allow_drag_selection)
+		state.map_state.on_mbuttom_up(x, y, mod);
 	if(state.user_settings.left_mouse_click_hold_and_release && state.ui_state.left_mouse_hold_target) {
 		on_lbutton_up_ui_click_hold_and_release(state, x, y, mod);
 	}
@@ -632,6 +643,10 @@ void nation_picker_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key
 		}
 		state.map_state.on_key_down(keycode, mod);
 	}
+}
+
+void title_screen_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod) {
+	state.ui_state.title_screen->impl_on_key_down(state, keycode, mod);
 }
 
 void state_selector_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod) {
@@ -1311,6 +1326,10 @@ void highlight_defensive_positions(sys::state& state, std::vector<uint32_t>& dat
 
 ui::element_base* root_end_screen(sys::state& state){
 	return state.ui_state.end_screen.get();
+}
+
+ui::element_base* root_title_screen(sys::state& state) {
+	return state.ui_state.title_screen.get();
 }
 
 ui::element_base* root_pick_nation(sys::state& state) {

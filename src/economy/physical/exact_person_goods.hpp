@@ -126,6 +126,8 @@ uint64_t post_bid(sys::state&, person_key, economy::exact_person_economy::accoun
 	dcon::site_id destination, dcon::market_id, dcon::commodity_id,
 	float quantity, float limit_price, order_purpose = order_purpose::general);
 std::vector<bid_reference> active_bids(sys::state const&, dcon::market_id, dcon::commodity_id);
+std::vector<bid_reference> active_bids_for_commodity(sys::state const&, dcon::commodity_id,
+	std::optional<dcon::market_id> market_scope = std::nullopt);
 uint64_t try_fill(sys::state&, uint64_t exact_bid_id, dcon::concrete_market_ask_id, sys::date);
 void expire(sys::state&, sys::date);
 void cancel_dead_person_orders(sys::state&);

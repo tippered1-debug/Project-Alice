@@ -1103,7 +1103,7 @@ alice_factory_worker_1;雇佣：?G$x$?W
 alice_factory_worker_2;失业：?R$x$?W
 alice_rgo_unemployment_country_alert;下列地区有失业者：
 pop_promote_info_on_sel_2;$val$ 下月预计 $who$ 到 $where$
-alice_readme;?G欢迎来到 Project Alice！?W\nProject Alice 是你最喜欢的维多利亚时代游戏的重新构想。我们调整了一些机制，游戏更加动态性和娱乐性。\n?G新功能!?W\n?Y地球仪?W：?G褒?W?R贬?W不一，如果你不喜欢就关掉吧！\n?Y科技队列?W：SHIFT+右键将科技加入研发队列！（单击右键取消）\n?Y国内投资?W：与其在单个项目上投资，不如一气呵成\n?Y性能?W：10 倍 每秒滴答数（不是FPS）\n?Y检查器?W：在您的模组中获取覆盖错误和警告，轻松发现错误和错字\n?Y部队模板?W：使用我们的部队模板构建由不同兵种组成的部队模板\n?Y11 种新的地图模式?W：宗教，要塞，职业情况，诸如此类\n?Y全国建造?W：SHIFT+右键在全国进行建造！\n?G控制?W：\n?YTAB?W：打开聊天窗口\n?YESC?W：打开主菜单和设置菜单\n?Y波浪符（`或~）?W：打开控制台\n?G享受游戏吧！=^w^=?W
+alice_readme;?G欢迎来到 KATECHON！?W\nKATECHON 是你最喜欢的维多利亚时代游戏的重新构想。我们调整了一些机制，游戏更加动态性和娱乐性。\n?G新功能!?W\n?Y地球仪?W：?G褒?W?R贬?W不一，如果你不喜欢就关掉吧！\n?Y科技队列?W：SHIFT+右键将科技加入研发队列！（单击右键取消）\n?Y国内投资?W：与其在单个项目上投资，不如一气呵成\n?Y性能?W：10 倍 每秒滴答数（不是FPS）\n?Y检查器?W：在您的模组中获取覆盖错误和警告，轻松发现错误和错字\n?Y部队模板?W：使用我们的部队模板构建由不同兵种组成的部队模板\n?Y11 种新的地图模式?W：宗教，要塞，职业情况，诸如此类\n?Y全国建造?W：SHIFT+右键在全国进行建造！\n?G控制?W：\n?YTAB?W：打开聊天窗口\n?YESC?W：打开主菜单和设置菜单\n?Y波浪符（`或~）?W：打开控制台\n?G享受游戏吧！=^w^=?W
 alice_nf_controls;?Y左键点击?W以选择或替代\n?Y右键点击?W以移除
 unit_controls_tooltip_1;?Y左键?W选择（取消选择其它）\n?YSHIFT+左键?W增加到选择中
 unit_controls_tooltip_2;?Y右键点击一个省份?W以局部撤退（?G循环/轮流?W）到当地
@@ -1639,7 +1639,7 @@ factory_hired_unqualified;工厂雇佣了 ?Y$value$?W ?Y非熟练工人?W来处�
 factory_hired_primary;工厂雇佣了 ?Y$value$?W ?Y技工?W。
 factory_hired_secondary;工厂雇佣了 ?Y$value$?W ?Y经理和职员?W。他们使工厂产出乘以 ?G$x$?W。
 factory_throughput_explanation;吞吐量是衡量工厂原始效率的指标。它以?G产品单位?W来衡量的。吞吐量驱动了投入消耗和产品产出。吞吐量的唯一来源是?G雇佣单位?W，由?Y非熟练工人?W和?Y技工?W生产。先进技术可增加每个工人的?G产品单位?W产出。吞吐量当前修正：?G$val$?W。因此，当前 ?Y$y$?W 雇佣单位产出 ?Y$x$?W（?Y$y$?W 的 ?G$val$?W） 产品单位。根本上，吞吐量的增加使资本家在相同工资下更少雇佣工人。
-factory_throughput_base;在 Project Alice 中，工厂投资效率商品才能从技术中获得国家乘数。当前投资为产量提供 ?G$val$?W 基础乘数。
+factory_throughput_base;在 KATECHON 中，工厂投资效率商品才能从技术中获得国家乘数。当前投资为产量提供 ?G$val$?W 基础乘数。
 factory_throughput_modifiers;当地条件提供吞吐量乘数：?G$val$?W
 factory_input_multiplier_explanation;投入乘数是最强的行业相关乘数，因为它不受回报递减。相反，你越多推积它，它就越强。当前乘数：?G$val$?W。
 factory_input_multiplier_competition;当地资本家之间的竞争，鼓励工厂提高效率，只消耗所需投入：?G$val$?W。

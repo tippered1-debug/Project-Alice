@@ -44,11 +44,11 @@ jobs:
       run: |
         cmake -DCMAKE_BUILD_TYPE=${{ matrix.config }} -B build
 
-    - name: Build Project Alice
+    - name: Build KATECHON
       run: |
         cmake --build build --parallel --target Alice
 
-    # - name: Build Project Alice Incremental
+    # - name: Build KATECHON Incremental
     #   run: |
     #     cmake --build build --parallel --target AliceIncremental
 
@@ -67,11 +67,11 @@ jobs:
       run: |
         cmake -G "Visual Studio 17 2022" --preset=x64-${{ matrix.config }} -B build
 
-    - name: Build Project Alice
+    - name: Build KATECHON
       run: |
         cmake --build build --parallel --target Alice
 
-    - name: Build Project Alice Incremental
+    - name: Build KATECHON Incremental
       run: |
         cmake --build build --parallel --target AliceIncremental
 

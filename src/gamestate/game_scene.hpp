@@ -46,6 +46,7 @@ sys::virtual_key replace_keycodes_map_movement(sys::state& state, sys::virtual_k
 sys::virtual_key replace_keycodes_identity(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod);
 
 void nation_picker_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod);
+void title_screen_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod);
 void do_nothing_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod);
 void in_game_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod);
 void military_screen_hotkeys(sys::state& state, sys::virtual_key keycode, sys::key_modifiers mod);
@@ -86,6 +87,7 @@ void highlight_defensive_positions(sys::state& state, std::vector<uint32_t>& dat
 void clean_up_selected_armies_and_navies(sys::state& state);
 
 ui::element_base* root_end_screen(sys::state& state);
+ui::element_base* root_title_screen(sys::state& state);
 ui::element_base* root_pick_nation(sys::state& state);
 ui::element_base* root_game_basic(sys::state& state);
 ui::element_base* root_game_battleplanner(sys::state& state);
@@ -125,6 +127,34 @@ inline scene_properties nation_picker() {
 		.open_chat = open_chat_before_game,
 		.update_highlight_texture = highlight_player_nation,
 };
+}
+
+inline scene_properties title_screen() {
+	return scene_properties{
+		.id = scene_id::title_screen,
+
+		.get_root = root_title_screen,
+
+		.starting_scene = true,
+		.enforced_pause = true,
+		.based_on_map = false,
+		.is_lobby = true,
+		.game_in_progress = false,
+
+		.rbutton_selected_units = do_nothing_province_target,
+		.rbutton_province = do_nothing_province_target,
+		.allow_drag_selection = false,
+		.on_drag_start = do_nothing_screen,
+		.drag_selection = do_nothing_screen,
+		.lbutton_up = do_nothing,
+		.on_province_selected = do_nothing,
+		.keycode_mapping = replace_keycodes_identity,
+		.handle_hotkeys = title_screen_hotkeys,
+		.console_log = console_log_other,
+
+		.render_map = do_nothing,
+		.on_game_state_update = do_nothing,
+	};
 }
 
 inline scene_properties basic_game() {

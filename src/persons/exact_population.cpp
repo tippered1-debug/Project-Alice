@@ -1274,6 +1274,19 @@ dcon::pop_id population_for_source_cell(sys::state const& state, uint32_t source
 	return state.world.pop_is_valid(pop) ? pop : dcon::pop_id{};
 }
 
+// Pops are bound to their cells by index. Deleting a pop moves the last pop
+// into the freed index, so that pop's binding has to move with it.
+void rebind_population_cell(sys::state& state, dcon::pop_id previous, dcon::pop_id current) {
+	if(!previous || !current || previous == current || !state.exact_population) return;
+	auto store = state.exact_population;
+	auto found = store->source_by_pop_slot.find(pop_slot(previous));
+	if(found == store->source_by_pop_slot.end()) return;
+	auto const cell = found->second;
+	store->source_by_pop_slot.erase(found);
+	store->source_by_pop_slot.insert_or_assign(pop_slot(current), cell);
+	store->pop_slot_by_source.insert_or_assign(cell, pop_slot(current));
+}
+
 void retire_population_cell(sys::state& state, dcon::pop_id pop) {
 	if(!pop) return;
 	assert(state.exact_population && "exact population must exist before retiring a population cell");

@@ -2,6 +2,9 @@ include(FetchContent)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 add_subdirectory(DataContainerGenerator)
+# The top-level Alice target compiles DataContainer's common type
+# implementation, so propagate the populated source path through this scope.
+set(datacontainer_SOURCE_DIR "${datacontainer_SOURCE_DIR}" PARENT_SCOPE)
 add_subdirectory(DataContainerLuaGenerator)
 add_subdirectory(DataContainerOOSReporter)
 add_subdirectory(catch2)

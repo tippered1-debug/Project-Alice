@@ -1,4 +1,4 @@
-# OUR TIME documentation
+# KATECHON documentation
 
 Start with the [current architecture map](architecture/README.md). It links to the canonical runtime, data contracts, migration notes, and preserved Project Alice material.
 

@@ -408,7 +408,7 @@ void render_subsprite(sys::state const& state, color_modification enabled, int f
 void render_rect_slice(sys::state const& state, float x, float y, float width, float height, GLuint texture_handle, float start_slice, float end_slice);
 void render_tinted_rect(sys::state const& state, float x, float y, float width, float height, float r, float g, float b, ui::rotation rot, bool flipped, bool rtl);
 void render_tinted_subsprite(sys::state const& state, int frame, int total_frames, float x, float y, float width, float height, float r, float g, float b, GLuint texture_handle, ui::rotation rot, bool flipped, bool rtl);
-void render_new_text(sys::state const& state, text::stored_glyphs const& txt, color_modification enabled, float x, float y, float size, color3f const& c, text::font& f);
+void render_new_text(sys::state& state, text::stored_glyphs const& txt, color_modification enabled, float x, float y, float size, color3f const& c, text::font& f);
 void render_text(sys::state& state, text::stored_glyphs const& txt, color_modification enabled, float x, float y, color3f const& c, uint16_t font_id);
 void render_text_icon(sys::state& state, text::embedded_icon ico, float x, float baseline_y, float font_size, text::font& f, ogl::color_modification = ogl::color_modification::none);
 

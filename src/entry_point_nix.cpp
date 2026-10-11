@@ -306,6 +306,11 @@ int main(int argc, char* argv[]) {
 				supply_chain_lab = true;
 				continue;
 			}
+			if(argument == NATIVE("--endogenous-political-economic-crisis-lab")) {
+				supply_chain_lab = true;
+				supply_chain_output_dir = "endogenous-political-economic-crisis-output";
+				continue;
+			}
 			if(argument == NATIVE("--sovereign-debt-crisis-lab")) {
 				sovereign_debt_lab = true;
 				continue;
@@ -326,7 +331,8 @@ int main(int argc, char* argv[]) {
 				|| argument == NATIVE("--load-save")
 				|| argument == NATIVE("--save-at-end");
 			if(argument == NATIVE("--lab-shock") || argument == NATIVE("--lab-seed")
-				|| argument == NATIVE("--lab-days") || argument == NATIVE("--lab-dependency")
+				|| argument == NATIVE("--lab-days") || argument == NATIVE("--lab-shock-day")
+				|| argument == NATIVE("--lab-shock-end-day") || argument == NATIVE("--lab-dependency")
 				|| argument == NATIVE("--lab-output") || argument == NATIVE("--lab-save-restore-day")) {
 				++i;
 				continue;
@@ -478,6 +484,9 @@ int main(int argc, char* argv[]) {
 				}
 			} else if(native_string(argv[i]) == NATIVE("--supply-chain-contagion-lab")) {
 				supply_chain_lab = true;
+			} else if(native_string(argv[i]) == NATIVE("--endogenous-political-economic-crisis-lab")) {
+				supply_chain_lab = true;
+				supply_chain_output_dir = "endogenous-political-economic-crisis-output";
 				headless = true;
 			} else if(native_string(argv[i]) == NATIVE("--sovereign-debt-crisis-lab")) {
 				sovereign_debt_lab = true;
@@ -513,6 +522,20 @@ int main(int argc, char* argv[]) {
 			} else if(native_string(argv[i]) == NATIVE("--lab-shock")) {
 				if(i + 1 >= argc) window::emit_error_message("Usage: --lab-shock <baseline|embargo|blockade|substitution>\n", true);
 				supply_chain_config.shock = sys::simulation::supply_chain_lab::parse_intervention(argv[++i]);
+			} else if(native_string(argv[i]) == NATIVE("--lab-shock-day")) {
+				uint64_t day = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], day)
+					|| day == 0 || day > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --lab-shock-day <positive integer>\n", true);
+				supply_chain_config.shock_day = uint32_t(day);
+				++i;
+			} else if(native_string(argv[i]) == NATIVE("--lab-shock-end-day")) {
+				uint64_t day = 0;
+				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], day)
+					|| day > uint64_t(std::numeric_limits<uint32_t>::max()))
+					window::emit_error_message("Usage: --lab-shock-end-day <positive integer>\n", true);
+				supply_chain_config.shock_end_day = uint32_t(day);
+				++i;
 			} else if(native_string(argv[i]) == NATIVE("--lab-days")) {
 				uint64_t days = 0;
 				if(i + 1 >= argc || !parse_unsigned_argument(argv[i + 1], days)
@@ -533,6 +556,8 @@ int main(int argc, char* argv[]) {
 					window::emit_error_message("Usage: --lab-dependency <0.02..0.98>\n", true);
 				supply_chain_config.a_dependency_share = share;
 				++i;
+			} else if(native_string(argv[i]) == NATIVE("--lab-countercyclical-borrowing")) {
+				supply_chain_config.countercyclical_borrowing = true;
 			} else if(native_string(argv[i]) == NATIVE("--lab-output")) {
 				if(i + 1 >= argc) window::emit_error_message("Usage: --lab-output <directory>\n", true);
 				supply_chain_output_dir = simple_fs::native_to_utf8(native_string(argv[++i]));
@@ -697,6 +722,13 @@ int main(int argc, char* argv[]) {
 			}
 			std::cout << "{\"ticks_completed\":" << result.ticks_completed
 				<< ",\"baseline_trade_valid\":" << (result.baseline_trade_valid ? "true" : "false")
+				<< ",\"sovereign_default_observed\":" << (result.sovereign_default_observed ? "true" : "false")
+				<< ",\"elections_recorded\":" << result.elections_recorded
+				<< ",\"statutes_recorded\":" << result.statutes_recorded
+				<< ",\"banking_invariants_valid\":" << (result.banking_invariants_valid ? "true" : "false")
+				<< ",\"monetary_invariants_valid\":" << (result.monetary_invariants_valid ? "true" : "false")
+				<< ",\"defaulted_bank_claims\":" << result.maximum_defaulted_bank_claims
+				<< ",\"post_default_credit_available\":" << result.minimum_post_default_credit_available
 				<< ",\"checksum\":" << result.final_checksum
 				<< ",\"money_error\":" << result.maximum_money_conservation_error
 				<< ",\"household_invariants_valid\":" << (result.household_invariants_valid ? "true" : "false")

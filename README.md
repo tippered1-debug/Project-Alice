@@ -1,10 +1,12 @@
-# Project Alice
+# KATECHON
 
-Project Alice is a continuation / rewrite of the Open V2 codebase (an open source "retro clone" of Victoria 2).
+KATECHON is a grand strategy game built on the [Project Alice](https://github.com/schombert/Project-Alice) engine, itself a continuation / rewrite of the Open V2 codebase (an open source "retro clone" of Victoria 2).
 
-Join us on [discord](https://discord.gg/QUJExr4mRn) or visit our [documentation map](docs/README.md)
+Start with the [documentation map](docs/README.md).
 
-## How to install and play
+The sections below are inherited from Project Alice and describe the upstream engine: its releases, installation, community and devlogs.
+
+## How to install and play (upstream Project Alice)
 - [Download the latest release here](https://github.com/schombert/Project-Alice/releases)
 - Extract the archive and move the executable files and the assets folder into your main Victoria 2 directory. In other words, **Alice.exe should end up in the same folder as v2game.exe**.
 - IF YOU INSTALLED A PREVIOUS DEMO OR RELEASE: I suggest that you delete it and the old assets folder before copying over the new one, as an extra precaution.

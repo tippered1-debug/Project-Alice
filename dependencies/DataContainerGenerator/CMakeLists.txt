@@ -8,6 +8,8 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(DataContainer)
+# Alice's parent directory needs the populated dependency path as well.
+set(datacontainer_SOURCE_DIR "${datacontainer_SOURCE_DIR}" PARENT_SCOPE)
 set(DCON_COMMON_TYPES_HEADER "${datacontainer_SOURCE_DIR}/CommonIncludes/common_types.hpp")
 set(DCON_VE_HEADER "${datacontainer_SOURCE_DIR}/CommonIncludes/ve.hpp")
 set(DCON_VE_SCALAR_HEADER "${datacontainer_SOURCE_DIR}/CommonIncludes/ve_scalar.hpp")

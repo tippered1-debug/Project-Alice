@@ -1,0 +1,3 @@
+#!/bin/zsh
+cd /Users/stefanbidzamov/open-source/Project-Alice
+exec /Users/stefanbidzamov/open-source/Project-Alice/build/macos-arm64-release/Alice

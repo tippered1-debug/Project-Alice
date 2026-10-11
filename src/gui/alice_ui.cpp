@@ -1,3 +1,4 @@
+#include "backing_scale.hpp"
 #include <numbers>
 #include <cmath>
 
@@ -27,6 +28,8 @@
 #include "human_development.hpp"
 #include "advanced_province_buildings.hpp"
 #include "gamerule.hpp"
+#include "game_scene.hpp"
+#include "game_scene_title.hpp"
 #include "gamerules.cpp"
 #include "macrobuilder2.cpp"
 #include "budgetwindow.cpp"

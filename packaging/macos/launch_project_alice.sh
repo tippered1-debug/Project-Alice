@@ -38,7 +38,7 @@ fi
 mkdir -p "${saved_root:h}"
 print -r -- "$victoria_root" >| "$saved_root"
 
-# Victoria 2 is the base root. The bundled Project Alice assets are overlaid
+# Victoria 2 is the base root. The bundled KATECHON assets are overlaid
 # through ALICE_ASSET_ROOT and take priority after scenario deserialisation.
 export ALICE_ASSET_ROOT="$alice_assets"
 cd "$victoria_root"

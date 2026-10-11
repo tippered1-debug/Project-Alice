@@ -1022,7 +1022,21 @@ bool main_menu_base_exit_t::button_action(sys::state& state) noexcept {
 	if(state.user_setting_changed)
 		state.save_user_settings();
 	state.user_setting_changed = false;
-	window::close_window(state);
+	if(state.network_mode != sys::network_mode_type::single_player) {
+		// A networked session has no title screen behind it.
+		window::close_window(state);
+	} else {
+		base.set_visible(state, false);
+		if(state.current_scene.id == game_scene::scene_id::title_screen) {
+			// Already there: the menu was opened from the title screen.
+		} else if(state.current_scene.game_in_progress) {
+			game_scene::world_played_since_load = true;
+			game_scene::return_to_title_requested.store(true, std::memory_order::release);
+			command::notify_stop_game(state, state.local_player_nation);
+		} else {
+			game_scene::switch_scene(state, game_scene::scene_id::title_screen);
+		}
+	}
 // END
 	return true;
 }
@@ -3875,7 +3889,8 @@ void main_menu_graphics_ui_scale_dropdown_t::on_update(sys::state& state) noexce
 	main_menu_graphics_t& graphics = *((main_menu_graphics_t*)(parent)); 
 // BEGIN graphics::ui_scale_dropdown::update
 	for(size_t i = 0; i < sys::ui_scales_count; ++i) {
-		if(state.user_settings.ui_scale >= sys::ui_scales[i] && i + 1 == sys::ui_scales_count || state.user_settings.ui_scale < sys::ui_scales[i + 1]) {
+		auto const chosen_scale = state.user_settings.ui_scale / window::backing_scale;
+		if(chosen_scale >= sys::ui_scales[i] && i + 1 == sys::ui_scales_count || chosen_scale < sys::ui_scales[i + 1]) {
 			quiet_on_selection(state, int32_t(i));
 		}
 	}

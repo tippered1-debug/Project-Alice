@@ -5,11 +5,11 @@ project_root="${0:A:h:h}"
 binary="${1:-$project_root/build/macos-arm64-release/Alice}"
 dist_dir="$project_root/dist"
 staging_dir="$dist_dir/macos-dmg"
-app_name="Project Alice.app"
+app_name="KATECHON.app"
 app_dir="$staging_dir/$app_name"
 contents_dir="$app_dir/Contents"
 resources_dir="$contents_dir/Resources"
-dmg_path="$dist_dir/Project-Alice-arm64.dmg"
+dmg_path="$dist_dir/KATECHON-arm64.dmg"
 
 if [[ ! -x "$binary" ]]; then
 	print -u2 "error: Release binary not found: $binary"
@@ -28,8 +28,8 @@ ditto "$binary" "$resources_dir/bin/Alice"
 ditto "$project_root/assets" "$resources_dir/game/assets"
 ditto "$project_root/LICENSE" "$resources_dir/LICENSE"
 ditto "$project_root/packaging/macos/Info.plist" "$contents_dir/Info.plist"
-ditto "$project_root/packaging/macos/launch_project_alice.sh" "$contents_dir/MacOS/Project Alice"
-chmod 755 "$contents_dir/MacOS/Project Alice" "$resources_dir/bin/Alice"
+ditto "$project_root/packaging/macos/launch_project_alice.sh" "$contents_dir/MacOS/KATECHON"
+chmod 755 "$contents_dir/MacOS/KATECHON" "$resources_dir/bin/Alice"
 
 iconset="$staging_dir/Alice.iconset"
 mkdir -p "$iconset"
@@ -46,7 +46,7 @@ codesign --force --deep --sign - "$app_dir"
 ln -s /Applications "$staging_dir/Applications"
 
 rm -f "$dmg_path"
-hdiutil create -volname "Project Alice" \
+hdiutil create -volname "KATECHON" \
 	-srcfolder "$staging_dir" -ov -format UDZO "$dmg_path"
 
 print -- "$dmg_path"

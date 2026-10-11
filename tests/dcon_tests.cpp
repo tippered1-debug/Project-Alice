@@ -1350,10 +1350,16 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(160.0f));
 	REQUIRE(::economy::accounts::balance(*state, bank_reserve) == Approx(440.0f));
 	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, settlement).public_debt_assets == Approx(60.0f));
+	auto reserves_before_default = ::economy::accounts::balance(*state, bank_reserve);
 	state->world.obligation_set_status(bank_debt, uint8_t(::economy::relations::obligation_status::defaulted));
 	auto defaulted_bank_sheet = ::economy::banking::bank_balance_sheet(*state, bank, settlement);
-	REQUIRE(defaulted_bank_sheet.public_debt_assets == Approx(60.0f));
+	REQUIRE(defaulted_bank_sheet.public_debt_claims == Approx(60.0f));
+	REQUIRE(defaulted_bank_sheet.public_debt_assets == Approx(0.0f));
 	REQUIRE(defaulted_bank_sheet.defaulted_public_debt_assets == Approx(60.0f));
+	REQUIRE(defaulted_bank_sheet.defaulted_public_debt_impairment == Approx(60.0f));
+	REQUIRE(::economy::relations::total_due(*state, bank_debt) == Approx(60.0f));
+	REQUIRE(defaulted_bank_sheet.net_worth == Approx(440.0f));
+	REQUIRE(::economy::accounts::balance(*state, bank_reserve) == Approx(reserves_before_default));
 	auto treasury_before_default_service = ::economy::accounts::balance(*state, treasury);
 	auto reserve_before_default_service = ::economy::accounts::balance(*state, bank_reserve);
 	REQUIRE(::governance::finance::service_public_debt(*state, bank_debt, treasury, bank_reserve, 1.0f, sys::date{29}));
@@ -1361,6 +1367,8 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	REQUIRE(::economy::accounts::balance(*state, bank_reserve) == Approx(reserve_before_default_service + 1.0f));
 	REQUIRE(::economy::relations::total_due(*state, bank_debt) == Approx(59.0f));
 	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, settlement).defaulted_public_debt_assets == Approx(59.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, settlement).defaulted_public_debt_impairment == Approx(59.0f));
+	REQUIRE(::economy::banking::bank_balance_sheet(*state, bank, settlement).public_debt_assets == Approx(0.0f));
 }
 
 TEST_CASE("daily public debt lifecycle accrues once pays partially and records default", "[governance][finance][debt]" ) {

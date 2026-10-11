@@ -6,6 +6,7 @@
 #include "economy/consent/consent.hpp"
 #include "economy/money/ontology.hpp"
 #include "economy/relations/relations.hpp"
+#include "economy/liquidity.hpp"
 #include "governance/law/law.hpp"
 #include "system_state.hpp"
 
@@ -1020,6 +1021,7 @@ float indicative_factory_loan_rate(sys::state const& state, dcon::factory_id fac
 		return std::numeric_limits<float>::infinity();
 	auto borrower = actors::organizations::operator_actor_for_factory(state, factory);
 	if(!borrower) return std::numeric_limits<float>::infinity();
+	auto borrower_nation = liquidity::nation_for(state, borrower);
 	float best_rate = std::numeric_limits<float>::infinity();
 	uint64_t best_bank_id = std::numeric_limits<uint64_t>::max();
 	std::vector<dcon::organization_id> banks;
@@ -1032,6 +1034,7 @@ float indicative_factory_loan_rate(sys::state const& state, dcon::factory_id fac
 		return state.world.organization_get_canonical_id(left) < state.world.organization_get_canonical_id(right);
 	});
 	for(auto bank : banks) {
+		if(borrower_nation && state.world.organization_get_bank_jurisdiction(bank) != borrower_nation) continue;
 		if(bank_credit_capacity(state, bank, borrower, settlement, false) + balance_tolerance < requested_amount) continue;
 		auto rate = bank_base_rate(state, bank) + state.world.organization_get_bank_lending_spread(bank);
 		auto stable_id = state.world.organization_get_canonical_id(bank);
@@ -1041,6 +1044,23 @@ float indicative_factory_loan_rate(sys::state const& state, dcon::factory_id fac
 		}
 	}
 	return best_rate;
+}
+
+float available_factory_credit(sys::state const& state, dcon::factory_id factory,
+	dcon::commodity_id settlement) {
+	if(!factory || !state.world.factory_is_valid(factory) || !settlement
+		|| !state.world.commodity_is_valid(settlement)) return 0.0f;
+	auto borrower = actors::organizations::operator_actor_for_factory(state, factory);
+	if(!borrower) return 0.0f;
+	auto nation = liquidity::nation_for(state, borrower);
+	float best = 0.0f;
+	state.world.for_each_organization([&](dcon::organization_id bank) {
+		if(!policy_configured(state, bank)
+			|| state.world.organization_get_bank_settlement_currency(bank) != settlement
+			|| (nation && state.world.organization_get_bank_jurisdiction(bank) != nation)) return;
+		best = std::max(best, bank_credit_capacity(state, bank, borrower, settlement, false));
+	});
+	return best;
 }
 
 factory_credit_result underwrite_factory_credit(sys::state& state, dcon::factory_id factory,
@@ -1054,6 +1074,7 @@ factory_credit_result underwrite_factory_credit(sys::state& state, dcon::factory
 	auto borrower = actors::organizations::operator_actor_for_factory(state, factory);
 	auto settlement = accounts::settlement_of(state, operating_account);
 	if(!borrower || accounts::owner_of(state, operating_account) != borrower || !settlement) return result;
+	auto borrower_nation = liquidity::nation_for(state, borrower);
 	result.requested_amount = requested_amount;
 	auto request_key = stable_hash(id_key("firm-capital-request",
 		state.world.factory_get_canonical_id(factory), state.current_date.to_raw_value(), request_kind));
@@ -1137,6 +1158,7 @@ factory_credit_result underwrite_factory_credit(sys::state& state, dcon::factory
 	});
 	std::vector<bank_offer> offers;
 	for(auto candidate : banks) {
+		if(borrower_nation && state.world.organization_get_bank_jurisdiction(candidate) != borrower_nation) continue;
 		auto rate = bank_base_rate(state, candidate)
 			+ state.world.organization_get_bank_lending_spread(candidate);
 		float return_coverage = expected_annual_return > rate ? 1.0f : 0.0f;
@@ -1198,6 +1220,7 @@ project_credit_quote quote_project_credit(sys::state const& state, dcon::economi
 	float collateral_coverage = std::clamp(project_collateral_share * project_value / requested_amount, 0.0f, 1.0f);
 	float repayment_history = defaulted_loan_count(state, borrower, settlement) == 0 ? 1.0f : 0.0f;
 	float project_return = project_value > balance_tolerance ? expected_annual_cashflow / project_value : 0.0f;
+	auto borrower_nation = liquidity::nation_for(state, borrower);
 	std::vector<dcon::organization_id> banks;
 	state.world.for_each_organization([&](dcon::organization_id candidate) {
 		if(policy_configured(state, candidate)
@@ -1208,6 +1231,7 @@ project_credit_quote quote_project_credit(sys::state const& state, dcon::economi
 		return state.world.organization_get_canonical_id(left) < state.world.organization_get_canonical_id(right);
 	});
 	for(auto candidate : banks) {
+		if(borrower_nation && state.world.organization_get_bank_jurisdiction(candidate) != borrower_nation) continue;
 		if(status_of(state, candidate) != bank_status::solvent) continue;
 		auto rate = bank_base_rate(state, candidate) + state.world.organization_get_bank_lending_spread(candidate);
 		float return_coverage = project_return > rate ? 1.0f : 0.0f;
@@ -1402,7 +1426,8 @@ balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id 
 	std::sort(creditor_obligations.begin(), creditor_obligations.end(), [&](auto left, auto right) {
 		return state.world.obligation_get_canonical_id(left) < state.world.obligation_get_canonical_id(right);
 	});
-	double performing_principal = 0.0, interest_receivable = 0.0, public_debt = 0.0,
+	double performing_principal = 0.0, interest_receivable = 0.0,
+		public_debt_claims = 0.0, public_debt_assets = 0.0,
 		defaulted_public_debt = 0.0;
 	for(auto obligation : creditor_obligations) {
 		auto status = state.world.obligation_get_status(obligation);
@@ -1415,15 +1440,24 @@ balance_sheet bank_balance_sheet(sys::state const& state, dcon::organization_id 
 		} else if(state.world.obligation_get_kind(obligation) == uint8_t(relations::obligation_kind::public_debt)
 			&& (status == uint8_t(relations::obligation_status::active)
 				|| status == uint8_t(relations::obligation_status::defaulted))) {
-			public_debt += principal + interest;
-			if(status == uint8_t(relations::obligation_status::defaulted))
+			auto legal_claim = principal + interest;
+			public_debt_claims += legal_claim;
+			if(status == uint8_t(relations::obligation_status::defaulted)) {
 				defaulted_public_debt += principal + interest;
+				// Recognize the default loss once in the balance sheet. The
+				// obligation itself stays active as a legal creditor claim; a later
+				// recovery is recorded as a real payment into reserves.
+			} else {
+				public_debt_assets += legal_claim;
+			}
 		}
 	}
 	result.loan_assets = float(performing_principal);
 	result.accrued_interest_receivable = float(interest_receivable);
-	result.public_debt_assets = float(public_debt);
+	result.public_debt_claims = float(public_debt_claims);
+	result.public_debt_assets = float(public_debt_assets);
 	result.defaulted_public_debt_assets = float(defaulted_public_debt);
+	result.defaulted_public_debt_impairment = float(defaulted_public_debt);
 	std::vector<dcon::obligation_id> bank_debts;
 	state.world.economic_actor_for_each_obligation_debtor_as_economic_actor(bank_actor,
 		[&](dcon::obligation_debtor_id relation) {
@@ -1561,7 +1595,9 @@ bool validate_canonical_banking_state(sys::state const& state, std::vector<std::
 		auto sheet = bank_balance_sheet(state, bank, policy.settlement);
 		if(!std::isfinite(sheet.settlement_assets) || !std::isfinite(sheet.loan_assets)
 			|| !std::isfinite(sheet.accrued_interest_receivable) || !std::isfinite(sheet.public_debt_assets)
-			|| !std::isfinite(sheet.defaulted_public_debt_assets)
+		|| !std::isfinite(sheet.defaulted_public_debt_assets)
+		|| !std::isfinite(sheet.public_debt_claims)
+		|| !std::isfinite(sheet.defaulted_public_debt_impairment)
 			|| !std::isfinite(sheet.deposit_liabilities) || !std::isfinite(sheet.other_financial_liabilities)
 			|| !std::isfinite(sheet.total_assets) || !std::isfinite(sheet.total_liabilities)
 			|| !std::isfinite(sheet.net_worth) || !std::isfinite(sheet.capital_ratio)
@@ -1570,11 +1606,23 @@ bool validate_canonical_banking_state(sys::state const& state, std::vector<std::
 		if(sheet.settlement_assets < -balance_tolerance || sheet.loan_assets < -balance_tolerance
 			|| sheet.accrued_interest_receivable < -balance_tolerance || sheet.public_debt_assets < -balance_tolerance
 			|| sheet.defaulted_public_debt_assets < -balance_tolerance
+			|| sheet.public_debt_claims < -balance_tolerance
+			|| sheet.defaulted_public_debt_impairment < -balance_tolerance
 			|| sheet.deposit_liabilities < -balance_tolerance || sheet.other_financial_liabilities < -balance_tolerance)
 			add_error("bank " + std::to_string(bank_id) + " has a negative asset or liability balance");
 		auto identity_error = std::abs(sheet.total_assets - sheet.total_liabilities - sheet.net_worth);
 		auto tolerance = balance_tolerance * std::max(1.0f, std::abs(sheet.total_assets));
 		if(identity_error > tolerance) add_error("bank " + std::to_string(bank_id) + " fails assets = liabilities + equity");
+		auto public_debt_identity_error = std::abs(sheet.public_debt_claims
+			- sheet.public_debt_assets - sheet.defaulted_public_debt_assets);
+		if(public_debt_identity_error > balance_tolerance
+			* std::max(1.0f, std::abs(sheet.public_debt_claims)))
+			add_error("bank " + std::to_string(bank_id) + " public-debt claims do not reconcile to carrying assets and defaulted claims");
+		auto impairment_error = std::abs(sheet.defaulted_public_debt_assets
+			- sheet.defaulted_public_debt_impairment);
+		if(impairment_error > balance_tolerance
+			* std::max(1.0f, std::abs(sheet.defaulted_public_debt_assets)))
+			add_error("bank " + std::to_string(bank_id) + " default impairment does not reconcile to its retained claim");
 		if(sheet.net_worth < -balance_tolerance && status != uint8_t(bank_status::insolvent))
 			add_error("bank " + std::to_string(bank_id) + " has negative equity but is not insolvent");
 		uint32_t reserve_count = 0;
@@ -1756,7 +1804,8 @@ bool canonical_banking_checksum(sys::state const& state, uint64_t& checksum) {
 		add_u64(state.world.organization_get_bank_status(bank));
 		auto sheet = bank_balance_sheet(state, bank, state.world.organization_get_bank_settlement_currency(bank));
 		add_float(sheet.settlement_assets); add_float(sheet.loan_assets); add_float(sheet.accrued_interest_receivable);
-		add_float(sheet.public_debt_assets); add_float(sheet.defaulted_public_debt_assets);
+		add_float(sheet.public_debt_claims); add_float(sheet.public_debt_assets);
+		add_float(sheet.defaulted_public_debt_assets); add_float(sheet.defaulted_public_debt_impairment);
 		add_float(sheet.deposit_liabilities);
 		add_float(sheet.other_financial_liabilities); add_float(sheet.net_worth);
 		add_float(sheet.capital_ratio); add_float(sheet.liquidity_ratio); add_float(sheet.required_liquidity);

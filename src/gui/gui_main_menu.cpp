@@ -1,3 +1,4 @@
+#include "backing_scale.hpp"
 #include "gui_main_menu.hpp"
 #include "sound.hpp"
 #include "gui_templates.hpp"
@@ -8,6 +9,7 @@ namespace ui {
 
 
 uint32_t get_ui_scale_index(float current_scale) {
+	current_scale /= window::backing_scale; // callers pass the scale in framebuffer pixels
 	for(uint32_t i = 0; i < sys::ui_scales_count; ++i) {
 		if(current_scale <= sys::ui_scales[i])
 			return i;
@@ -39,7 +41,7 @@ void ui_scale_left::button_shift_action(sys::state& state) noexcept {
 
 void ui_scale_left::on_update(sys::state& state) noexcept {
 	// Disable if we are at the absolute minimum
-	disabled = (state.user_settings.ui_scale <= sys::ui_scales[0] + 0.001f);
+	disabled = (state.user_settings.ui_scale / window::backing_scale <= sys::ui_scales[0] + 0.001f);
 }
 void ui_scale_right::button_action(sys::state& state) noexcept {
 	auto current_scale = state.user_settings.ui_scale;
@@ -70,10 +72,10 @@ void ui_scale_right::button_shift_action(sys::state& state) noexcept {
 void ui_scale_right::on_update(sys::state& state) noexcept {
 	// Disable if we are at the absolute maximum
 	float max_scale = sys::ui_scales[sys::ui_scales_count - 1];
-	disabled = (state.user_settings.ui_scale >= max_scale - 0.001f);
+	disabled = (state.user_settings.ui_scale / window::backing_scale >= max_scale - 0.001f);
 }
 void ui_scale_display::on_update(sys::state& state) noexcept {
-	set_text(state, text::format_float(state.user_settings.ui_scale, 2));
+	set_text(state, text::format_float(state.user_settings.ui_scale / window::backing_scale, 2));
 }
 
 void autosave_left::button_action(sys::state& state) noexcept {

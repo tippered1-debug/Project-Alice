@@ -20,6 +20,7 @@
 #include "economy/physical/exchange.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/economy_stats.hpp"
+#include "economy/payroll.hpp"
 #include "economy/banking/banking.hpp"
 #include "relations/relations.hpp"
 #include "system_state.hpp"
@@ -28,8 +29,34 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <set>
+#include <tuple>
 #include <unordered_set>
+
+namespace economy {
+
+struct firm_agency_event_store {
+	struct daily_totals {
+		float offered = 0.0f;
+		float sold = 0.0f;
+		float revenue = 0.0f;
+	};
+
+	std::mutex mutex;
+	bool initialized = false;
+	std::set<std::pair<uint32_t, uint32_t>> indexed_freight_contracts;
+	std::map<std::tuple<uint32_t, uint32_t, int32_t>, daily_totals> output_by_factory_product_day;
+	std::map<std::pair<uint32_t, int32_t>, std::pair<float, float>> input_costs_by_factory_day;
+	uint32_t indexed_ask_count = 0;
+	uint32_t indexed_trade_fill_count = 0;
+	size_t indexed_exact_fill_count = 0;
+};
+
+} // namespace economy
 
 namespace economy::firm_agency {
 namespace {
@@ -40,6 +67,109 @@ constexpr float cash_safety_fraction = 0.10f;
 constexpr float expectation_alpha = 0.20f;
 constexpr float default_sell_through = 0.75f;
 constexpr float default_markup = 0.12f;
+
+int32_t date_key(sys::date date) {
+	return int32_t(date.to_raw_value());
+}
+
+void add_offer(sys::state const& state, firm_agency_event_store& index,
+	dcon::concrete_market_ask_id ask) {
+	if(!ask) return;
+	auto factory = state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask);
+	auto commodity = state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask);
+	if(!factory || !commodity) return;
+	auto date = date_key(state.world.concrete_market_ask_get_created_on(ask));
+	index.output_by_factory_product_day[
+		{factory.index(), commodity.index(), date}].offered +=
+		std::max(0.0f, state.world.concrete_market_ask_get_original_quantity(ask));
+}
+
+void add_trade_fill(sys::state const& state, firm_agency_event_store& index,
+	dcon::concrete_trade_fill_id fill) {
+	if(!fill) return;
+	auto quantity = std::max(0.0f, state.world.concrete_trade_fill_get_quantity(fill));
+	auto price = std::max(0.0f, state.world.concrete_trade_fill_get_execution_price(fill));
+	auto date = state.world.concrete_trade_fill_get_occurred_on(fill);
+	if(auto ask = state.world.concrete_trade_fill_get_concrete_market_ask_from_concrete_fill_ask(fill)) {
+		auto factory = state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask);
+		auto commodity = state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask);
+		if(factory && commodity) {
+			auto& totals = index.output_by_factory_product_day[
+				{factory.index(), commodity.index(), date_key(date)}];
+			totals.sold += quantity;
+			totals.revenue += quantity * price;
+		}
+	}
+	auto bid = state.world.concrete_trade_fill_get_concrete_market_bid_from_concrete_fill_bid(fill);
+	auto factory = bid ? state.world.concrete_market_bid_get_factory_from_concrete_bid_factory(bid)
+		: dcon::factory_id{};
+	if(!factory) return;
+	index.input_costs_by_factory_day[{factory.index(), date_key(date)}].first += quantity * price;
+	auto request = state.world.concrete_trade_fill_get_freight_request_from_concrete_fill_freight_request(fill);
+	if(!request) return;
+	state.world.freight_request_for_each_freight_contract_request_as_freight_request(request,
+		[&](dcon::freight_contract_request_id relation) {
+			auto contract = state.world.freight_contract_request_get_freight_contract(relation);
+			if(!contract || !index.indexed_freight_contracts.emplace(factory.index(), contract.index()).second) return;
+			auto contract_date = state.world.freight_contract_get_created_on(contract);
+			index.input_costs_by_factory_day[{factory.index(), date_key(contract_date)}].second +=
+				std::max(0.0f, state.world.freight_contract_get_agreed_freight_price(contract));
+		});
+}
+
+void add_exact_fill(sys::state const& state, firm_agency_event_store& index,
+	physical::exact_person_goods::fill_record const& fill) {
+	if(fill.id == 0 || !fill.dcon_ask) return;
+	auto factory = state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(fill.dcon_ask);
+	auto commodity = state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(fill.dcon_ask);
+	if(!factory || !commodity) return;
+	auto& totals = index.output_by_factory_product_day[
+		{factory.index(), commodity.index(), date_key(fill.occurred_on)}];
+	auto quantity = std::max(0.0f, fill.quantity);
+	totals.sold += quantity;
+	totals.revenue += quantity * std::max(0.0f, fill.execution_price);
+}
+
+std::shared_ptr<firm_agency_event_store> ensure_event_index(sys::state const& state) {
+	if(!state.firm_agency_events)
+		state.firm_agency_events = std::make_shared<firm_agency_event_store>();
+	auto index = state.firm_agency_events;
+	std::lock_guard lock(index->mutex);
+	if(!index->initialized) {
+		state.world.for_each_concrete_market_ask([&](dcon::concrete_market_ask_id ask) {
+			add_offer(state, *index, ask);
+		});
+		state.world.for_each_concrete_trade_fill([&](dcon::concrete_trade_fill_id fill) {
+			add_trade_fill(state, *index, fill);
+		});
+		for(auto const& fill : physical::exact_person_goods::fill_records(state))
+			add_exact_fill(state, *index, fill);
+		index->indexed_ask_count = state.world.concrete_market_ask_size();
+		index->indexed_trade_fill_count = state.world.concrete_trade_fill_size();
+		index->indexed_exact_fill_count = physical::exact_person_goods::fill_records(state).size();
+		index->initialized = true;
+	} else {
+		auto ask_count = state.world.concrete_market_ask_size();
+		for(auto i = index->indexed_ask_count; i < ask_count; ++i) {
+			dcon::concrete_market_ask_id ask{dcon::concrete_market_ask_id::value_base_t(i)};
+			if(state.world.concrete_market_ask_is_valid(ask)) add_offer(state, *index, ask);
+		}
+		index->indexed_ask_count = ask_count;
+
+		auto trade_fill_count = state.world.concrete_trade_fill_size();
+		for(auto i = index->indexed_trade_fill_count; i < trade_fill_count; ++i) {
+			dcon::concrete_trade_fill_id fill{dcon::concrete_trade_fill_id::value_base_t(i)};
+			if(state.world.concrete_trade_fill_is_valid(fill)) add_trade_fill(state, *index, fill);
+		}
+		index->indexed_trade_fill_count = trade_fill_count;
+
+		auto const& exact_fills = physical::exact_person_goods::fill_records(state);
+		for(auto i = index->indexed_exact_fill_count; i < exact_fills.size(); ++i)
+			add_exact_fill(state, *index, exact_fills[i]);
+		index->indexed_exact_fill_count = exact_fills.size();
+	}
+	return index;
+}
 
 float finite_nonnegative(float value, float fallback = 0.0f) {
 	return std::isfinite(value) && value > 0.0f ? value : fallback;
@@ -61,12 +191,12 @@ float arrears_due(sys::state const& state, dcon::economic_actor_id debtor,
 float output_in_transit(sys::state const& state, dcon::economic_actor_id owner,
 	dcon::commodity_id commodity, dcon::site_id production_site) {
 	float result = 0.0f;
-	state.world.for_each_shipment([&](auto shipment) {
-		auto ownership = state.world.shipment_get_shipment_owner(shipment);
-		auto origin = state.world.shipment_get_shipment_origin(shipment);
-		if(state.world.shipment_get_commodity(shipment) == commodity && ownership
-			&& state.world.shipment_owner_get_economic_actor(ownership) == owner && origin
-			&& state.world.shipment_origin_get_site(origin) == production_site)
+	production_site.for_each_shipment_origin_as_site([&](auto origin) {
+		auto shipment = state.world.shipment_origin_get_shipment(origin);
+		auto ownership = shipment ? state.world.shipment_get_shipment_owner(shipment)
+			: dcon::shipment_owner_id{};
+		if(shipment && state.world.shipment_get_commodity(shipment) == commodity && ownership
+			&& state.world.shipment_owner_get_economic_actor(ownership) == owner)
 			result += std::max(0.0f, state.world.shipment_get_remaining_quantity(shipment));
 	});
 	return result;
@@ -123,6 +253,33 @@ void finance_working_capital(sys::state& state, dcon::factory_id factory,
 		finance_one(decision.payroll_settlement, decision.payroll_funding_shortfall);
 	if(requested) state.world.factory_set_agency_last_funding_request_date(factory, state.current_date);
 }
+
+}
+
+realized_event_totals realized_events_between(sys::state const& state,
+	dcon::factory_id factory, dcon::commodity_id output,
+	sys::date from_inclusive, sys::date to_inclusive) {
+	realized_event_totals result{};
+	if(!factory || !output || to_inclusive < from_inclusive) return result;
+	auto index = ensure_event_index(state);
+	std::lock_guard lock(index->mutex);
+	auto first_output = index->output_by_factory_product_day.lower_bound(
+		{factory.index(), output.index(), date_key(from_inclusive)});
+	auto last_output = index->output_by_factory_product_day.upper_bound(
+		{factory.index(), output.index(), date_key(to_inclusive)});
+	for(auto event = first_output; event != last_output; ++event) {
+		result.offered += event->second.offered;
+		result.sold += event->second.sold;
+		result.revenue += event->second.revenue;
+	}
+	auto first_input = index->input_costs_by_factory_day.lower_bound(
+		{factory.index(), date_key(from_inclusive)});
+	auto last_input = index->input_costs_by_factory_day.upper_bound(
+		{factory.index(), date_key(to_inclusive)});
+	for(auto event = first_input; event != last_input; ++event) {
+		result.input_cost += event->second.first + event->second.second;
+	}
+	return result;
 }
 
 production_decision decide_factory(sys::state const& state, dcon::factory_id factory) {
@@ -328,35 +485,11 @@ void update_decisions(sys::state& state) {
 		// Decisions run before today's production, payroll, asks, and purchases.
 		// Treat the saved date as inclusive: today's events are observed tomorrow.
 		auto observation_through = state.current_date - 1;
-		float offered = 0.0f, sold = 0.0f, revenue = 0.0f, sold_quantity = 0.0f;
-		state.world.for_each_concrete_market_ask([&](auto ask) {
-			if(state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask) != factory
-				|| state.world.concrete_market_ask_get_created_on(ask) < cursor
-				|| state.world.concrete_market_ask_get_created_on(ask) > observation_through
-				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output) return;
-			offered += std::max(0.0f, state.world.concrete_market_ask_get_original_quantity(ask));
-		});
-		state.world.for_each_concrete_trade_fill([&](auto fill) {
-			auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
-			if(occurred < cursor || occurred > observation_through) return;
-			auto ask = state.world.concrete_trade_fill_get_concrete_market_ask_from_concrete_fill_ask(fill);
-			if(!ask || state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask) != factory
-				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output) return;
-			auto quantity = std::max(0.0f, state.world.concrete_trade_fill_get_quantity(fill));
-			sold += quantity;
-			revenue += quantity * std::max(0.0f, state.world.concrete_trade_fill_get_execution_price(fill));
-			sold_quantity += quantity;
-		});
-		for(auto const& fill : physical::exact_person_goods::fill_records(state)) {
-			if(fill.occurred_on < cursor || fill.occurred_on > observation_through) continue;
-			auto ask = fill.dcon_ask;
-			if(!ask || state.world.concrete_market_ask_get_factory_from_concrete_ask_factory(ask) != factory
-				|| state.world.concrete_market_ask_get_commodity_from_concrete_ask_commodity(ask) != output) continue;
-			auto quantity = std::max(0.0f, fill.quantity);
-			sold += quantity;
-			revenue += quantity * std::max(0.0f, fill.execution_price);
-			sold_quantity += quantity;
-		}
+		auto realized_events = realized_events_between(state, factory, output, cursor, observation_through);
+		float offered = realized_events.offered;
+		float sold = realized_events.sold;
+		float revenue = realized_events.revenue;
+		float sold_quantity = sold;
 		if(offered > epsilon) {
 			auto expected = state.world.factory_get_agency_expected_sell_through(factory);
 			if(!std::isfinite(expected) || expected <= epsilon) expected = default_sell_through;
@@ -374,12 +507,11 @@ void update_decisions(sys::state& state) {
 		}
 		state.world.factory_set_agency_last_observation_date(factory, state.current_date);
 		float inbound_quantity = 0.0f, inbound_days = 0.0f;
-		state.world.for_each_shipment([&](auto shipment) {
-			auto shipment_owner = state.world.shipment_get_shipment_owner(shipment);
-			auto destination = state.world.shipment_get_shipment_destination(shipment);
-			if(!shipment_owner || !destination
-				|| state.world.shipment_owner_get_economic_actor(shipment_owner) != owner
-				|| state.world.shipment_destination_get_site(destination) != site) return;
+		site.for_each_shipment_destination_as_site([&](auto destination) {
+			auto shipment = state.world.shipment_destination_get_shipment(destination);
+			auto shipment_owner = shipment ? state.world.shipment_get_shipment_owner(shipment)
+				: dcon::shipment_owner_id{};
+			if(!shipment_owner || state.world.shipment_owner_get_economic_actor(shipment_owner) != owner) return;
 			auto quantity = std::max(0.0f, state.world.shipment_get_remaining_quantity(shipment));
 			inbound_quantity += quantity;
 			inbound_days += quantity * float(std::max<uint32_t>(1, state.world.shipment_get_remaining_days(shipment)));
@@ -391,37 +523,9 @@ void update_decisions(sys::state& state) {
 			state.world.factory_set_agency_expected_delivery_days(factory,
 				std::clamp(expected_days + expectation_alpha * (observed_days - expected_days), 1.0f, 60.0f));
 		}
-		float realized_input_cost = 0.0f;
-		std::unordered_set<uint32_t> freight_contracts;
-		state.world.for_each_concrete_trade_fill([&](auto fill) {
-			auto occurred = state.world.concrete_trade_fill_get_occurred_on(fill);
-			if(occurred < cursor || occurred > observation_through) return;
-			auto bid = state.world.concrete_trade_fill_get_concrete_market_bid_from_concrete_fill_bid(fill);
-			if(!bid || state.world.concrete_market_bid_get_factory_from_concrete_bid_factory(bid) != factory) return;
-			realized_input_cost += std::max(0.0f, state.world.concrete_trade_fill_get_quantity(fill))
-				* std::max(0.0f, state.world.concrete_trade_fill_get_execution_price(fill));
-			auto request = state.world.concrete_trade_fill_get_freight_request_from_concrete_fill_freight_request(fill);
-			if(!request) return;
-			state.world.freight_request_for_each_freight_contract_request_as_freight_request(request,
-				[&](dcon::freight_contract_request_id relation) {
-					auto contract = state.world.freight_contract_request_get_freight_contract(relation);
-					if(contract && freight_contracts.insert(contract.index()).second
-						&& state.world.freight_contract_get_created_on(contract) >= cursor
-						&& state.world.freight_contract_get_created_on(contract) <= observation_through)
-						realized_input_cost += std::max(0.0f,
-							state.world.freight_contract_get_agreed_freight_price(contract));
-				});
-		});
-		float realized_payroll_due = 0.0f;
-		float realized_payroll_paid = 0.0f;
-		state.world.for_each_payroll_event([&](auto event) {
-			if(state.world.payroll_event_get_factory_from_payroll_event_factory(event) == factory
-				&& state.world.payroll_event_get_occurred_on(event) >= cursor
-				&& state.world.payroll_event_get_occurred_on(event) <= observation_through) {
-				realized_payroll_due += std::max(0.0f, state.world.payroll_event_get_gross_due(event));
-				realized_payroll_paid += std::max(0.0f, state.world.payroll_event_get_paid(event));
-			}
-		});
+		float realized_input_cost = realized_events.input_cost;
+		auto [realized_payroll_due, realized_payroll_paid] = payroll::factory_payroll_between(
+			state, factory, cursor, observation_through);
 		auto realized_costs = realized_input_cost + realized_payroll_due;
 		auto realized_profit = revenue - realized_costs;
 		auto realized_cashflow = revenue - realized_input_cost - realized_payroll_paid;

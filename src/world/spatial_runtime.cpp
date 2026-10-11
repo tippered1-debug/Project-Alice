@@ -10,6 +10,15 @@
 #include <tuple>
 
 namespace world::spatial_runtime {
+
+// Declared here and in concrete_market.cpp rather than in the header.
+struct reach {
+	bool connected = false;
+	float generalized_cost = 0.0f;
+	float travel_days = 0.0f;
+};
+std::vector<reach> reach_from(sys::state const& state, dcon::infrastructure_node_id origin, float cargo_units) noexcept;
+
 namespace {
 
 constexpr float epsilon = 1.0e-5f;
@@ -349,6 +358,57 @@ float generalized_edge_cost(sys::state const& state, dcon::infrastructure_edge_i
 route shortest_path(sys::state const& state, dcon::infrastructure_node_id origin,
 	dcon::infrastructure_node_id destination) noexcept {
 	return solve(state, origin, destination, false, 0.0f);
+}
+
+// Cheapest generalized cost and travel time from one node to every node, in one
+// pass. Order matching ranks thousands of ask/bid pairs a day; solving each
+// pair separately repeats this search once per pair. Unlike cheapest_path it
+// keeps no edge list, so equal-cost routes are not tie-broken by path.
+std::vector<reach> reach_from(sys::state const& state, dcon::infrastructure_node_id origin,
+	float cargo_units) noexcept {
+	std::vector<reach> result(state.world.infrastructure_node_size());
+	if(!origin || !state.world.infrastructure_node_is_valid(origin)) return result;
+	struct entry {
+		float metric;
+		uint32_t node;
+		bool operator>(entry const& other) const { return metric != other.metric ? metric > other.metric : node > other.node; }
+	};
+	std::vector<bool> visited(result.size(), false);
+	std::vector<float> best(result.size(), std::numeric_limits<float>::infinity());
+	std::priority_queue<entry, std::vector<entry>, std::greater<entry>> queue;
+	best[origin.index()] = 0.0f;
+	result[origin.index()] = reach{ true, 0.0f, 0.0f };
+	queue.push(entry{ 0.0f, uint32_t(origin.index()) });
+	while(!queue.empty()) {
+		auto const current = queue.top();
+		queue.pop();
+		if(visited[current.node]) continue;
+		visited[current.node] = true;
+		dcon::infrastructure_node_id node{ dcon::infrastructure_node_id::value_base_t(current.node) };
+		auto const here = result[current.node];
+		auto relax = [&](dcon::infrastructure_edge_id edge) {
+			if(!edge || !state.world.infrastructure_edge_is_valid(edge)) return;
+			auto from = state.world.infrastructure_edge_get_node_from_infrastructure_edge_from(edge);
+			auto to = state.world.infrastructure_edge_get_node_from_infrastructure_edge_to(edge);
+			auto next = from == node ? to : (to == node ? from : dcon::infrastructure_node_id{});
+			if(!next || uint32_t(next.index()) >= result.size() || visited[next.index()]) return;
+			auto metric = generalized_edge_cost(state, edge, cargo_units);
+			if(!std::isfinite(metric)) return;
+			auto const total = current.metric + metric;
+			if(total < best[next.index()] - epsilon) {
+				best[next.index()] = total;
+				result[next.index()] = reach{ true, total, here.travel_days + traversal_days(state, edge) };
+				queue.push(entry{ total, uint32_t(next.index()) });
+			}
+		};
+		state.world.infrastructure_node_for_each_infrastructure_edge_from_as_node(node, [&](auto relation) {
+			relax(state.world.infrastructure_edge_from_get_infrastructure_edge(relation));
+		});
+		state.world.infrastructure_node_for_each_infrastructure_edge_to_as_node(node, [&](auto relation) {
+			relax(state.world.infrastructure_edge_to_get_infrastructure_edge(relation));
+		});
+	}
+	return result;
 }
 
 route cheapest_path(sys::state const& state, dcon::infrastructure_node_id origin,

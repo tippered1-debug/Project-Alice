@@ -60,6 +60,7 @@ struct capital_projects_store;
 struct exact_person_economy_store;
 struct causal_order_store;
 struct foreign_exchange_store;
+struct payroll_event_index_store;
 namespace physical {
 struct exact_person_goods_store;
 struct exact_person_freight_store;
@@ -778,6 +779,7 @@ struct alignas(64) state {
 	mutable std::shared_ptr<economy::exact_person_economy_store> exact_person_economy;
 	mutable std::shared_ptr<economy::causal_order_store> causal_order;
 	mutable std::shared_ptr<economy::foreign_exchange_store> foreign_exchange;
+	mutable std::shared_ptr<economy::payroll_event_index_store> payroll_event_index;
 	mutable std::shared_ptr<economy::physical::exact_person_goods_store> exact_person_goods;
 	mutable std::shared_ptr<economy::physical::exact_person_freight_store> exact_person_freight;
 	// Sparse labor-separation history and events. This does not allocate one
@@ -1163,7 +1165,7 @@ struct alignas(64) state {
 
 	// Simulation-only consumers do not create the Victoria 2 nation-picker
 	// scene or its asynchronous UI log thread.
-	explicit state(simulation_only_t) : untrans_key_to_text_sequence(0, text::vector_backed_ci_hash(key_data), text::vector_backed_ci_eq(key_data)), locale_key_to_text_sequence(0, text::vector_backed_ci_hash(key_data), text::vector_backed_ci_eq(key_data)), current_scene(game_scene::simulation_scene_properties()), singleplayer_commands(4096), new_n_event(1024), new_f_n_event(1024), new_p_event(1024), new_requests(256), new_messages(2048), naval_battle_reports(256), land_battle_reports(256), error_windows(256), pending_log_messages(256) {
+	explicit state(simulation_only_t) : untrans_key_to_text_sequence(0, text::vector_backed_ci_hash(key_data), text::vector_backed_ci_eq(key_data)), locale_key_to_text_sequence(0, text::vector_backed_ci_hash(key_data), text::vector_backed_ci_eq(key_data)), current_scene(game_scene::simulation_scene_properties()), singleplayer_commands(4096), new_n_event(1024), new_f_n_event(1024), new_p_event(1024), new_f_p_event(1024), new_requests(256), new_messages(2048), naval_battle_reports(256), land_battle_reports(256), error_windows(256), pending_log_messages(256) {
 		key_data.push_back(0);
 	}
 

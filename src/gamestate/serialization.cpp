@@ -617,6 +617,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 }
 
 void clear_exact_runtime_state(sys::state& state) {
+	state.payroll_event_index.reset();
 	economy::capital_projects::clear_requests(state);
 	persons::exact_population::clear_store(state);
 	economy::exact_person_economy::clear_store(state);

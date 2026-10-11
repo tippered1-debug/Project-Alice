@@ -186,7 +186,9 @@ lab_world initialize(config const& cfg) {
 }
 
 float stress_net_worth(float base_net_worth, float defaulted_claim, float recovery_rate) {
-	return base_net_worth - defaulted_claim * (1.0f - recovery_rate);
+	// The canonical balance sheet already carries a zero value for defaulted
+	// claims. This is a recovery sensitivity above that recognized impairment.
+	return base_net_worth + defaulted_claim * recovery_rate;
 }
 
 } // namespace

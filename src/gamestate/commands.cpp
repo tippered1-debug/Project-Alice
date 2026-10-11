@@ -21,6 +21,7 @@
 #include "gui_error_window.hpp"
 #include "diplomatic_messages.hpp"
 #include "game_scene.hpp"
+#include "game_scene_title.hpp"
 #include "province.hpp"
 #include "economy.hpp"
 #include "economy_factory_view.hpp"
@@ -5827,6 +5828,10 @@ void execute_notify_stop_game(sys::state& state, dcon::nation_id source) {
 		std::unique_lock lock(state.game_state_resetting_lock);
 
 		game_scene::switch_scene(state, game_scene::scene_id::pick_nation);
+		if(game_scene::return_to_title_requested.exchange(false, std::memory_order::acq_rel)
+			&& state.network_mode == sys::network_mode_type::single_player) {
+			game_scene::switch_scene(state, game_scene::scene_id::title_screen);
+		}
 		state.ui_state.invoke_on_ui_thread([](sys::state& state, ui::ui_function_argument) {
 			state.set_selected_province(dcon::province_id{});
 		});

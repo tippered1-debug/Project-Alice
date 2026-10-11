@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gui_map_hud_state.hpp"
 #include "gui_element_types.hpp"
 #include "gui_graphics.hpp"
 #include "gui_ledger_window.hpp"
@@ -1049,6 +1050,33 @@ public:
 		base_data.size.x = int16_t(ui_width(state));
 		base_data.size.y = int16_t(ui_height(state));
 		window_element_base::render(state, x, y);
+	}
+
+	// Under the map HUD only the message log is left of this bar; the buttons
+	// stay alive for their hotkeys and for the HUD to press.
+	void impl_render(sys::state& state, int32_t x, int32_t y) noexcept override {
+		if(!map_hud_enabled) {
+			window_element_base::impl_render(state, x, y);
+			return;
+		}
+		base_data.size.x = int16_t(ui_width(state));
+		base_data.size.y = int16_t(ui_height(state));
+		if(auto* log = state.ui_state.msg_log_window; log && log->is_visible()) {
+			auto const relative_location = child_relative_location(state, *this, *log);
+			log->impl_render(state, x + relative_location.x, y + relative_location.y);
+		}
+	}
+
+	mouse_probe impl_probe_mouse(sys::state& state, int32_t x, int32_t y, mouse_probe_type type) noexcept override {
+		if(!map_hud_enabled)
+			return window_element_base::impl_probe_mouse(state, x, y, type);
+		if(auto* log = state.ui_state.msg_log_window; log && log->is_visible()) {
+			auto const relative_location = child_relative_location(state, *this, *log);
+			auto const res = log->impl_probe_mouse(state, x - relative_location.x, y - relative_location.y, type);
+			if(res.under_mouse)
+				return res;
+		}
+		return mouse_probe{ nullptr, xy_pair{ int16_t(x), int16_t(y) } };
 	}
 
 	message_result get(sys::state& state, Cyto::Any& payload) noexcept override {

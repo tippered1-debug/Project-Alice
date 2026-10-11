@@ -1,3 +1,4 @@
+#include "gui_map_hud_state.hpp"
 #include "gui_province_window.hpp"
 #include "gui_common_elements.hpp"
 #include "demographics.hpp"
@@ -2677,6 +2678,10 @@ void province_view_window::set_active_province(sys::state& state, dcon::province
 	if(bool(map_province)) {
 		active_province = map_province;
 		state.set_selected_province(map_province);
+		// The map HUD shows the selection in its own card; this window opens
+		// only when the player asks for the details.
+		if(map_hud_enabled && !is_visible())
+			return;
 		if(!is_visible())
 			set_visible(state, true);
 		else

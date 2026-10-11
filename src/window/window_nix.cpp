@@ -1,3 +1,4 @@
+#include "backing_scale.hpp"
 #include "window.hpp"
 #include "map.hpp"
 #include "user_interactions.hpp"
@@ -261,6 +262,18 @@ void character_callback(GLFWwindow* window, unsigned int codepoint) {
 	}
 }
 
+static float current_backing_scale(GLFWwindow* window) {
+	int window_width = 0;
+	int window_height = 0;
+	int framebuffer_width = 0;
+	int framebuffer_height = 0;
+	glfwGetWindowSize(window, &window_width, &window_height);
+	glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
+	if(window_width <= 0 || framebuffer_width <= 0)
+		return backing_scale; // minimized: keep what we had
+	return float(framebuffer_width) / float(window_width);
+}
+
 void on_window_change(GLFWwindow* window) {
 	sys::state* state = (sys::state*)glfwGetWindowUserPointer(window);
 
@@ -273,9 +286,15 @@ void on_window_change(GLFWwindow* window) {
 	// redo OpenGL viewport
 	int width, height;
 	glfwGetFramebufferSize(window, &width, &height);
-	state->on_resize(width, height, t);
 	state->x_size = width;
 	state->y_size = height;
+	// The window may have moved to a display with another pixel density.
+	if(auto const scale = current_backing_scale(window); scale != backing_scale) {
+		auto const chosen_scale = state->user_settings.ui_scale / backing_scale;
+		backing_scale = scale;
+		state->update_ui_scale(chosen_scale);
+	}
+	state->on_resize(width, height, t);
 }
 
 void window_size_callback(GLFWwindow* window, int width, int height) {
@@ -321,10 +340,15 @@ void create_window(sys::state& game_state, creation_parameters const& params) {
 
 	glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
 	#ifdef __APPLE__
-	// Alice currently uses window coordinates for UI layout and mouse input.
-	// Keep the framebuffer at the same size on Retina displays so rendering,
-	// hit testing, and the configured UI scale all use one coordinate space.
-	glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
+	// Render at the display's native resolution. A point-sized framebuffer is
+	// stretched by the system to twice its size on a Retina display, which
+	// blurs every edge and glyph. Layout and mouse input work in framebuffer
+	// pixels; window::backing_scale keeps the interface at its physical size.
+	// KATECHON_LOW_DPI=1 restores the point-sized framebuffer.
+	{
+		auto const* low_dpi = std::getenv("KATECHON_LOW_DPI");
+		glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, (low_dpi && low_dpi[0] == '1') ? GLFW_FALSE : GLFW_TRUE);
+	}
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -341,12 +365,14 @@ void create_window(sys::state& game_state, creation_parameters const& params) {
 	//glfwWindowHint(GLFW_SAMPLES, game_state.user_settings.antialias_level);
 
 	// Create window with graphics context
-	auto* window = glfwCreateWindow(params.size_x, params.size_y, "Project Alice", NULL, NULL);
+	auto* window = glfwCreateWindow(params.size_x, params.size_y, "KATECHON", NULL, NULL);
 	if(window == NULL)
 		emit_error_message("Failed to create window\n", true);
 	game_state.win_ptr->window = window;
 
 	glfwSetWindowUserPointer(window, &game_state);
+	backing_scale = current_backing_scale(window);
+	game_state.user_settings.ui_scale *= backing_scale;
 
 
 	// event callbacks

@@ -381,9 +381,74 @@ vec4 get_land_political_far() {
 	return OutColor;
 }
 
+// KATECHON political cartography: the country colour carries the map, the
+// terrain only models it, and the colour deepens towards a national border.
+const vec3 LUMA = vec3(0.212671, 0.715160, 0.072169);
+
+vec4 get_land_katechon() {
+	vec4 terrain = get_terrain_mix();
+	float is_land = terrain.a;
+	float relief = dot(terrain.rgb, LUMA);
+
+	vec4 province_sample = texture(provinces_texture_sampler, gl_FragCoord.xy / screen_size);
+	vec2 prov_id = province_sample.xy;
+	float inside = smoothstep(0.0, 1.0, sqrt(province_sample.z)); // 0 on a national border, 1 away from it
+
+	vec4 prov_color = texture(province_color, vec3(prov_id, 0.));
+	vec4 stripe_color = texture(province_color, vec3(prov_id, 1.));
+	vec2 stripe_coord = tex_coord * vec2(512., 512. * map_size.y / map_size.x);
+	float stripe_factor = texture(stripes_texture, stripe_coord).a;
+	vec3 political = mix(prov_color, stripe_color, stripe_factor).rgb;
+
+	vec3 colour;
+	if(dot(prov_color.rgb, vec3(1.)) > 2.99) {
+		// nobody's land: bare, slightly warm ground
+		colour = vec3(0.47, 0.46, 0.43) * (0.62 + 0.75 * relief);
+	} else if(map_mode_is_data != 0) {
+		// a data layer must stay comparable across the map: relief only as a faint grain
+		colour = political * (0.84 + 0.30 * relief);
+	} else {
+		float shade = 0.80 + 0.62 * relief;
+		colour = political * shade;
+		colour = mix(colour, terrain.rgb * dot(political, LUMA) * 1.6, 0.10);
+		// the border band: deeper and more saturated, like a wash laid along the frontier
+		vec3 band = mix(vec3(dot(colour, LUMA)), colour, 1.30) * 0.74;
+		colour = mix(band, colour, inside);
+	}
+
+	float lit = texture(province_highlight, prov_id).r;
+	colour = mix(colour, vec3(1.0, 0.88, 0.62), clamp(lit, 0., 1.) * (0.26 + 0.10 * abs(cos(time * 2.2))));
+	colour *= texture(province_fow, prov_id).rgb;
+	return vec4(colour, is_land);
+}
+
+vec4 get_water_katechon() {
+	vec2 corrected = get_corrected_coords(tex_coord);
+	float depth = dot(texture(colormap_water, corrected).rgb, LUMA);
+	if(corrected.y > 1. || corrected.y < 0.)
+		depth = 0.25;
+	vec3 deep = vec3(0.075, 0.125, 0.185);
+	vec3 shelf = vec3(0.135, 0.225, 0.300);
+	vec3 colour = mix(deep, shelf, smoothstep(0.12, 0.55, depth));
+
+	// a slow, faint swell so that open water is not a flat fill
+	vec2 swell_coord = tex_coord * vec2(30., 30. * map_size.y / map_size.x);
+	float swell = texture(water_normal, swell_coord + vec2(time * 0.004, time * 0.002)).g
+		+ texture(water_normal, swell_coord * 2.3 - vec2(time * 0.003, 0.)).g;
+	colour *= 0.94 + 0.06 * swell;
+
+	vec4 province_sample = texture(provinces_texture_sampler, gl_FragCoord.xy / screen_size);
+	colour += vec3(0.020, 0.040, 0.050) * (1. - smoothstep(0.0, 1.0, sqrt(province_sample.z)));
+	colour *= texture(province_fow, province_sample.xy).rgb;
+	return vec4(colour, 1.);
+}
+
 vec4 get_land() {
 	if(subroutines_index_2 == 0) {
 		return get_land_terrain();
+	}
+	if(int(graphics_mode) != 0) {
+		return get_land_katechon();
 	}
 
 	if (int(graphics_mode) == 2) {
@@ -419,6 +484,19 @@ vec4 get_water() {
 // The terrain map
 // No province color is used here
 void main() {
+	if(subroutines_index_2 != 0 && int(graphics_mode) != 0) {
+		vec4 land = get_land_katechon();
+		vec4 sea = get_water_katechon();
+		frag_color.rgb = mix(sea.rgb, land.rgb, land.a);
+		if(ignore_light == 0.f) {
+			frag_color.rgb *= max(0.f, dot(light_direction, space_coords));
+			frag_color.rgb += vec3(0.02f, 0.03f, 0.06f);
+		}
+		frag_color.a = 1.f;
+		frag_color = gamma_correct(frag_color);
+		return;
+	}
+
 	vec4 terrain = get_land();
 
 	vec4 water = vec4(0.5f, 0.5f, 0.8f, 1.f);

@@ -13,13 +13,64 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <map>
+#include <memory>
+#include <mutex>
+
+namespace economy {
+
+struct payroll_event_index_store {
+	std::mutex mutex;
+	bool initialized = false;
+	std::map<uint32_t, std::map<int32_t, std::pair<float, float>>> factory_totals;
+};
+
+} // namespace economy
 
 namespace economy::payroll {
 namespace {
+
+std::mutex payroll_index_pointer_mutex;
+
+std::shared_ptr<payroll_event_index_store> ensure_event_index(sys::state const& state) {
+	std::shared_ptr<payroll_event_index_store> store;
+	{
+		std::lock_guard pointer_lock(payroll_index_pointer_mutex);
+		if(!state.payroll_event_index)
+			state.payroll_event_index = std::make_shared<payroll_event_index_store>();
+		store = state.payroll_event_index;
+	}
+	std::lock_guard lock(store->mutex);
+	if(!store->initialized) {
+		state.world.for_each_payroll_event([&](dcon::payroll_event_id event) {
+			auto factory = state.world.payroll_event_get_factory_from_payroll_event_factory(event);
+			if(!factory) return;
+			auto date = int32_t(state.world.payroll_event_get_occurred_on(event).to_raw_value());
+			auto& totals = store->factory_totals[factory.index()][date];
+			totals.first += std::max(0.0f, state.world.payroll_event_get_gross_due(event));
+			totals.second += std::max(0.0f, state.world.payroll_event_get_paid(event));
+		});
+		store->initialized = true;
+	}
+	return store;
+}
+
+void index_factory_event(sys::state const& state, dcon::payroll_event_id event) {
+	auto factory = state.world.payroll_event_get_factory_from_payroll_event_factory(event);
+	if(!factory) return;
+	auto store = ensure_event_index(state);
+	std::lock_guard lock(store->mutex);
+	auto date = int32_t(state.world.payroll_event_get_occurred_on(event).to_raw_value());
+	auto& totals = store->factory_totals[factory.index()][date];
+	totals.first += std::max(0.0f, state.world.payroll_event_get_gross_due(event));
+	totals.second += std::max(0.0f, state.world.payroll_event_get_paid(event));
+}
+
 dcon::payroll_event_id record_event(sys::state& state, dcon::factory_id factory, dcon::province_id province, dcon::economic_actor_id operator_actor,
 	dcon::commodity_id settlement, dcon::obligation_id obligation, float due, float paid, float unpaid,
 	float gross_no, float gross_basic, float gross_high, float paid_no, float paid_basic, float paid_high) {
 	if(!province || !operator_actor || !settlement) return {};
+	if(factory) (void)ensure_event_index(state);
 	auto event = state.world.create_payroll_event();
 	state.world.payroll_event_set_settlement(event, settlement);
 	state.world.payroll_event_set_gross_due(event, due);
@@ -36,6 +87,7 @@ dcon::payroll_event_id record_event(sys::state& state, dcon::factory_id factory,
 	state.world.force_create_payroll_event_operator(event, operator_actor);
 	state.world.force_create_payroll_event_province(event, province);
 	if(obligation) state.world.force_create_payroll_event_obligation(event, obligation);
+	index_factory_event(state, event);
 	return event;
 }
 
@@ -127,6 +179,24 @@ province_payroll for_province(sys::state const& state, dcon::province_id provinc
 		}
 	});
 	return result;
+}
+
+std::pair<float, float> factory_payroll_between(sys::state const& state,
+	dcon::factory_id factory, sys::date from_inclusive, sys::date to_inclusive) {
+	if(!factory || to_inclusive < from_inclusive) return {};
+	auto store = ensure_event_index(state);
+	std::lock_guard lock(store->mutex);
+	auto factory_events = store->factory_totals.find(factory.index());
+	if(factory_events == store->factory_totals.end()) return {};
+	float due = 0.0f;
+	float paid = 0.0f;
+	auto first = factory_events->second.lower_bound(int32_t(from_inclusive.to_raw_value()));
+	auto last = factory_events->second.upper_bound(int32_t(to_inclusive.to_raw_value()));
+	for(auto event = first; event != last; ++event) {
+		due += event->second.first;
+		paid += event->second.second;
+	}
+	return {due, paid};
 }
 
 void settle_factory(sys::state& state, dcon::factory_id factory, float, float) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a baseline and candidate Project Alice simulation, then test a hypothesis."""
+"""Run a baseline and candidate KATECHON simulation, then test a hypothesis."""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ def run_simulation(binary: pathlib.Path, scenario: str, days: int, cadence: int,
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare a real Project Alice baseline against a candidate economic ruleset."
+        description="Compare a real KATECHON baseline against a candidate economic ruleset."
     )
     parser.add_argument("binary", type=pathlib.Path, help="Alice executable with the headless runner")
     parser.add_argument("scenario", help="scenario .bin argument accepted by Alice")

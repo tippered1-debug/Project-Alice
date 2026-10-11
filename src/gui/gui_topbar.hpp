@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gui_map_hud_state.hpp"
 #include "demographics.hpp"
 #include "gui_element_types.hpp"
 #include "gui_production_window.hpp"
@@ -2061,6 +2062,13 @@ private:
 	topbar_treasury_text* treasury_text = nullptr;
 
 	army_management_window* army_mgmt_win = nullptr;
+	element_base* request_icons = nullptr;
+
+	// What is left of the bar under the map HUD: the parts that are windows
+	// in their own right. Everything else stays alive only for its hotkeys.
+	std::array<element_base*, 3> hud_children() const {
+		return { request_icons, static_cast<element_base*>(army_mgmt_win), background_pic };
+	}
 
 public:
 	void on_create(sys::state& state) noexcept override {
@@ -2077,6 +2085,7 @@ public:
 
 		auto dpi_win = make_element_by_type<ui::diplomatic_message_topbar_listbox>(state, "alice_diplomessageicons_window");
 		state.ui_state.request_topbar_listbox = dpi_win.get();
+		request_icons = dpi_win.get();
 		add_child_to_front(std::move(dpi_win));
 
 		state.ui_state.topbar_window = this;
@@ -2400,6 +2409,36 @@ public:
 			}
 		}
 		window_element_base::render(state, x, y);
+	}
+
+	void impl_render(sys::state& state, int32_t x, int32_t y) noexcept override {
+		if(!map_hud_enabled) {
+			window_element_base::impl_render(state, x, y);
+			return;
+		}
+		if(background_pic)
+			background_pic->set_visible(state, state.ui_state.topbar_subwindow->is_visible());
+		auto const kept = hud_children();
+		for(size_t i = kept.size(); i-- > 0;) {
+			if(auto* c = kept[i]; c && c->is_visible()) {
+				auto const relative_location = child_relative_location(state, *this, *c);
+				c->impl_render(state, x + relative_location.x, y + relative_location.y);
+			}
+		}
+	}
+
+	mouse_probe impl_probe_mouse(sys::state& state, int32_t x, int32_t y, mouse_probe_type type) noexcept override {
+		if(!map_hud_enabled)
+			return window_element_base::impl_probe_mouse(state, x, y, type);
+		for(auto* c : hud_children()) {
+			if(c && c->is_visible()) {
+				auto const relative_location = child_relative_location(state, *this, *c);
+				auto const res = c->impl_probe_mouse(state, x - relative_location.x, y - relative_location.y, type);
+				if(res.under_mouse)
+					return res;
+			}
+		}
+		return mouse_probe{ nullptr, xy_pair{ int16_t(x), int16_t(y) } };
 	}
 
 	message_result get(sys::state& state, Cyto::Any& payload) noexcept override {

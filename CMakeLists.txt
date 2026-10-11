@@ -9,9 +9,9 @@ set(CMAKE_CXX_STANDARD 20 CACHE STRING "The C++ standard to use")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # CMake's job pools are scoped to one build tree. Serialize compiler processes
-# across all Project Alice checkouts on this machine as well, so two agents or
+# across all KATECHON checkouts on this machine as well, so two agents or
 # IDEs cannot each start their own set of memory-heavy Clang processes.
-option(ALICE_SERIALIZE_COMPILERS "Serialize Project Alice compiler processes machine-wide" ON)
+option(ALICE_SERIALIZE_COMPILERS "Serialize KATECHON compiler processes machine-wide" ON)
 if(UNIX AND ALICE_SERIALIZE_COMPILERS)
 	find_package(Python3 COMPONENTS Interpreter REQUIRED)
 	set(_ALICE_COMPILER_GATE "${PROJECT_SOURCE_DIR}/tools/serialize_compiler.py")
@@ -99,7 +99,7 @@ foreach(_include_line IN LISTS _ALICE_MAIN_CPP_INCLUDES)
 	list(APPEND ALICE_MAIN_TRANSLATION_UNITS "${_translation_unit}")
 endforeach()
 
-# src/main.cpp still hosts both runtimes. OUR TIME is the canonical runtime;
+# src/main.cpp still hosts both runtimes. KATECHON is the canonical runtime;
 # the classic block contains the old Victoria 2 political and economic engines
 # as well as its UI, map, and content pipeline. Keep a separate manifest and
 # reject those engines if they ever cross the boundary.
@@ -153,7 +153,7 @@ foreach(_include_line IN LISTS _ALICE_OUR_TIME_CPP_INCLUDES)
 	get_filename_component(_included_basename "${_included_source}" NAME)
 	if(_included_basename IN_LIST _ALICE_OUR_TIME_FORBIDDEN_V2_SYSTEMS)
 		message(FATAL_ERROR
-			"Classic Victoria 2 system '${_included_source}' crossed into the OUR TIME runtime")
+			"Classic Victoria 2 system '${_included_source}' crossed into the KATECHON runtime")
 	endif()
 	if(_included_basename STREQUAL "common_types.cpp"
 		OR _included_source STREQUAL "compat/alice/legacy_bridge.cpp"
@@ -180,11 +180,11 @@ foreach(_include_line IN LISTS _ALICE_OUR_TIME_CPP_INCLUDES)
 	list(LENGTH _source_matches _source_match_count)
 	if(NOT _source_match_count EQUAL 1)
 		message(FATAL_ERROR
-			"Expected one OUR TIME source for src/main.cpp include '${_included_source}', found ${_source_match_count}")
+			"Expected one KATECHON source for src/main.cpp include '${_included_source}', found ${_source_match_count}")
 	endif()
 	list(GET _source_matches 0 _translation_unit)
 	if(_translation_unit IN_LIST ALICE_OUR_TIME_TRANSLATION_UNITS)
-		message(FATAL_ERROR "Duplicate OUR TIME source: ${_translation_unit}")
+		message(FATAL_ERROR "Duplicate KATECHON source: ${_translation_unit}")
 	endif()
 	list(APPEND ALICE_OUR_TIME_TRANSLATION_UNITS "${_translation_unit}")
 endforeach()
@@ -684,7 +684,7 @@ target_include_directories(AliceCommon INTERFACE
 target_link_libraries(Alice PRIVATE AliceCommon)
 target_link_libraries(AliceIncremental PRIVATE AliceCommon)
 
-# OUR TIME gets its own headless entry point and compiles only the simulation
+# KATECHON gets its own headless entry point and compiles only the simulation
 # side of the source manifest. The existing Alice executable remains the
 # compatibility runtime while this boundary is being migrated.
 if(UNIX)
@@ -831,7 +831,7 @@ target_precompile_headers(Alice
 
 if(TARGET AliceOurTimeCore)
 	# Share the generated model schema once inside this target. Keep its PCH
-	# independent of Alice so building OUR TIME never schedules the legacy app.
+	# independent of Alice so building KATECHON never schedules the legacy app.
 	target_precompile_headers(AliceOurTimeCore PRIVATE
 		<vector>
 		<string>
