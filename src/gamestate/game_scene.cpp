@@ -12,6 +12,7 @@
 #include "alice_ui.hpp"
 #include "immediate_mode.hpp"
 #include "commands.hpp"
+#include "gui_map_hud_forces.hpp"
 
 namespace game_scene {
 
@@ -224,6 +225,10 @@ void open_diplomacy(
 	sys::key_modifiers mod
 ) {
 	auto owner = state.world.province_get_nation_from_province_ownership(target);
+	if(sys::diplomacy_context) {
+		sys::diplomacy_context(state, owner ? owner : nation, target);
+		return;
+	}
 	if(owner) {
 		sys::open_diplomacy_window(state, owner);
 	} else {
@@ -339,7 +344,11 @@ void handle_rbutton_down_map_interaction(sys::state& state, int32_t x, int32_t y
 		sound::play_interface_sound(state, sound::get_random_province_select_sound(state), get_effects_volume(state));
 		auto id = province::from_map_id(state.map_state.map_data.province_id_map[idx]);
 
-		if(state.selected_armies.size() > 0 || state.selected_navies.size() > 0) {
+		if(!ui::chosen_formations.empty()) {
+			for(auto formation : ui::chosen_formations)
+				command::give_formation_order(state, state.local_player_nation, formation,
+					command::formation_order_kind::march, id, true);
+		} else if(state.selected_armies.size() > 0 || state.selected_navies.size() > 0) {
 			state.current_scene.rbutton_selected_units(state, state.local_player_nation, id, mod);
 		} else {
 			state.current_scene.rbutton_province(state, state.local_player_nation, id, mod);

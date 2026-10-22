@@ -1,3 +1,5 @@
+#include "game_scene.hpp"
+#include "economy/exact_person_economy.hpp"
 #include "supply_chain_contagion_lab.hpp"
 
 #include "actors/organizations/organizations.hpp"
@@ -361,7 +363,7 @@ lab_world initialize(config const& cfg) {
 		uint32_t hired = 0;
 		for(uint64_t ordinal = 0; ordinal < 120; ++ordinal) {
 			auto person = persons::exact_population::person_key{7010u + country, ordinal};
-			if(!persons::is_work_eligible(state, person)) continue;
+			if(!economy::exact_person_economy::is_work_eligible(state, person)) continue;
 			add_worker(world, country, ordinal, country == 1 ? 5.0f : 0.2f,
 				country == 1 ? 1.0f / 16.0f : 1.0f);
 			if(++hired >= (country == 1 ? 16u : 1u)) break;
@@ -623,7 +625,7 @@ void write_day(lab_world& world, config const& cfg, uint32_t day, run_output& ou
 	float consumption[3]{};
 	for(uint32_t country = 0; country < 3; ++country)
 		consumption[country] = household_consumption(state, h, country);
-	for(auto const& fill : economy::physical::exact_person_goods::fill_records()) {
+	for(auto const& fill : economy::physical::exact_person_goods::fill_records(state)) {
 		if(fill.occurred_on != state.current_date || fill.commodity != h.product) continue;
 		event(out, day, "person-fill-" + std::to_string(fill.id), "production-" + std::to_string(day),
 			"household_purchase_paid", "B", "B", "finished_product_units", fill.quantity,

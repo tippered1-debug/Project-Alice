@@ -650,8 +650,10 @@ int main(int argc, char* argv[]) {
 		// Scenario deserialization restores its serialized filesystem roots and
 		// therefore discards roots added before loading. Re-apply the current
 		// runtime and external roots so a relocated .app does not depend on paths
-		// serialized by the machine that created the scenario.
-		add_root(game_state.common_fs, runtime_root);
+		// serialized by the machine that created the scenario. The runtime root
+		// goes below the restored ones: on top it would hide every file a mod
+		// replaces (a mod's own map/terrain textures, for one).
+		add_fallback_root(game_state.common_fs, runtime_root);
 		if(!external_asset_root.empty()) {
 			add_root(game_state.common_fs, external_asset_root);
 		}

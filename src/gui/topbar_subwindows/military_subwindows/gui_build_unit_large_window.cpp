@@ -514,6 +514,10 @@ public:
 
 	void on_update(sys::state& state) noexcept override {
 		row_contents.clear();
+		if(!is_navy && military::land_forces::initialized(state)) {
+			update(state);
+			return;
+		}
 		dcon::unit_type_id utid = retrieve<dcon::unit_type_id>(state, parent);
 		if(!utid)
 			return;
@@ -886,6 +890,10 @@ public:
 	bool is_navy = true; // false == army; true == navy
 	void on_update(sys::state& state) noexcept override {
 		row_contents.clear();
+		if(!is_navy && military::land_forces::initialized(state)) {
+			update(state);
+			return;
+		}
 		for(uint8_t i = 2; i < state.military_definitions.unit_base_definitions.size(); i++) {
 			auto utid = dcon::unit_type_id(i);
 
@@ -939,6 +947,10 @@ public:
 		auto p = retrieve<dcon::province_id>(state, parent);
 		row_contents.clear();
 		if(is_navy == false) {
+			if(military::land_forces::initialized(state)) {
+				update(state);
+				return;
+			}
 			state.world.nation_for_each_province_land_construction_as_nation(state.local_player_nation, [&](dcon::province_land_construction_id c) {
 				if(p == state.world.pop_get_province_from_pop_location(state.world.province_land_construction_get_pop(c)))
 					row_contents.push_back(ui::queue_unit_entry_info{ c, dcon::province_naval_construction_id{0}, is_navy });

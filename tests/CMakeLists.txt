@@ -7,6 +7,11 @@ function(alice_configure_test_compile target)
 		target_compile_options(${target} PRIVATE /Od)
 	else()
 		target_compile_options(${target} PRIVATE -O0)
+		if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+			# AliceCommon appends release optimisation after target-local options.
+			# Keep the test engine unoptimised even when that later -O3 wins.
+			target_compile_options(${target} PRIVATE -Xclang -disable-llvm-passes)
+		endif()
 	endif()
 endfunction()
 
@@ -28,12 +33,19 @@ list(REMOVE_ITEM ALICE_TEST_ENGINE_SOURCES
 add_library(alice_test_engine OBJECT
 	${ALICE_TEST_ENGINE_SOURCES}
 	"${PROJECT_SOURCE_DIR}/tests/test_platform_specific.cpp")
+alice_configure_test_compile(alice_test_engine)
 target_link_libraries(alice_test_engine PRIVATE AliceCommon)
+if(NOT WIN32)
+	# Only this engine translation unit uses fmt; the runners link fmt::fmt.
+	set_property(SOURCE "${PROJECT_SOURCE_DIR}/src/network/network.cpp" APPEND PROPERTY
+		INCLUDE_DIRECTORIES "$<TARGET_PROPERTY:fmt::fmt,INTERFACE_INCLUDE_DIRECTORIES>")
+endif()
 target_compile_definitions(alice_test_engine PRIVATE
 	GLM_ENABLE_EXPERIMENTAL
 	ALICE_SPLIT_BUILD=1
 	DCON_TRAP_INVALID_STORE=1)
-target_precompile_headers(alice_test_engine REUSE_FROM Alice)
+# Reuse the header list without depending on the full graphical executable.
+target_precompile_headers(alice_test_engine PRIVATE "$<TARGET_PROPERTY:Alice,PRECOMPILE_HEADERS>")
 add_dependencies(alice_test_engine
 	GENERATE_CONTAINER
 	GENERATE_CONTAINERIFACE
@@ -188,3 +200,22 @@ else()
 endif()
 add_dependencies(collective_labor_focus_tests GENERATE_TEST_PARSERS GENERATE_PARSERS GENERATE_CONTAINER)
 catch_discover_tests(collective_labor_focus_tests WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets")
+
+add_executable(land_forces_focus_tests
+	"${PROJECT_SOURCE_DIR}/tests/land_forces_main.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/collective_labor.cpp"
+	"${PROJECT_SOURCE_DIR}/src/economy/social_entitlements.cpp"
+	"${PROJECT_SOURCE_DIR}/src/nations/strategic_statecraft.cpp"
+	${CONSUMER_PURGE_SOURCES})
+alice_configure_test_compile(land_forces_focus_tests)
+target_compile_definitions(land_forces_focus_tests PRIVATE
+	GLM_ENABLE_EXPERIMENTAL ALICE_SPLIT_BUILD=1 DCON_TRAP_INVALID_STORE=1)
+target_precompile_headers(land_forces_focus_tests REUSE_FROM alice_test_engine)
+target_link_libraries(land_forces_focus_tests PRIVATE AliceCommon Catch2::Catch2 alice_test_engine)
+if(WIN32)
+	target_link_libraries(land_forces_focus_tests PRIVATE ${PROJECT_SOURCE_DIR}/libs/LLVM-C.lib)
+else()
+	target_link_libraries(land_forces_focus_tests PRIVATE fmt::fmt)
+endif()
+add_dependencies(land_forces_focus_tests GENERATE_TEST_PARSERS GENERATE_PARSERS GENERATE_CONTAINER)
+catch_discover_tests(land_forces_focus_tests WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets")

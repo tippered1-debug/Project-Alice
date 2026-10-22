@@ -13,6 +13,7 @@
 #include <glm/glm.hpp>
 #include "alice_ui.hpp"
 #include "game_scene.hpp"
+#include "military/land_forces.hpp"
 
 namespace ui {
 
@@ -485,6 +486,7 @@ public:
 	}
 	void on_update(sys::state& state) noexcept override {
 		disabled = true;
+		if(retrieve<macro_builder_state>(state, parent).is_land && military::land_forces::initialized(state)) return;
 		for(auto const amount : state.ui_state.current_template.amounts) {
 			if(amount != 0) {
 				disabled = false;
@@ -495,6 +497,7 @@ public:
 	}
 	void button_action(sys::state& state) noexcept override {
 		auto is_land = retrieve<macro_builder_state>(state, parent).is_land;
+		if(is_land && military::land_forces::initialized(state)) return;
 		auto const& t = state.ui_state.current_template;
 		const auto template_province = state.map_state.selected_province;
 		
@@ -564,6 +567,10 @@ public:
 			return;
 		}
 		auto is_land = retrieve<macro_builder_state>(state, parent).is_land;
+		if(is_land && military::land_forces::initialized(state)) {
+			text::add_line(state, contents, "alice_no_possible_units");
+			return;
+		}
 		auto const& t = state.ui_state.current_template;
 		const auto template_province = state.map_state.selected_province;
 		uint8_t rem_to_build[sys::macro_builder_template::max_types];

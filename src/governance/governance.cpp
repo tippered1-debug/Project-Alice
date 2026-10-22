@@ -232,10 +232,14 @@ std::vector<dcon::province_id> provinces_in(sys::state const& state, jurisdictio
 		return result;
 	}
 	std::vector<dcon::territorial_unit_id> pending{ scope.territory };
+	// A unit is expanded once: a parent relation that loops back on itself
+	// would otherwise grow this walk without end.
+	std::vector<bool> seen(state.world.territorial_unit_size(), false);
 	while(!pending.empty()) {
 		auto unit = pending.back();
 		pending.pop_back();
-		if(!unit) continue;
+		if(!unit || uint32_t(unit.index()) >= seen.size() || seen[size_t(unit.index())]) continue;
+		seen[size_t(unit.index())] = true;
 		state.world.territorial_unit_for_each_territorial_unit_membership_as_territorial_unit(unit, [&](auto relation) {
 			result.push_back(state.world.territorial_unit_membership_get_province(relation));
 		});

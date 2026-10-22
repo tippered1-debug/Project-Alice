@@ -31,11 +31,44 @@ broken, concessions are made, and wars end. Crisis membership and visible
 relationships expose events; unrelated countries do not receive every event as
 world knowledge.
 
-Alliances are evaluated through common threats, perceived value and
-reliability, reach, conflicting claims, and entanglement. Forming an alliance
+Alliances are evaluated through relations, common threats, perceived value and
+reliability, reach, conflicting claims, entanglement, and third countries: being
+allied to the observer's rival or to a country at war with it, or at war with
+one of its allies, weighs against an alliance; sharing one of its allies weighs
+for it. Forming an alliance
 creates reciprocal promises. Breaking it records a broken commitment. Subject
 relationships create a protector commitment from overlord to subject, which can
 be kept in a crisis or broken when the relationship ends.
+
+## What one government can tell of another
+
+`strategic_statecraft_forecast.hpp` exposes each answer twice. The `forecast_*`
+functions are the other side's own calculation; the deciding functions call
+them and record the decision. The `assess_*` functions are what a proposer can
+tell of that calculation before it asks, and they are all the interface shows.
+An assessment recomputes the calculation with what is public (relations,
+alliances, wars, claims, distance, the proposer's own record) and substitutes
+the proposer's reconstruction for what is not: whom the other side counts its
+rival, what it believes of the proposer's power and economy, and its interest
+weights. A reconstruction starts from the proposer's own beliefs and moves
+toward the truth by the quality of its reading of the other side.
+
+That quality (`read_intentions`) combines independent sources: standing contact
+(an alliance, a border, a war, rivalry, a great power's attention), the
+intelligence agency's latest report on the country, the latest report of the
+proposer's own envoys, and the openness of a friendly government. A diplomatic
+mission (`increase_relations`) publishes an envoys' report from the central
+government, at most once a month per country, received five days later. The
+assessment carries a spread for what is inferred, and the answer is named from
+the margin and the spread: very likely, likely, uncertain, unlikely, very
+unlikely, or out of the question when a public reason (hostility, ill repute,
+contested claims) refuses it whatever is offered. Nothing is drawn at random; a
+poorly read country can still surprise the proposer.
+
+`alliance_reactions` evaluates, for every modelled country, its own alliance
+calculation of the proposer before and after a hypothetical alliance with the
+partner, and reports the ones that move. A reaction whose cause is a hidden
+rivalry is reported only when the proposer reads that country well.
 
 ## Crisis bargaining
 

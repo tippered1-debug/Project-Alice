@@ -119,7 +119,7 @@ TYPES=['farmers','labourers','craftsmen','clerks','artisans','bureaucrats','cler
 ROLE={'farmers':'peasant','labourers':'peasant','aristocrats':'landed'}
 CAPITAL_ONLY=('aristocrats','bureaucrats','capitalists')
 # One simulated person stands for PEOPLE_PER_PERSON real people; the game counts one pop unit per four persons.
-PEOPLE_PER_PERSON=float(os.environ.get('KATECHON_PEOPLE_PER_PERSON','200'))
+PEOPLE_PER_PERSON=float(os.environ.get('KATECHON_PEOPLE_PER_PERSON','5000'))
 SCALE=4.0*PEOPLE_PER_PERSON
 prov_pop={}
 ALL_SIZES={}
@@ -205,10 +205,10 @@ ranked=sorted(owners,key=gdp,reverse=True)
 # middle band: the map shader models them with relief and deepens them at the
 # frontier, which pure or pale colours would not survive.
 FIXED_COLOUR={'USA':(66,104,158),'CAN':(158,74,70),'MEX':(92,146,102),'BRA':(84,154,92),'ARG':(132,174,206),'GBR':(180,76,88),'FRA':(64,102,176),
- 'DEU':(118,122,130),'ITA':(98,164,110),'ESP':(206,170,78),'PRT':(64,126,96),'RUS':(74,128,94),'CHN':(190,90,76),'IND':(206,150,90),'JPN':(208,190,186),
+ 'DEU':(118,122,130),'ITA':(98,164,110),'ESP':(206,170,78),'PRT':(64,126,96),'RUS':(74,128,94),'CHN':(190,90,76),'IND':(206,150,90),'JPN':(196,140,156),
  'KOR':(100,152,192),'PRK':(152,76,76),'TUR':(166,176,122),'IRN':(100,154,144),'SAU':(124,162,106),'EGY':(194,174,124),'ZAF':(152,124,172),
  'AUS':(92,162,152),'IDN':(188,114,96),'PAK':(86,134,106),'UKR':(102,152,200),'POL':(196,98,118),'KAZ':(114,170,180),'NGA':(114,162,96),
- 'SWE':(86,134,190),'NOR':(128,98,110),'FIN':(190,196,208),'DZA':(140,170,150),'COD':(96,120,170),'MNG':(178,150,110)}
+ 'SWE':(86,134,190),'NOR':(128,98,110),'FIN':(140,166,204),'DZA':(140,170,150),'COD':(96,120,170),'MNG':(178,150,110)}
 own_lut=np.zeros(int(pid.max())+1,dtype=np.int32)
 tag_index={o:i+1 for i,o in enumerate(owners)}
 for p in P: own_lut[p['id']]=tag_index[p['owner']]
@@ -234,6 +234,9 @@ for o in sorted(owners,key=lambda t:-area_of[t]):
     MAP_COLOUR[o]=(int(r_*255),int(g_*255),int(b_*255))
 loc=[]
 def loc_add(k,v): loc.append('%s;%s;;;;;;;;;;;;;x'%(k,ascii_(v)))
+# Relations and diplomats on the first day: a hidden decision per country, named in its history.
+import diplomacy_2010
+START_LINES,N_RELATIONS=diplomacy_2010.write(w,loc_add,owners)
 for o in owners:
     cul,rel,gcode=COUNTRY[o]; gov=GOVERNMENT[gcode]
     body='color = { %d %d %d }\ngraphical_culture = EuropeanGC\n'%MAP_COLOUR[o]
@@ -257,6 +260,7 @@ for o in owners:
     for idl in ideologies: hist+='\t%s = %d\n'%(idl,100 if idl==ruling else 0)
     hist+='}\n'
     for t in techs: hist+='%s = 1\n'%t
+    hist+=START_LINES[o]
     w('history/countries/%s - %s.txt'%(o,cname(o)),hist)
     loc_add(o,cname(o)); loc_add(o+'_ADJ',cname(o))
 w('common/countries.txt',ctxt)
@@ -284,17 +288,50 @@ for f in sorted(places,key=lambda f:-float(f['properties'].get('pop_max') or 0))
     seen_city.add((name,i))
     city_rows.append('%d;%.1f;%.1f;%d;%d;%s'%(i,xf,yf,1 if is_cap else 0,int(pop),name))
 w('map/katechon_cities.csv','province;x;y;capital;population;name\n'+'\n'.join(city_rows)+'\n')
+# ---------- province areas ----------
+# Square kilometres of each province, from its pixel count and the local scale
+# of the map at its centre. The interface needs it for population density.
+area_rows=[]
+for p in P:
+    lat=float(p['lat'] if p['lat'] is not None else 0.0); lon=float(p['lon'] if p['lon'] is not None else 0.0)
+    lat=max(-58.0,min(86.0,lat))
+    x0,y0=geo.to_pixel(np.array([lon]),np.array([lat])); x1,_=geo.to_pixel(np.array([lon+0.5]),np.array([lat])); _,y1=geo.to_pixel(np.array([lon]),np.array([lat+0.5]))
+    px_per_deg_x=max(1e-3,abs(float(x1[0]-x0[0]))/0.5); px_per_deg_y=max(1e-3,abs(float(y1[0]-y0[0]))/0.5)
+    km2_per_px=(111.32*np.cos(np.radians(lat))/px_per_deg_x)*(110.57/px_per_deg_y)
+    area_rows.append('%d;%.1f'%(p['id'],max(1.0,p['area']*km2_per_px)))
+w('map/katechon_provinces.csv','province;area_km2\n'+'\n'.join(area_rows)+'\n')
 # One unit of population in the game stands for this many people.
 loc_add('katechon_people_per_unit','%d'%int(SCALE))
-loc_add('KATECHON_2010_NAME','The World in 2010'); loc_add('KATECHON_2010_DESC','The first day of 2010.')
+loc_add('katechon_people_per_pop_unit',str(int(SCALE))); loc_add('KATECHON_2010_NAME','The World in 2010'); loc_add('KATECHON_2010_DESC','The first day of 2010.')
 w('localisation/katechon2010.csv','\n'.join(loc)+'\n')
-for d in ('history/units','history/diplomacy','history/wars','events','decisions'):
+for d in ('history/units','history/wars','events','decisions'):
     w(d+'/empty.txt','')
+
+# ---------- diplomacy on 1 January 2010 ----------
+# Mutual-defence treaties in force that day. Blocs are written as every pair of members,
+# because the game knows alliances only between two states.
+BLOCS={'NATO':'USA CAN GBR FRA DEU ITA ESP PRT NLD BEL LUX DNK NOR ISL GRC TUR POL CZE HUN SVK SVN EST LVA LTU ROU BGR HRV ALB'.split(),
+       'CSTO':'RUS BLR KAZ ARM KGZ TJK UZB'.split()}
+PAIRS=[('USA','JPN'),('USA','KOR'),('USA','AUS'),('AUS','NZL'),('USA','PHL'),('USA','THA'),('CHN','PRK')]
+pairs=set()
+for members in BLOCS.values():
+    live=[m for m in members if m in owners]
+    for i,x in enumerate(live):
+        for y in live[i+1:]: pairs.add((x,y))
+for x,y in PAIRS:
+    if x in owners and y in owners: pairs.add((x,y))
+w('history/diplomacy/Alliances.txt',''.join('alliance = {\n\tfirst = %s\n\tsecond = %s\n\tstart_date = 2010.1.1\n\tend_date = 2100.1.1\n}\n'%p for p in sorted(pairs)))
+for name in ('Guarantees','PuppetStates','Unions'): w('history/diplomacy/%s.txt'%name,'')
+N_ALLIANCES=len(pairs)
+# What each economy produced in 2010, in US dollars (World Bank): how governments
+# weigh one another's economic power before their own reports come in.
+w('common/canonical_runtime/national_accounts.csv','country;gdp_usd\n'+''.join('%s;%.0f\n'%(o,gdp(o)) for o in owners))
 w('common/bookmarks.txt','bookmark = {\n\tname = "KATECHON_2010_NAME"\n\tdesc = "KATECHON_2010_DESC"\n\tdate = 2010.1.1\n\tcameraX = 2950\n\tcameraY = 1550\n}\n')
 defines=open(V2+'common/defines.lua',encoding='latin-1').read()
 defines=re.sub(r"start_date\s*=\s*'[^']*'","start_date = '2010.1.1'",defines); defines=re.sub(r"end_date\s*=\s*'[^']*'","end_date = '2100.12.31'",defines)
 # Scenario creation pre-simulates the economy; each day is costly at world scale.
 defines=defines.replace("start_date = '2010.1.1'","start_date = '2010.1.1',\n\tALICE_ECONOMY_PRESIM_DAYS = %d"%int(os.environ.get('KATECHON_PRESIM_DAYS','3')),1)
+defines=re.sub(r"BASE_MONTHLY_DIPLOPOINTS\s*=\s*[0-9.]+","BASE_MONTHLY_DIPLOPOINTS = %.1f"%diplomacy_2010.MONTHLY_DIPLOMATS,defines)
 w('common/defines.lua',defines)
 
 BUILDINGS={}
@@ -311,12 +348,13 @@ HEAD={'firms':'firm_id;kind;settlement;opening_cash;retained_earnings;paid_in_eq
 'formation_template_consumables':'template_id;consumable;commodity;per_person;per_equipment_tonne',
 'military_formations':'formation_id;parent_formation_id;template_id;owner_tag;province_id;status;operational_tempo;legacy_regiment_index',
 'formation_personnel':'formation_id;source_population_cell;first_ordinal;count;ordinal_stride;training_days','formation_equipment':'formation_id;equipment_id;quantity',
-'formation_consumables':'formation_id;consumable;quantity','military_stockpiles':'stockpile_id;owner_tag;province_id;stockpile_kind;cargo_kind;equipment_id;consumable;quantity'}
+'formation_consumables':'formation_id;consumable;quantity','military_stockpiles':'stockpile_id;owner_tag;province_id;stockpile_kind;cargo_kind;equipment_id;consumable;quantity',
+'formation_labels':'formation_id;echelon;name_key;opening_personnel'}
 
 # ---------- the opening economy ----------
 MONEY='precious_metal'
-MAX_CROPS=int(os.environ.get('KATECHON_MAX_CROPS','9'))
-MAX_CRAFTS=int(os.environ.get('KATECHON_MAX_CRAFTS','7'))
+MAX_CROPS=int(os.environ.get('KATECHON_MAX_CROPS','1'))
+MAX_CRAFTS=int(os.environ.get('KATECHON_MAX_CRAFTS','1'))
 # Game money per US dollar at model scale: roughly 0.01 per person-year of subsistence.
 USD=float(os.environ.get('KATECHON_MONEY_PER_USD','1e-5'))/PEOPLE_PER_PERSON
 rows={'households':[],'firms':[],'capital_owners':[],'assets':[],'ownership':[],'deposits':[],'land_titles':[],'farms':[],'workshops':[],'banks':[],'bank_deposits':[]}
@@ -358,7 +396,17 @@ for o in owners:
         peasants=4.0*sum(v for t,v in sz.items() if ROLE.get(t)=='peasant')
         if ('hh_%d_peasant'%i) in {r.split(';')[0] for r in rows['households'][-len(weights)-1:]} or (i,'peasant') in weights:
             lat=abs(p['lat'] if p['lat'] is not None else 40.0)
-            crops=(list(CROPS_ALL)+(CROPS_TROPIC if lat<24 else CROPS_WARM if lat<42 else []))[:MAX_CROPS]
+            crops=list(CROPS_ALL)+(CROPS_TROPIC if lat<24 else CROPS_WARM if lat<42 else [])
+            if MAX_CROPS<len(crops):
+                # Order matching in the engine scales with the square of the number of sellers, so a
+                # province specialises: its crops are drawn from the regional list in proportion to their weights.
+                wheel=[c for c in crops for _ in range(max(1,int(round(c[3]*100))))]
+                picks=[]
+                for k in range(MAX_CROPS*7):
+                    c=wheel[(i*7919+k*104729)%len(wheel)]
+                    if c not in picks: picks.append(c)
+                    if len(picks)==MAX_CROPS: break
+                crops=picks
             tot=sum(c[3] for c in crops)
             workers=max(1.0,peasants*0.45)
             for key,ptype,com,wgt in crops:
@@ -371,7 +419,7 @@ for o in owners:
         if (i,'urban') in weights:
             urban_persons=4.0*sum(v for t,v in sz.items() if ROLE.get(t,'urban')=='urban')
             # the engine holds at most 50,000 assets in all, so workshops are kept to the staple crafts
-            for c in CRAFTS[:min(MAX_CRAFTS,3 if urban_persons<400 else 5 if urban_persons<4000 else 7)]:
+            for c in [CRAFTS[(i*31+k)%len(CRAFTS)] for k in range(min(MAX_CRAFTS,3 if urban_persons<400 else 5 if urban_persons<4000 else 7))]:
                 rows['workshops'].append('ws_%d_%s;%d;%s;household;hh_%d_urban;%s'%(i,c,i,c,i,f(max(1.0,urban_persons*0.002))))
                 rows['ownership'].append('ws_%d_%s;household;hh_%d_urban;1;1;1'%(i,c,i))
     deposits_cash=[('gov',gov,0.05*g)]
@@ -438,9 +486,20 @@ for p in P:
         body+='state_building = {\n\tlevel = 1\n\tbuilding = %s\n\tupgrade = yes\n}\n'%b
     w('history/provinces/k2010/%d - %s.txt'%(p['id'],re.sub(r'[^A-Za-z0-9 ]','',ascii_(p['name']))[:40]),body)
 
+# ---------- the land forces of 2010 ----------
+import forces_2010
+force_rows,force_en,force_ru,force_missing=forces_2010.build(P,capital,prov_pop,PEOPLE_PER_PERSON,cname)
+rows.update(force_rows)
+if force_missing: print('land forces: no province for',force_missing)
+w('localisation/katechon2010_forces.csv',''.join('%s;%s;;;;;;;;;;;;;x\n'%(k,ascii_(v)) for k,v in force_en))
+# The Russian names go to the game's own Russian text, beside the HUD's.
+ru_dir=os.environ.get('KATECHON_REPO',os.path.join('..','..'))+'/assets/localisation/ru-RU'
+if os.path.isdir(ru_dir): open(ru_dir+'/katechon_forces_2010.csv','w',encoding='utf-8').write(''.join('%s;%s\n'%kv for kv in force_ru))
+print('land forces:',len(force_rows['military_formations']),'formations in',len({r.split(';')[3] for r in force_rows['military_formations']}),'armies')
+
 for name,head in HEAD.items():
     w('common/canonical_runtime/%s.csv'%name,head+'\n'+''.join(r+'\n' for r in rows.get(name,[])),'utf-8')
 open(V2+'mod/%s.mod'%MOD,'w').write('name = "KATECHON 2010"\npath = "mod/%s"\nreplace_path = "history/provinces"\nreplace_path = "history/countries"\nreplace_path = "history/pops"\nreplace_path = "history/units"\nreplace_path = "history/diplomacy"\nreplace_path = "history/wars"\nreplace_path = "events"\nreplace_path = "decisions"\n'%MOD)
 json.dump({'capital':capital,'prov_pop':prov_pop,'states':states},open('mod_summary.json','w'))
-print({k:len(v) for k,v in rows.items()})
+print({k:len(v) for k,v in rows.items()},'alliances',N_ALLIANCES,'relations',N_RELATIONS)
 print('states',len(states),'households',len(households),'world population',sum(prov_pop.values())/1e9,'bn; techs',len(techs),'reform groups',len(political),len(social))

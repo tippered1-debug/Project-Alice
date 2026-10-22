@@ -1,5 +1,6 @@
 #include "military.hpp"
 #include "nations.hpp"
+#include "nations_templates.hpp"
 #include "military_templates.hpp"
 #include "dcon_generated_ids.hpp"
 #include "prng.hpp"
@@ -22,10 +23,14 @@
 #include "validation.hpp"
 #include "nations/strategic_statecraft.hpp"
 #include "military/land_forces.hpp"
+#include "economy/exact_person_economy.hpp"
+#include "persons/exact_population.hpp"
 #include "governance/governance.hpp"
 #include "governance/offices.hpp"
 #include "governance/power_topology.hpp"
+#include "world/spatial_runtime.hpp"
 
+#include <unordered_set>
 #include <utility>
 
 namespace military {
@@ -1098,7 +1103,24 @@ int32_t regiments_created_from_province(sys::state& state, dcon::province_id p) 
 	return total;
 }
 int32_t mobilized_regiments_created_from_province(sys::state& state, dcon::province_id p) {
-	if(land_forces::initialized(state)) return 0;
+	if(land_forces::initialized(state)) {
+		if(!state.exact_population) return 0;
+		int32_t total = 0;
+		std::unordered_set<uint64_t> mobilized_formations;
+		for(auto const& unit : land_forces::export_snapshot(state).formations)
+			if(unit.mobilized && unit.status != land_forces::formation_status::destroyed
+				&& unit.legacy_regiment_index_plus_one != 0) mobilized_formations.insert(unit.id);
+		for(auto const& assignment : persons::exact_population::all_military_assignments(state)) {
+			if(!mobilized_formations.contains(assignment.formation_id)) continue;
+			persons::person_key person{assignment.source_population_cell, assignment.first_ordinal};
+			auto home = persons::home_site(state, person);
+			if(home && state.world.site_get_province_from_site_location(home) == p) {
+				++total;
+				mobilized_formations.erase(assignment.formation_id);
+			}
+		}
+		return total;
+	}
 	/*
 	Mobilized regiments come only from non-colonial provinces.
 	*/
@@ -1112,6 +1134,21 @@ int32_t mobilized_regiments_created_from_province(sys::state& state, dcon::provi
 			total += int32_t(regs.end() - regs.begin());
 		}
 	}
+	return total;
+}
+
+int32_t mobilized_regiments_created_for_nation(sys::state& state, dcon::nation_id n) {
+	if(land_forces::initialized(state)) {
+		int32_t total = 0;
+		for(auto const& unit : land_forces::export_snapshot(state).formations)
+			if(unit.owner == n && unit.mobilized
+				&& unit.status != land_forces::formation_status::destroyed
+				&& unit.legacy_regiment_index_plus_one != 0) ++total;
+		return total;
+	}
+	int32_t total = 0;
+	for(auto province : state.world.nation_get_province_ownership(n))
+		total += mobilized_regiments_created_from_province(state, province.get_province());
 	return total;
 }
 
@@ -1320,10 +1357,20 @@ dcon::pop_id find_available_soldier(sys::state& state, dcon::province_id p, dcon
 
 }
 
+namespace {
+std::vector<std::pair<dcon::province_id, int32_t>> exact_mobilized_regiments_by_province(
+	sys::state&, dcon::nation_id, bool use_cache = true);
+}
+
 int32_t mobilized_regiments_possible_from_province(sys::state& state, dcon::province_id p) {
-	if(land_forces::initialized(state)) return 0;
+	if(land_forces::initialized(state)) {
+		auto owner = state.world.province_get_nation_from_province_ownership(p);
+		for(auto const& [province, capacity] : exact_mobilized_regiments_by_province(state, owner))
+			if(province == p) return capacity;
+		return 0;
+	}
 	/*
-	Mobilized regiments come only from unoccupied, non-colonial provinces.
+	Legacy POP-backed mobilization is limited to unoccupied, non-colonial provinces.
 	*/
 	auto fp = fatten(state.world, p);
 	if(fp.get_is_colonial() || fp.get_nation_from_province_control() != fp.get_nation_from_province_ownership())
@@ -1351,13 +1398,57 @@ int32_t mobilized_regiments_possible_from_province(sys::state& state, dcon::prov
 }
 
 int32_t mobilized_regiments_pop_limit(sys::state& state, dcon::nation_id n) {
-	if(land_forces::initialized(state)) return 0;
+	if(land_forces::initialized(state)) {
+		int64_t total = 0;
+		for(auto const& [province, capacity] : exact_mobilized_regiments_by_province(state, n, true)) {
+			(void)province;
+			total += capacity;
+		}
+		return int32_t(std::min<int64_t>(total, std::numeric_limits<int32_t>::max()));
+	}
 	int32_t total = 0;
 	for(auto p : state.world.nation_get_province_ownership(n)) {
 		if(p.get_province().get_is_colonial() == false)
 			total += mobilized_regiments_possible_from_province(state, p.get_province());
 	}
 	return total;
+}
+
+float mobilization_progress(sys::state& state, dcon::nation_id n) {
+	if(!n || !state.world.nation_get_is_mobilized(n)) return 0.0f;
+
+	double called_up = 0.0;
+	double remaining = 0.0;
+	if(land_forces::initialized(state)) {
+		called_up = double(std::max(0, mobilized_regiments_created_for_nation(state, n)));
+		for(auto const& order : state.world.nation_get_mobilization_schedule(n)) {
+			auto capacity = mobilized_regiments_possible_from_province(state, order.where);
+			auto already_created = mobilized_regiments_created_from_province(state, order.where);
+			remaining += double(std::max(0, capacity - already_created));
+		}
+	} else {
+		auto divisor = double(state.defines.pop_size_per_regiment);
+		if(divisor > 0.0) {
+			for(auto const army_control : state.world.nation_get_army_control_as_controller(n)) {
+				for(auto const membership : army_control.get_army().get_army_membership()) {
+					auto pop = membership.get_regiment().get_pop_from_regiment_source();
+					if(pop && pop_eligible_for_mobilization(state, pop.id))
+						called_up += double(pop.get_size()) * double(mobilization_size(state, n)) / divisor;
+				}
+			}
+			for(auto const& order : state.world.nation_get_mobilization_schedule(n)) {
+				for(auto const location : state.world.province_get_pop_location(order.where)) {
+					auto pop = location.get_pop();
+					if(pop_eligible_for_mobilization(state, pop.id))
+						remaining += double(pop.get_size()) * double(mobilization_size(state, n)) / divisor;
+				}
+			}
+		}
+	}
+
+	auto total = called_up + remaining;
+	if(total <= 0.0) return 1.0f;
+	return float(std::clamp(called_up / total, 0.0, 1.0));
 }
 
 void update_recruitable_regiments(sys::state& state, dcon::nation_id n) {
@@ -8782,6 +8873,7 @@ void navy_arrives_in_province(sys::state& state, dcon::navy_id n, dcon::province
 void update_movement(sys::state& state) {
 	// Army movement
 	for(auto a : state.world.in_army) {
+		if(land_forces::is_battle_projection(state, a) && !land_forces::is_battle_retreat(state, a)) continue;
 		auto arrival = a.get_arrival_time();
 		auto path = a.get_path();
 		auto from = state.world.army_get_location_from_army_location(a);
@@ -9203,7 +9295,12 @@ void update_siege_progress(sys::state& state) {
 		for(auto ar : state.world.province_get_army_location(prov)) {
 			// Only stationary, non black flagged regiments with at least 0.001 strength contribute to a siege.
 
-			if(ar.get_army().get_battle_from_army_battle_participation() || ar.get_army().get_black_flag() || ar.get_army().get_navy_from_army_transport() || ar.get_army().get_arrival_time()) {
+			bool canonical_march = false;
+			if(land_forces::is_battle_projection(state, ar.get_army()))
+				for(auto membership : ar.get_army().get_army_membership())
+					canonical_march = canonical_march || bool(land_forces::find_march(state,
+						land_forces::formation_for_legacy_regiment(state, membership.get_regiment())));
+			if(canonical_march || ar.get_army().get_is_retreating() || ar.get_army().get_battle_from_army_battle_participation() || ar.get_army().get_black_flag() || ar.get_army().get_navy_from_army_transport() || ar.get_army().get_arrival_time()) {
 
 				// skip -- blackflag or embarked or moving or fighting
 			} else {
@@ -9428,6 +9525,13 @@ void eject_ships(sys::state& state, dcon::province_id p) {
 void increase_dig_in(sys::state& state) {
 	if(state.current_date.value % int32_t(state.defines.dig_in_increase_each_days) == 0) {
 		for(auto ar : state.world.in_army) {
+			if(land_forces::is_battle_projection(state, ar)) {
+				bool marching = land_forces::is_battle_retreat(state, ar);
+				for(auto member : ar.get_army_membership())
+					marching = marching || bool(land_forces::find_march(state,
+						land_forces::formation_for_legacy_regiment(state, member.get_regiment())));
+				if(marching) continue;
+			}
 			if(ar.get_is_retreating() || ar.get_black_flag() || bool(ar.get_battle_from_army_battle_participation()) || bool(ar.get_navy_from_army_transport()) || bool(ar.get_arrival_time())) {
 
 				continue;
@@ -10606,13 +10710,315 @@ maximum-strength x (technology-repair-rate + provincial-modifier-to-repair-rate 
 }
 
 /* === Mobilization === */
-void start_mobilization(sys::state& state, dcon::nation_id n) {
-	if(land_forces::initialized(state)) {
-		state.world.nation_set_is_mobilized(n, false);
-		state.world.nation_set_mobilization_remaining(n, 0);
-		state.world.nation_get_mobilization_schedule(n).clear();
-		return;
+namespace {
+
+constexpr uint64_t mobilized_formation_id_domain = 0x4d4f42464f524dULL;
+constexpr uint64_t mobilized_shipment_id_domain = 0x4d4f4253484950ULL;
+
+uint64_t mobilization_template_for_infantry(sys::state const& state, dcon::nation_id nation,
+	dcon::unit_type_id infantry, land_forces::snapshot const& canonical) {
+	for(bool local_only : {true, false}) {
+		for(auto const& unit : canonical.formations) {
+			if((local_only && unit.owner != nation)
+				|| unit.status == land_forces::formation_status::destroyed
+				|| unit.legacy_regiment_index_plus_one == 0) continue;
+			auto index = unit.legacy_regiment_index_plus_one - 1u;
+			if(index >= state.world.regiment_size()) continue;
+			auto regiment = dcon::regiment_id{dcon::regiment_id::value_base_t(index)};
+			if(state.world.regiment_is_valid(regiment)
+				&& state.world.regiment_get_type(regiment) == infantry) return unit.template_id;
+		}
 	}
+	return 0;
+}
+
+bool is_mobilization_candidate(sys::state& state, dcon::nation_id nation,
+	dcon::province_id province, persons::person_key person,
+	std::vector<persons::person_key> const& contracted_workers,
+	bool include_mobilized_assignment = false) {
+	uint64_t assigned_formation_id = 0;
+	auto has_assignment = persons::exact_population::has_military_assignment(state, person,
+		&assigned_formation_id);
+	if(has_assignment) {
+		if(!include_mobilized_assignment) return false;
+		auto formation = land_forces::find_formation(state, assigned_formation_id);
+		if(!formation || !formation->mobilized
+			|| formation->status == land_forces::formation_status::destroyed) return false;
+	}
+	auto person_less = [](auto left, auto right) {
+		return std::tie(left.source_population_cell, left.ordinal)
+			< std::tie(right.source_population_cell, right.ordinal);
+	};
+	if(!persons::alive(state, person)
+		|| !persons::is_source_workforce_anchor(state, person)
+		|| std::binary_search(contracted_workers.begin(), contracted_workers.end(), person, person_less)) return false;
+	auto age = persons::age_years(state, person, state.current_date);
+	if(age < 18 || age >= 65) return false;
+	auto type = persons::pop_type(state, person);
+	if(!type || type == state.culture_definitions.soldiers || type == state.culture_definitions.slaves
+		|| state.world.pop_type_get_strata(type) != uint8_t(culture::pop_strata::poor)) return false;
+	auto culture = persons::current_culture(state, person);
+	if(!culture || !nations::nation_accepts_culture(state, nation, culture)) return false;
+	auto home = persons::home_site(state, person);
+	auto home_province = home ? state.world.site_get_province_from_site_location(home) : dcon::province_id{};
+	return home_province == province
+		&& state.world.province_get_nation_from_province_ownership(home_province) == nation;
+}
+
+template<typename Callback>
+void for_each_mobilization_candidate(sys::state& state, dcon::nation_id nation,
+	dcon::province_id province, persons::exact_population::catalog_snapshot const& catalog,
+	std::vector<persons::person_key> const& contracted_workers,
+	Callback&& callback, bool include_mobilized_assignment = false) {
+	if(!state.exact_population) return;
+	std::unordered_set<uint32_t> local_override_cells;
+	for(auto const& override : catalog.overrides) {
+		if(!override.has_home_site || !override.home_site
+			|| !persons::exists(state, override.key)) continue;
+		auto home_province = state.world.site_get_province_from_site_location(override.home_site);
+		if(home_province == province)
+			local_override_cells.insert(persons::exact_population::current_population_cell(state, override.key));
+	}
+	std::vector<persons::exact_population::population_membership_range> local_membership;
+	for(auto const& range : catalog.membership_ranges) {
+		auto descriptor = persons::exact_population::descriptor_for_cell(state, range.current_population_cell);
+		auto home_province = descriptor && descriptor->home_site
+			? state.world.site_get_province_from_site_location(descriptor->home_site) : dcon::province_id{};
+		if(home_province == province || local_override_cells.contains(range.current_population_cell))
+			local_membership.push_back(range);
+	}
+	std::sort(local_membership.begin(), local_membership.end(), [](auto const& left, auto const& right) {
+		return std::tie(left.identity_population_cell, left.first_ordinal)
+			< std::tie(right.identity_population_cell, right.first_ordinal);
+	});
+	for(auto const& range : local_membership) {
+		auto ordinal = range.first_ordinal + ((4 - range.first_ordinal % 4) % 4);
+		auto end = range.first_ordinal + range.count;
+		for(; ordinal < end; ordinal += 4) {
+			persons::person_key person{range.identity_population_cell, ordinal};
+			if(!is_mobilization_candidate(state, nation, province, person, contracted_workers,
+				include_mobilized_assignment)) continue;
+			if(!callback(person)) return;
+			if(ordinal > std::numeric_limits<uint64_t>::max() - 4) break;
+		}
+	}
+}
+
+std::vector<std::pair<dcon::province_id, int32_t>> compute_exact_mobilized_regiments_by_province(
+	sys::state& state, dcon::nation_id nation) {
+	std::vector<std::pair<dcon::province_id, int32_t>> result;
+	if(!state.exact_population || !nation) return result;
+	auto infantry = get_best_infantry(state, nation);
+	if(!infantry) return result;
+	auto canonical = land_forces::export_snapshot(state);
+	auto template_id = mobilization_template_for_infantry(state, nation, infantry, canonical);
+	auto template_it = std::find_if(canonical.templates.begin(), canonical.templates.end(),
+		[&](auto const& item) { return item.id == template_id; });
+	if(template_id == 0 || template_it == canonical.templates.end()
+		|| template_it->personnel_authorization == 0) return result;
+	auto mobilization_size = std::max(0.0f,
+		state.world.nation_get_modifier_values(nation, sys::national_mod_offsets::mobilization_size));
+	if(!std::isfinite(mobilization_size) || mobilization_size <= 0.0f) return result;
+	auto people = persons::exact_population::export_snapshot(state);
+	auto contracted_workers = economy::exact_person_economy::active_contract_workers(state);
+	for(auto const& ownership : state.world.nation_get_province_ownership(nation)) {
+		auto province = ownership.get_province().id;
+		if(ownership.get_province().get_is_colonial()
+			|| ownership.get_province().get_nation_from_province_control() != nation) continue;
+		uint64_t eligible_people = 0;
+		for_each_mobilization_candidate(state, nation, province, people, contracted_workers,
+			[&](persons::person_key) {
+				if(eligible_people != std::numeric_limits<uint64_t>::max()) ++eligible_people;
+				return true;
+			}, true);
+		auto available = std::floor(double(eligible_people) * double(mobilization_size)
+			/ double(template_it->personnel_authorization));
+		auto capacity = int32_t(std::clamp(available, 0.0, double(std::numeric_limits<int32_t>::max())));
+		if(capacity > 0) result.emplace_back(province, capacity);
+	}
+	return result;
+}
+
+std::vector<std::pair<dcon::province_id, int32_t>> exact_mobilized_regiments_by_province(
+	sys::state& state, dcon::nation_id nation, bool use_cache) {
+	struct cache_entry {
+		dcon::nation_id nation{};
+		std::vector<std::pair<dcon::province_id, int32_t>> capacities;
+	};
+	struct cache_state {
+		sys::state const* state = nullptr;
+		void const* population = nullptr;
+		void const* economy = nullptr;
+		void const* land_forces = nullptr;
+		int32_t date = std::numeric_limits<int32_t>::min();
+		std::vector<cache_entry> nations;
+	};
+	static thread_local cache_state cache;
+	auto date = state.current_date ? state.current_date.to_raw_value() : 0;
+	if(cache.state != &state || cache.population != state.exact_population.get()
+		|| cache.economy != state.exact_person_economy.get()
+		|| cache.land_forces != state.land_forces.get() || cache.date != date) {
+		cache.state = &state;
+		cache.population = state.exact_population.get();
+		cache.economy = state.exact_person_economy.get();
+		cache.land_forces = state.land_forces.get();
+		cache.date = date;
+		cache.nations.clear();
+	}
+	auto found = std::find_if(cache.nations.begin(), cache.nations.end(),
+		[&](auto const& entry) { return entry.nation == nation; });
+	if(use_cache && found != cache.nations.end()) return found->capacities;
+	auto result = compute_exact_mobilized_regiments_by_province(state, nation);
+	if(found == cache.nations.end()) cache.nations.push_back({nation, result});
+	else found->capacities = result;
+	return result;
+}
+
+std::vector<persons::person_key> mobilization_candidates(sys::state& state,
+	dcon::nation_id nation, dcon::province_id province, uint64_t requested) {
+	std::vector<persons::person_key> candidates;
+	if(requested == 0 || !state.exact_population) return candidates;
+	auto catalog = persons::exact_population::export_snapshot(state);
+	auto contracted_workers = economy::exact_person_economy::active_contract_workers(state);
+	for_each_mobilization_candidate(state, nation, province, catalog, contracted_workers,
+		[&](persons::person_key person) {
+			candidates.push_back(person);
+			return candidates.size() < requested;
+		});
+	return candidates;
+}
+
+void issue_mobilized_logistics(sys::state& state, uint64_t formation_id) {
+	auto unit = land_forces::find_formation(state, formation_id);
+	if(!unit) return;
+	auto canonical = land_forces::export_snapshot(state);
+	auto personnel = land_forces::personnel_count(state, formation_id);
+	if(personnel == 0) return;
+	auto personnel_fill = std::clamp(double(personnel) / double(unit->personnel_authorization), 0.0, 1.0);
+	uint64_t shipment_sequence = 0;
+	auto dispatch_available = [&](land_forces::stockpile const& source, double requested) {
+		if(source.kind != land_forces::stockpile_kind::depot || source.owner != unit->owner
+			|| requested <= 0.0 || !std::isfinite(requested)) return 0.0;
+		auto available = land_forces::available_stockpile_quantity(state, source.id);
+		if(!std::isfinite(available) || available <= 0.0) return 0.0;
+		auto quantity = std::min(requested, available);
+		if(source.cargo == land_forces::cargo_kind::equipment)
+			quantity = std::floor(quantity);
+		if(quantity <= 0.0) return 0.0;
+		auto seed = formation_id ^ (source.id + (++shipment_sequence * 0x9e3779b97f4a7c15ULL));
+		auto shipment_id = land_forces::next_runtime_id(state, mobilized_shipment_id_domain, seed);
+		return land_forces::dispatch_to_formation(state, shipment_id, source.id,
+			formation_id, quantity) ? quantity : 0.0;
+	};
+
+	for(auto const& authorization : canonical.template_equipment) {
+		if(authorization.template_id != unit->template_id) continue;
+		auto target = uint64_t(std::ceil(double(authorization.quantity) * personnel_fill));
+		auto current = land_forces::equipment_count(state, formation_id, authorization.equipment_model_id);
+		auto missing = target > current ? target - current : 0;
+		for(auto const& source : canonical.stockpiles) {
+			if(source.cargo != land_forces::cargo_kind::equipment
+				|| source.equipment_model_id != authorization.equipment_model_id) continue;
+			auto issued = uint64_t(dispatch_available(source, double(missing)));
+			missing -= std::min(missing, issued);
+			if(missing == 0) break;
+		}
+	}
+
+	double equipment_tonnes = 0.0;
+	for(auto const& authorization : canonical.template_equipment) {
+		if(authorization.template_id != unit->template_id) continue;
+		auto model = land_forces::find_equipment_model(state, authorization.equipment_model_id);
+		if(model) {
+			auto quantity = uint64_t(std::ceil(double(authorization.quantity) * personnel_fill));
+			equipment_tonnes += double(model->mass) * double(quantity) / 1000.0;
+		}
+	}
+	for(auto const& requirement : canonical.template_consumables) {
+		if(requirement.template_id != unit->template_id) continue;
+		double remaining = (requirement.per_person * double(personnel)
+			+ requirement.per_equipment_tonne * equipment_tonnes) * 3.0;
+		for(auto const& source : canonical.stockpiles) {
+			if(source.cargo != land_forces::cargo_kind::consumable
+				|| source.consumable != requirement.kind) continue;
+			remaining -= dispatch_available(source, remaining);
+			if(remaining <= 1.0e-6) break;
+		}
+	}
+}
+
+bool create_mobilized_regiment(sys::state& state, dcon::nation_id nation,
+	dcon::province_id province, dcon::unit_type_id infantry, uint64_t sequence) {
+	if(!infantry || !state.world.province_is_valid(province)
+		|| state.world.province_get_nation_from_province_ownership(province) != nation
+		|| state.world.province_get_nation_from_province_control(province) != nation) return false;
+	auto canonical = land_forces::export_snapshot(state);
+	auto template_id = mobilization_template_for_infantry(state, nation, infantry, canonical);
+	if(template_id == 0) return false;
+	auto template_it = std::find_if(canonical.templates.begin(), canonical.templates.end(),
+		[&](auto const& item) { return item.id == template_id; });
+	if(template_it == canonical.templates.end()) return false;
+	auto people = mobilization_candidates(state, nation, province, template_it->personnel_authorization);
+	if(people.empty()) return false;
+	std::sort(people.begin(), people.end(), [](auto left, auto right) {
+		return std::tie(left.source_population_cell, left.ordinal)
+			< std::tie(right.source_population_cell, right.ordinal);
+	});
+	auto site = world::spatial_runtime::site_for_province(state, province);
+	if(!site) return false;
+	auto seed = (uint64_t(nation.index()) << 48) ^ (uint64_t(province.index()) << 16)
+		^ uint64_t(state.current_date.to_raw_value()) ^ sequence;
+	auto formation_id = land_forces::next_runtime_id(state, mobilized_formation_id_domain, seed);
+	land_forces::formation new_formation{};
+	new_formation.id = formation_id;
+	new_formation.template_id = template_id;
+	new_formation.owner = nation;
+	new_formation.location = site;
+	new_formation.status = land_forces::formation_status::active;
+	new_formation.mobilized = 1;
+	new_formation.operational_tempo = 1.0f;
+	if(!land_forces::create_formation(state, new_formation)) return false;
+	if(land_forces::recruit_personnel(state, formation_id, people, people.size(), 0) == 0) {
+		(void)land_forces::destroy_formation(state, formation_id);
+		return false;
+	}
+
+	dcon::army_id army{};
+	for(auto candidate : state.world.province_get_army_location(province))
+		if(candidate.get_army().get_controller_from_army_control() == nation) {
+			army = candidate.get_army().id;
+			break;
+		}
+	bool army_is_new = false;
+	if(!army) {
+		auto created = fatten(state.world, state.world.create_army());
+		created.set_supply_reserve(1.0f);
+		created.set_supply_priority(1);
+		created.set_controller_from_army_control(nation);
+		created.set_is_ai_controlled(state.world.nation_get_mobilized_is_ai_controlled(nation));
+		army = created.id;
+		army_is_new = true;
+	}
+	auto regiment = create_new_regiment(state, nation, infantry);
+	state.world.regiment_set_org(regiment, 0.1f);
+	if(!state.world.try_create_army_membership(regiment, army)
+		|| !land_forces::map_legacy_regiment(state, formation_id, regiment)) {
+		(void)land_forces::destroy_formation(state, formation_id);
+		delete_regiment_safe_wrapper(state, regiment);
+		return false;
+	}
+	if(army_is_new) {
+		army_arrives_in_province(state, army, province, crossing_type::none, dcon::land_battle_id{});
+		move_land_to_merge(state, nation, army, province, dcon::province_id{});
+	}
+	issue_mobilized_logistics(state, formation_id);
+	(void)land_forces::sync_legacy_regiment_projection(state, regiment);
+	return true;
+}
+
+} // namespace
+
+void start_mobilization(sys::state& state, dcon::nation_id n) {
 	if(state.world.nation_get_is_mobilized(n))
 		return;
 
@@ -10622,21 +11028,38 @@ void start_mobilization(sys::state& state, dcon::nation_id n) {
 	created by mobilization).
 	*/
 	auto real_regs = std::max(int32_t(state.world.nation_get_active_regiments(n)), int32_t(state.defines.min_mobilize_limit));
-	state.world.nation_set_mobilization_remaining(n,
-			uint16_t(real_regs * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::mobilization_impact)));
+	auto exact_capacities = land_forces::initialized(state)
+		? exact_mobilized_regiments_by_province(state, n, false)
+		: std::vector<std::pair<dcon::province_id, int32_t>>{};
+	int64_t exact_capacity_total = 0;
+	for(auto const& [province, capacity] : exact_capacities) {
+		(void)province;
+		exact_capacity_total += capacity;
+	}
+	auto total_capacity = land_forces::initialized(state)
+		? int32_t(std::min<int64_t>(exact_capacity_total, std::numeric_limits<int32_t>::max()))
+		: mobilized_regiments_pop_limit(state, n);
+	auto mobilization_limit = std::clamp(total_capacity, 0,
+		int32_t(std::numeric_limits<uint16_t>::max()));
+	auto mobilization_budget = double(real_regs)
+		* double(state.world.nation_get_modifier_values(n, sys::national_mod_offsets::mobilization_impact));
+	auto mobilization_remaining = std::isfinite(mobilization_budget)
+		? uint16_t(std::clamp(mobilization_budget, 0.0, double(mobilization_limit))) : uint16_t(0);
+	state.world.nation_set_mobilization_remaining(n, mobilization_remaining);
 
 	auto schedule_array = state.world.nation_get_mobilization_schedule(n);
 	schedule_array.clear();
 
-	for(auto pr : state.world.nation_get_province_ownership(n)) {
-		if(pr.get_province().get_is_colonial())
-			continue;
-		if(pr.get_province().get_nation_from_province_control() != n)
-			continue;
-		if(mobilized_regiments_possible_from_province(state, pr.get_province()) <= 0)
-			continue;
-
-		schedule_array.push_back(mobilization_order{ sys::date{}, pr.get_province().id });
+	if(land_forces::initialized(state)) {
+		for(auto const& [province, capacity] : exact_capacities)
+			if(capacity > 0) schedule_array.push_back(mobilization_order{ sys::date{}, province });
+	} else {
+		for(auto pr : state.world.nation_get_province_ownership(n)) {
+			if(pr.get_province().get_is_colonial()
+				|| pr.get_province().get_nation_from_province_control() != n
+				|| mobilized_regiments_possible_from_province(state, pr.get_province()) <= 0) continue;
+			schedule_array.push_back(mobilization_order{ sys::date{}, pr.get_province().id });
+		}
 	}
 
 	std::sort(schedule_array.begin(), schedule_array.end(),
@@ -10685,12 +11108,6 @@ void start_mobilization(sys::state& state, dcon::nation_id n) {
 	});
 }
 void end_mobilization(sys::state& state, dcon::nation_id n) {
-	if(land_forces::initialized(state)) {
-		state.world.nation_set_is_mobilized(n, false);
-		state.world.nation_set_mobilization_remaining(n, 0);
-		state.world.nation_get_mobilization_schedule(n).clear();
-		return;
-	}
 	if(!state.world.nation_get_is_mobilized(n))
 		return;
 
@@ -10698,18 +11115,36 @@ void end_mobilization(sys::state& state, dcon::nation_id n) {
 	state.world.nation_set_mobilization_remaining(n, 0);
 	auto schedule_array = state.world.nation_get_mobilization_schedule(n);
 	schedule_array.clear();
-
-	std::vector<dcon::regiment_id> mobs_to_be_deleted;
-	for(auto ar : state.world.nation_get_army_control(n)) {
-		for(auto rg : ar.get_army().get_army_membership()) {
-			auto pop = rg.get_regiment().get_pop_from_regiment_source();
-			if(!pop || pop.get_poptype() != state.culture_definitions.soldiers) {
-				mobs_to_be_deleted.push_back(rg.get_regiment().id);
+	if(land_forces::initialized(state)) {
+		std::vector<std::pair<uint64_t, dcon::regiment_id>> formations_to_end;
+		for(auto const& unit : land_forces::export_snapshot(state).formations) {
+			if(unit.owner != n || !unit.mobilized) continue;
+			dcon::regiment_id regiment{};
+			if(unit.legacy_regiment_index_plus_one != 0) {
+				auto index = unit.legacy_regiment_index_plus_one - 1u;
+				if(index < state.world.regiment_size()) {
+					auto candidate = dcon::regiment_id{dcon::regiment_id::value_base_t(index)};
+					if(state.world.regiment_is_valid(candidate)) regiment = candidate;
+				}
+			}
+			formations_to_end.emplace_back(unit.id, regiment);
+		}
+		for(auto const& [formation_id, regiment] : formations_to_end) {
+			land_forces::return_mobilized_inventory(state, formation_id);
+			(void)land_forces::destroy_formation(state, formation_id);
+			if(regiment) delete_regiment_safe_wrapper(state, regiment);
+		}
+	} else {
+		std::vector<dcon::regiment_id> mobs_to_be_deleted;
+		for(auto ar : state.world.nation_get_army_control(n)) {
+			for(auto rg : ar.get_army().get_army_membership()) {
+				auto pop = rg.get_regiment().get_pop_from_regiment_source();
+				if(!pop || pop.get_poptype() != state.culture_definitions.soldiers)
+					mobs_to_be_deleted.push_back(rg.get_regiment().id);
 			}
 		}
-	}
-	for(auto regiment : mobs_to_be_deleted) {
-		delete_regiment_safe_wrapper(state, regiment);
+		for(auto regiment : mobs_to_be_deleted)
+			delete_regiment_safe_wrapper(state, regiment);
 	}
 
 	notification::post(state, notification::message{ [n = n](sys::state& state, text::layout_base& contents) {
@@ -10723,11 +11158,30 @@ void end_mobilization(sys::state& state, dcon::nation_id n) {
 }
 void advance_mobilizations(sys::state& state) {
 	if(military::land_forces::initialized(state)) {
-		// The old POP-to-regiment generator has no exact-person or equipment issue
-		// path. Orders must use recruit_personnel plus physical shipments.
 		for(auto nation : state.world.in_nation) {
-			nation.set_mobilization_remaining(0);
-			nation.get_mobilization_schedule().clear();
+			auto& remaining = nation.get_mobilization_remaining();
+			if(remaining == 0) continue;
+			auto schedule = nation.get_mobilization_schedule();
+			if(schedule.size() == 0) {
+				remaining = 0;
+				continue;
+			}
+			auto order = schedule[schedule.size() - 1];
+			if(state.current_date != order.when) continue;
+			schedule.pop_back();
+			auto province = order.where;
+			if(!state.world.province_is_valid(province)
+				|| state.world.province_get_nation_from_province_control(province) != nation.id
+				|| state.world.province_get_nation_from_province_ownership(province) != nation.id) continue;
+			auto available = std::max(0, mobilized_regiments_possible_from_province(state, province)
+				- mobilized_regiments_created_from_province(state, province));
+			auto infantry = get_best_infantry(state, nation.id);
+			for(int32_t sequence = 0; sequence < available && remaining > 0; ++sequence) {
+				if(!infantry || !create_mobilized_regiment(state, nation.id, province, infantry,
+					uint64_t(sequence))) break;
+				--remaining;
+			}
+			if(schedule.size() == 0) remaining = 0;
 		}
 		return;
 	}
@@ -10990,6 +11444,7 @@ dcon::province_id find_naval_rally_pt(sys::state& state, dcon::nation_id by, dco
 	return closest;
 }
 void move_land_to_merge(sys::state& state, dcon::nation_id by, dcon::army_id a, dcon::province_id start, dcon::province_id dest) {
+	if(land_forces::is_battle_projection(state, a)) return;
 	if(state.world.nation_get_is_player_controlled(by) == false)
 		return; // AI doesn't use rally points or templates
 	if(!dest)
@@ -11001,7 +11456,8 @@ void move_land_to_merge(sys::state& state, dcon::nation_id by, dcon::army_id a, 
 
 	if(dest == start) { // merge in place
 		for(auto ar : state.world.province_get_army_location(start)) {
-			if(ar.get_army().get_controller_from_army_control() == by && ar.get_army() != a) {
+			if(ar.get_army().get_controller_from_army_control() == by && ar.get_army() != a
+				&& !land_forces::is_battle_projection(state, ar.get_army())) {
 				auto regs = state.world.army_get_army_membership(a);
 				while(regs.begin() != regs.end()) {
 					(*regs.begin()).set_army(ar.get_army());
@@ -11083,6 +11539,13 @@ template bool move_navy_ai < ai_path_length{ 0 } > (sys::state& state, dcon::nav
 
 
 bool set_army_path(sys::state& state, dcon::army_id army, std::span<const dcon::province_id, std::dynamic_extent> army_path, dcon::nation_id nation_as, bool override_path) {
+	if(land_forces::is_battle_projection(state, army) && !state.world.army_get_is_retreating(army)) {
+		if(army_path.empty()) return false;
+		for(auto member : state.world.army_get_army_membership(army))
+			return land_forces::order_march(state, nation_as,
+				land_forces::formation_for_legacy_regiment(state, member.get_regiment()), army_path.front(), false) != 0;
+		return false;
+	}
 	if(army_path.size() > 0) {
 		auto existing_path = state.world.army_get_path(army);
 		auto old_first_prov = existing_path.size() > 0 ? existing_path.at(existing_path.size() - 1) : dcon::province_id{};
@@ -11111,6 +11574,12 @@ bool set_army_path(sys::state& state, dcon::army_id army, std::span<const dcon::
 // Extracted as a separate function for the AI to use instead of command (remove redundancy in AI code)
 template<ai_path_length path_length_to_use>
 bool move_army_ai(sys::state& state, dcon::army_id army, dcon::province_id destination, dcon::nation_id nation_as, bool reset) {
+	if(land_forces::is_battle_projection(state, army)) {
+		for(auto member : state.world.army_get_army_membership(army))
+			return land_forces::order_march(state, nation_as,
+				land_forces::formation_for_legacy_regiment(state, member.get_regiment()), destination, false) != 0;
+		return false;
+	}
 	bool blackflag = state.world.army_get_black_flag(army);
 
 	// When AI takes over the nation (on tag swaps, players leaving or not joining on savegame load), AI armies can have leftover special orders
@@ -11171,7 +11640,6 @@ void move_navy_to_merge(sys::state& state, dcon::nation_id by, dcon::navy_id a, 
 }
 
 bool pop_eligible_for_mobilization(sys::state& state, dcon::pop_id p) {
-	if(military::land_forces::initialized(state)) return false;
 	auto const pop = dcon::fatten(state.world, p);
 	return pop.get_poptype() != state.culture_definitions.soldiers
 		&& pop.get_poptype() != state.culture_definitions.slaves
@@ -11314,6 +11782,7 @@ template void split_navy<command::actor::player>(sys::state& state, dcon::nation
 
 template<command::actor Actor>
 bool can_split_army(const sys::state& state, dcon::nation_id source, dcon::army_id army, std::span<const dcon::regiment_id> regiments_to_split) {
+	if(land_forces::is_battle_projection(state, army)) return false;
 	if constexpr(Actor == command::actor::player) {
 		if(!state.current_scene.game_in_progress) {
 			return false;

@@ -1654,6 +1654,10 @@ public:
 	void on_update(sys::state& state) noexcept override {
 		auto province_id = retrieve<dcon::province_id>(state, parent);
 		auto built = military::regiments_created_from_province(state, province_id);
+		if(military::land_forces::initialized(state)) {
+			set_text(state, text::prettify(built));
+			return;
+		}
 		auto max_possible = military::regiments_max_possible_from_province(state, province_id);
 		set_text(state, text::format_ratio(built, max_possible));
 	}

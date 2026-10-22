@@ -6,6 +6,7 @@
 #include "world_trade_capacity.hpp"
 #include "exact_person_goods.hpp"
 #include "exact_person_freight.hpp"
+#include "military/land_forces.hpp"
 #include "world/spatial_runtime.hpp"
 
 #include <algorithm>
@@ -203,6 +204,13 @@ void advance(sys::state& state) {
 	std::vector<dcon::shipment_id> shipments;
 	state.world.for_each_shipment([&](dcon::shipment_id shipment) { shipments.push_back(shipment); });
 	std::sort(shipments.begin(), shipments.end(), [](auto a, auto b) { return a.index() < b.index(); });
+	// Supply columns of the land forces are admitted to a leg before commerce,
+	// which shares what they leave: an army does not queue behind the market.
+	auto const columns = military::land_forces::supply_columns(state);
+	std::stable_partition(shipments.begin(), shipments.end(), [&](dcon::shipment_id shipment) {
+		return std::binary_search(columns.begin(), columns.end(), shipment,
+			[](auto left, auto right) { return left.index() < right.index(); });
+	});
 	std::unordered_map<uint64_t, float> available_capacity;
 	std::unordered_map<uint64_t, bool> initialized_capacity;
 	for(auto shipment : shipments) {
@@ -210,6 +218,9 @@ void advance(sys::state& state) {
 		auto commodity = state.world.shipment_get_commodity(shipment);
 		auto profile = logistics::profile_for(state, commodity);
 		auto remaining = std::max(0.0f, state.world.shipment_get_remaining_quantity(shipment));
+		// Equipment is counted as whole machines. Commercial fractional spoilage
+		// would turn five tanks into 4.9975 and invalidate the entire holding.
+		if(military::land_forces::is_equipment_supply_column(state, shipment)) profile.daily_spoilage = 0.0f;
 		remaining *= std::max(0.0f, 1.0f - profile.daily_spoilage);
 		state.world.shipment_set_remaining_quantity(shipment, remaining);
 	}
@@ -218,6 +229,7 @@ void advance(sys::state& state) {
 		if(!state.world.shipment_is_valid(shipment) || lifecycle(state.world.shipment_get_lifecycle(shipment)) != lifecycle::queued) continue;
 		auto legs = route_legs(state, shipment);
 		auto profile = logistics::profile_for(state, state.world.shipment_get_commodity(shipment));
+		if(military::land_forces::is_equipment_supply_column(state, shipment)) profile.daily_spoilage = 0.0f;
 		auto current = state.world.shipment_get_current_leg(shipment);
 		if(current >= legs.size()) {
 			state.world.shipment_set_lifecycle(shipment, uint8_t(lifecycle::blocked));

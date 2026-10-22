@@ -1,7 +1,9 @@
 #include "strategic_statecraft.hpp"
+#include "strategic_statecraft_forecast.hpp"
 
 #include "system_state.hpp"
 #include "military/military.hpp"
+#include "military/land_forces.hpp"
 #include "provinces/province.hpp"
 #include "nations.hpp"
 #include "demographics.hpp"
@@ -11,9 +13,11 @@
 #include "governance/intelligence.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <initializer_list>
 #include <limits>
 #include <vector>
 
@@ -70,16 +74,54 @@ interests* profile(sys::state& state, dcon::nation_id nation) {
 	return &state.strategic_interests[nation.index()];
 }
 
-float estimate_military(sys::state const& state, dcon::nation_id nation) {
-	if(!nation || !state.world.nation_is_valid(nation))
-		return 0.0f;
-	return std::max(0.0f, float(state.world.nation_get_military_score(nation)));
-}
+// What every country's power looks like from outside, measured once for all of
+// them. The economy is what it produces (the national accounts of the scenario)
+// or, without them, its industrial score. The military is the equipment of its
+// land forces in tonnes; a country whose forces are not written down is taken to
+// field what its economy pays for, at the rate of the countries whose forces are.
+// Without either the old military score stands in.
+struct power_table {
+	std::vector<float> military;
+	std::vector<float> economy;
+};
 
-float estimate_economy(sys::state const& state, dcon::nation_id nation) {
-	if(!nation || !state.world.nation_is_valid(nation))
-		return 0.0f;
-	return std::max(0.0f, float(state.world.nation_get_industrial_score(nation)));
+power_table measure_power(sys::state const& state) {
+	auto const count = state.world.nation_size();
+	power_table table{ std::vector<float>(count, 0.0f), std::vector<float>(count, 0.0f) };
+	std::vector<std::vector<military::land_forces::stable_id>> forces(count);
+	for(auto const& unit : military::land_forces::all_formations(state)) {
+		if(unit.owner && uint32_t(unit.owner.index()) < count && unit.status != military::land_forces::formation_status::destroyed)
+			forces[size_t(unit.owner.index())].push_back(unit.id);
+	}
+	std::vector<float> equipment(count, 0.0f);
+	std::vector<float> ratios; // tonnes of equipment per unit of output, where both are known
+	for(auto nation : state.world.in_nation) {
+		auto const i = size_t(nation.id.index());
+		auto const gdp = state.world.nation_get_gdp(nation);
+		table.economy[i] = gdp > 0.0f ? gdp : std::max(0.0f, float(state.world.nation_get_industrial_score(nation)));
+		if(forces[i].empty())
+			continue;
+		auto const summary = military::land_forces::summarize(state, forces[i]);
+		equipment[i] = float(summary.equipment_tonnes > 0.0 ? summary.equipment_tonnes : summary.equipment_tonnes_authorized);
+		if(equipment[i] > 0.0f && gdp > 0.0f)
+			ratios.push_back(equipment[i] / gdp);
+	}
+	auto rate = 0.0f;
+	if(!ratios.empty()) {
+		std::nth_element(ratios.begin(), ratios.begin() + ratios.size() / 2, ratios.end());
+		rate = ratios[ratios.size() / 2];
+	}
+	for(auto nation : state.world.in_nation) {
+		auto const i = size_t(nation.id.index());
+		auto const gdp = state.world.nation_get_gdp(nation);
+		if(equipment[i] > 0.0f)
+			table.military[i] = equipment[i];
+		else if(rate > 0.0f && gdp > 0.0f)
+			table.military[i] = rate * gdp;
+		else
+			table.military[i] = std::max(0.0f, float(state.world.nation_get_military_score(nation)));
+	}
+	return table;
 }
 
 bool knows_well(sys::state& state, dcon::nation_id observer, dcon::nation_id subject) {
@@ -207,6 +249,7 @@ void refresh_reported_power_beliefs(sys::state& state) {
 void publish_monthly_intelligence(sys::state& state) {
 	using information_kind = economy::information::information_fact_kind;
 	auto const received_on = state.current_date + 30;
+	auto const power = measure_power(state);
 	for(auto observer : state.world.in_nation) {
 		auto agency = governance::intelligence::agency_for(state, observer.id);
 		auto const readiness = governance::intelligence::operational_readiness(state, agency);
@@ -222,9 +265,9 @@ void publish_monthly_intelligence(sys::state& state) {
 			auto const quality = unit(access * readiness);
 			auto const prior = find_belief(state, observer.id, subject.id);
 			auto const observed_military = relative_share(
-				estimate_military(state, subject.id), estimate_military(state, observer.id));
+				power.military[size_t(subject.id.index())], power.military[size_t(observer.id.index())]);
 			auto const observed_economic = relative_share(
-				estimate_economy(state, subject.id), estimate_economy(state, observer.id));
+				power.economy[size_t(subject.id.index())], power.economy[size_t(observer.id.index())]);
 			auto const military_value = prior
 				? prior->military_power + (observed_military - prior->military_power) * quality
 				: 0.5f + (observed_military - 0.5f) * quality;
@@ -720,6 +763,23 @@ void initialize(sys::state& state) {
 		if(overlord)
 			guarantee_formed(state, overlord, nation.id);
 	}
+	// On the first day governments already know what the world's press knows:
+	// the power of their neighbours, allies and the great powers well, that of
+	// the rest roughly. Intelligence reports refine it from then on.
+	{
+		auto const power = measure_power(state);
+		for(auto& view : state.strategic_beliefs) {
+			auto const observer = dcon::nation_id{ dcon::nation_id::value_base_t(uint32_t(view.key >> 32)) };
+			auto const subject = dcon::nation_id{ dcon::nation_id::value_base_t(uint32_t(view.key)) };
+			if(observer == subject || !state.world.nation_is_valid(observer) || !state.world.nation_is_valid(subject))
+				continue;
+			auto const certainty = knows_well(state, observer, subject) ? 1.0f : 0.5f;
+			auto const military = relative_share(power.military[size_t(subject.index())], power.military[size_t(observer.index())]);
+			auto const economic = relative_share(power.economy[size_t(subject.index())], power.economy[size_t(observer.index())]);
+			view.military_power = unit(0.5f + (military - 0.5f) * certainty);
+			view.economic_power = unit(0.5f + (economic - 0.5f) * certainty);
+		}
+	}
 	update_monthly(state);
 }
 
@@ -768,31 +828,117 @@ void update_monthly(sys::state& state) {
 	}
 }
 
+// What the terms of an alliance are made of, as the observer weighs them. A
+// country that only reads the observer from outside substitutes its own
+// estimates for the inputs it cannot see (assess_alliance).
+struct alliance_inputs {
+	float standing = 0.0f; // relations, -1..1
+	float threat = 0.0f; // a rival they share
+	float distance = 0.0f;
+	float conflict = 0.0f;
+	float reliability = 0.5f;
+	float other_power = 0.5f; // the partner's military share, as the observer believes it
+	float other_economy = 0.5f;
+	float great_power = 0.0f;
+	float entanglement = 0.0f;
+	float third_public = 0.0f; // the partner's ties to the observer's allies and their enemies
+	float third_rival = 0.0f; // the partner's ties to the observer's rival
+	interests weights{};
+};
+
+// The third countries. Being allied to the observer's rival, or to a country at
+// war with it, or at war with one of its allies, weighs against an alliance;
+// sharing one of its allies weighs for it. With a hypothetical ally the partner
+// is taken to have made that alliance already.
+static void third_parties(sys::state& state, dcon::nation_id observer, dcon::nation_id partner, dcon::nation_id partner_new_ally, float& public_part, float& rival_part) {
+	public_part = 0.0f;
+	rival_part = 0.0f;
+	auto const allied_with_partner = [&](dcon::nation_id n) {
+		return n && n != partner && (n == partner_new_ally || nations::are_allied(state, partner, n));
+	};
+	if(auto const rival = state.world.nation_get_ai_rival(observer); rival && rival != partner && allied_with_partner(rival))
+		rival_part = -0.6f;
+	bool enemy_tie = false;
+	bool shared_friend = false;
+	for(auto rel : state.world.nation_get_diplomatic_relation(observer)) {
+		if(!rel.get_are_allied())
+			continue;
+		auto const friend_of_observer = rel.get_related_nations(0) == observer ? rel.get_related_nations(1) : rel.get_related_nations(0);
+		if(!friend_of_observer || friend_of_observer == partner)
+			continue;
+		if(military::are_at_war(state, partner, friend_of_observer))
+			enemy_tie = true;
+		else if(allied_with_partner(friend_of_observer))
+			shared_friend = true;
+	}
+	if(!enemy_tie) {
+		for(auto participant : state.world.nation_get_war_participant(observer)) {
+			auto const war = participant.get_war();
+			for(auto other : state.world.war_get_war_participant(war)) {
+				if(other.get_is_attacker() != participant.get_is_attacker() && allied_with_partner(other.get_nation()))
+					enemy_tie = true;
+			}
+		}
+	}
+	public_part = (enemy_tie ? -0.5f : 0.0f) + (shared_friend ? 0.35f : 0.0f);
+}
+
+static alliance_inputs alliance_inputs_of(sys::state& state, dcon::nation_id observer, dcon::nation_id partner, dcon::nation_id partner_new_ally = dcon::nation_id{}) {
+	alliance_inputs in{};
+	auto const* view = find_belief(state, observer, partner);
+	in.reliability = view ? view->reliability : 0.5f;
+	in.threat = common_threat(state, observer, partner);
+	in.distance = distance_interest(state, observer, partner);
+	in.conflict = claim_conflict(state, observer, partner);
+	in.other_power = view ? view->military_power : 0.5f;
+	in.other_economy = view ? view->economic_power : 0.5f;
+	in.great_power = float(state.world.nation_get_is_great_power(partner));
+	in.weights = state.strategic_interests[observer.index()];
+	auto const allies = float(state.world.nation_get_allies_count(partner)) + (partner_new_ally ? 1.0f : 0.0f);
+	auto const at_war = state.world.nation_get_is_at_war(partner) || (partner_new_ally && state.world.nation_get_is_at_war(partner_new_ally));
+	in.entanglement = unit(0.04f * allies + 0.06f * float(at_war) + 0.18f * in.conflict);
+	// How the two governments stand with each other: an old friend is worth
+	// more than a stranger, and a hostile state is no partner at all.
+	in.standing = std::clamp(state.world.diplomatic_relation_get_value(state.world.get_diplomatic_relation_by_diplomatic_pair(observer, partner)) / 200.0f, -1.0f, 1.0f);
+	third_parties(state, observer, partner, partner_new_ally, in.third_public, in.third_rival);
+	return in;
+}
+
+// The terms of an alliance, each with its share of the value.
+static forecast alliance_from(alliance_inputs const& in) {
+	forecast terms{};
+	auto const& weights = in.weights;
+	float const strategic_value = unit(0.42f * in.threat + 0.22f * in.other_power
+		+ 0.18f * in.distance + 0.18f * in.great_power
+		+ 0.08f * weights.market_access * in.other_economy
+		+ 0.08f * weights.resource_access * in.other_economy
+		+ 0.1f * weights.route_access * in.distance
+		+ 0.07f * weights.prestige_influence * in.great_power);
+	float const third = std::clamp(in.third_public + in.third_rival, -1.0f, 1.0f);
+	terms.parts = { forecast::part{ forecast_factor::relations, 0.35f * in.standing },
+		forecast::part{ forecast_factor::common_threat, 0.3f * in.threat },
+		forecast::part{ forecast_factor::strategic_value, 0.27f * strategic_value },
+		forecast::part{ forecast_factor::reliability, 0.25f * in.reliability },
+		forecast::part{ forecast_factor::proximity, 0.18f * in.distance },
+		forecast::part{ forecast_factor::entanglement, -0.2f * in.entanglement },
+		forecast::part{ forecast_factor::claim_conflict, -0.48f * in.conflict },
+		forecast::part{ forecast_factor::third_parties, 0.22f * third } };
+	terms.value = std::clamp(0.35f * in.standing + 0.3f * in.threat + 0.27f * strategic_value
+		+ 0.25f * in.reliability + 0.18f * in.distance
+		- 0.2f * in.entanglement - 0.48f * in.conflict + 0.22f * third, -1.0f, 1.0f);
+	return terms;
+}
+
+static forecast alliance_terms(sys::state& state, dcon::nation_id observer, dcon::nation_id partner) {
+	return alliance_from(alliance_inputs_of(state, observer, partner));
+}
+
+constexpr float alliance_threshold = 0.28f;
+
 float alliance_value(sys::state& state, dcon::nation_id observer, dcon::nation_id partner) {
 	if(!uses_model(state, observer) || !partner || !state.world.nation_is_valid(partner) || observer == partner)
 		return -1.0f;
-	auto const* view = find_belief(state, observer, partner);
-	float const reliability = view ? view->reliability : 0.5f;
-	float const threat = common_threat(state, observer, partner);
-	float const distance = distance_interest(state, observer, partner);
-	float const conflict = claim_conflict(state, observer, partner);
-	float const other_power = view ? view->military_power : 0.5f;
-	auto const& weights = state.strategic_interests[observer.index()];
-	float const strategic_value = unit(0.42f * threat + 0.22f * other_power
-		+ 0.18f * distance + 0.18f * float(state.world.nation_get_is_great_power(partner))
-		+ 0.08f * weights.market_access
-			* (view ? view->economic_power : 0.5f)
-		+ 0.08f * weights.resource_access
-			* (view ? view->economic_power : 0.5f)
-		+ 0.1f * weights.route_access * distance
-		+ 0.07f * weights.prestige_influence
-			* float(state.world.nation_get_is_great_power(partner)));
-	float const entanglement = unit(0.04f * float(state.world.nation_get_allies_count(partner))
-		+ 0.06f * float(state.world.nation_get_is_at_war(partner))
-		+ 0.18f * conflict);
-	return std::clamp(0.3f * threat + 0.27f * strategic_value
-		+ 0.25f * reliability + 0.18f * distance
-		- 0.2f * entanglement - 0.48f * conflict, -1.0f, 1.0f);
+	return alliance_terms(state, observer, partner).value;
 }
 
 dcon::nation_id best_alliance_partner(sys::state& state, dcon::nation_id nation) {
@@ -817,17 +963,94 @@ dcon::nation_id best_alliance_partner(sys::state& state, dcon::nation_id nation)
 	return best;
 }
 
-bool accepts_alliance(sys::state& state, dcon::nation_id target, dcon::nation_id proposer) {
+forecast forecast_alliance(sys::state& state, dcon::nation_id target, dcon::nation_id proposer) {
+	forecast f{};
 	if(!uses_model(state, target))
+		return f;
+	f.modelled = true;
+	f.threshold = alliance_threshold;
+	if(!proposer || !state.world.nation_is_valid(proposer) || target == proposer) {
+		f.value = -1.0f;
+		return f;
+	}
+	auto const terms = alliance_terms(state, target, proposer);
+	f.value = terms.value;
+	f.parts = terms.parts;
+	bool const infamous = state.world.nation_get_infamy(target) >= state.defines.badboy_limit * 0.85f;
+	bool const contested = claim_conflict(state, target, proposer) >= 0.75f;
+	bool const hostile = state.world.diplomatic_relation_get_value(state.world.get_diplomatic_relation_by_diplomatic_pair(target, proposer)) <= -100.0f;
+	f.accepted = f.value >= f.threshold && !infamous && !contested && !hostile;
+	if(hostile)
+		f.parts[0] = forecast::part{ forecast_factor::relations, -1.0f };
+	if(infamous)
+		f.parts[8] = forecast::part{ forecast_factor::infamy, -1.0f };
+	if(contested && !hostile)
+		f.parts[9] = forecast::part{ forecast_factor::claim_conflict, -1.0f };
+	return f;
+}
+
+forecast_factor veto_of(forecast const& f) {
+	for(auto const& p : f.parts) {
+		if(p.factor != forecast_factor::none && p.weight <= -1.0f)
+			return p.factor;
+	}
+	return forecast_factor::none;
+}
+
+deal_forecast forecast_deal(sys::state& state, dcon::nation_id target, dcon::nation_id proposer, uint16_t gives, uint16_t asks) {
+	deal_forecast d{};
+	if(!target || !proposer || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(proposer) || target == proposer)
+		return d;
+	if(!uses_model(state, target))
+		return d;
+	d.modelled = true;
+	gives &= deal_gives;
+	asks &= deal_asks;
+	auto const& weights = state.strategic_interests[target.index()];
+	auto const standing = std::clamp(state.world.diplomatic_relation_get_value(state.world.get_diplomatic_relation_by_diplomatic_pair(target, proposer)) / 200.0f, -1.0f, 1.0f);
+	auto const at_war = state.world.nation_get_is_at_war(target);
+	auto const slot = [](uint16_t bit) { return size_t(std::countr_zero(bit)); };
+	if(asks & deal_alliance) {
+		auto const f = forecast_alliance(state, target, proposer);
+		d.item_value[slot(deal_alliance)] = f.value - f.threshold;
+		// what refuses an alliance on its own refuses it inside a deal too
+		if(auto const v = veto_of(f); v != forecast_factor::none)
+			d.veto = v;
+	}
+	if(asks & deal_access_for_us) {
+		auto const f = forecast_military_access(state, target, proposer);
+		d.item_value[slot(deal_access_for_us)] = f.value - f.threshold;
+		if(f.parts[0].factor == forecast_factor::relations && f.parts[0].weight <= -1.0f)
+			d.veto = forecast_factor::relations;
+	}
+	if(asks & deal_free_trade) {
+		auto const f = forecast_free_trade(state, target, proposer);
+		d.item_value[slot(deal_free_trade)] = f.value - f.threshold;
+		if(f.parts[0].factor == forecast_factor::relations && f.parts[0].weight <= -1.0f)
+			d.veto = forecast_factor::relations;
+	}
+	if(asks & deal_lift_their_embargo) // they give up a lever; the warmer they are, the less it costs them
+		d.item_value[slot(deal_lift_their_embargo)] = -0.12f + 0.08f * standing;
+	if(gives & deal_access_for_them)
+		d.item_value[slot(deal_access_for_them)] = 0.06f + 0.10f * weights.ally_subject_protection + (at_war ? 0.12f : 0.0f);
+	if(gives & deal_subsidies)
+		d.item_value[slot(deal_subsidies)] = at_war ? 0.22f : 0.04f;
+	if(gives & deal_lift_our_embargo)
+		d.item_value[slot(deal_lift_our_embargo)] = 0.10f + 0.08f * weights.market_access;
+	for(auto v : d.item_value)
+		d.value += v;
+	d.accepted = (gives | asks) != 0 && d.veto == forecast_factor::none && d.value >= 0.0f;
+	return d;
+}
+
+bool accepts_alliance(sys::state& state, dcon::nation_id target, dcon::nation_id proposer) {
+	auto const f = forecast_alliance(state, target, proposer);
+	if(!f.modelled)
 		return false;
-	auto const value = alliance_value(state, target, proposer);
-	bool const accepted = value >= 0.28f
-		&& state.world.nation_get_infamy(target) < state.defines.badboy_limit * 0.85f
-		&& claim_conflict(state, target, proposer) < 0.75f;
-	set_decision(state, target, accepted ? decision_code::alliance_offer : decision_code::alliance_decline, value);
-	if(accepted)
-		set_objective(state, target, objective_kind::alliance, proposer, value);
-	return accepted;
+	set_decision(state, target, f.accepted ? decision_code::alliance_offer : decision_code::alliance_decline, f.value);
+	if(f.accepted)
+		set_objective(state, target, objective_kind::alliance, proposer, f.value);
+	return f.accepted;
 }
 
 bool accepts_call_to_arms(sys::state& state, dcon::nation_id nation,
@@ -1009,11 +1232,13 @@ bool evaluate_peace_offer_value(sys::state const& state,
 	return accepted;
 }
 
-bool accepts_military_access(sys::state& state, dcon::nation_id target,
-	dcon::nation_id requester) {
+forecast forecast_military_access(sys::state& state, dcon::nation_id target, dcon::nation_id requester) {
+	forecast f{};
 	if(!target || !requester || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(requester) || target == requester)
-		return false;
+		return f;
 	(void)uses_model(state, target);
+	f.modelled = true;
+	f.threshold = 0.32f;
 	auto const& weights = state.strategic_interests[target.index()];
 	bool shared_enemy = false;
 	for(auto participant : state.world.nation_get_war_participant(target)) {
@@ -1024,32 +1249,405 @@ bool accepts_military_access(sys::state& state, dcon::nation_id target,
 			shared_enemy = true;
 	}
 	bool const allied = nations::are_allied(state, target, requester);
-	float const score = 0.55f * float(shared_enemy) + 0.35f * float(allied)
-		+ 0.1f * weights.ally_subject_protection - 0.25f * claim_conflict(state, target, requester);
-	bool const accepted = score >= 0.32f;
-	set_decision(state, target, accepted ? decision_code::access_grant : decision_code::access_reject,
-		score);
-	set_objective(state, target, objective_kind::protect_partner, requester, score);
-	return accepted;
+	float const conflict = claim_conflict(state, target, requester);
+	float const standing = std::clamp(state.world.diplomatic_relation_get_value(state.world.get_diplomatic_relation_by_diplomatic_pair(target, requester)) / 200.0f, -1.0f, 1.0f);
+	f.parts = { forecast::part{ forecast_factor::shared_enemy, 0.55f * float(shared_enemy) },
+		forecast::part{ forecast_factor::alliance, 0.35f * float(allied) },
+		forecast::part{ forecast_factor::strategic_value, 0.1f * weights.ally_subject_protection },
+		forecast::part{ forecast_factor::claim_conflict, -0.25f * conflict },
+		forecast::part{ forecast_factor::relations, 0.25f * standing } };
+	f.value = 0.55f * float(shared_enemy) + 0.35f * float(allied)
+		+ 0.1f * weights.ally_subject_protection - 0.25f * conflict + 0.25f * standing;
+	f.accepted = f.value >= f.threshold && standing > -0.5f;
+	if(standing <= -0.5f)
+		f.parts[0] = forecast::part{ forecast_factor::relations, -1.0f };
+	return f;
 }
 
-bool accepts_free_trade_agreement(sys::state& state, dcon::nation_id target,
-	dcon::nation_id proposer) {
-	if(!target || !proposer || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(proposer) || target == proposer)
+bool accepts_military_access(sys::state& state, dcon::nation_id target,
+	dcon::nation_id requester) {
+	auto const f = forecast_military_access(state, target, requester);
+	if(!f.modelled)
 		return false;
+	set_decision(state, target, f.accepted ? decision_code::access_grant : decision_code::access_reject,
+		f.value);
+	set_objective(state, target, objective_kind::protect_partner, requester, f.value);
+	return f.accepted;
+}
+
+forecast forecast_free_trade(sys::state& state, dcon::nation_id target, dcon::nation_id proposer) {
+	forecast f{};
+	if(!target || !proposer || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(proposer) || target == proposer)
+		return f;
 	(void)uses_model(state, target);
+	f.modelled = true;
+	f.threshold = 0.08f;
 	auto const& weights = state.strategic_interests[target.index()];
 	auto const* view = find_belief(state, target, proposer);
 	float const expected_market_gain = weights.market_access
 		* (view ? view->economic_power : 0.5f);
 	float const security_cost = 0.18f * claim_conflict(state, target, proposer)
 		+ 0.12f * float(military::are_at_war(state, target, proposer));
-	float const value = expected_market_gain - security_cost;
-	bool const accepted = value >= 0.08f;
-	set_decision(state, target, accepted ? decision_code::free_trade_accept
-		: decision_code::free_trade_reject, value);
-	set_objective(state, target, objective_kind::market_access, proposer, value);
-	return accepted;
+	float const standing = std::clamp(state.world.diplomatic_relation_get_value(state.world.get_diplomatic_relation_by_diplomatic_pair(target, proposer)) / 200.0f, -1.0f, 1.0f);
+	f.parts = { forecast::part{ forecast_factor::market_gain, expected_market_gain },
+		forecast::part{ forecast_factor::security_cost, -security_cost },
+		forecast::part{ forecast_factor::relations, 0.15f * standing } };
+	f.value = expected_market_gain - security_cost + 0.15f * standing;
+	f.accepted = f.value >= f.threshold && standing > -0.5f;
+	if(standing <= -0.5f)
+		f.parts[0] = forecast::part{ forecast_factor::relations, -1.0f };
+	return f;
+}
+
+bool accepts_free_trade_agreement(sys::state& state, dcon::nation_id target,
+	dcon::nation_id proposer) {
+	auto const f = forecast_free_trade(state, target, proposer);
+	if(!f.modelled)
+		return false;
+	set_decision(state, target, f.accepted ? decision_code::free_trade_accept
+		: decision_code::free_trade_reject, f.value);
+	set_objective(state, target, objective_kind::market_access, proposer, f.value);
+	return f.accepted;
+}
+
+// ---- what one government can tell of another's intentions ----
+
+namespace {
+
+// The newest report on the subject that reached the observer's government, by its source.
+struct seen_report {
+	float confidence = 0.0f;
+	int32_t age = -1;
+};
+
+void newest_reports(sys::state& state, dcon::nation_id observer, dcon::nation_id subject, seen_report& agency_report, seen_report& envoy_report) {
+	auto const government = governance::find_institution(state, observer, governance::institution_kind::central_government);
+	auto const government_actor = governance::actor_for_institution(state, government);
+	if(!government_actor)
+		return;
+	auto const agency_actor = governance::actor_for_institution(state, governance::intelligence::agency_for(state, observer));
+	auto const today = int32_t(state.current_date.value);
+	state.world.nation_for_each_information_report_subject_as_nation(subject, [&](dcon::information_report_subject_id relation) {
+		auto const report = state.world.information_report_subject_get_information_report(relation);
+		if(!report || state.world.information_report_get_economic_actor_from_information_report_recipient(report) != government_actor)
+			return;
+		auto const received = int32_t(state.world.information_report_get_received_on(report).value);
+		if(received > today)
+			return;
+		auto const source = state.world.information_report_get_economic_actor_from_information_report_source(report);
+		auto* seen = source == government_actor ? &envoy_report : (agency_actor && source == agency_actor ? &agency_report : nullptr);
+		if(!seen)
+			return;
+		auto const age = today - received;
+		if(seen->age < 0 || age < seen->age) {
+			seen->age = age;
+			seen->confidence = unit(state.world.information_report_get_confidence(report));
+		}
+	});
+}
+
+// The observer's estimate of what the subject believes of the observer: from
+// the observer's own belief of the subject (a share is the subject's against
+// the observer's), toward the truth as far as the observer reads the subject.
+float read_share_of(float truth, belief const* own_view_of_subject, bool economic, float quality) {
+	auto const prior = own_view_of_subject ? 1.0f - (economic ? own_view_of_subject->economic_power : own_view_of_subject->military_power) : 0.5f;
+	return prior + (truth - prior) * quality;
+}
+
+interests read_interest_weights(interests const& truth, float quality) {
+	interests guess{};
+	auto const toward = [&](float prior, float value) { return prior + (value - prior) * quality; };
+	guess.security = toward(guess.security, truth.security);
+	guess.territorial_claims = toward(guess.territorial_claims, truth.territorial_claims);
+	guess.market_access = toward(guess.market_access, truth.market_access);
+	guess.resource_access = toward(guess.resource_access, truth.resource_access);
+	guess.route_access = toward(guess.route_access, truth.route_access);
+	guess.ally_subject_protection = toward(guess.ally_subject_protection, truth.ally_subject_protection);
+	guess.prestige_influence = toward(guess.prestige_influence, truth.prestige_influence);
+	return guess;
+}
+
+// The inputs of an alliance as a reader sees them: what is not public replaced by its reconstruction.
+void read_alliance_inputs(sys::state& state, alliance_inputs& in, dcon::nation_id reader, dcon::nation_id subject, float quality) {
+	auto const* own_view = find_belief(state, reader, subject);
+	in.threat *= quality; // whom they count their rival is not public
+	in.third_rival *= quality;
+	in.other_power = read_share_of(in.other_power, own_view, false, quality);
+	in.other_economy = read_share_of(in.other_economy, own_view, true, quality);
+	in.weights = read_interest_weights(in.weights, quality);
+}
+
+void copy_assessed_parts(assessment& a, forecast const& f, std::initializer_list<forecast_factor> inferred) {
+	for(size_t i = 0; i < f.parts.size() && i < a.parts.size(); ++i) {
+		a.parts[i].factor = f.parts[i].factor;
+		a.parts[i].weight = f.parts[i].weight;
+		a.parts[i].inferred = std::find(inferred.begin(), inferred.end(), f.parts[i].factor) != inferred.end();
+	}
+}
+
+} // namespace
+
+reading read_intentions(sys::state& state, dcon::nation_id observer, dcon::nation_id subject) {
+	reading r{};
+	if(!observer || !subject || observer == subject || !state.world.nation_is_valid(observer) || !state.world.nation_is_valid(subject))
+		return r;
+	auto contact = 0.0f;
+	auto const raise = [&](bool when, float to) {
+		if(when)
+			contact = std::max(contact, to);
+	};
+	raise(nations::are_allied(state, observer, subject), 0.45f);
+	raise(state.world.overlord_get_ruler(state.world.nation_get_overlord_as_subject(subject)) == observer
+		|| state.world.overlord_get_ruler(state.world.nation_get_overlord_as_subject(observer)) == subject
+		|| state.world.nation_get_in_sphere_of(subject) == observer || state.world.nation_get_in_sphere_of(observer) == subject, 0.45f);
+	raise(bool(state.world.get_nation_adjacency_by_nation_adjacency_pair(observer, subject)), 0.30f);
+	raise(military::are_at_war(state, observer, subject), 0.25f);
+	raise(state.world.nation_get_ai_rival(observer) == subject || state.world.nation_get_ai_rival(subject) == observer, 0.25f);
+	raise(state.world.nation_get_is_great_power(observer) || state.world.nation_get_is_great_power(subject), 0.20f);
+	r.contact = contact;
+	seen_report agency_report{};
+	seen_report envoy_report{};
+	newest_reports(state, observer, subject, agency_report, envoy_report);
+	r.intelligence_age = agency_report.age;
+	r.embassy_age = envoy_report.age;
+	if(agency_report.age >= 0)
+		r.intelligence = unit(agency_report.confidence * std::exp(-float(agency_report.age) / 180.0f));
+	if(envoy_report.age >= 0)
+		r.embassy = unit(envoy_report.confidence * std::exp(-float(envoy_report.age) / 120.0f));
+	auto const relation = state.world.diplomatic_relation_get_value(state.world.get_diplomatic_relation_by_diplomatic_pair(observer, subject));
+	r.openness = 0.2f * std::clamp(relation / 200.0f, 0.0f, 1.0f);
+	r.quality = std::clamp(1.0f - (1.0f - r.contact) * (1.0f - r.intelligence) * (1.0f - r.embassy) * (1.0f - r.openness), 0.0f, 0.9f);
+	return r;
+}
+
+likelihood likelihood_of(float margin, float spread, forecast_factor veto) {
+	if(veto != forecast_factor::none)
+		return likelihood::out_of_question;
+	if(margin - spread >= 0.0f)
+		return likelihood::very_likely;
+	if(margin + spread < 0.0f)
+		return margin + spread < -0.1f ? likelihood::very_unlikely : likelihood::unlikely;
+	if(margin >= 0.35f * spread)
+		return likelihood::likely;
+	if(margin <= -0.35f * spread)
+		return likelihood::unlikely;
+	return likelihood::uncertain;
+}
+
+assessment assess_alliance(sys::state& state, dcon::nation_id observer, dcon::nation_id target) {
+	assessment a{};
+	auto const truth = forecast_alliance(state, target, observer);
+	if(!truth.modelled || !observer || !state.world.nation_is_valid(observer) || observer == target)
+		return a;
+	a.modelled = true;
+	a.knowledge = read_intentions(state, observer, target);
+	auto const q = a.knowledge.quality;
+	// what they weigh, with what is not public replaced by our reconstruction of it
+	auto read = alliance_inputs_of(state, target, observer);
+	read_alliance_inputs(state, read, observer, target, q);
+	auto const f = alliance_from(read);
+	copy_assessed_parts(a, f, { forecast_factor::common_threat, forecast_factor::strategic_value, forecast_factor::third_parties });
+	a.veto = veto_of(truth); // hostility, ill repute and contested claims are all public
+	if(a.veto != forecast_factor::none)
+		a.parts[9] = assessment::part{ a.veto, -1.0f, false };
+	a.margin = f.value - alliance_threshold;
+	// half the reach of what is inferred: a rival they share, what we are worth to them, a rival we are tied to
+	a.spread = (1.0f - q) * 0.5f * (0.3f * 0.8f + 0.27f * 0.5f + 0.22f * 0.6f);
+	a.verdict = likelihood_of(a.margin, a.spread, a.veto);
+	return a;
+}
+
+assessment assess_military_access(sys::state& state, dcon::nation_id observer, dcon::nation_id target) {
+	assessment a{};
+	auto const truth = forecast_military_access(state, target, observer);
+	if(!truth.modelled)
+		return a;
+	a.modelled = true;
+	a.knowledge = read_intentions(state, observer, target);
+	auto const q = a.knowledge.quality;
+	auto const& weights = state.strategic_interests[target.index()];
+	auto const hidden = 0.1f * weights.ally_subject_protection;
+	auto const read = 0.1f * read_interest_weights(weights, q).ally_subject_protection;
+	copy_assessed_parts(a, truth, { forecast_factor::strategic_value });
+	for(auto& p : a.parts) {
+		if(p.factor == forecast_factor::strategic_value)
+			p.weight = read;
+	}
+	a.veto = veto_of(truth);
+	a.margin = truth.value - hidden + read - truth.threshold;
+	a.spread = (1.0f - q) * 0.5f * 0.1f;
+	a.verdict = likelihood_of(a.margin, a.spread, a.veto);
+	return a;
+}
+
+assessment assess_free_trade(sys::state& state, dcon::nation_id observer, dcon::nation_id target) {
+	assessment a{};
+	auto const truth = forecast_free_trade(state, target, observer);
+	if(!truth.modelled)
+		return a;
+	a.modelled = true;
+	a.knowledge = read_intentions(state, observer, target);
+	auto const q = a.knowledge.quality;
+	auto const& weights = state.strategic_interests[target.index()];
+	auto const* their_view = find_belief(state, target, observer);
+	auto const their_share = their_view ? their_view->economic_power : 0.5f;
+	auto const hidden = weights.market_access * their_share;
+	auto const read = read_interest_weights(weights, q).market_access * read_share_of(their_share, find_belief(state, observer, target), true, q);
+	copy_assessed_parts(a, truth, { forecast_factor::market_gain });
+	for(auto& p : a.parts) {
+		if(p.factor == forecast_factor::market_gain)
+			p.weight = read;
+	}
+	a.veto = veto_of(truth);
+	a.margin = truth.value - hidden + read - truth.threshold;
+	a.spread = (1.0f - q) * 0.5f * 0.4f;
+	a.verdict = likelihood_of(a.margin, a.spread, a.veto);
+	return a;
+}
+
+assessment assess_deal(sys::state& state, dcon::nation_id observer, dcon::nation_id target, uint16_t gives, uint16_t asks) {
+	assessment a{};
+	if(!target || !observer || !state.world.nation_is_valid(target) || !state.world.nation_is_valid(observer) || target == observer || !uses_model(state, target))
+		return a;
+	gives &= deal_gives;
+	asks &= deal_asks;
+	a.modelled = true;
+	a.knowledge = read_intentions(state, observer, target);
+	auto const q = a.knowledge.quality;
+	auto const slot = [](uint16_t bit) { return size_t(std::countr_zero(bit)); };
+	std::array<float, 16> by_factor{};
+	std::array<bool, 16> inferred{};
+	auto const take = [&](uint16_t bit, assessment const& item) {
+		a.item_value[slot(bit)] = item.margin;
+		a.spread += item.spread;
+		if(a.veto == forecast_factor::none)
+			a.veto = item.veto;
+		for(auto const& p : item.parts) {
+			if(p.factor == forecast_factor::none || p.weight <= -1.0f)
+				continue;
+			by_factor[size_t(p.factor)] += p.weight;
+			inferred[size_t(p.factor)] = inferred[size_t(p.factor)] || p.inferred;
+		}
+	};
+	if(asks & deal_alliance)
+		take(deal_alliance, assess_alliance(state, observer, target));
+	if(asks & deal_access_for_us)
+		take(deal_access_for_us, assess_military_access(state, observer, target));
+	if(asks & deal_free_trade)
+		take(deal_free_trade, assess_free_trade(state, observer, target));
+	auto const& weights = state.strategic_interests[target.index()];
+	auto const guess = read_interest_weights(weights, q);
+	auto const standing = std::clamp(state.world.diplomatic_relation_get_value(state.world.get_diplomatic_relation_by_diplomatic_pair(target, observer)) / 200.0f, -1.0f, 1.0f);
+	auto const at_war = state.world.nation_get_is_at_war(target);
+	if(asks & deal_lift_their_embargo)
+		a.item_value[slot(deal_lift_their_embargo)] = -0.12f + 0.08f * standing;
+	if(gives & deal_access_for_them) {
+		a.item_value[slot(deal_access_for_them)] = 0.06f + 0.10f * guess.ally_subject_protection + (at_war ? 0.12f : 0.0f);
+		a.spread += (1.0f - q) * 0.5f * 0.10f;
+	}
+	if(gives & deal_subsidies)
+		a.item_value[slot(deal_subsidies)] = at_war ? 0.22f : 0.04f;
+	if(gives & deal_lift_our_embargo) {
+		a.item_value[slot(deal_lift_our_embargo)] = 0.10f + 0.08f * guess.market_access;
+		a.spread += (1.0f - q) * 0.5f * 0.08f;
+	}
+	for(auto v : a.item_value)
+		a.margin += v;
+	size_t at = 0;
+	for(size_t f = 1; f < by_factor.size() && at < a.parts.size(); ++f) {
+		if(std::abs(by_factor[f]) >= 0.005f)
+			a.parts[at++] = assessment::part{ forecast_factor(f), by_factor[f], inferred[f] };
+	}
+	a.verdict = (gives | asks) == 0 ? likelihood::unknown : likelihood_of(a.margin, a.spread, a.veto);
+	return a;
+}
+
+trust_record trust_of(sys::state const& state, dcon::nation_id target, dcon::nation_id observer) {
+	trust_record t{};
+	if(auto const* view = find_belief(state, target, observer)) {
+		t.reliability = view->reliability;
+		t.kept = view->fulfilled_commitments;
+		t.broken = view->broken_commitments;
+		t.last_commitment_day = view->last_commitment_day > 0 ? view->last_commitment_day : -1;
+		t.recent_wars = view->recent_wars;
+		t.last_war_day = view->last_war_day > 0 ? view->last_war_day : -1;
+	}
+	return t;
+}
+
+std::vector<reaction> alliance_reactions(sys::state& state, dcon::nation_id proposer, dcon::nation_id partner, size_t most) {
+	std::vector<reaction> out;
+	if(!proposer || !partner || proposer == partner || !state.world.nation_is_valid(proposer) || !state.world.nation_is_valid(partner))
+		return out;
+	for(auto other : state.world.in_nation) {
+		auto const o = other.id;
+		if(o == proposer || o == partner || other.get_owned_province_count() == 0 || !uses_model(state, o))
+			continue;
+		if(nations::are_allied(state, o, proposer) || military::are_at_war(state, o, proposer))
+			continue;
+		// as the proposer reads them: their own calculation is not known to it
+		auto const quality = read_intentions(state, proposer, o).quality;
+		auto before_in = alliance_inputs_of(state, o, proposer);
+		auto after_in = alliance_inputs_of(state, o, proposer, partner);
+		read_alliance_inputs(state, before_in, proposer, o, quality);
+		read_alliance_inputs(state, after_in, proposer, o, quality);
+		auto const before = alliance_from(before_in).value - alliance_threshold;
+		auto const after = alliance_from(after_in).value - alliance_threshold;
+		if(std::abs(after - before) < 0.015f)
+			continue;
+		reaction r{ o, forecast_factor::entanglement, before, after, true };
+		auto const rival_move = after_in.third_rival - before_in.third_rival;
+		auto const public_move = after_in.third_public - before_in.third_public;
+		if(std::abs(rival_move) > 0.0f && std::abs(rival_move) >= std::abs(public_move)) {
+			r.cause = forecast_factor::third_parties;
+			r.public_reason = false; // whom they count their rival is not public
+		} else if(std::abs(public_move) > 0.0f) {
+			r.cause = forecast_factor::third_parties;
+		}
+		if(!r.public_reason && quality < 0.3f)
+			continue;
+		out.push_back(r);
+	}
+	std::sort(out.begin(), out.end(), [&](reaction const& a, reaction const& b) {
+		auto const crossed_a = (a.before >= 0.0f) != (a.after >= 0.0f);
+		auto const crossed_b = (b.before >= 0.0f) != (b.after >= 0.0f);
+		if(crossed_a != crossed_b)
+			return crossed_a;
+		auto const rank_a = state.world.nation_get_rank(a.nation);
+		auto const rank_b = state.world.nation_get_rank(b.nation);
+		if(rank_a != rank_b)
+			return rank_a < rank_b;
+		return std::abs(a.after - a.before) > std::abs(b.after - b.before);
+	});
+	if(out.size() > most)
+		out.resize(most);
+	return out;
+}
+
+void record_diplomatic_mission(sys::state& state, dcon::nation_id from, dcon::nation_id to) {
+	if(!from || !to || from == to || !state.world.nation_is_valid(from) || !state.world.nation_is_valid(to))
+		return;
+	auto const government = governance::find_institution(state, from, governance::institution_kind::central_government);
+	auto const actor = governance::actor_for_institution(state, government);
+	if(!actor)
+		return;
+	// one report a month from the same envoys is enough
+	auto const today = int32_t(state.current_date.value);
+	bool recent = false;
+	state.world.nation_for_each_information_report_subject_as_nation(to, [&](dcon::information_report_subject_id relation) {
+		auto const report = state.world.information_report_subject_get_information_report(relation);
+		if(report && state.world.information_report_get_economic_actor_from_information_report_source(report) == actor
+			&& today - int32_t(state.world.information_report_get_fact_date(report).value) < 30)
+			recent = true;
+	});
+	if(recent)
+		return;
+	auto const output_of = [&](dcon::nation_id n) {
+		auto const gdp = state.world.nation_get_gdp(n);
+		return gdp > 0.0f ? gdp : std::max(0.0f, float(state.world.nation_get_industrial_score(n)));
+	};
+	(void)economy::information::publish_report(state, economy::information::information_fact_kind::national_economic_power, actor, actor, to, economy::money,
+		relative_share(output_of(to), output_of(from)), state.current_date, state.current_date, state.current_date + mission_report_delay_days, mission_report_confidence);
 }
 
 bool accepts_state_transfer(sys::state& state, dcon::nation_id target,

@@ -1,3 +1,5 @@
+#include "economy_stats.hpp"
+#include "gui_province_window.hpp"
 #include "gui_event.hpp"
 #include "gui_leaders.hpp"
 #include "gui_politics_window.hpp"

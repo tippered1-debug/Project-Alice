@@ -311,7 +311,7 @@ bool active_equivalent_bid(sys::state const& state, person_key owner, dcon::site
 std::vector<dcon::commodity_id> seller_settlements(sys::state const& state,
 	dcon::market_id /*market*/, dcon::commodity_id commodity) {
 	std::vector<dcon::commodity_id> result;
-	commodity.for_each_concrete_ask_commodity_as_commodity([&](auto ask_commodity) {
+	state.world.commodity_for_each_concrete_ask_commodity_as_commodity(commodity, [&](auto ask_commodity) {
 		auto ask = state.world.concrete_ask_commodity_get_concrete_market_ask(ask_commodity);
 		if(!ask || state.world.concrete_market_ask_get_status(ask) != uint8_t(order_status::active)) return;
 		auto seller = state.world.concrete_market_ask_get_economic_actor_from_concrete_ask_seller(ask);
@@ -1024,6 +1024,7 @@ bool validate_canonical_state(sys::state const& state) {
 
 	std::map<uint64_t, double> fill_by_bid;
 	std::map<uint64_t, double> sold_by_ask;
+	std::map<uint64_t, uint32_t> fills_by_ask;
 	std::set<uint64_t> fill_ids;
 	for(auto const& fill : store->fills) {
 		auto bid = bid_for(state, fill.exact_bid_id);
@@ -1050,6 +1051,7 @@ bool validate_canonical_state(sys::state const& state) {
 				!= transfer->settlement) return false;
 		fill_by_bid[fill.exact_bid_id] += fill.quantity;
 		sold_by_ask[uint64_t(ask.index())] += fill.quantity;
+		++fills_by_ask[uint64_t(ask.index())];
 	}
 	for(auto const& bid : store->bids) {
 		if(!close_enough(fill_by_bid[bid.id],
@@ -1059,16 +1061,23 @@ bool validate_canonical_state(sys::state const& state) {
 	std::map<uint64_t, double> dcon_sold_by_ask;
 	state.world.for_each_concrete_trade_fill([&](auto fill) {
 		auto ask = state.world.concrete_trade_fill_get_concrete_market_ask_from_concrete_fill_ask(fill);
-		if(ask) dcon_sold_by_ask[uint64_t(ask.index())] +=
-			state.world.concrete_trade_fill_get_quantity(fill);
+		if(ask) {
+			dcon_sold_by_ask[uint64_t(ask.index())] += state.world.concrete_trade_fill_get_quantity(fill);
+			++fills_by_ask[uint64_t(ask.index())];
+		}
 	});
 	bool asks_valid = true;
 	state.world.for_each_concrete_market_ask([&](auto ask) {
 		auto original = state.world.concrete_market_ask_get_original_quantity(ask);
 		auto remaining = state.world.concrete_market_ask_get_remaining_quantity(ask);
+		// The ask's remaining quantity is a float reduced once per fill, so its
+		// rounding error grows with the number of fills; an ask sold to hundreds
+		// of buyers legitimately drifts past the fixed tolerance.
+		auto const sold = sold_by_ask[uint64_t(ask.index())] + dcon_sold_by_ask[uint64_t(ask.index())];
+		auto const drift = double(original) * 2.4e-7 * double(fills_by_ask[uint64_t(ask.index())]);
 		if(!nonnegative_finite(original) || !nonnegative_finite(remaining)
-			|| !close_enough(sold_by_ask[uint64_t(ask.index())]
-				+ dcon_sold_by_ask[uint64_t(ask.index())], double(original - remaining)))
+			|| (!close_enough(sold, double(original - remaining))
+				&& std::abs(sold - double(original - remaining)) > drift))
 			asks_valid = false;
 	});
 	if(!asks_valid) return false;
@@ -1522,6 +1531,12 @@ void invalidate_consumption_projection(sys::state& state) {
 }
 std::array<float, 3> population_consumption_satisfaction(sys::state const& state, dcon::pop_id pop) {
 	if(!pop || !state.exact_person_goods) return {};
+	// An empty population has no consumption to report, and the projection
+	// below would give it the same zeros. Answering here matters because a pop
+	// is queried at the moment it is created, right after the transfer that
+	// invalidated the projection, which rebuilt the whole table per new pop.
+	if(auto const cell = persons::source_population_cell_for_population(state, pop);
+		cell == 0 || persons::living_people_in_population_cell(state, cell) == 0) return {};
 	auto store = ensure_store(state);
 	std::lock_guard lock(store->projection_mutex);
 	if(store->projection_dirty || store->projection_date != state.current_date) {

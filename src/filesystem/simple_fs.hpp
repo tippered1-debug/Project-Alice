@@ -33,6 +33,8 @@ namespace simple_fs {
 // root paths should include the trailing separator
 void reset(file_system& fs);
 void add_root(file_system& fs, native_string_view root_path);
+// searched after every root already present, so it overrides none of them
+void add_fallback_root(file_system& fs, native_string_view root_path);
 // will be added relative to the location that the executable file exists in (but it is stored as an absolute path)
 void add_relative_root(file_system& fs, native_string_view root_path);
 directory get_root(file_system const& fs);

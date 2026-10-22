@@ -5,6 +5,7 @@
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
 #include "persons/exact_population.hpp"
+#include "province.hpp"
 #include "system_state.hpp"
 #include "world/spatial_runtime.hpp"
 
@@ -17,7 +18,9 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <numeric>
+#include <queue>
 #include <set>
 #include <tuple>
 
@@ -36,6 +39,12 @@ struct land_force_store {
 	std::vector<land_forces::casualty_person_record> person_losses;
 	std::vector<land_forces::casualty_equipment_record> equipment_losses;
 	std::vector<land_forces::casualty_event_record> casualty_events;
+	std::vector<land_forces::formation_label> labels;
+	std::vector<land_forces::march_order> marches;
+	std::vector<land_forces::battle_projection> battle_projections;
+	// Strategic AI partitions countries across threads, while march orders share
+	// one sorted vector. This lock is transient and is not part of a save.
+	std::mutex march_orders_mutex;
 };
 
 } // namespace military
@@ -321,6 +330,16 @@ double stockpile_quantity(sys::state const& state, stockpile const& pile) {
 	return economy::physical::inventory::quantity(state, pile.location, commodity, actor);
 }
 
+} // namespace
+
+double available_stockpile_quantity(sys::state const& state, stable_id stockpile_id) {
+	auto pile = find_by_id(ensure(state)->stockpiles, stockpile_id,
+		[](auto const& value) { return value.id; });
+	return pile ? stockpile_quantity(state, *pile) : 0.0;
+}
+
+namespace {
+
 double formation_daily_demand(sys::state const& state, formation const& unit,
 	consumable_kind kind) {
 	double demand = 0.0;
@@ -417,6 +436,7 @@ bool set_template_consumable_requirement(sys::state& state,
 bool create_formation(sys::state& state, formation const& value) {
 	if(stable_id_in_use(state, value.id) || value.template_id == 0 || !state.world.nation_is_valid(value.owner)
 		|| !valid_site(state, value.location) || uint8_t(value.status) > uint8_t(formation_status::destroyed)
+		|| value.mobilized > 1
 		|| !std::isfinite(value.operational_tempo) || value.operational_tempo < 0.0f
 		|| value.operational_tempo > 1.0f || !find_template(state, value.template_id)) return false;
 	if(value.parent_id != 0) {
@@ -429,6 +449,13 @@ bool create_formation(sys::state& state, formation const& value) {
 	created.personnel_authorization = find_template(state, value.template_id)->personnel_authorization;
 	return insert_by_id(ensure(state)->formations, created, created.id,
 		[](auto const& item) { return item.id; });
+}
+
+stable_id next_runtime_id(sys::state const& state, stable_id domain, stable_id seed) {
+	for(stable_id sequence = 0;; ++sequence) {
+		auto candidate = hash_combine(hash_combine(domain, seed), sequence);
+		if(candidate != 0 && !stable_id_in_use(state, candidate)) return candidate;
+	}
 }
 
 bool create_stockpile(sys::state& state, stockpile const& value) {
@@ -698,6 +725,47 @@ uint64_t demobilize(sys::state& state, stable_id formation_id) {
 	return persons::exact_population::unassign_all_military_personnel(state, formation_id);
 }
 
+void return_mobilized_inventory(sys::state& state, stable_id formation_id) {
+	auto unit = find_formation(state, formation_id);
+	if(!unit) return;
+	auto source = inventory_owner(state, formation_id);
+	auto destination = ensure_actor(state, nation_actor_key(state, unit->owner));
+	if(!source || !destination || source == destination) return;
+	for(auto& shipment : ensure(state)->shipments) {
+		if(shipment.destination_formation_id != formation_id || shipment.status != 0) continue;
+		if(shipment.shared_shipment && state.world.shipment_is_valid(shipment.shared_shipment)) {
+			auto source_pile = find_by_id(ensure(state)->stockpiles, shipment.source_stockpile_id,
+				[](auto const& value) { return value.id; });
+			auto commodity = source_pile ? commodity_for_stockpile(state, *source_pile) : dcon::commodity_id{};
+			auto quantity = state.world.shipment_get_remaining_quantity(shipment.shared_shipment);
+			if(source_pile && commodity && std::isfinite(quantity) && quantity > 0.0f) {
+				auto stockpile_owner = inventory_owner(state, source_pile->owner);
+				if(stockpile_owner)
+					(void)economy::physical::inventory::add(state, source_pile->location,
+						commodity, quantity, stockpile_owner);
+			}
+			state.world.delete_shipment(shipment.shared_shipment);
+		}
+		shipment.status = 1;
+		shipment.shared_shipment = {};
+		shipment.days_remaining = 0;
+	}
+	std::vector<dcon::commodity_id> commodities;
+	for(auto const& model : ensure(state)->equipment_models)
+		commodities.push_back(model.commodity);
+	for(auto const& requirement : ensure(state)->template_consumables)
+		commodities.push_back(requirement.commodity);
+	std::sort(commodities.begin(), commodities.end(), [](dcon::commodity_id a, dcon::commodity_id b) { return a.index() < b.index(); });
+	commodities.erase(std::unique(commodities.begin(), commodities.end()), commodities.end());
+	for(auto commodity : commodities) {
+		auto quantity = economy::physical::inventory::quantity(state, unit->location,
+			commodity, source);
+		if(std::isfinite(quantity) && quantity > 0.0f)
+			(void)economy::physical::inventory::transfer(state, unit->location,
+				commodity, source, destination, quantity);
+	}
+}
+
 bool close_person_assignment_on_death(sys::state& state, persons::person_key person) {
 	uint64_t formation_id = 0;
 	if(!persons::exact_population::has_military_assignment(state, person, &formation_id)) return true;
@@ -709,8 +777,28 @@ void advance_training(sys::state& state) {
 	advance_shipments(state);
 }
 
+// The quartermaster's routine: a formation at rest with under two weeks of
+// something in hand is brought up to six weeks from its nation's depots. On the
+// march it lives on what it carries, since a column is sent to where the
+// formation stood.
+namespace {
+
+void routine_resupply(sys::state& state) {
+	std::vector<std::pair<stable_id, dcon::nation_id>> in_need;
+	for(auto const& unit : ensure(state)->formations) {
+		if(unit.status == formation_status::destroyed || unit.in_combat || find_march(state, unit.id)) continue;
+		if(derive_readiness(state, unit.id).supply_days < 14.0f) in_need.emplace_back(unit.id, unit.owner);
+	}
+	for(auto const& [formation_id, owner] : in_need)
+		(void)request_resupply(state, owner, formation_id, 42.0f, false);
+}
+
+} // namespace
+
 void update_daily(sys::state& state) {
 	advance_training(state);
+	advance_marches(state);
+	routine_resupply(state);
 	std::vector<std::pair<stable_id, consumable_kind>> needs;
 	for(auto const& unit : ensure(state)->formations) {
 		if(unit.status == formation_status::destroyed) continue;
@@ -722,14 +810,15 @@ void update_daily(sys::state& state) {
 		(void)consume_daily_supply(state, formation_id, kind);
 }
 
-bool move_formation(sys::state& state, stable_id formation_id, dcon::site_id destination) {
+namespace {
+bool relocate_formation(sys::state& state, stable_id formation_id, dcon::site_id destination, bool retreat) {
 	auto unit = find_formation(state, formation_id);
 	if(!unit || unit->status == formation_status::destroyed || !valid_site(state, destination)) return false;
 	auto origin_province = state.world.site_get_province_from_site_location(unit->location);
 	auto destination_province = state.world.site_get_province_from_site_location(destination);
-	if(origin_province != destination_province
+	if(!retreat && origin_province != destination_province
 		&& !world::spatial_runtime::route_for_sites(state, unit->location, destination).connected) return false;
-	for(auto const& shipment : ensure(state)->shipments)
+	if(!retreat) for(auto const& shipment : ensure(state)->shipments)
 		if(shipment.status == 0 && shipment.destination_formation_id == formation_id) return false;
 	if(unit->location != destination) {
 		auto actor = inventory_owner(state, formation_id);
@@ -769,6 +858,418 @@ bool move_formation(sys::state& state, stable_id formation_id, dcon::site_id des
 		[](auto const& value) { return value.id; })->location = destination;
 	return true;
 }
+} // namespace
+
+bool move_formation(sys::state& state, stable_id formation_id, dcon::site_id destination) {
+	return relocate_formation(state, formation_id, destination, false);
+}
+
+std::span<formation const> all_formations(sys::state const& state) {
+	if(!state.land_forces) return {};
+	return state.land_forces->formations;
+}
+
+std::span<equipment_model const> all_equipment_models(sys::state const& state) {
+	if(!state.land_forces) return {};
+	return state.land_forces->equipment_models;
+}
+
+std::span<formation_label const> all_labels(sys::state const& state) {
+	if(!state.land_forces) return {};
+	return state.land_forces->labels;
+}
+
+std::span<march_order const> all_marches(sys::state const& state) {
+	if(!state.land_forces) return {};
+	return state.land_forces->marches;
+}
+
+formation_label const* find_label(sys::state const& state, stable_id formation_id) {
+	if(!state.land_forces || formation_id == 0) return nullptr;
+	return find_by_id(state.land_forces->labels, formation_id, [](auto const& value) { return value.formation_id; });
+}
+
+march_order const* find_march(sys::state const& state, stable_id formation_id) {
+	if(!state.land_forces || formation_id == 0) return nullptr;
+	return find_by_id(state.land_forces->marches, formation_id, [](auto const& value) { return value.formation_id; });
+}
+
+bool set_label(sys::state& state, formation_label const& value) {
+	if(!find_formation(state, value.formation_id) || uint8_t(value.level) > uint8_t(echelon::regiment)
+		|| value.name_key[sizeof(value.name_key) - 1] != 0) return false;
+	auto store = ensure(state);
+	if(auto existing = find_by_id(store->labels, value.formation_id, [](auto const& item) { return item.formation_id; })) {
+		*existing = value;
+		return true;
+	}
+	return insert_by_id(store->labels, value, value.formation_id, [](auto const& item) { return item.formation_id; });
+}
+
+std::vector<stable_id> subtree(sys::state const& state, stable_id formation_id) {
+	std::vector<stable_id> result;
+	if(!find_formation(state, formation_id)) return result;
+	result.push_back(formation_id);
+	// Formations are kept in id order, so children are gathered level by level;
+	// a formation already taken is never taken again, whatever the parent links say.
+	for(size_t next = 0; next < result.size(); ++next)
+		for(auto const& unit : ensure(state)->formations)
+			if(unit.parent_id == result[next]
+				&& std::find(result.begin(), result.end(), unit.id) == result.end()) result.push_back(unit.id);
+	return result;
+}
+
+force_summary summarize(sys::state const& state, std::span<stable_id const> formations) {
+	force_summary result;
+	std::vector<stable_id> counted(formations.begin(), formations.end());
+	std::sort(counted.begin(), counted.end());
+	counted.erase(std::unique(counted.begin(), counted.end()), counted.end());
+	double weighted_readiness = 0.0;
+	for(auto id : counted) {
+		auto unit = find_formation(state, id);
+		if(!unit || unit->status == formation_status::destroyed) continue;
+		++result.formations;
+		if(find_march(state, id)) ++result.marching;
+		result.personnel += personnel_count(state, id);
+		result.personnel_authorization += unit->personnel_authorization;
+		bool consumes = false;
+		for(auto const& requirement : ensure(state)->template_consumables)
+			consumes = consumes || requirement.template_id == unit->template_id;
+		for(auto const& authorization : ensure(state)->template_equipment) {
+			if(authorization.template_id != unit->template_id) continue;
+			auto model = find_equipment_model(state, authorization.equipment_model_id);
+			if(!model) continue;
+			result.equipment_tonnes_authorized += double(model->mass) * double(authorization.quantity) / 1000.0;
+			result.equipment_tonnes += double(model->mass)
+				* double(equipment_count(state, id, authorization.equipment_model_id)) / 1000.0;
+		}
+		auto ready = derive_readiness(state, id);
+		weighted_readiness += double(ready.operational_readiness) * double(unit->personnel_authorization);
+		if(ready.operational_readiness < 0.5f) ++result.below_strength;
+		if(consumes) {
+			result.supply_days = std::min(result.supply_days, ready.supply_days);
+			if(ready.supply_days < 3.0f) ++result.short_of_supply;
+		}
+	}
+	result.operational_readiness = result.personnel_authorization == 0 ? 0.0f
+		: float(weighted_readiness / double(result.personnel_authorization));
+	return result;
+}
+
+namespace {
+
+struct march_plan {
+	bool connected = false;
+	float days = 0.0f;
+	dcon::site_id first_site{};
+	float first_leg_days = 0.0f;
+};
+
+bool may_march_through(sys::state& state, dcon::nation_id owner, dcon::province_id province) {
+	return province && state.world.province_is_valid(province)
+		&& province.index() < state.province_definitions.first_sea_province.index()
+		&& province::has_access_to_province(state, owner, province);
+}
+
+// The quickest way on foot and wheels: over the infrastructure graph, by
+// traversal time, through provinces the owner may enter. Searched from the
+// destination, so that the first hop falls out of the distances.
+march_plan plan_march(sys::state& state, dcon::nation_id owner, dcon::site_id origin, dcon::site_id destination) {
+	march_plan result;
+	auto const start = world::spatial_runtime::node_for_site(state, origin);
+	auto const goal = world::spatial_runtime::node_for_site(state, destination);
+	if(!start || !goal) return result;
+	if(start == goal) {
+		result.connected = true;
+		result.first_site = destination;
+		return result;
+	}
+	auto const province_of = [&](dcon::infrastructure_node_id node) {
+		return state.world.infrastructure_node_get_province_from_infrastructure_node_location(node);
+	};
+	if(!may_march_through(state, owner, province_of(goal))) return result;
+	auto const count = state.world.infrastructure_node_size();
+	std::vector<float> days(count, std::numeric_limits<float>::infinity());
+	std::vector<uint8_t> settled(count, 0);
+	using entry = std::pair<float, uint32_t>;
+	std::priority_queue<entry, std::vector<entry>, std::greater<entry>> queue;
+	days[goal.index()] = 0.0f;
+	queue.push({0.0f, uint32_t(goal.index())});
+	auto for_each_neighbour = [&](dcon::infrastructure_node_id node, auto&& visit) {
+		auto take = [&](dcon::infrastructure_edge_id edge) {
+			if(!edge || !state.world.infrastructure_edge_is_valid(edge)) return;
+			auto from = state.world.infrastructure_edge_get_node_from_infrastructure_edge_from(edge);
+			auto to = state.world.infrastructure_edge_get_node_from_infrastructure_edge_to(edge);
+			auto other = from == node ? to : (to == node ? from : dcon::infrastructure_node_id{});
+			if(other && uint32_t(other.index()) < count) visit(other, world::spatial_runtime::traversal_days(state, edge));
+		};
+		state.world.infrastructure_node_for_each_infrastructure_edge_from_as_node(node, [&](auto relation) {
+			take(state.world.infrastructure_edge_from_get_infrastructure_edge(relation));
+		});
+		state.world.infrastructure_node_for_each_infrastructure_edge_to_as_node(node, [&](auto relation) {
+			take(state.world.infrastructure_edge_to_get_infrastructure_edge(relation));
+		});
+	};
+	while(!queue.empty()) {
+		auto const [reached, index] = queue.top();
+		queue.pop();
+		if(settled[index]) continue;
+		settled[index] = 1;
+		dcon::infrastructure_node_id node{dcon::infrastructure_node_id::value_base_t(index)};
+		if(node == start) break;
+		for_each_neighbour(node, [&](dcon::infrastructure_node_id other, float leg) {
+			if(settled[other.index()] || !std::isfinite(leg) || leg <= 0.0f) return;
+			// The start is where the formation already stands; everything else must admit it.
+			if(other != start && !may_march_through(state, owner, province_of(other))) return;
+			if(reached + leg < days[other.index()]) {
+				days[other.index()] = reached + leg;
+				queue.push({reached + leg, uint32_t(other.index())});
+			}
+		});
+	}
+	if(!std::isfinite(days[start.index()])) return result;
+	float best = std::numeric_limits<float>::infinity();
+	dcon::infrastructure_node_id first{};
+	float first_leg = 0.0f;
+	for_each_neighbour(start, [&](dcon::infrastructure_node_id other, float leg) {
+		if(!std::isfinite(leg) || leg <= 0.0f || !std::isfinite(days[other.index()])) return;
+		auto const total = leg + days[other.index()];
+		if(total < best || (total == best && first && other.index() < first.index())) {
+			best = total;
+			first = other;
+			first_leg = leg;
+		}
+	});
+	auto const site = first ? world::spatial_runtime::site_for_province(state, province_of(first)) : dcon::site_id{};
+	if(!valid_site(state, site)) return result;
+	result.connected = true;
+	result.days = best;
+	result.first_site = site;
+	result.first_leg_days = first_leg;
+	return result;
+}
+
+uint16_t whole_days(float days) {
+	return uint16_t(std::clamp(std::ceil(days), 1.0f, 65535.0f));
+}
+
+void end_march(sys::state& state, stable_id formation_id) {
+	auto store = ensure(state);
+	std::erase_if(store->marches, [&](auto const& order) { return order.formation_id == formation_id; });
+	if(auto unit = find_by_id(store->formations, formation_id, [](auto const& value) { return value.id; });
+		unit && unit->legacy_regiment_index_plus_one == 0) unit->moving = 0;
+}
+
+bool has_shipment_on_the_way(sys::state const& state, stable_id formation_id) {
+	for(auto const& shipment : ensure(state)->shipments)
+		if(shipment.status == 0 && shipment.destination_formation_id == formation_id) return true;
+	return false;
+}
+
+} // namespace
+
+float march_days(sys::state& state, dcon::nation_id owner, dcon::site_id origin, dcon::site_id destination) {
+	if(!valid_site(state, origin) || !valid_site(state, destination)) return -1.0f;
+	auto plan = plan_march(state, owner, origin, destination);
+	return plan.connected ? plan.days : -1.0f;
+}
+
+march_block can_order_march(sys::state& state, dcon::nation_id as, stable_id formation_id,
+	dcon::province_id destination) {
+	auto unit = find_formation(state, formation_id);
+	if(!unit) return march_block::unknown_formation;
+	if(unit->status == formation_status::destroyed) return march_block::destroyed;
+	if(!as || unit->owner != as) return march_block::not_owner;
+	// A formation that still stands in a legacy army moves with that army.
+	if(unit->legacy_regiment_index_plus_one != 0) return march_block::legacy_adapter;
+	if(unit->in_combat) return march_block::in_combat;
+	if(auto army = battle_army(state, formation_id); army && (is_battle_retreat(state, army)
+		|| state.world.army_get_battle_from_army_battle_participation(army)))
+		return march_block::in_combat;
+	if(personnel_count(state, formation_id) == 0) return march_block::no_personnel;
+	auto site = destination && state.world.province_is_valid(destination)
+		? world::spatial_runtime::site_for_province(state, destination) : dcon::site_id{};
+	if(!valid_site(state, site)) return march_block::no_site;
+	if(state.world.site_get_province_from_site_location(unit->location) == destination)
+		return march_block::already_there;
+	return plan_march(state, as, unit->location, site).connected ? march_block::none : march_block::no_route;
+}
+
+uint32_t order_march(sys::state& state, dcon::nation_id as, stable_id formation_id,
+	dcon::province_id destination, bool with_subordinates) {
+	if(!state.land_forces) return 0;
+	std::lock_guard lock(ensure(state)->march_orders_mutex);
+	uint32_t accepted = 0;
+	auto const addressed = with_subordinates ? subtree(state, formation_id) : std::vector<stable_id>{formation_id};
+	for(auto id : addressed) {
+		if(can_order_march(state, as, id, destination) != march_block::none) continue;
+		auto store = ensure(state);
+		auto unit = find_by_id(store->formations, id, [](auto const& value) { return value.id; });
+		auto const site = world::spatial_runtime::site_for_province(state, destination);
+		if(auto existing = find_march(state, id); existing && existing->destination == site) {
+			++accepted;
+			continue;
+		}
+		auto const plan = plan_march(state, as, unit->location, site);
+		march_order order{};
+		order.formation_id = id;
+		order.issued_day = int32_t(state.current_date.to_raw_value());
+		order.destination = site;
+		order.next_site = plan.first_site;
+		order.leg_days = whole_days(plan.first_leg_days);
+		order.days_remaining = whole_days(plan.days);
+		std::erase_if(store->marches, [&](auto const& existing) { return existing.formation_id == id; });
+		insert_by_id(store->marches, order, id, [](auto const& item) { return item.formation_id; });
+		unit->moving = 1;
+		if(auto army = battle_army(state, id); army) state.world.army_set_dig_in(army, 0);
+		++accepted;
+	}
+	return accepted;
+}
+
+uint32_t halt_march(sys::state& state, dcon::nation_id as, stable_id formation_id, bool with_subordinates) {
+	uint32_t halted = 0;
+	auto const addressed = with_subordinates ? subtree(state, formation_id) : std::vector<stable_id>{formation_id};
+	for(auto id : addressed) {
+		auto unit = find_formation(state, id);
+		if(!unit || !as || unit->owner != as || !find_march(state, id)) continue;
+		end_march(state, id);
+		++halted;
+	}
+	return halted;
+}
+
+void advance_marches(sys::state& state) {
+	prepare_battle_projections(state);
+	auto store = ensure(state);
+	std::vector<stable_id> marching;
+	marching.reserve(store->marches.size());
+	for(auto const& order : store->marches) marching.push_back(order.formation_id);
+	for(auto id : marching) {
+		auto order = find_by_id(store->marches, id, [](auto const& value) { return value.formation_id; });
+		auto unit = find_by_id(store->formations, id, [](auto const& value) { return value.id; });
+		if(!order) continue;
+		if(!unit || unit->status == formation_status::destroyed || unit->legacy_regiment_index_plus_one != 0
+			|| personnel_count(state, id) == 0) {
+			end_march(state, id);
+			continue;
+		}
+		unit->moving = 1;
+		if(unit->in_combat) {
+			order->blocked = march_block::in_combat;
+			continue;
+		}
+		// The way is looked at again before every leg: borders and wars change.
+		if(order->leg_progress == 0) {
+			auto const plan = plan_march(state, unit->owner, unit->location, order->destination);
+			if(!plan.connected) {
+				order->blocked = march_block::no_route;
+				continue;
+			}
+			order->next_site = plan.first_site;
+			order->leg_days = whole_days(plan.first_leg_days);
+			order->days_remaining = whole_days(plan.days);
+		}
+		if(order->leg_progress < order->leg_days) {
+			++order->leg_progress;
+			if(order->days_remaining > 1) --order->days_remaining;
+		}
+		if(order->leg_progress < order->leg_days) {
+			order->blocked = march_block::none;
+			continue;
+		}
+		// What was sent to the formation is delivered to where it stood when it was sent.
+		if(has_shipment_on_the_way(state, id)) {
+			order->blocked = march_block::awaiting_supply;
+			continue;
+		}
+		auto const destination = order->destination;
+		auto const from_province = state.world.site_get_province_from_site_location(unit->location);
+		auto const to_province = state.world.site_get_province_from_site_location(order->next_site);
+		auto const adjacency = state.world.get_province_adjacency_by_province_pair(from_province, to_province);
+		auto const bits = adjacency ? state.world.province_adjacency_get_type(adjacency) : uint8_t(0);
+		auto const crossing = (bits & (province::border::sea_strait_crossing_bit | province::border::coastal_bit))
+			? military::crossing_type::sea : ((bits & province::border::river_crossing_bit)
+				? military::crossing_type::river : military::crossing_type::none);
+		if(!move_formation(state, id, order->next_site)) {
+			order->blocked = march_block::no_route;
+			order->leg_progress = 0;
+			continue;
+		}
+		// Resolve contact at each arrival, before the next formation takes its
+		// leg. Opposing columns must not exchange provinces without fighting.
+		if(auto army = battle_army(state, id); army) {
+			auto const arrived = find_formation(state, id);
+			auto const province = state.world.site_get_province_from_site_location(arrived->location);
+			state.world.army_set_black_flag(army, !province::has_access_to_province(state, arrived->owner, province));
+			military::army_arrives_in_province(state, army, province, crossing);
+			sync_legacy_adapter_state(state);
+		}
+		order = find_by_id(store->marches, id, [](auto const& value) { return value.formation_id; });
+		if(!order) continue;
+		order->blocked = march_block::none;
+		order->leg_progress = 0;
+		order->leg_days = 0;
+		if(find_formation(state, id)->location == destination) end_march(state, id);
+	}
+}
+
+uint32_t request_resupply(sys::state& state, dcon::nation_id as, stable_id formation_id, float days,
+	bool with_subordinates) {
+	if(!std::isfinite(days) || days <= 0.0f) return 0;
+	uint32_t sent = 0;
+	auto const addressed = with_subordinates ? subtree(state, formation_id) : std::vector<stable_id>{formation_id};
+	for(auto id : addressed) {
+		auto unit = find_formation(state, id);
+		if(!unit || !as || unit->owner != as || unit->status == formation_status::destroyed) continue;
+		auto const template_id = unit->template_id;
+		for(auto kind : {consumable_kind::food, consumable_kind::fuel, consumable_kind::ammunition}) {
+			bool required = false;
+			for(auto const& requirement : ensure(state)->template_consumables)
+				required = required || (requirement.template_id == template_id && requirement.kind == kind);
+			if(!required) continue;
+			// A column of this already on the road is the answer to the request.
+			bool on_the_way = false;
+			for(auto const& shipment : ensure(state)->shipments)
+				on_the_way = on_the_way || (shipment.status == 0 && shipment.destination_formation_id == id
+					&& shipment.cargo == cargo_kind::consumable && shipment.consumable == kind);
+			if(on_the_way) continue;
+			auto missing = daily_consumable_demand(state, id, kind) * double(days) - consumable_quantity(state, id, kind);
+			if(!(missing > 1.0e-6)) continue;
+			std::vector<std::pair<stable_id, double>> depots;
+			for(auto const& pile : ensure(state)->stockpiles)
+				if(pile.kind == stockpile_kind::depot && pile.owner == as
+					&& pile.cargo == cargo_kind::consumable && pile.consumable == kind)
+					depots.emplace_back(pile.id, stockpile_quantity(state, pile));
+			for(auto const& [depot, held] : depots) {
+				auto const quantity = std::min(missing, held);
+				if(!(quantity > 1.0e-6)) continue;
+				auto const shipment_id = next_runtime_id(state, 0x5245535550504c59ULL,
+					hash_combine(hash_combine(id, depot), uint64_t(state.current_date.to_raw_value())));
+				if(!dispatch_to_formation(state, shipment_id, depot, id, quantity)) continue;
+				missing -= quantity;
+				++sent;
+				if(!(missing > 1.0e-6)) break;
+			}
+		}
+	}
+	return sent;
+}
+
+uint64_t replenish(sys::state& state, dcon::nation_id as, stable_id formation_id, uint16_t training_days,
+	bool with_subordinates) {
+	uint64_t joined = 0;
+	auto const addressed = with_subordinates ? subtree(state, formation_id) : std::vector<stable_id>{formation_id};
+	for(auto id : addressed) {
+		auto unit = find_formation(state, id);
+		if(!unit || !as || unit->owner != as || unit->status == formation_status::destroyed) continue;
+		auto const held = personnel_count(state, id);
+		if(held >= unit->personnel_authorization) continue;
+		auto const wanted = uint64_t(unit->personnel_authorization) - held;
+		auto const candidates = recruitment_candidates(state, id, wanted);
+		joined += recruit_personnel(state, id, candidates, wanted, training_days);
+	}
+	return joined;
+}
 
 bool personnel_route_is_valid(sys::state& state, dcon::nation_id owner,
 	dcon::site_id origin, dcon::site_id destination, uint64_t personnel) {
@@ -793,6 +1294,129 @@ void sync_legacy_adapter_state(sys::state& state) {
 			|| bool(state.world.army_get_arrival_time(army)));
 		unit.in_combat = uint8_t(bool(state.world.army_get_battle_from_army_battle_participation(army)));
 	}
+	for(auto& projection : ensure(state)->battle_projections) {
+		auto unit = find_by_id(ensure(state)->formations, projection.formation_id,
+			[](auto const& value) { return value.id; });
+		auto army = battle_army(state, projection.formation_id);
+		if(!unit || !army || unit->status == formation_status::destroyed) continue;
+		// A retreat is a combat result, not a second movement authority. Move the
+		// real carried inventory too; incoming supply still targets its dispatch site.
+		auto retreating = state.world.army_get_is_retreating(army);
+		if(projection.retreating || retreating) {
+			end_march(state, unit->id);
+			auto province = state.world.army_get_location_from_army_location(army);
+			auto site = world::spatial_runtime::site_for_province(state, province);
+			if(site != unit->location) {
+				auto moved = relocate_formation(state, unit->id, site, true);
+				assert(moved && "combat retreat must relocate canonical inventory");
+				if(!moved) std::abort();
+			}
+		}
+		projection.retreating = uint8_t(retreating || (projection.retreating
+			&& (state.world.army_get_path(army).size() != 0 || state.world.army_get_arrival_time(army))));
+		unit->in_combat = uint8_t(bool(state.world.army_get_battle_from_army_battle_participation(army)));
+		unit->moving = uint8_t(projection.retreating || find_march(state, unit->id));
+	}
+}
+
+dcon::army_id battle_army(sys::state const& state, stable_id formation_id) {
+	if(!state.land_forces) return {};
+	auto projection = find_by_id(state.land_forces->battle_projections, formation_id,
+		[](auto const& item) { return item.formation_id; });
+	if(!projection || !projection->regiment_index_plus_one) return {};
+	auto const index = projection->regiment_index_plus_one - 1;
+	if(index >= state.world.regiment_size()) return {};
+	auto regiment = dcon::regiment_id{dcon::regiment_id::value_base_t(index)};
+	if(!state.world.regiment_is_valid(regiment)) return {};
+	return state.world.regiment_get_army_from_army_membership(regiment);
+}
+
+bool is_battle_projection(sys::state const& state, dcon::army_id army) {
+	if(!state.land_forces || !army) return false;
+	for(auto membership : state.world.army_get_army_membership(army))
+		for(auto const& projection : state.land_forces->battle_projections)
+			if(projection.regiment_index_plus_one == uint32_t(membership.get_regiment().id.index()) + 1u)
+				return true;
+	return false;
+}
+
+bool is_battle_retreat(sys::state const& state, dcon::army_id army) {
+	if(!state.land_forces || !army) return false;
+	if(state.world.army_get_is_retreating(army)) return true;
+	for(auto const& projection : state.land_forces->battle_projections)
+		if(projection.retreating && battle_army(state, projection.formation_id) == army) return true;
+	return false;
+}
+
+void prepare_battle_projections(sys::state& state) {
+	if(!state.land_forces) return;
+	auto store = ensure(state);
+	// Finish cleaning up after the battle engine has released defeated armies.
+	std::vector<dcon::regiment_id> obsolete;
+	for(auto const& projection : store->battle_projections) {
+		auto unit = find_formation(state, projection.formation_id);
+		auto army = battle_army(state, projection.formation_id);
+		if(unit && (unit->status != formation_status::active || personnel_count(state, unit->id) == 0)
+			&& army && !state.world.army_get_battle_from_army_battle_participation(army))
+			obsolete.push_back(dcon::regiment_id{dcon::regiment_id::value_base_t(projection.regiment_index_plus_one - 1)});
+	}
+	for(auto regiment : obsolete) {
+		auto army = state.world.regiment_get_army_from_army_membership(regiment);
+		military::delete_regiment_safe_wrapper(state, regiment);
+		military::cleanup_army(state, army);
+	}
+
+	dcon::unit_type_id infantry{};
+	for(uint32_t i = 0; i < state.military_definitions.unit_base_definitions.size(); ++i) {
+		auto type = dcon::unit_type_id{dcon::unit_type_id::value_base_t(i)};
+		auto const& definition = state.military_definitions.unit_base_definitions[type];
+		if(definition.is_land && definition.type == military::unit_type::infantry
+			&& type != state.military_definitions.base_army_unit) { infantry = type; break; }
+	}
+	if(!infantry) return; // Synthetic non-military worlds need no battle views.
+	// Publish every army before checking contact, so authoring order cannot hide
+	// a defender or allow an undefended siege where a formation actually stands.
+	for(auto const& unit : store->formations) {
+		if(unit.legacy_regiment_index_plus_one || unit.status != formation_status::active
+			|| personnel_count(state, unit.id) == 0 || battle_army(state, unit.id)) continue;
+		auto army = state.world.create_army();
+		state.world.army_set_controller_from_army_control(army, unit.owner);
+		state.world.army_set_location_from_army_location(army,
+			state.world.site_get_province_from_site_location(unit.location));
+		state.world.army_set_supply_reserve(army, 1.0f);
+		state.world.army_set_supply_priority(army, 1);
+		auto regiment = military::create_new_regiment(state, unit.owner, infantry);
+		state.world.force_create_army_membership(regiment, army);
+		battle_projection projection{unit.id, uint32_t(regiment.index()) + 1u, 0, {}};
+		insert_by_id(store->battle_projections, projection, unit.id,
+			[](auto const& item) { return item.formation_id; });
+	}
+	for(auto const& projection : store->battle_projections) {
+		auto unit = find_formation(state, projection.formation_id);
+		auto army = battle_army(state, projection.formation_id);
+		auto regiment = dcon::regiment_id{dcon::regiment_id::value_base_t(projection.regiment_index_plus_one - 1)};
+		(void)sync_legacy_regiment_projection(state, regiment);
+		if(unit && army && !is_battle_retreat(state, army)
+			&& !state.world.army_get_battle_from_army_battle_participation(army))
+			state.world.army_set_location_from_army_location(army,
+				state.world.site_get_province_from_site_location(unit->location));
+	}
+	for(auto const& projection : store->battle_projections) {
+		auto unit = find_formation(state, projection.formation_id);
+		auto army = battle_army(state, projection.formation_id);
+		if(!unit || !army) continue;
+		if(unit->status != formation_status::active || personnel_count(state, unit->id) == 0
+			|| is_battle_retreat(state, army)
+			|| state.world.army_get_battle_from_army_battle_participation(army)) continue;
+		// Ordinary paths belong to canonical marches; only combat retreats may
+		// advance these projected armies through the old movement engine.
+		state.world.army_get_path(army).clear();
+		state.world.army_set_arrival_time(army, sys::date{});
+		auto province = state.world.site_get_province_from_site_location(unit->location);
+		state.world.army_set_black_flag(army, !province::has_access_to_province(state, unit->owner, province));
+		military::army_arrives_in_province(state, army, province, military::crossing_type::none);
+	}
+	sync_legacy_adapter_state(state);
 }
 
 bool map_legacy_regiment(sys::state& state, stable_id formation_id, dcon::regiment_id regiment) {
@@ -802,6 +1426,9 @@ bool map_legacy_regiment(sys::state& state, stable_id formation_id, dcon::regime
 		|| unit->legacy_regiment_index_plus_one != 0) return false;
 	for(auto const& other : ensure(state)->formations)
 		if(other.legacy_regiment_index_plus_one == uint32_t(regiment.index()) + 1u) return false;
+	for(auto const& projection : ensure(state)->battle_projections)
+		if(projection.formation_id == formation_id
+			|| projection.regiment_index_plus_one == uint32_t(regiment.index()) + 1u) return false;
 	unit->legacy_regiment_index_plus_one = uint32_t(regiment.index()) + 1u;
 	return true;
 }
@@ -809,6 +1436,8 @@ bool map_legacy_regiment(sys::state& state, stable_id formation_id, dcon::regime
 bool clear_legacy_regiment_mapping(sys::state& state, dcon::regiment_id regiment) {
 	if(!regiment || !state.land_forces) return false;
 	auto key = uint32_t(regiment.index()) + 1u;
+	auto& projections = ensure(state)->battle_projections;
+	if(std::erase_if(projections, [&](auto const& item) { return item.regiment_index_plus_one == key; })) return true;
 	for(auto& unit : ensure(state)->formations) {
 		if(unit.legacy_regiment_index_plus_one != key) continue;
 		unit.legacy_regiment_index_plus_one = 0;
@@ -822,6 +1451,8 @@ stable_id formation_for_legacy_regiment(sys::state const& state, dcon::regiment_
 	auto key = uint32_t(regiment.index()) + 1u;
 	for(auto const& unit : state.land_forces->formations)
 		if(unit.legacy_regiment_index_plus_one == key) return unit.id;
+	for(auto const& projection : state.land_forces->battle_projections)
+		if(projection.regiment_index_plus_one == key) return projection.formation_id;
 	return 0;
 }
 
@@ -972,11 +1603,45 @@ bool dispatch_to_formation(sys::state& state, stable_id shipment_id, stable_id s
 	return true;
 }
 
+std::vector<dcon::shipment_id> supply_columns(sys::state const& state) {
+	std::vector<dcon::shipment_id> result;
+	if(!state.land_forces) return result;
+	for(auto const& shipment : state.land_forces->shipments)
+		if(shipment.status == 0 && shipment.shared_shipment) result.push_back(shipment.shared_shipment);
+	std::sort(result.begin(), result.end(), [](auto left, auto right) { return left.index() < right.index(); });
+	return result;
+}
+
+bool is_equipment_supply_column(sys::state const& state, dcon::shipment_id shipment) {
+	if(!state.land_forces || !shipment) return false;
+	for(auto const& column : state.land_forces->shipments)
+		if(column.status == 0 && column.shared_shipment == shipment
+			&& column.cargo == cargo_kind::equipment) return true;
+	return false;
+}
+
 void advance_shipments(sys::state& state) {
 	auto store = ensure(state);
+	// A shared shipment is deleted on arrival and its id is given to the next
+	// shipment made, so a live id proves nothing: the column is still on the
+	// road only while that shipment is bound for the same site and consignee.
+	auto still_carried = [&](physical_shipment const& record) {
+		auto const shared = record.shared_shipment;
+		if(!state.world.shipment_is_valid(shared)) return false;
+		auto const destination = state.world.shipment_destination_get_site(state.world.shipment_get_shipment_destination(shared));
+		auto const owner_relation = state.world.shipment_get_shipment_owner(shared);
+		auto const owner = owner_relation ? state.world.shipment_owner_get_economic_actor(owner_relation) : dcon::economic_actor_id{};
+		dcon::economic_actor_id consignee{};
+		if(record.destination_formation_id != 0) {
+			consignee = inventory_owner(state, record.destination_formation_id);
+		} else if(auto pile = find_by_id(store->stockpiles, record.destination_stockpile_id, [](auto const& value) { return value.id; })) {
+			consignee = inventory_owner(state, pile->owner);
+		}
+		return destination == record.destination_site && bool(consignee) && owner == consignee;
+	};
 	for(auto& shipment : store->shipments) {
 		if(shipment.status != 0 || !shipment.shared_shipment) continue;
-		if(!state.world.shipment_is_valid(shipment.shared_shipment)) {
+		if(!still_carried(shipment)) {
 			shipment.status = 1;
 			shipment.shared_shipment = {};
 			shipment.days_remaining = 0;
@@ -1042,6 +1707,14 @@ double consume_daily_supply(sys::state& state, stable_id formation_id, consumabl
 	if(!std::isfinite(demand) || demand <= 0.0) return 0.0;
 	return economy::physical::inventory::remove(state, unit->location, commodity,
 		float(demand), actor);
+}
+
+double depot_stock(sys::state const& state, dcon::nation_id owner, consumable_kind kind) {
+	double total = 0.0;
+	for(auto const& pile : ensure(state)->stockpiles)
+		if(pile.kind == stockpile_kind::depot && pile.owner == owner && pile.cargo == cargo_kind::consumable
+			&& pile.consumable == kind) total += stockpile_quantity(state, pile);
+	return total;
 }
 
 double depot_inventory_at(sys::state const& state, dcon::nation_id owner, dcon::province_id province) {
@@ -1167,6 +1840,7 @@ bool destroy_formation(sys::state& state, stable_id formation_id) {
 		[](auto const& value) { return value.id; });
 	if(!unit) return false;
 	demobilize(state, formation_id);
+	std::erase_if(ensure(state)->marches, [&](auto const& order) { return order.formation_id == formation_id; });
 	unit->status = formation_status::destroyed;
 	unit->moving = 0;
 	unit->in_combat = 0;
@@ -1234,7 +1908,7 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			auto parent = find_formation(state, unit.parent_id);
 			if(!parent || parent->owner != unit.owner) error("formation has an invalid parent");
 		}
-		if(uint8_t(unit.status) > uint8_t(formation_status::destroyed)
+		if(uint8_t(unit.status) > uint8_t(formation_status::destroyed) || unit.mobilized > 1
 			|| !std::isfinite(unit.operational_tempo) || unit.operational_tempo < 0.0f
 			|| unit.operational_tempo > 1.0f) error("formation status is outside the valid range");
 		if(unit.legacy_regiment_index_plus_one != 0) {
@@ -1254,6 +1928,16 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 		}
 		auto actor = inventory_owner(state, unit.id);
 		if(!actor) error("formation has no unique physical inventory owner");
+		size_t steps = 0;
+		for(auto ancestor = unit.parent_id; ancestor != 0; ++steps) {
+			auto parent = find_formation(state, ancestor);
+			if(!parent) break;
+			if(parent->id == unit.id || steps > store->formations.size()) {
+				error("formation is its own superior");
+				break;
+			}
+			ancestor = parent->parent_id;
+		}
 		for(auto const& authorization : store->template_equipment) {
 			if(authorization.template_id != unit.template_id || !actor) continue;
 			auto model = find_equipment_model(state, authorization.equipment_model_id);
@@ -1429,6 +2113,40 @@ validation_result validate_canonical_land_forces(sys::state const& state) {
 			|| !find_equipment_model(state, loss.equipment_model_id) || loss.quantity == 0)
 			error("equipment loss record is invalid");
 	}
+	for(size_t i = 0; i < store->labels.size(); ++i) {
+		auto const& label = store->labels[i];
+		if(!find_formation(state, label.formation_id) || uint8_t(label.level) > uint8_t(echelon::regiment)
+			|| label.name_key[sizeof(label.name_key) - 1] != 0
+			|| (i > 0 && store->labels[i - 1].formation_id >= label.formation_id))
+			error("formation label is invalid or out of order");
+	}
+	for(size_t i = 0; i < store->marches.size(); ++i) {
+		auto const& order = store->marches[i];
+		auto unit = find_formation(state, order.formation_id);
+		if(!unit || unit->status == formation_status::destroyed || unit->legacy_regiment_index_plus_one != 0
+			|| !valid_site(state, order.destination) || (order.next_site && !valid_site(state, order.next_site))
+			|| order.leg_progress > order.leg_days || uint8_t(order.blocked) > uint8_t(march_block::awaiting_supply)
+			|| (i > 0 && store->marches[i - 1].formation_id >= order.formation_id))
+			error("march order is invalid or out of order");
+	}
+	std::set<uint32_t> projected_regiments;
+	for(size_t i = 0; i < store->battle_projections.size(); ++i) {
+		auto const& projection = store->battle_projections[i];
+		auto unit = find_formation(state, projection.formation_id);
+		auto army = battle_army(state, projection.formation_id);
+		uint32_t members = 0;
+		if(army) for(auto membership : state.world.army_get_army_membership(army)) ++members;
+		if(!unit || unit->legacy_regiment_index_plus_one || !army
+			|| state.world.army_get_controller_from_army_control(army) != unit->owner
+			|| members != 1
+			|| projection.retreating > 1 || !projected_regiments.insert(projection.regiment_index_plus_one).second
+			|| projection.reserved[0] || projection.reserved[1] || projection.reserved[2]
+			|| (i > 0 && store->battle_projections[i - 1].formation_id >= projection.formation_id))
+			error("native battle projection is invalid or out of order");
+		for(auto const& other : store->formations)
+			if(other.legacy_regiment_index_plus_one == projection.regiment_index_plus_one)
+				error("regiment is both a native battle projection and an authored legacy mapping");
+	}
 	return result;
 }
 
@@ -1447,11 +2165,14 @@ snapshot export_snapshot(sys::state const& state) {
 	result.person_losses = store->person_losses;
 	result.equipment_losses = store->equipment_losses;
 	result.casualty_events = store->casualty_events;
+	result.labels = store->labels;
+	result.marches = store->marches;
+	result.battle_projections = store->battle_projections;
 	return result;
 }
 
 bool import_snapshot(sys::state& state, snapshot const& value) {
-	if(value.version != 2 || !state.exact_population) return false;
+	if((value.version < 2 || value.version > 4) || !state.exact_population) return false;
 	auto candidate = std::make_shared<land_force_store>();
 	candidate->equipment_models = value.equipment_models;
 	candidate->templates = value.templates;
@@ -1465,6 +2186,9 @@ bool import_snapshot(sys::state& state, snapshot const& value) {
 	candidate->person_losses = value.person_losses;
 	candidate->equipment_losses = value.equipment_losses;
 	candidate->casualty_events = value.casualty_events;
+	candidate->labels = value.labels;
+	candidate->marches = value.marches;
+	candidate->battle_projections = value.battle_projections;
 	auto old = state.land_forces;
 	state.land_forces = candidate;
 	for(auto const& unit : candidate->formations)
@@ -1504,7 +2228,23 @@ uint64_t canonical_checksum(sys::state const& state) {
 		hash = hash_combine(hash, unit.legacy_regiment_index_plus_one);
 		hash = hash_combine(hash, unit.location.value); hash = hash_combine(hash, unit.personnel_authorization);
 		hash = hash_combine(hash, uint8_t(unit.status)); hash = hash_combine(hash, unit.moving);
-		hash = hash_combine(hash, unit.in_combat); hash = hash_float(hash, unit.operational_tempo);
+		hash = hash_combine(hash, unit.in_combat); hash = hash_combine(hash, unit.mobilized);
+		hash = hash_float(hash, unit.operational_tempo);
+	}
+	for(auto const& label : value.labels) {
+		hash = hash_combine(hash, label.formation_id); hash = hash_combine(hash, uint8_t(label.level));
+		for(auto character : label.name_key) hash = hash_combine(hash, uint8_t(character));
+	}
+	for(auto const& projection : value.battle_projections) {
+		hash = hash_combine(hash, projection.formation_id);
+		hash = hash_combine(hash, projection.regiment_index_plus_one);
+		hash = hash_combine(hash, projection.retreating);
+	}
+	for(auto const& order : value.marches) {
+		hash = hash_combine(hash, order.formation_id); hash = hash_combine(hash, uint32_t(order.issued_day));
+		hash = hash_combine(hash, order.destination.value); hash = hash_combine(hash, order.next_site.value);
+		hash = hash_combine(hash, order.leg_days); hash = hash_combine(hash, order.leg_progress);
+		hash = hash_combine(hash, order.days_remaining); hash = hash_combine(hash, uint8_t(order.blocked));
 	}
 	for(auto const& range : persons::exact_population::all_military_assignments(state)) {
 		hash = hash_combine(hash, range.formation_id); hash = hash_combine(hash, range.source_population_cell);

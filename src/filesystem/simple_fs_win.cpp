@@ -91,6 +91,10 @@ void add_root(file_system& fs, native_string_view root_path) {
 	fs.ordered_roots.emplace_back(root_path);
 }
 
+void add_fallback_root(file_system& fs, native_string_view root_path) {
+	fs.ordered_roots.emplace(fs.ordered_roots.begin(), root_path);
+}
+
 void add_relative_root(file_system& fs, native_string_view root_path) {
 	WCHAR module_name[MAX_PATH] = {};
 	int32_t path_used = GetModuleFileNameW(nullptr, module_name, MAX_PATH);

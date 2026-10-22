@@ -3,8 +3,7 @@ script = Cyrl
 
 body_font = NotoSerif-Regular.ttf
 
-header_font = NotoSerif-Regular.ttf
-header_feature = smcp
+header_font = FiraSansCondensed-Regular.ttf
 
 map_font = NotoSerif-Regular.ttf
 map_feature = smcp

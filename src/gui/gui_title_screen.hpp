@@ -758,6 +758,9 @@ class country_select_element : public katechon_canvas {
 	int32_t scroll = 0;
 	int32_t visible_rows = 1;
 	dcon::nation_id followed_nation;
+	bool gliding = false;
+	glm::vec2 glide_target{ 0.f, 0.f };
+	std::chrono::steady_clock::time_point glide_last{};
 	bool autostart_pending = true;
 
 	static float unit(sys::state& state) {
@@ -812,6 +815,13 @@ class country_select_element : public katechon_canvas {
 		if(state.local_player_nation == followed_nation)
 			return;
 		followed_nation = state.local_player_nation;
+		// and turn the map towards it; the glide gives way to the player's own hand
+		if(auto capital = state.world.nation_get_capital(followed_nation); capital) {
+			map_space::point map_pos = { state.world.province_get_mid_point(capital) };
+			glide_target = map_space::inverted_from_point(map_pos, float(state.map_state.map_data.size_x), float(state.map_state.map_data.size_y)).data;
+			gliding = true;
+			glide_last = std::chrono::steady_clock::time_point{};
+		}
 		for(int32_t i = 0; i < int32_t(nations.size()); ++i) {
 			if(nations[size_t(i)] == followed_nation) {
 				if(i < scroll)
@@ -889,10 +899,135 @@ class country_select_element : public katechon_canvas {
 		autostart_pending = false;
 	}
 
-	void stat_row(sys::state& state, float x, float right, float y, float u, std::string_view key, std::string_view fallback, std::string const& value) {
-		draw_text(state, localized(state, key, fallback), x, y, int32_t(16.f * u), 0.10f, muted);
-		draw_text(state, value, right, y, int32_t(19.f * u), 0.02f, ivory, true);
-		draw_rule(state, x, y + 17.f * u, right - x, 0.18f);
+	// A scenario may model one pop unit as many real people; it says how many in
+	// its localisation so that the panel shows real head counts.
+	static double people_per_pop_unit(sys::state& state) {
+		if(state.key_is_localized("katechon_people_per_pop_unit")) {
+			auto const value = std::atof(text::produce_simple_string(state, "katechon_people_per_pop_unit").c_str());
+			if(value >= 1.0)
+				return value;
+		}
+		return 4.0;
+	}
+
+	// ---- drawing ----
+	// The screen is the hall of the title screen with three things set in it:
+	// a framed board holding the list of nations and a window onto the map, a
+	// card for the chosen nation, and the way on. Positions are in the units of
+	// the 941-point-high artwork, as on the title screen.
+	GLuint hall = 0;
+	GLuint icons = 0;
+	GLuint eagle = 0;
+	GLuint play_art = 0;
+	bool art_loaded = false;
+	hit_target map_window; // everything right of the list; the map shows through wherever no panel lies
+	std::vector<hit_target> panels;
+	inline static constexpr int32_t icon_cells = 30; // assets/katechon_hud_icons.png
+	inline static constexpr ogl::color3f aged{ 0.89f, 0.75f, 0.49f };
+	inline static constexpr ogl::color3f cream{ 0.94f, 0.88f, 0.74f };
+
+	void load_art(sys::state& state) {
+		art_loaded = true;
+		auto root = simple_fs::get_root(state.common_fs);
+		auto assets = simple_fs::open_directory(root, NATIVE("assets"));
+		hall = ogl::make_gl_texture(assets, NATIVE("katechon_title_bg.png"));
+		icons = ogl::make_gl_texture(assets, NATIVE("katechon_hud_icons.png"));
+		eagle = ogl::make_gl_texture(assets, NATIVE("katechon_shell_eagle.png"));
+		play_art = ogl::make_gl_texture(assets, NATIVE("katechon_pick_play.png"));
+		for(auto const texture : { hall, icons, eagle, play_art }) {
+			if(!texture)
+				continue;
+			glBindTexture(GL_TEXTURE_2D, texture);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
+	}
+
+	void fill(sys::state& state, float x, float y, float w, float h, ogl::color3f c, float alpha) {
+		ogl::render_alpha_colored_rect(state, x, y, w, h, c.r, c.g, c.b, alpha);
+	}
+
+	// A part of the hall, where it falls when the artwork covers the window.
+	void hall_piece(sys::state& state, float x, float y, float w, float h, float screen_w, float screen_h, float dark) {
+		if(w <= 0.f || h <= 0.f)
+			return;
+		if(hall) {
+			constexpr float art_ratio = 1672.f / 941.f;
+			auto const art_w = std::max(screen_w, screen_h * art_ratio);
+			auto const art_h = art_w / art_ratio;
+			auto const ox = (screen_w - art_w) * 0.5f;
+			auto const oy = (screen_h - art_h) * 0.5f;
+			ogl::render_subrect(state, x, y, w, h, (x - ox) / art_w, (y - oy) / art_h, w / art_w, h / art_h, hall);
+		}
+		fill(state, x, y, w, h, ogl::color3f{ 0.035f, 0.022f, 0.018f }, hall ? dark : 1.f);
+	}
+
+	static std::string capitals(std::string value) {
+		for(auto& c : value) {
+			if(uint8_t(c) < 128)
+				c = char(std::toupper(uint8_t(c)));
+		}
+		return value;
+	}
+
+	std::string fit(sys::state& state, std::string content, int32_t size, float tracking, float max_w) {
+		while(content.size() > 3 && shaped(state, content, size, tracking).width > max_w) {
+			content.pop_back();
+			while(!content.empty() && (uint8_t(content.back()) & 0xC0) == 0x80)
+				content.pop_back();
+		}
+		return content;
+	}
+
+	void lozenge(sys::state& state, float cx, float cy, int32_t r, ogl::color3f c) {
+		for(int32_t i = -r; i <= r; ++i)
+			fill(state, cx - float(r - std::abs(i)) - 0.5f, cy + float(i), float(2 * (r - std::abs(i)) + 1), 1.f, c, 1.f);
+	}
+
+	// A double gilt line with a lozenge at each corner and at the middle of
+	// its top and bottom.
+	void gilt_frame(sys::state& state, float x, float y, float w, float h) {
+		for(int32_t k = 0; k < 2; ++k) {
+			auto const in = k == 0 ? 0.f : 5.f;
+			auto const a = k == 0 ? 0.90f : 0.40f;
+			fill(state, x + in, y + in, w - 2.f * in, 1.f, aged, a);
+			fill(state, x + in, y + h - in - 1.f, w - 2.f * in, 1.f, aged, a);
+			fill(state, x + in, y + in, 1.f, h - 2.f * in, aged, a);
+			fill(state, x + w - in - 1.f, y + in, 1.f, h - 2.f * in, aged, a);
+		}
+		for(auto const cx : { x, x + w - 1.f }) {
+			for(auto const cy : { y, y + h - 1.f })
+				lozenge(state, cx, cy, 4, aged);
+		}
+		lozenge(state, std::round(x + w * 0.5f), y, 3, aged);
+		lozenge(state, std::round(x + w * 0.5f), y + h - 1.f, 3, aged);
+	}
+
+	// A rule fading to both ends, with a lozenge (or the eagle) at its middle.
+	void ornament_rule(sys::state& state, float x, float right, float y, float gap) {
+		auto const centre = std::round((x + right) * 0.5f);
+		constexpr int32_t steps = 14;
+		auto const reach = (right - x) * 0.5f - gap;
+		for(int32_t i = 0; i < steps; ++i) {
+			auto const a = 0.85f * (1.f - float(i) / float(steps));
+			fill(state, centre + gap + reach * float(i) / float(steps), y, reach / float(steps) + 0.5f, 1.f, aged, a);
+			fill(state, centre - gap - reach * float(i + 1) / float(steps), y, reach / float(steps) + 0.5f, 1.f, aged, a);
+		}
+	}
+
+	void draw_icon(sys::state& state, int32_t cell, float cx, float cy, float size, ogl::color3f c) {
+		if(icons)
+			ogl::render_tinted_subsprite(state, cell, icon_cells, std::round(cx - size * 0.5f), std::round(cy - size * 0.5f), size, size, c.r, c.g, c.b, icons, ui::rotation::upright, false, false);
+	}
+
+	void stat_row(sys::state& state, int32_t cell, float x, float right, float y, float u, std::string_view key, std::string_view fallback, std::string const& value) {
+		draw_icon(state, cell, x + 11.f * u, y, 22.f * u, aged);
+		draw_text(state, localized(state, key, fallback), x + 40.f * u, y, int32_t(14.f * u), 0.16f, ogl::color3f{ 0.72f, 0.66f, 0.56f });
+		draw_text(state, value, right, y, int32_t(21.f * u), 0.02f, cream, true);
+		fill(state, x, y + 21.f * u, right - x, 1.f, aged, 0.16f);
 	}
 
 public:
@@ -900,12 +1035,13 @@ public:
 		rebuild(state);
 	}
 
+	// Everything but the window onto the map belongs to this screen.
 	mouse_probe impl_probe_mouse(sys::state& state, int32_t x, int32_t y, mouse_probe_type type) noexcept override {
-		auto const u = unit(state);
-		auto const over_left = float(x) < left_width * u;
-		auto const over_right = bool(state.local_player_nation) && float(x) > width(state) - right_width * u;
-		if(over_left || over_right)
-			return mouse_probe{ this, xy_pair{ int16_t(x), int16_t(y) } };
+		// Only the panels take the mouse; everywhere else it belongs to the map.
+		for(auto const& panel : panels) {
+			if(over(panel, float(x), float(y)))
+				return mouse_probe{ this, xy_pair{ int16_t(x), int16_t(y) } };
+		}
 		return mouse_probe{ nullptr, xy_pair{ int16_t(x), int16_t(y) } };
 	}
 
@@ -925,7 +1061,7 @@ public:
 	}
 
 	message_result on_scroll(sys::state& state, int32_t x, int32_t y, float amount, sys::key_modifiers mods) noexcept override {
-		if(float(x) < left_width * unit(state))
+		if(float(x) < map_window.x)
 			scroll_by(amount > 0.f ? -3 : 3);
 		return message_result::consumed;
 	}
@@ -955,6 +1091,8 @@ public:
 			rebuild(state);
 		if(autostart_pending)
 			autostart(state);
+		if(!art_loaded)
+			load_art(state);
 
 		auto const w = width(state);
 		auto const h = height(state);
@@ -964,95 +1102,193 @@ public:
 		auto const hovering = state.ui_state.under_mouse == this;
 		targets.clear();
 
-		// Left: the list of nations.
-		auto const lw = left_width * u;
-		draw_wash(state, 0.f, lw, h, 0.93f, 0.90f);
-		draw_wash(state, lw, 70.f * u, h, 0.90f, 0.f);
-		ogl::render_alpha_colored_rect(state, lw, 0.f, 1.f, h, gold.r * 0.8f, gold.g * 0.8f, gold.b * 0.8f, 0.35f);
-
-		auto const mg = margin * u;
-		draw_text(state, localized(state, "katechon_pick_header", "CHOOSE A NATION"), mg, 70.f * u, int32_t(21.f * u), 0.20f, gold);
-		draw_text(state, text::date_to_string(state, state.current_date), mg, 104.f * u, int32_t(15.f * u), 0.06f, muted);
-		draw_rule(state, mg, 128.f * u, lw - 2.f * mg, 0.45f);
-
-		visible_rows = std::max(1, int32_t((h - (list_top + footer) * u) / (row_pitch * u)) + 1);
-		scroll_by(0);
-		follow_selection(state);
-		auto const rows = std::min(visible_rows, int32_t(nations.size()) - scroll);
-		for(int32_t row = 0; row < rows; ++row) {
-			auto const n = nations[size_t(scroll + row)];
-			auto const center_y = (list_top + float(row) * row_pitch) * u;
-			hit_target t{ 0.f, center_y - row_pitch * u * 0.5f, lw, row_pitch * u, action::pick, n };
-			auto const selected = n == state.local_player_nation;
-			auto const hovered = hovering && over(t, mx, my);
-			if(selected)
-				draw_row_marker(state, mg - 18.f * u, center_y, 30.f * u, u, 1.f);
-			else if(hovered)
-				ogl::render_alpha_colored_rect(state, 0.f, t.y, lw, t.h, gold.r, gold.g, gold.b, 0.07f);
-			draw_flag(state, n, mg, center_y - 10.f * u, 30.f * u, 20.f * u);
-			auto const color = selected ? gold : (hovered ? mix(ivory, gold, 0.45f) : ivory);
-			draw_text(state, text::get_name_as_string(state, dcon::fatten(state.world, n)), mg + 46.f * u, center_y, int32_t(18.f * u), 0.03f, color);
-			draw_text(state, std::to_string(int32_t(state.world.nation_get_rank(n))), lw - mg, center_y, int32_t(15.f * u), 0.02f, selected ? gold : muted, true);
-			targets.push_back(t);
-		}
-		if(int32_t(nations.size()) > visible_rows) {
-			auto const track_top = (list_top - row_pitch * 0.5f) * u;
-			auto const track_h = float(visible_rows) * row_pitch * u;
-			auto const thumb_h = std::max(18.f * u, track_h * float(visible_rows) / float(nations.size()));
-			auto const thumb_y = track_top + (track_h - thumb_h) * float(scroll) / float(int32_t(nations.size()) - visible_rows);
-			ogl::render_alpha_colored_rect(state, lw - 14.f * u, track_top, 1.f, track_h, gold.r, gold.g, gold.b, 0.18f);
-			ogl::render_alpha_colored_rect(state, lw - 14.f * u - 1.f, thumb_y, 3.f, thumb_h, gold.r, gold.g, gold.b, 0.75f);
+		if(gliding) {
+			auto const now = std::chrono::steady_clock::now();
+			auto const dt = glide_last == std::chrono::steady_clock::time_point{} ? 0.016f : std::min(0.1f, std::chrono::duration<float>(now - glide_last).count());
+			glide_last = now;
+			if(state.map_state.is_dragging) {
+				gliding = false;
+			} else {
+				auto const current = state.map_state.pos.data;
+				auto dx = glide_target.x - current.x;
+				dx -= std::round(dx); // the short way round the world
+				auto const dy = glide_target.y - current.y;
+				auto const step = 1.f - std::exp(-dt * 4.5f);
+				state.map_state.set_pos(map_space::point_normalized_inverted_y{ glm::vec2{ current.x + dx * step, current.y + dy * step } });
+				state.map_state.last_map_movement = now;
+				state.map_state.last_map_movement_handled = false;
+				if(std::abs(dx) + std::abs(dy) < 0.0006f)
+					gliding = false;
+			}
 		}
 
+		// ---- where things stand ----
+		auto const card_w = std::round(330.f * u);
+		auto const card_x = std::round(w - card_w - 30.f * u);
+		auto const card_y = std::round(150.f * u);
+		auto const play_h = std::round(72.f * u);
+		auto const play_y = std::round(h - 104.f * u - play_h);
+		// the card is as tall as what it says, not as tall as the screen
+		auto const card_h = std::min(play_y - 22.f * u - card_y, std::round(566.f * u));
+		auto const board_x = std::round(30.f * u);
+		auto const board_y = std::round(178.f * u);
+		auto const board_w = card_x - 24.f * u - board_x;
+		auto const board_h = std::round(h - 118.f * u) - board_y;
+		auto const list_w = std::round(280.f * u);
+		map_window = hit_target{ board_x + list_w, 0.f, w - board_x - list_w, h, action::none, dcon::nation_id{} };
+
+		// ---- the map fills the screen; only the panels lie over it ----
+		fill(state, 0.f, 0.f, 0.f, 0.f, ogl::color3f{ 0.f, 0.f, 0.f }, 0.f); // sets up the state the artwork relies on
+		panels.clear();
+		panels.push_back(hit_target{ board_x, board_y, list_w, board_h, action::none, dcon::nation_id{} });
+		panels.push_back(hit_target{ 40.f * u, h - 92.f * u, 200.f * u, 52.f * u, action::none, dcon::nation_id{} });
+		if(state.local_player_nation) {
+			panels.push_back(hit_target{ card_x, card_y, card_w, card_h, action::none, dcon::nation_id{} });
+			panels.push_back(hit_target{ card_x, play_y, card_w, play_h, action::none, dcon::nation_id{} });
+		}
+		// The panels have no boxes: the map darkens towards the left and right
+		// edges of the screen, enough for type to stand on, and clears in between.
 		{
-			auto const center_y = h - 56.f * u;
+			constexpr int32_t strips = 64;
+			auto const left_reach = board_x + list_w + 150.f * u;
+			auto const right_reach = card_w + 30.f * u + 170.f * u;
+			for(int32_t i = 0; i < strips; ++i) {
+				auto const t = (float(i) + 0.5f) / float(strips);
+				// hold the shade under the text, then let it go in a smooth curve
+				auto const hold = [](float v, float solid) { auto const k = std::clamp((v - solid) / (1.f - solid), 0.f, 1.f); return 1.f - k * k * (3.f - 2.f * k); };
+				// strips meet on whole pixels: an overlap would show as a darker line, a gap as a lighter one
+				auto const l0 = std::round(left_reach * float(i) / float(strips));
+				auto const l1 = std::round(left_reach * float(i + 1) / float(strips));
+				fill(state, l0, 0.f, l1 - l0, h, ogl::color3f{ 0.045f, 0.026f, 0.030f }, 0.90f * hold(t, 0.62f));
+				if(state.local_player_nation) {
+					auto const r0 = std::round(right_reach * float(i) / float(strips));
+					auto const r1 = std::round(right_reach * float(i + 1) / float(strips));
+					fill(state, w - r1, 0.f, r1 - r0, h, ogl::color3f{ 0.045f, 0.026f, 0.030f }, 0.90f * hold(t, 0.60f));
+				}
+			}
+		}
+
+		// ---- the title ----
+		{
+			auto const tx = 66.f * u;
+			auto const title = localized(state, "katechon_pick_header", "CHOOSE A NATION");
+			auto const title_w = draw_text(state, title, tx, 104.f * u, int32_t(30.f * u), 0.16f, aged);
+			ornament_rule(state, tx, tx + title_w, 140.f * u, 12.f * u);
+			lozenge(state, std::round(tx + title_w * 0.5f), 140.f * u, 4, aged);
+			auto const date = capitals(text::date_to_string(state, state.current_date));
+			auto const date_w = shaped(state, date, int32_t(13.f * u), 0.30f).width;
+			draw_text(state, date, tx + (title_w - date_w) * 0.5f, 168.f * u - 4.f * u, int32_t(13.f * u), 0.30f, muted);
+		}
+
+		// ---- the board: the list of nations beside the window ----
+		// a single gold hairline closes the list instead of a frame
+		fill(state, board_x + list_w + 8.f * u, board_y + 10.f * u, 1.f, board_h - 20.f * u, aged, 0.28f);
+		{
+			auto const pitch = 36.5f * u;
+			auto const top = board_y + 20.f * u;
+			auto const row_x = board_x + 12.f * u;
+			auto const row_w = list_w - 36.f * u;
+			visible_rows = std::max(1, int32_t((board_h - 40.f * u) / pitch));
+			scroll_by(0);
+			follow_selection(state);
+			auto const rows = std::min(visible_rows, int32_t(nations.size()) - scroll);
+			for(int32_t row = 0; row < rows; ++row) {
+				auto const n = nations[size_t(scroll + row)];
+				hit_target t{ row_x, top + float(row) * pitch, row_w, pitch, action::pick, n };
+				auto const center_y = t.y + pitch * 0.5f;
+				auto const selected = n == state.local_player_nation;
+				auto const hovered = hovering && over(t, mx, my);
+				if(selected) {
+					// the chosen nation lies on a strip of the crimson of the shell
+					fill(state, t.x, t.y + 1.f, t.w, t.h - 2.f, ogl::color3f{ 0.40f, 0.09f, 0.11f }, 0.85f);
+					fill(state, t.x, t.y + 1.f, t.w, 1.f, aged, 0.80f);
+					fill(state, t.x, t.y + t.h - 2.f, t.w, 1.f, aged, 0.80f);
+					fill(state, t.x, t.y + 1.f, 2.f, t.h - 2.f, aged, 1.f);
+				} else if(hovered) {
+					fill(state, t.x, t.y + 1.f, t.w, t.h - 2.f, aged, 0.09f);
+				} else {
+					fill(state, t.x + 14.f * u, t.y + t.h - 1.f, t.w - 28.f * u, 1.f, aged, 0.07f);
+				}
+				draw_flag(state, n, t.x + 16.f * u, center_y - 10.f * u, 30.f * u, 20.f * u);
+				draw_text(state, text::get_name_as_string(state, dcon::fatten(state.world, n)), t.x + 66.f * u, center_y, int32_t(18.f * u), 0.03f, selected ? cream : (hovered ? cream : ivory));
+				draw_text(state, std::to_string(int32_t(state.world.nation_get_rank(n))), t.x + t.w - 16.f * u, center_y, int32_t(14.f * u), 0.02f, selected ? aged : muted, true);
+				targets.push_back(t);
+			}
+			if(int32_t(nations.size()) > visible_rows) {
+				auto const track_x = board_x + list_w - 14.f * u;
+				auto const track_top = top;
+				auto const track_h = float(visible_rows) * pitch;
+				auto const thumb_h = std::max(24.f * u, track_h * float(visible_rows) / float(nations.size()));
+				auto const thumb_y = track_top + (track_h - thumb_h) * float(scroll) / float(int32_t(nations.size()) - visible_rows);
+				fill(state, track_x, track_top, 1.f, track_h, aged, 0.30f);
+				lozenge(state, track_x, track_top, 3, aged);
+				lozenge(state, track_x, track_top + track_h, 3, aged);
+				fill(state, track_x - 2.f, thumb_y, 5.f, thumb_h, aged, 0.85f);
+			}
+		}
+
+		// ---- the way back ----
+		{
+			auto const center_y = h - 66.f * u;
 			auto const label = localized(state, "katechon_menu_back", "BACK");
-			hit_target t{ 0.f, center_y - 26.f * u, lw * 0.6f, 52.f * u, action::back, dcon::nation_id{} };
+			hit_target t{ 40.f * u, center_y - 26.f * u, 200.f * u, 52.f * u, action::back, dcon::nation_id{} };
 			auto const hovered = hovering && over(t, mx, my);
-			if(hovered)
-				draw_row_marker(state, mg - 18.f * u, center_y, 40.f * u, u, 1.f);
-			draw_text(state, label, mg, center_y, int32_t(22.f * u), 0.16f, hovered ? gold : ivory);
+			draw_icon(state, 21, 66.f * u, center_y, 24.f * u, hovered ? cream : aged); // chevron_left
+			draw_text(state, label, 100.f * u, center_y, int32_t(21.f * u), 0.26f, hovered ? cream : aged);
 			targets.push_back(t);
 		}
 
-		// Right: the chosen nation.
+		// ---- the chosen nation ----
 		auto const chosen = state.local_player_nation;
 		if(!chosen) {
-			draw_text(state, localized(state, "katechon_pick_hint", "Select a nation from the list or on the map."), lw + 90.f * u, h - 56.f * u, int32_t(17.f * u), 0.04f, ivory);
+			auto const hint = localized(state, "katechon_pick_hint", "Select a nation from the list or on the map.");
+			draw_text(state, hint, card_x, card_y + 40.f * u, int32_t(17.f * u), 0.04f, cream);
 			return;
 		}
-		auto const rw = right_width * u;
-		auto const rx = w - rw;
-		draw_wash(state, rx - 70.f * u, 70.f * u, h, 0.f, 0.90f);
-		draw_wash(state, rx, rw, h, 0.90f, 0.93f);
-		ogl::render_alpha_colored_rect(state, rx, 0.f, 1.f, h, gold.r * 0.8f, gold.g * 0.8f, gold.b * 0.8f, 0.35f);
-
-		auto const cx = rx + mg;
-		auto const right = w - mg;
-		draw_flag(state, chosen, cx, 58.f * u, 132.f * u, 88.f * u);
-		draw_text(state, text::get_name_as_string(state, dcon::fatten(state.world, chosen)), cx, 186.f * u, int32_t(25.f * u), 0.04f, ivory);
-		draw_text(state, get_status_text(state, chosen), cx, 220.f * u, int32_t(16.f * u), 0.10f, gold);
-		draw_text(state, text::produce_simple_string(state, state.world.government_type_get_name(state.world.nation_get_government_type(chosen))), cx, 246.f * u, int32_t(15.f * u), 0.04f, muted);
-		draw_rule(state, cx, 272.f * u, right - cx, 0.45f);
-
-		stat_row(state, cx, right, 310.f * u, u, "katechon_pick_rank", "OVERALL RANK", std::to_string(int32_t(state.world.nation_get_rank(chosen))));
-		stat_row(state, cx, right, 354.f * u, u, "katechon_pick_prestige", "PRESTIGE", std::to_string(int32_t(state.world.nation_get_prestige_rank(chosen))));
-		stat_row(state, cx, right, 398.f * u, u, "katechon_pick_industry", "INDUSTRY", std::to_string(int32_t(state.world.nation_get_industrial_rank(chosen))));
-		stat_row(state, cx, right, 442.f * u, u, "katechon_pick_military", "MILITARY", std::to_string(int32_t(state.world.nation_get_military_rank(chosen))));
-		stat_row(state, cx, right, 486.f * u, u, "katechon_pick_population", "POPULATION", text::prettify(int64_t(state.world.nation_get_demographics(chosen, demographics::total))));
-
+		// the dossier stands directly on the shaded map; a hairline marks where it begins
+		fill(state, card_x - 8.f * u, card_y + 10.f * u, 1.f, card_h - 20.f * u, aged, 0.28f);
 		{
-			auto const center_y = h - 60.f * u;
+			auto const cx = card_x + 40.f * u;
+			auto const right = card_x + card_w - 40.f * u;
+			auto y0 = card_y + 44.f * u;
+			draw_flag(state, chosen, cx, y0, 132.f * u, 88.f * u);
+			y0 += 88.f * u + 38.f * u;
+			draw_text(state, fit(state, text::get_name_as_string(state, dcon::fatten(state.world, chosen)), int32_t(30.f * u), 0.03f, right - cx), cx, y0, int32_t(30.f * u), 0.03f, cream);
+			draw_text(state, get_status_text(state, chosen), cx, y0 + 38.f * u, int32_t(19.f * u), 0.10f, aged);
+			draw_text(state, text::produce_simple_string(state, state.world.government_type_get_name(state.world.nation_get_government_type(chosen))), cx, y0 + 66.f * u, int32_t(15.f * u), 0.10f, muted);
+			y0 += 98.f * u;
+			ornament_rule(state, cx - 14.f * u, right + 14.f * u, y0, 30.f * u);
+			if(eagle)
+				ogl::render_textured_rect(state, ogl::color_modification::none, std::round((cx + right) * 0.5f - 16.f * u), y0 - 18.f * u, 32.f * u, 36.f * u, eagle, ui::rotation::upright, false, false);
+			y0 += 50.f * u;
+			auto const pitch = 46.f * u;
+			// cells of the icon strip: capital (a star), politics, production, military, society
+			stat_row(state, 1, cx, right, y0, u, "katechon_pick_rank", "OVERALL RANK", std::to_string(int32_t(state.world.nation_get_rank(chosen))));
+			stat_row(state, 26, cx, right, y0 + pitch, u, "katechon_pick_prestige", "PRESTIGE", std::to_string(int32_t(state.world.nation_get_prestige_rank(chosen))));
+			stat_row(state, 23, cx, right, y0 + 2.f * pitch, u, "katechon_pick_industry", "INDUSTRY", std::to_string(int32_t(state.world.nation_get_industrial_rank(chosen))));
+			stat_row(state, 29, cx, right, y0 + 3.f * pitch, u, "katechon_pick_military", "MILITARY", std::to_string(int32_t(state.world.nation_get_military_rank(chosen))));
+			stat_row(state, 14, cx, right, y0 + 4.f * pitch, u, "katechon_pick_population", "POPULATION", text::prettify(int64_t(double(state.world.nation_get_demographics(chosen, demographics::total)) * people_per_pop_unit(state))));
+		}
+
+		// ---- the way on ----
+		{
 			auto const enabled = command::can_notify_start_game(state, chosen);
-			hit_target t{ rx, center_y - 34.f * u, rw, 68.f * u, enabled ? action::play : action::none, dcon::nation_id{} };
+			hit_target t{ card_x, play_y, card_w, play_h, enabled ? action::play : action::none, dcon::nation_id{} };
 			auto const hovered = enabled && hovering && over(t, mx, my);
-			ogl::render_alpha_colored_rect(state, cx, center_y - 30.f * u, right - cx, 60.f * u, gold.r, gold.g, gold.b, hovered ? 0.22f : 0.10f);
-			ogl::render_alpha_colored_rect(state, cx, center_y - 30.f * u, right - cx, 1.f, gold.r, gold.g, gold.b, 0.8f);
-			ogl::render_alpha_colored_rect(state, cx, center_y + 30.f * u, right - cx, 1.f, gold.r, gold.g, gold.b, 0.8f);
+			if(play_art) {
+				ogl::render_tinted_subsprite(state, hovered ? 1 : 0, 2, card_x - 3.f * u, play_y, card_w + 6.f * u, play_h, enabled ? 1.f : 0.5f, enabled ? 1.f : 0.5f, enabled ? 1.f : 0.5f, play_art, ui::rotation::upright, false, false);
+			} else {
+				fill(state, card_x, play_y, card_w, play_h, ogl::color3f{ 0.40f, 0.09f, 0.11f }, 1.f);
+				gilt_frame(state, card_x, play_y, card_w, play_h);
+			}
 			auto const label = localized(state, "katechon_pick_play", "PLAY");
-			auto const size = int32_t(26.f * u);
+			auto const size = int32_t(28.f * u);
 			auto const label_w = shaped(state, label, size, 0.30f).width;
-			draw_text(state, label, cx + (right - cx - label_w) * 0.5f, center_y, size, 0.30f, enabled ? gold : dim);
+			auto const lx = card_x + (card_w - label_w - 34.f * u) * 0.5f;
+			auto const tone = enabled ? (hovered ? ogl::color3f{ 1.f, 0.95f, 0.80f } : ogl::color3f{ 0.96f, 0.82f, 0.52f }) : dim;
+			draw_text(state, label, lx + 1.f, play_y + play_h * 0.5f + 1.f, size, 0.30f, ogl::color3f{ 0.10f, 0.02f, 0.03f });
+			draw_text(state, label, lx, play_y + play_h * 0.5f - 1.f, size, 0.30f, tone);
+			draw_icon(state, 10, lx + label_w + 26.f * u, play_y + play_h * 0.5f - 1.f, 24.f * u, tone); // chevron_right
 			if(enabled)
 				targets.push_back(t);
 		}

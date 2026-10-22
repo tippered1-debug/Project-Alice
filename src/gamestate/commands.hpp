@@ -124,6 +124,8 @@ enum class command_type : uint8_t {
 		change_naval_unit_type = 116,
 		toggle_supply_depot = 117,
 		set_army_supply_priority = 118,
+		formation_order = 119,
+		propose_deal = 120,
 
 
 		// network
@@ -253,6 +255,22 @@ struct generic_location_data {
 struct army_supply_priority_data {
 	dcon::army_id army;
 	uint8_t priority;
+};
+
+// An order to a canonical land formation, addressed by its stable id.
+enum class formation_order_kind : uint8_t { march, halt, resupply, replenish };
+struct formation_order_data {
+	uint64_t formation;
+	dcon::province_id destination;
+	formation_order_kind kind;
+	bool with_subordinates;
+};
+
+// Several things asked and given at once (nations::strategic_statecraft::deal_item bits).
+struct deal_data {
+	dcon::nation_id target;
+	uint16_t gives;
+	uint16_t asks;
 };
 
 struct generic_state_definition_data {
@@ -713,6 +731,8 @@ constexpr enum_array<command_type, command_handler> command_type_handlers = {
 	{ command_type::change_naval_unit_type, command_handler{ sizeof(command::change_naval_unit_type_data), sizeof(command::change_naval_unit_type_data) + (max_ship_count * sizeof(dcon::ship_id)), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::toggle_supply_depot, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::set_army_supply_priority, command_handler{ sizeof(command::army_supply_priority_data), sizeof(command::army_supply_priority_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
+	{ command_type::formation_order, command_handler{ sizeof(command::formation_order_data), sizeof(command::formation_order_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
+	{ command_type::propose_deal, command_handler{ sizeof(command::deal_data), sizeof(command::deal_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::take_province, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::grant_province, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::ask_for_free_trade_agreement, command_handler{ sizeof(command::diplo_action_data), sizeof(command::diplo_action_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
@@ -1097,6 +1117,17 @@ void toggle_supply_depot(sys::state& state, dcon::nation_id source, dcon::provin
 bool can_toggle_supply_depot(sys::state& state, dcon::nation_id source, dcon::province_id p);
 void set_army_supply_priority(sys::state& state, dcon::nation_id source, dcon::army_id army, uint8_t priority);
 bool can_set_army_supply_priority(sys::state& state, dcon::nation_id source, dcon::army_id army, uint8_t priority);
+
+void give_formation_order(sys::state& state, dcon::nation_id source, uint64_t formation, formation_order_kind kind,
+	dcon::province_id destination, bool with_subordinates);
+bool can_give_formation_order(sys::state& state, dcon::nation_id source, uint64_t formation, formation_order_kind kind,
+	dcon::province_id destination, bool with_subordinates);
+
+// A deal put to a country the computer plays: taken or refused as a whole.
+void propose_deal(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t gives, uint16_t asks);
+bool can_propose_deal(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t gives, uint16_t asks);
+bool can_deal_item(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t item);
+float deal_cost(sys::state& state, uint16_t gives, uint16_t asks);
 
 void take_province(sys::state& state, dcon::nation_id source, dcon::province_id prov);
 bool can_take_province(sys::state& state, dcon::nation_id source, dcon::province_id p);

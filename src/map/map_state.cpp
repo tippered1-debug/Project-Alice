@@ -17,6 +17,7 @@
 
 #include "projections.hpp"
 #include "gamerule_templates.hpp"
+#include "katechon_trade_lanes.hpp"
 
 //#include <filesystem>
 
@@ -1028,6 +1029,102 @@ void update_trade_flow_arrows(sys::state& state, display_data& map_data) {
 			map_data.trade_flow_vertices.data(),
 			GL_STATIC_DRAW
 		);
+	}
+}
+
+// A tie between two countries: a gentle arc from one capital to the other,
+// bowed to one side, at unit width.
+static void make_katechon_arc(sys::state& state, std::vector<textured_line_with_width_vertex>& line, dcon::province_id from, dcon::province_id to, float size_x, float size_y) {
+	glm::vec2 a = state.world.province_get_mid_point(from);
+	glm::vec2 b = state.world.province_get_mid_point(to);
+	if(b.x - a.x > size_x * 0.5f)
+		b.x -= size_x;
+	else if(a.x - b.x > size_x * 0.5f)
+		b.x += size_x;
+	auto const length = glm::length(b - a);
+	if(length < 2.f)
+		return;
+	auto const direction = (b - a) / length;
+	auto const turn = [](glm::vec2 v, float angle) {
+		return glm::vec2{ v.x * std::cos(angle) - v.y * std::sin(angle), v.x * std::sin(angle) + v.y * std::cos(angle) };
+	};
+	constexpr float bow = 0.45f; // off the straight line at either end, in radians
+	auto const start_tangent = turn(direction, bow);
+	auto const end_tangent = turn(direction, -bow);
+	auto const start_normal = glm::vec2(-start_tangent.y, start_tangent.x);
+	auto const start = a / glm::vec2(size_x, size_y);
+	line.push_back(textured_line_with_width_vertex{ start, +start_normal, 0.f, 0.f, 1.f });
+	line.push_back(textured_line_with_width_vertex{ start, -start_normal, 1.f, 0.f, 1.f });
+	float distance = 0.f;
+	add_bezier_to_buffer_variable_width(line, a, b, start_tangent, end_tangent, 0.f, true, size_x, size_y, uint32_t(std::clamp(length / 10.f, 16.f, 120.f)), distance, 1.f, 1.f, 1.f);
+}
+
+// The KATECHON trade and diplomacy modes: one line per lane, from its first
+// province to its second, along the sea routes, over land, or as an arc. The
+// trade-route shader reads the lane's kind from the texture coordinate across
+// the line (0..1 for the lines above, 2..3 outgoing, 4..5 incoming, 6..7
+// foreign, 8..17 the ties of a country).
+void build_katechon_trade_lanes(sys::state& state, display_data& map_data) {
+	map_data.trade_particles_positions.clear();
+	map_data.particle_next_node_probability.clear();
+	map_data.particle_creation_probability.clear();
+	map_data.trade_flow_vertices.clear();
+	map_data.trade_flow_arrow_counts.clear();
+	map_data.trade_flow_arrow_starts.clear();
+
+	// A path does not change with the cargo on it: built once, at unit width.
+	static std::unordered_map<uint64_t, std::vector<textured_line_with_width_vertex>> paths;
+	auto const size_x = float(map_data.size_x);
+	auto const size_y = float(map_data.size_y);
+	auto top = 0.f;
+	for(auto const& l : katechon_trade::lanes) {
+		if(l.kind == katechon_trade::lane_kind::outgoing || l.kind == katechon_trade::lane_kind::incoming)
+			top = std::max(top, l.value);
+	}
+	auto foreign_top = 0.f;
+	for(auto const& l : katechon_trade::lanes) {
+		if(l.kind == katechon_trade::lane_kind::foreign)
+			foreign_top = std::max(foreign_top, l.value);
+	}
+	// The world's other trade first, so that our own lies on top of it.
+	for(auto pass = 0; pass < 2; ++pass) {
+		for(auto const& l : katechon_trade::lanes) {
+			auto const foreign = l.kind == katechon_trade::lane_kind::foreign;
+			if(foreign != (pass == 0) || !l.from || !l.to || l.from == l.to || l.value <= 0.f)
+				continue;
+			auto const key = (uint64_t(l.arc) << 63) | (uint64_t(l.from.index()) << 33) | (uint64_t(l.to.index()) << 1) | uint64_t(l.sea);
+			auto found = paths.find(key);
+			if(found == paths.end()) {
+				std::vector<textured_line_with_width_vertex> line;
+				if(l.arc)
+					make_katechon_arc(state, line, l.from, l.to, size_x, size_y);
+				else if(l.sea)
+					make_sea_path(state, line, l.from, l.to, 1.f, size_x, size_y, 0.f, 0.f);
+				else
+					make_land_path(state, line, l.from, l.to, 1.f, size_x, size_y);
+				found = paths.emplace(key, std::move(line)).first;
+			}
+			if(found->second.size() < 4)
+				continue;
+			auto const tie = uint8_t(l.kind) >= uint8_t(katechon_trade::lane_kind::tie_alliance);
+			// a tie is a thin line; war and alliance a little heavier than the rest
+			auto const tie_width = l.kind == katechon_trade::lane_kind::tie_war ? 900.f : (l.kind == katechon_trade::lane_kind::tie_alliance ? 760.f : 600.f);
+			auto const width = tie ? tie_width : (foreign ? 500.f + 900.f * std::sqrt(foreign_top > 0.f ? l.value / foreign_top : 0.f)
+				: 1100.f + 4200.f * std::sqrt(top > 0.f ? l.value / top : 0.f));
+			auto const band = 2.f * float(uint8_t(l.kind));
+			auto const start = map_data.trade_flow_vertices.size();
+			map_data.trade_flow_arrow_starts.push_back(GLint(start));
+			for(auto v : found->second) {
+				v.width_ *= width;
+				v.texture_coordinate_ += band;
+				map_data.trade_flow_vertices.push_back(v);
+			}
+			map_data.trade_flow_arrow_counts.push_back(GLsizei(map_data.trade_flow_vertices.size() - start));
+		}
+	}
+	if(!map_data.trade_flow_vertices.empty()) {
+		glBindBuffer(GL_ARRAY_BUFFER, map_data.vbo_array[map_data.vo_trade_flow]);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(textured_line_with_width_vertex) * map_data.trade_flow_vertices.size(), map_data.trade_flow_vertices.data(), GL_STATIC_DRAW);
 	}
 }
 
@@ -2487,7 +2584,10 @@ void map_state::update(sys::state& state) {
 		);
 	}
 
-	if(state.selected_trade_good && state.update_trade_flow.load(std::memory_order::acquire)) {
+	if(katechon_trade::active) {
+		if(katechon_trade::dirty.exchange(false, std::memory_order::acq_rel))
+			build_katechon_trade_lanes(state, map_data);
+	} else if(state.selected_trade_good && state.update_trade_flow.load(std::memory_order::acquire)) {
 		update_trade_flow_arrows(state, map_data);
 		state.update_trade_flow.store(false, std::memory_order_release);
 	}
@@ -2634,6 +2734,14 @@ void map_state::update(sys::state& state) {
 	map_space::point_normalized_inverted_y pos_after_keyboard_zoom;
 	if(valid_pos && screen_to_map(screen_center, screen_size, view_mode, pos_after_keyboard_zoom)) {
 		pos.data += pos_before_keyboard_zoom.data - pos_after_keyboard_zoom.data;
+	}
+
+	// The flat map is drawn half a map-height divided by the zoom to either
+	// side of the camera. Held within that, the screen never shows what lies
+	// beyond the top or the bottom of the map.
+	if(view_mode == sys::projection_mode::rectangle) {
+		auto const reach = std::min(0.5f, 0.5f / zoom);
+		pos.data.y = glm::clamp(pos.data.y, reach, 1.f - reach);
 	}
 
 	glm::mat4 base_rotation(

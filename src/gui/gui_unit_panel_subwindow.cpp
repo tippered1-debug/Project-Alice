@@ -3,6 +3,7 @@
 #include "gui_element_types.hpp"
 #include "gui_listbox_templates.hpp"
 #include "gui_templates.hpp"
+#include "gui_common_elements.hpp"
 #include "commands.hpp"
 
 namespace ui {
@@ -149,10 +150,20 @@ public:
 	}
 };
 
-class regiment_pop_icon : public tinted_image_element_base {
+class regiment_personnel_icon : public tinted_image_element_base {
 public:
 	void on_update(sys::state& state) noexcept override {
 		auto reg_id = retrieve<dcon::regiment_id>(state, parent);
+		uint64_t personnel = 0;
+		uint64_t authorized = 0;
+		if(ui::canonical_regiment_personnel(state, reg_id, personnel, authorized)) {
+			frame = state.world.pop_type_get_sprite(state.culture_definitions.soldiers) - 1;
+			auto fill = authorized == 0 ? 0.0 : double(personnel) / double(authorized);
+			color = fill < 0.5 ? sys::pack_color(220, 75, 75)
+				: fill < 1.0 ? sys::pack_color(200, 200, 0)
+				: sys::pack_color(255, 255, 255);
+			return;
+		}
 		auto base_pop = state.world.regiment_get_pop_from_regiment_source(reg_id);
 		if(!base_pop) {
 			frame = state.world.pop_type_get_sprite(state.culture_definitions.soldiers) - 1;
@@ -175,6 +186,10 @@ public:
 
 	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents) noexcept override {
 		auto reg_id = retrieve<dcon::regiment_id>(state, parent);
+		if(military::land_forces::initialized(state)) {
+			ui::add_canonical_regiment_personnel_tooltip(state, contents, reg_id);
+			return;
+		}
 		auto base_pop = state.world.regiment_get_pop_from_regiment_source(reg_id);
 
 		if(!base_pop) {
@@ -340,7 +355,7 @@ public:
 			return make_element_by_type<subunit_details_ship_amount>(state, id);
 		} else if(name == "connected_pop") {
 			if constexpr(std::is_same_v<T, dcon::regiment_id>) {
-				return make_element_by_type<regiment_pop_icon>(state, id);
+				return make_element_by_type<regiment_personnel_icon>(state, id);
 			} else {
 				return make_element_by_type<invisible_element>(state, id);
 			}
@@ -819,7 +834,7 @@ public:
 		} else if(name == "subunit_amount_naval") {
 			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "connected_pop") {
-			return make_element_by_type<regiment_pop_icon>(state, id);
+			return make_element_by_type<regiment_personnel_icon>(state, id);
 		} else if(name == "rebel_faction") {
 			return make_element_by_type<invisible_element>(state, id);
 		} else if(name == "unit_experience") {

@@ -50,7 +50,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 16;
+constexpr uint16_t exact_runtime_save_version = 17;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -310,7 +310,9 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 		+ pod_vector_size(land_forces.equipment)
 		+ pod_vector_size(land_forces.consumables) + pod_vector_size(land_forces.stockpiles)
 		+ pod_vector_size(land_forces.shipments) + pod_vector_size(land_forces.person_losses)
-		+ pod_vector_size(land_forces.equipment_losses) + pod_vector_size(land_forces.casualty_events);
+		+ pod_vector_size(land_forces.equipment_losses) + pod_vector_size(land_forces.casualty_events)
+		+ pod_vector_size(land_forces.labels) + pod_vector_size(land_forces.marches)
+		+ pod_vector_size(land_forces.battle_projections);
 	size += technology_snapshot_size(technology);
 	size += pod_vector_size(snapshot.construction);
 	size += sizeof(foreign_exchange.version) + sizeof(foreign_exchange.next_order_id)
@@ -431,6 +433,9 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = write_pod_vector(ptr, land_forces.person_losses);
 	ptr = write_pod_vector(ptr, land_forces.equipment_losses);
 	ptr = write_pod_vector(ptr, land_forces.casualty_events);
+	ptr = write_pod_vector(ptr, land_forces.labels);
+	ptr = write_pod_vector(ptr, land_forces.marches);
+	ptr = write_pod_vector(ptr, land_forces.battle_projections);
 	ptr = write_technology_snapshot(ptr, technology);
 	ptr = write_pod_vector(ptr, snapshot.construction);
 	ptr = memcpy_serialize(ptr, foreign_exchange.version);
@@ -592,6 +597,9 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 				return true;
 			});
 	} else if(valid) valid = read_pod_vector(ptr, payload_end, land_forces.casualty_events);
+	if(valid && land_forces.version >= 3) valid = read_pod_vector(ptr, payload_end, land_forces.labels);
+	if(valid && land_forces.version >= 3) valid = read_pod_vector(ptr, payload_end, land_forces.marches);
+	if(valid && land_forces.version >= 4) valid = read_pod_vector(ptr, payload_end, land_forces.battle_projections);
 	if(valid && version >= 12) valid = read_technology_snapshot(ptr, payload_end, result.technology);
 	if(valid && version >= 15) valid = read_pod_vector(ptr, payload_end, result.construction);
 	if(valid && version >= 16) {

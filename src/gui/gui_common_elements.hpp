@@ -8,6 +8,7 @@
 #include "gui_graphics.hpp"
 #include "gui_element_types.hpp"
 #include "military.hpp"
+#include "military/land_forces.hpp"
 #include "nations.hpp"
 #include "province_templates.hpp"
 #include "system_state.hpp"
@@ -18,6 +19,33 @@
 #include "province.hpp"
 
 namespace ui {
+
+inline bool canonical_regiment_personnel(sys::state const& state, dcon::regiment_id regiment,
+	uint64_t& current, uint64_t& authorized) {
+	if(!military::land_forces::initialized(state)) return false;
+	current = 0;
+	authorized = 0;
+	auto formation_id = military::land_forces::formation_for_legacy_regiment(state, regiment);
+	if(auto formation = military::land_forces::find_formation(state, formation_id)) {
+		current = military::land_forces::personnel_count(state, formation_id);
+		authorized = formation->personnel_authorization;
+	}
+	return true;
+}
+
+inline void add_canonical_regiment_personnel_tooltip(sys::state& state,
+	text::columnar_layout& contents, dcon::regiment_id regiment) {
+	uint64_t current = 0;
+	uint64_t authorized = 0;
+	if(!canonical_regiment_personnel(state, regiment, current, authorized)) return;
+	if(authorized == 0) {
+		text::add_line(state, contents, "reinforce_rate_none");
+		return;
+	}
+	text::add_line(state, contents, "katechon_mil_staff",
+		text::variable_type::x, text::pretty_integer{ int64_t(current) },
+		text::variable_type::y, text::pretty_integer{ int64_t(authorized) });
+}
 
 typedef std::variant< std::monostate, dcon::nation_id, dcon::state_instance_id, dcon::province_id> pop_list_filter;
 

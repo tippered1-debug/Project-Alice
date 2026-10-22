@@ -2,6 +2,7 @@
 #include "demographics.hpp"
 #include "commands.hpp"
 #include "unit_tooltip.hpp"
+#include "military/land_forces.hpp"
 #include "economy_production.hpp"
 #include "economy_stats.hpp"
 #include "province.hpp"
@@ -491,6 +492,12 @@ void recruitment_map_tt_box(sys::state& state, text::columnar_layout& contents, 
 
 	if(prov.value < state.province_definitions.first_sea_province.value) {
 		auto box = text::open_layout_box(contents);
+		if(military::land_forces::initialized(state)) {
+			if(fat.get_nation_from_province_ownership().id.value == state.local_player_nation.value)
+				text::localised_format_box(state, contents, box, std::string_view("alice_no_possible_units"));
+			text::close_layout_box(contents, box);
+			return;
+		}
 
 		auto max_regiments = military::regiments_max_possible_from_province(state, prov);
 		auto created_regiments = military::regiments_created_from_province(state, prov);

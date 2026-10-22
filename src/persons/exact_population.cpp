@@ -679,6 +679,20 @@ world_bootstrap_result bootstrap_from_current_pops(sys::state& state) {
 	return result;
 }
 
+// A transfer changes two cells, so only their two pops need new sizes.
+// Projecting every pop after every transfer made a day of migration and
+// promotion cost the square of the number of pops.
+bool project_population_pair(sys::state& state, dcon::pop_id first, dcon::pop_id second) {
+	for(auto pop : { first, second }) {
+		auto source = source_cell_for_population(state, pop);
+		if(source == 0 || !find_cell(state, source)) return false;
+		auto size = double(living_count_in_population_cell(*ensure_store(state), source)) / 4.0;
+		if(!std::isfinite(size) || size > double(std::numeric_limits<float>::max())) return false;
+		state.world.pop_set_size(pop, float(size));
+	}
+	return true;
+}
+
 population_transfer_result transfer_population_membership(sys::state& state,
 	dcon::pop_id source, dcon::pop_id destination, float population_amount,
 	population_transition_cause cause) {
@@ -770,7 +784,7 @@ population_transfer_result transfer_population_membership(sys::state& state,
 	remainder->pending_people = unrepresented;
 	result.people_moved = to_move;
 	result.complete = true;
-	if(!project_population_membership(state)) result.complete = false;
+	if(!project_population_pair(state, source, destination)) result.complete = false;
 	return result;
 }
 

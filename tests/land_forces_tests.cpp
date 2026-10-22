@@ -1,17 +1,22 @@
 #include "catch.hpp"
+#include "ai.hpp"
 
 #include "economy/causal_order.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "economy/foreign_exchange.hpp"
 #include "economy/physical/exact_person_freight.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/inventory.hpp"
 #include "economy/physical/shipments.hpp"
 #include "economy/physical/labor_dynamics.hpp"
 #include "military/land_forces.hpp"
+#include "military/military.hpp"
+#include "province.hpp"
 #include "nations/strategic_statecraft.hpp"
 #include "persons/exact_population.hpp"
 #include "serialization.hpp"
 #include "system_state.hpp"
+#include "technology/technology_kernel.hpp"
 #include "economy/economy_constants.hpp"
 #include "world/spatial_runtime.hpp"
 
@@ -99,6 +104,8 @@ struct miniature {
 		military::land_forces::initialize_empty_store(*state);
 		economy::causal_order::initialize_empty_store(*state);
 		economy::exact_person_economy::initialize_empty_store(*state);
+		economy::foreign_exchange::initialize_empty_store(*state);
+		technology::kernel::initialize_empty_store(*state);
 		economy::physical::exact_person_goods::initialize_empty_store(*state);
 		economy::physical::exact_person_freight::initialize_empty_store(*state);
 		economy::physical::labor_dynamics::initialize_empty_store(*state);
@@ -305,15 +312,19 @@ TEST_CASE("canonical land forces move and route physical equipment without inven
 		land_forces_tests::a_second, 11.0) == false);
 	auto food_before = military::land_forces::consumable_quantity(state, land_forces_tests::a_first,
 		military::land_forces::consumable_kind::food);
-	advance(world, 1);
+	for(int day = 0; day < 100 && military::land_forces::equipment_count(state,
+		land_forces_tests::a_second, land_forces_tests::tank_model) < 5; ++day) advance(world, 1);
 	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
 		land_forces_tests::tank_model) == 5);
 	REQUIRE(military::land_forces::replacement_load(state, land_forces_tests::a_second) == Approx(1.5));
 	REQUIRE(military::land_forces::consumable_quantity(state, land_forces_tests::a_first,
 		military::land_forces::consumable_kind::food) < food_before);
+	for(int day = 0; day < 100 && military::land_forces::available_stockpile_quantity(state,
+		land_forces_tests::a_depot) < 10.0; ++day) advance(world, 1);
 	REQUIRE(military::land_forces::dispatch_to_formation(state, 705, land_forces_tests::a_depot,
 		land_forces_tests::a_second, 10.0));
-	advance(world, 1);
+	for(int day = 0; day < 100 && military::land_forces::equipment_count(state,
+		land_forces_tests::a_second, land_forces_tests::tank_model) < 15; ++day) advance(world, 1);
 	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
 		land_forces_tests::tank_model) == 15);
 	REQUIRE(military::land_forces::replacement_load(state, land_forces_tests::a_second) == Approx(0.5));
@@ -323,7 +334,7 @@ TEST_CASE("canonical land forces move and route physical equipment without inven
 	REQUIRE(military::land_forces::move_formation(state, land_forces_tests::a_second, world.a_capital_site));
 	REQUIRE(military::land_forces::personnel_count(state, land_forces_tests::a_second) == before_people);
 	REQUIRE(military::land_forces::equipment_count(state, land_forces_tests::a_second,
-		land_forces_tests::tank_model) == 5);
+		land_forces_tests::tank_model) == 15);
 	auto no_vacancy_candidates = military::land_forces::recruitment_candidates(
 		state, land_forces_tests::a_first, 1);
 	REQUIRE(military::land_forces::recruit_personnel(state, land_forces_tests::a_first,
@@ -408,4 +419,315 @@ TEST_CASE("canonical land force save and replay preserves daily checksum",
 	REQUIRE(military::land_forces::canonical_checksum(*continuous.state)
 		== military::land_forces::canonical_checksum(*loaded.state));
 	REQUIRE(military::land_forces::validate_canonical_land_forces(*loaded.state).valid);
+}
+
+namespace land_forces_tests {
+
+void enable_battles(miniature& fixture) {
+	auto& state = *fixture.state;
+	state.province_definitions.first_sea_province = dcon::province_id{dcon::province_id::value_base_t(state.world.province_size())};
+	state.world.nation_resize_modifier_values(sys::national_mod_offsets::count);
+	state.world.province_resize_modifier_values(sys::provincial_mod_offsets::count);
+	state.military_definitions.unit_base_definitions.resize(1);
+	dcon::unit_type_id infantry{0};
+	auto& definition = state.military_definitions.unit_base_definitions[infantry];
+	definition.type = military::unit_type::infantry;
+	definition.is_land = true;
+	definition.maximum_speed = 4.0f;
+	definition.default_organisation = 30;
+	definition.discipline_or_evasion = 1.0f;
+	definition.maneuver = 1.0f;
+	state.world.nation_resize_unit_stats(1);
+	for(auto nation : {fixture.nation_a, fixture.nation_b}) {
+		state.world.nation_set_unit_stats(nation, infantry, definition);
+		state.world.nation_set_is_player_controlled(nation, true); // isolate battle contact from strategic AI
+	}
+	state.defines.pop_size_per_regiment = 1000.0f;
+	state.defines.siege_brigades_min = 1.0f;
+	fixture.connect(fixture.a_capital, fixture.b_capital, 1.0f);
+	REQUIRE(world::spatial_runtime::bootstrap(state).status != world::spatial_runtime::bootstrap_status::invalid_world);
+	for(int day = 0; day < 7; ++day) military::land_forces::advance_training(state);
+}
+
+void declare_war(miniature& fixture) {
+	auto& state = *fixture.state;
+	auto war = state.world.create_war();
+	state.world.war_set_primary_attacker(war, fixture.nation_a);
+	state.world.war_set_primary_defender(war, fixture.nation_b);
+	auto attacker = state.world.force_create_war_participant(war, fixture.nation_a);
+	auto defender = state.world.force_create_war_participant(war, fixture.nation_b);
+	state.world.war_participant_set_is_attacker(attacker, true);
+	state.world.war_participant_set_is_attacker(defender, false);
+	state.world.nation_set_is_at_war(fixture.nation_a, true);
+	state.world.nation_set_is_at_war(fixture.nation_b, true);
+}
+
+void march_to_enemy(miniature& fixture) {
+	auto& state = *fixture.state;
+	REQUIRE(military::land_forces::order_march(state, fixture.nation_a, a_first, fixture.b_capital, false) == 1);
+	for(int day = 0; day < 100 && military::land_forces::find_march(state, a_first); ++day) {
+		military::land_forces::advance_marches(state);
+		military::land_forces::prepare_battle_projections(state);
+		state.current_date += 1;
+	}
+	REQUIRE(military::land_forces::find_formation(state, a_first)->location == fixture.b_capital_site);
+}
+
+} // namespace land_forces_tests
+
+TEST_CASE("native formations enter real battles without giving up canonical marches",
+	"[military][land-forces][battle-integration]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature fixture;
+	auto& state = *fixture.state;
+	land_forces_tests::enable_battles(fixture);
+	auto crossing = state.world.get_province_adjacency_by_province_pair(fixture.a_capital, fixture.b_capital);
+	state.world.province_adjacency_set_type(crossing, province::border::river_crossing_bit);
+	prepare_battle_projections(state);
+	auto army = battle_army(state, land_forces_tests::a_first);
+	REQUIRE(army);
+	REQUIRE(is_battle_projection(state, army));
+	REQUIRE_FALSE(battle_army(state, land_forces_tests::a_isolated)); // no people, no synthetic army
+	REQUIRE(can_order_march(state, fixture.nation_a, land_forces_tests::a_first, fixture.b_capital) == march_block::no_route);
+	auto people = personnel_count(state, land_forces_tests::a_first);
+	auto material = land_forces_tests::tank_material(fixture);
+	land_forces_tests::declare_war(fixture);
+	land_forces_tests::march_to_enemy(fixture);
+	auto battle = state.world.army_get_battle_from_army_battle_participation(army);
+	REQUIRE(battle);
+	bool river_attacker = false;
+	for(auto const& regiment : state.world.land_battle_get_reserves(battle))
+		if(formation_for_legacy_regiment(state, regiment.regiment) == land_forces_tests::a_first)
+			river_attacker = regiment.get_crossing() == military::battle_regiment::crossing_river;
+	REQUIRE(river_attacker);
+	REQUIRE(state.world.army_get_battle_from_army_battle_participation(battle_army(state, land_forces_tests::b_first)) == battle);
+	REQUIRE(find_formation(state, land_forces_tests::a_first)->legacy_regiment_index_plus_one == 0);
+	REQUIRE(find_formation(state, land_forces_tests::a_first)->in_combat == 1);
+	REQUIRE(personnel_count(state, land_forces_tests::a_first) == people);
+	REQUIRE(land_forces_tests::tank_material(fixture) == Approx(material));
+	REQUIRE(state.world.province_get_nation_from_province_control(fixture.b_capital) == fixture.nation_b);
+	for(auto regiment : state.world.in_regiment)
+		REQUIRE_FALSE(regiment.get_pop_from_regiment_source());
+	prepare_battle_projections(state);
+	REQUIRE(state.world.army_size() == 4);
+	REQUIRE(state.world.land_battle_size() == 1);
+	REQUIRE(validate_canonical_land_forces(state).valid);
+
+	auto total = personnel_count(state, land_forces_tests::a_first) + personnel_count(state, land_forces_tests::b_first);
+	for(int day = 0; day < 30 && state.world.land_battle_is_valid(battle); ++day) {
+		military::update_land_battles(state);
+		sync_legacy_adapter_state(state);
+		state.current_date += 1;
+	}
+	REQUIRE(personnel_count(state, land_forces_tests::a_first) + personnel_count(state, land_forces_tests::b_first) < total);
+	REQUIRE(land_forces_tests::tank_material(fixture) < material);
+	REQUIRE_FALSE(export_snapshot(state).casualty_events.empty());
+	REQUIRE(validate_canonical_land_forces(state).valid);
+}
+
+TEST_CASE("native march captures an enemy province through the siege engine",
+	"[military][land-forces][battle-integration][occupation]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature fixture;
+	auto& state = *fixture.state;
+	land_forces_tests::enable_battles(fixture);
+	land_forces_tests::declare_war(fixture);
+	REQUIRE(destroy_formation(state, land_forces_tests::b_first));
+	land_forces_tests::march_to_enemy(fixture);
+	for(int day = 0; day < 500 && state.world.province_get_nation_from_province_control(fixture.b_capital) != fixture.nation_a; ++day) {
+		military::update_siege_progress(state);
+		state.current_date += 1;
+	}
+	REQUIRE(state.world.province_get_nation_from_province_control(fixture.b_capital) == fixture.nation_a);
+	REQUIRE(state.world.province_get_nation_from_province_ownership(fixture.b_capital) == fixture.nation_b);
+	REQUIRE(state.world.nation_get_occupied_count(fixture.nation_b) == 1);
+	REQUIRE(validate_canonical_land_forces(state).valid);
+}
+
+TEST_CASE("marching and neutral native formations cannot occupy a province",
+	"[military][land-forces][battle-integration][occupation]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature fixture;
+	auto& state = *fixture.state;
+	land_forces_tests::enable_battles(fixture);
+	REQUIRE(destroy_formation(state, land_forces_tests::b_first));
+	REQUIRE(move_formation(state, land_forces_tests::a_first, fixture.b_capital_site));
+	prepare_battle_projections(state);
+	for(int day = 0; day < 10; ++day) { military::update_siege_progress(state); state.current_date += 1; }
+	REQUIRE(state.world.province_get_siege_progress(fixture.b_capital) == 0.0f);
+	REQUIRE(state.world.province_get_nation_from_province_control(fixture.b_capital) == fixture.nation_b);
+	land_forces_tests::declare_war(fixture);
+	REQUIRE(order_march(state, fixture.nation_a, land_forces_tests::a_first, fixture.b_connected, false) == 1);
+	prepare_battle_projections(state);
+	state.world.province_set_siege_progress(fixture.b_capital, 0.5f);
+	military::update_siege_progress(state);
+	REQUIRE(state.world.province_get_siege_progress(fixture.b_capital) < 0.5f);
+}
+
+TEST_CASE("native battle views survive save load and replay ongoing combat",
+	"[military][land-forces][battle-integration][serialization][determinism]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature continuous;
+	land_forces_tests::enable_battles(continuous);
+	land_forces_tests::declare_war(continuous);
+	land_forces_tests::march_to_enemy(continuous);
+	auto& state = *continuous.state;
+	std::vector<uint8_t> bytes(sys::sizeof_save_section(state));
+	auto end = sys::write_save_section(bytes.data(), state);
+	REQUIRE(end == bytes.data() + bytes.size());
+	land_forces_tests::miniature loaded;
+	land_forces_tests::enable_battles(loaded);
+	REQUIRE(sys::read_save_section(bytes.data(), end, *loaded.state) == end);
+	loaded.state->current_date = state.current_date;
+	REQUIRE(canonical_checksum(state) == canonical_checksum(*loaded.state));
+	REQUIRE(battle_army(*loaded.state, land_forces_tests::a_first));
+	REQUIRE(loaded.state->world.land_battle_size() == 1);
+	for(int day = 0; day < 10; ++day) {
+		for(auto* next : {&state, loaded.state.get()}) {
+			military::update_land_battles(*next);
+			sync_legacy_adapter_state(*next);
+			prepare_battle_projections(*next);
+			next->current_date += 1;
+			REQUIRE(validate_canonical_land_forces(*next).valid);
+		}
+		REQUIRE(canonical_checksum(state) == canonical_checksum(*loaded.state));
+	}
+}
+
+TEST_CASE("native battle retreats move carried inventory and preserve the full retreat path",
+	"[military][land-forces][battle-integration][retreat]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature fixture;
+	auto& state = *fixture.state;
+	land_forces_tests::enable_battles(fixture);
+	auto rear = fixture.make_province(fixture.nation_b);
+	auto rear_site = fixture.make_site(rear);
+	fixture.connect(fixture.b_capital, fixture.b_connected, 1.0f);
+	fixture.connect(fixture.b_connected, rear, 1.0f);
+	state.province_definitions.first_sea_province = dcon::province_id{dcon::province_id::value_base_t(state.world.province_size())};
+	REQUIRE(world::spatial_runtime::bootstrap(state).status != world::spatial_runtime::bootstrap_status::invalid_world);
+	land_forces_tests::declare_war(fixture);
+	land_forces_tests::march_to_enemy(fixture);
+	auto army = battle_army(state, land_forces_tests::b_first);
+	auto personnel = personnel_count(state, land_forces_tests::b_first);
+	auto tanks = equipment_count(state, land_forces_tests::b_first, land_forces_tests::tank_model);
+	auto food = consumable_quantity(state, land_forces_tests::b_first, consumable_kind::food);
+	military::retreat(state, army, {rear, fixture.b_connected}, false);
+	sync_legacy_adapter_state(state);
+	REQUIRE(is_battle_retreat(state, army));
+	REQUIRE(can_order_march(state, fixture.nation_b, land_forces_tests::b_first, fixture.b_connected) == march_block::in_combat);
+	for(int day = 0; day < 100 && find_formation(state, land_forces_tests::b_first)->location != rear_site; ++day) {
+		state.current_date += 1;
+		military::update_movement(state);
+		sync_legacy_adapter_state(state);
+		prepare_battle_projections(state);
+	}
+	REQUIRE(find_formation(state, land_forces_tests::b_first)->location == rear_site);
+	REQUIRE_FALSE(is_battle_retreat(state, army));
+	REQUIRE(personnel_count(state, land_forces_tests::b_first) <= personnel);
+	REQUIRE(equipment_count(state, land_forces_tests::b_first, land_forces_tests::tank_model) <= tanks);
+	REQUIRE(equipment_count(state, land_forces_tests::b_first, land_forces_tests::tank_model) > 0);
+	REQUIRE(consumable_quantity(state, land_forces_tests::b_first, consumable_kind::food) == Approx(food));
+	REQUIRE(validate_canonical_land_forces(state).valid);
+}
+
+TEST_CASE("AI battle-view movement stays canonical and duplicate bindings fail restore",
+	"[military][land-forces][battle-integration][determinism]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature fixture;
+	auto& state = *fixture.state;
+	land_forces_tests::enable_battles(fixture);
+	prepare_battle_projections(state);
+	auto army = battle_army(state, land_forces_tests::a_first);
+	std::array<dcon::province_id, 1> path{fixture.a_connected};
+	state.world.army_set_dig_in(army, 9);
+	state.world.army_set_location_from_army_location(army, fixture.a_isolated_province);
+	prepare_battle_projections(state);
+	REQUIRE(find_formation(state, land_forces_tests::a_first)->location == fixture.a_capital_site);
+	REQUIRE(state.world.army_get_location_from_army_location(army) == fixture.a_capital);
+	REQUIRE(military::set_army_path(state, army, path, fixture.nation_a, true));
+	REQUIRE(state.world.army_get_dig_in(army) == 0);
+	REQUIRE(state.world.army_get_path(army).size() == 0);
+	auto first_order = *find_march(state, land_forces_tests::a_first);
+	state.current_date += 1;
+	state.defines.dig_in_increase_each_days = 1;
+	state.world.nation_set_modifier_values(fixture.nation_a, sys::national_mod_offsets::dig_in_cap, 5.0f);
+	military::increase_dig_in(state);
+	REQUIRE(state.world.army_get_dig_in(army) == 0);
+	REQUIRE(military::set_army_path(state, army, path, fixture.nation_a, true));
+	REQUIRE(find_march(state, land_forces_tests::a_first)->issued_day == first_order.issued_day);
+	REQUIRE(find_march(state, land_forces_tests::a_first)->leg_progress == first_order.leg_progress);
+	auto saved = export_snapshot(state);
+	auto checksum = canonical_checksum(state);
+	REQUIRE(saved.battle_projections.size() >= 2);
+	saved.battle_projections[1].regiment_index_plus_one = saved.battle_projections[0].regiment_index_plus_one;
+	REQUIRE_FALSE(import_snapshot(state, saved));
+	REQUIRE(canonical_checksum(state) == checksum);
+	saved = export_snapshot(state);
+	saved.battle_projections.front().regiment_index_plus_one = state.world.regiment_size() + 1000;
+	REQUIRE_FALSE(import_snapshot(state, saved));
+	REQUIRE(canonical_checksum(state) == checksum);
+	// The legacy AI used to merge single regiments directly, bypassing commands.
+	REQUIRE(move_formation(state, land_forces_tests::a_second, fixture.a_capital_site));
+	prepare_battle_projections(state);
+	state.world.nation_set_is_player_controlled(fixture.nation_a, false);
+	state.current_date = sys::date{30002}; // new_units_and_merging phase
+	for(int tick = 0; tick < 2; ++tick) ai::general_ai_unit_tick(state);
+	REQUIRE(battle_army(state, land_forces_tests::a_second) != army);
+	REQUIRE(validate_canonical_land_forces(state).valid);
+}
+
+TEST_CASE("opposing native marches cannot pass through each other without a battle",
+	"[military][land-forces][battle-integration]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature fixture;
+	auto& state = *fixture.state;
+	land_forces_tests::enable_battles(fixture);
+	land_forces_tests::declare_war(fixture);
+	REQUIRE(order_march(state, fixture.nation_a, land_forces_tests::a_first, fixture.b_capital, false) == 1);
+	REQUIRE(order_march(state, fixture.nation_b, land_forces_tests::b_first, fixture.a_capital, false) == 1);
+	for(int day = 0; day < 100 && !find_formation(state, land_forces_tests::a_first)->in_combat; ++day) {
+		advance_marches(state);
+		state.current_date += 1;
+	}
+	REQUIRE(find_formation(state, land_forces_tests::a_first)->in_combat == 1);
+	REQUIRE(find_formation(state, land_forces_tests::b_first)->in_combat == 1);
+	REQUIRE(find_formation(state, land_forces_tests::a_first)->location == find_formation(state, land_forces_tests::b_first)->location);
+	REQUIRE(state.world.land_battle_size() == 1);
+	REQUIRE(validate_canonical_land_forces(state).valid);
+}
+
+TEST_CASE("winning a native battle permits subsequent occupation of the battlefield",
+	"[military][land-forces][battle-integration][occupation]") {
+	using namespace military::land_forces;
+	land_forces_tests::miniature fixture;
+	auto& state = *fixture.state;
+	land_forces_tests::enable_battles(fixture);
+	land_forces_tests::declare_war(fixture);
+	land_forces_tests::march_to_enemy(fixture);
+	auto attacker = battle_army(state, land_forces_tests::a_first);
+	auto defender = battle_army(state, land_forces_tests::b_first);
+	auto battle = state.world.army_get_battle_from_army_battle_participation(attacker);
+	REQUIRE(battle);
+	// A broken defender must withdraw or be destroyed by the real battle engine.
+	for(auto member : state.world.army_get_army_membership(defender))
+		state.world.regiment_set_org(member.get_regiment(), 0.0f);
+	for(int day = 0; day < 30 && state.world.land_battle_is_valid(battle); ++day) {
+		military::update_land_battles(state);
+		sync_legacy_adapter_state(state);
+		military::update_movement(state);
+		sync_legacy_adapter_state(state);
+		prepare_battle_projections(state);
+		state.current_date += 1;
+	}
+	REQUIRE_FALSE(state.world.land_battle_is_valid(battle));
+	REQUIRE(find_formation(state, land_forces_tests::a_first)->status == formation_status::active);
+	REQUIRE(find_formation(state, land_forces_tests::a_first)->location == fixture.b_capital_site);
+	for(int day = 0; day < 500 && state.world.province_get_nation_from_province_control(fixture.b_capital) != fixture.nation_a; ++day) {
+		military::update_siege_progress(state);
+		state.current_date += 1;
+	}
+	REQUIRE(state.world.province_get_nation_from_province_control(fixture.b_capital) == fixture.nation_a);
+	REQUIRE(state.world.province_get_nation_from_province_ownership(fixture.b_capital) == fixture.nation_b);
+	REQUIRE(validate_canonical_land_forces(state).valid);
 }

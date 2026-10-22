@@ -60,6 +60,14 @@ struct firm_agency_event_store {
 
 namespace economy::firm_agency {
 namespace {
+
+// What a plant offered, sold and spent on inputs over a span of days.
+struct realized_event_totals {
+	float offered = 0.0f;
+	float sold = 0.0f;
+	float revenue = 0.0f;
+	float input_cost = 0.0f;
+};
 constexpr float epsilon = 1.0e-5f;
 constexpr float probing_fraction = 0.05f;
 constexpr float output_target_days = 3.0f;
@@ -191,7 +199,7 @@ float arrears_due(sys::state const& state, dcon::economic_actor_id debtor,
 float output_in_transit(sys::state const& state, dcon::economic_actor_id owner,
 	dcon::commodity_id commodity, dcon::site_id production_site) {
 	float result = 0.0f;
-	production_site.for_each_shipment_origin_as_site([&](auto origin) {
+	state.world.site_for_each_shipment_origin_as_site(production_site, [&](auto origin) {
 		auto shipment = state.world.shipment_origin_get_shipment(origin);
 		auto ownership = shipment ? state.world.shipment_get_shipment_owner(shipment)
 			: dcon::shipment_owner_id{};
@@ -507,7 +515,7 @@ void update_decisions(sys::state& state) {
 		}
 		state.world.factory_set_agency_last_observation_date(factory, state.current_date);
 		float inbound_quantity = 0.0f, inbound_days = 0.0f;
-		site.for_each_shipment_destination_as_site([&](auto destination) {
+		state.world.site_for_each_shipment_destination_as_site(site, [&](auto destination) {
 			auto shipment = state.world.shipment_destination_get_shipment(destination);
 			auto shipment_owner = shipment ? state.world.shipment_get_shipment_owner(shipment)
 				: dcon::shipment_owner_id{};

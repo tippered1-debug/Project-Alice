@@ -28,6 +28,7 @@ public:
 	friend std::optional<file> open_file(directory const& dir, std::vector<native_string_view> file_names);
 	friend void reset(file_system& fs);
 	friend void add_root(file_system& fs, native_string_view root_path);
+	friend void add_fallback_root(file_system& fs, native_string_view root_path);
 	// will be added relative to the location that the executable file exists in
 	friend void add_relative_root(file_system& fs, native_string_view root_path);
 	friend directory get_root(file_system const& fs);

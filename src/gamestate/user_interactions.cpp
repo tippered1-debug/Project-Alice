@@ -1,4 +1,5 @@
 #include "system_state.hpp"
+#include "user_interactions.hpp"
 #include "gui_element_base.hpp"
 #include "gui_event.hpp"
 #include "gui_combat.hpp"
@@ -302,6 +303,10 @@ void process_dialog_boxes(sys::state& state) {
 }
 
 void open_diplomacy_window(sys::state& state, dcon::nation_id target) {
+	if(diplomacy_screen) {
+		diplomacy_screen(state, target);
+		return;
+	}
 	if(state.ui_state.diplomacy_subwindow != nullptr) {
 		if(state.ui_state.topbar_subwindow != nullptr) {
 			state.ui_state.topbar_subwindow->set_visible(state, false);

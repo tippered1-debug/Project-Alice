@@ -19,6 +19,7 @@ vec4 gamma_correct(vec4 colour) {
 }
 
 uniform float width;
+uniform float zoom;
 
 // Borders are drawn as clean ink. The line texture only gives the profile
 // across the line; the kind of border is told apart by the width it is drawn
@@ -30,9 +31,22 @@ void main() {
 	if(abs(width - 0.0004) < 0.00003 || abs(width - 0.00085) < 0.00003) {
 		out_color = vec4(1.0, 0.84, 0.50, profile * 0.95);
 	} else if(width > 0.00012) {
-		out_color = vec4(0.035, 0.040, 0.055, profile * 0.92);
+		// the outline of a state: sure of itself, a touch fuller than the line it is given
+		out_color = vec4(0.030, 0.026, 0.034, min(1., pow(profile, 0.75) * 1.02));
+		// The line is as wide as a strip of land, so it grows as the camera
+		// comes down. Close to, only its middle is inked.
+		float kept = clamp(11. / zoom, 0.34, 1.);
+		out_color.a *= 1. - smoothstep(kept - 0.12, kept, border_width_coord);
 	} else {
-		out_color = vec4(0.035, 0.040, 0.055, profile * 0.34);
+		// The province map sits inside a taller sheet of open water. Where its
+		// sea zones stop is not a division of anything: no line along that edge.
+		float charted = round(map_size.y / 1.3);
+		float first = floor((map_size.y - charted) * 3. / 5.);
+		float row = map_coord.y * map_size.y;
+		if(min(abs(row - first), abs(row - first - charted)) < 0.75)
+			discard;
+		// a division inside a state: finer and softer, there when looked for
+		out_color = vec4(0.045, 0.040, 0.045, pow(profile, 1.5) * 0.25);
 	}
 	out_color.rgb *= out_color.a;
 	frag_color = gamma_correct(out_color);

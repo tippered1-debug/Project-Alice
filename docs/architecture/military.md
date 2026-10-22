@@ -81,3 +81,29 @@ integration. Unmapped legacy regiments are rejected by canonical scenario
 loading and cannot receive canonical land damage. The canonical formation,
 assignment, equipment, shipment, depot, and loss ledgers are included in save
 sections and deterministic checksums.
+
+## Native marches, battles, and occupation
+
+Staffed active formations without an authored `legacy_regiment_index` receive
+one army/regiment projection in stable formation-ID order. These views use the
+existing land-battle and siege engines; they create no personnel, POP sources,
+equipment, or consumables. Their strength and combat equipment statistics come
+from the canonical formation. Arriving at an enemy formation starts or joins a
+real battle, and the existing casualty adapter records exact deaths and physical
+equipment losses. Arrivals preserve river and strait crossing penalties;
+formations on a march cannot accumulate dig-in through their projected army.
+
+Native formations retain their canonical infrastructure marches. Ordinary AI
+movement requests become canonical march orders; repeating the same destination
+does not restart a leg. The projected armies cannot be merged or split. A
+stationary, supplied force can siege an enemy-controlled province under the
+existing war rules. Marching, retreating, black-flagged, and fighting forces do
+not contribute to occupation. Completing a siege changes control, not ownership.
+
+A battle retreat cancels the standing march and moves the formation's carried
+inventory along with the retreating army. Supply dispatched earlier retains its
+original destination; it does not teleport to the new position. Native battle
+bindings and retreat state are saved in land-force snapshot v4 (`AOEX` v17);
+DCON retains the projected armies, battles, organisation, and siege progress.
+Snapshots v2/v3 without these views remain readable; views are created on the
+next military phase.

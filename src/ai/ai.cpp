@@ -11,6 +11,7 @@
 #include "gui_effect_tooltips.hpp"
 #include "math_fns.hpp"
 #include "military.hpp"
+#include "military/land_forces.hpp"
 #include "politics.hpp"
 #include "prng.hpp"
 #include "province_templates.hpp"
@@ -766,7 +767,8 @@ void move_idle_guards(sys::state& state) {
 
 			if(!valid_path) {
 				//Units delegated to the AI won't transport themselves on their own
-				if(!ar.get_controller_from_army_control().get_is_player_controlled())
+				if(!ar.get_controller_from_army_control().get_is_player_controlled()
+					&& !military::land_forces::is_battle_projection(state, ar))
 					require_transport.push_back(ar.id);
 			}
 		}
@@ -857,6 +859,7 @@ void update_naval_transport(sys::state& state) {
 
 	// set armies to move into transports
 	for(auto ar : state.world.in_army) {
+		if(military::land_forces::is_battle_projection(state, ar)) continue;
 		if(ar.get_battle_from_army_battle_participation())
 			continue;
 		if(ar.get_navy_from_army_transport())
@@ -1325,6 +1328,7 @@ void move_gathered_attackers(sys::state& state) {
 
 	for(auto ar : state.world.in_army) {
 		if(ar.get_ai_activity() == uint8_t(army_activity::attack_transport)) {
+			if(military::land_forces::is_battle_projection(state, ar)) continue;
 			if(!ar.get_arrival_time() && !ar.get_battle_from_army_battle_participation() && !ar.get_navy_from_army_transport() && std::find(require_transport.begin(), require_transport.end(), ar.id) == require_transport.end()) {
 
 				// try to transport
@@ -1401,6 +1405,7 @@ void move_gathered_attackers(sys::state& state) {
 						for(auto o : ar.get_location_from_army_location().get_army_location()) {
 							if(o.get_army().get_ai_province() == ar.get_ai_province() && o.get_army().get_path().size() == 0) {
 
+								if(military::land_forces::is_battle_projection(state, o.get_army())) continue;
 								require_transport.push_back(o.get_army().id);
 								ar.set_ai_activity(uint8_t(army_activity::attack_transport));
 							}
@@ -1519,6 +1524,12 @@ bool will_upgrade_regiments(sys::state& state, dcon::nation_id n) {
 
 void new_units_and_merging(sys::state& state) {
 	for(auto ar : state.world.in_army) {
+		if(military::land_forces::is_battle_projection(state, ar)) {
+			if(army_activity(ar.get_ai_activity()) == army_activity::unspecified
+				|| army_activity(ar.get_ai_activity()) == army_activity::merging)
+				ar.set_ai_activity(uint8_t(army_activity::on_guard));
+			continue;
+		}
 		auto controller = ar.get_controller_from_army_control();
 		if(controller && unit_on_ai_control(state, ar) && !ar.get_battle_from_army_battle_participation() && !ar.get_navy_from_army_transport() && !ar.get_arrival_time()) {
 
@@ -1540,6 +1551,7 @@ void new_units_and_merging(sys::state& state) {
 
 					// find army to merge with
 					for(auto o : controller.get_army_control()) {
+						if(military::land_forces::is_battle_projection(state, o.get_army())) continue;
 						auto other_location = o.get_army().get_location_from_army_location();
 						auto sdist = province::sorting_distance(state, other_location, location);
 						if(army_activity(o.get_army().get_ai_activity()) == army_activity::on_guard && other_location.get_connected_region_id() == location.get_connected_region_id() && !target_location || sdist < nearest_distance) {
@@ -1587,6 +1599,7 @@ void new_units_and_merging(sys::state& state) {
 				auto etype = state.military_definitions.unit_base_definitions[type].type;
 				auto is_art = etype == military::unit_type::support;
 				for(auto o : location.get_army_location()) {
+					if(military::land_forces::is_battle_projection(state, o.get_army())) continue;
 					if(o.get_army().get_ai_activity() == uint8_t(army_activity::on_guard) && o.get_army().get_controller_from_army_control() == controller) {
 
 						int32_t num_support = 0;

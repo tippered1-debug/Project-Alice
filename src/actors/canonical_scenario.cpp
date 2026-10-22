@@ -13,6 +13,7 @@
 #include "economy/money.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/governance.hpp"
+#include "governance/finance/finance.hpp"
 #include "governance/constitution.hpp"
 #include "governance/offices.hpp"
 #include "governance/power_topology.hpp"
@@ -364,6 +365,34 @@ bool resolve_person_reference(sys::state& state, std::string const& value,
 // electoral rules of a country with its own constitution (optional).
 // office_holders.csv: country;office;seat;person — the first holders of
 // offices no political process fills.
+// national_accounts.csv: country;gdp_usd — what each economy produced in the
+// year the scenario opens (optional). Governments weigh one another's economic
+// power by it until their own intelligence reports come in.
+bool load_national_accounts(sys::state& state, simple_fs::directory const& common, parsers::error_handler& err) {
+	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
+	if(!simple_fs::open_file(canonical, NATIVE("national_accounts.csv")))
+		return true;
+	static constexpr std::array<std::string_view, 2> header = { "country", "gdp_usd" };
+	auto rows = read_table(canonical, "national_accounts.csv", header, err);
+	if(!rows)
+		return false;
+	auto const initial_errors = err.accumulated_errors.size();
+	for(auto const& row : rows->rows) {
+		auto nation = find_nation_by_tag(state, row.cells[0]);
+		float gdp = 0.0f;
+		if(!nation) {
+			add_row_error(err, "national_accounts.csv", row.line, "unknown country " + row.cells[0]);
+			continue;
+		}
+		if(!parse_float(row.cells[1], gdp) || !std::isfinite(gdp) || gdp < 0.0f) {
+			add_row_error(err, "national_accounts.csv", row.line, "gdp_usd must be a finite amount, not below zero");
+			continue;
+		}
+		state.world.nation_set_gdp(nation, gdp);
+	}
+	return err.accumulated_errors.size() == initial_errors;
+}
+
 bool load_constitutions(sys::state& state, simple_fs::directory const& common, parsers::error_handler& err) {
 	auto canonical = simple_fs::open_directory(common, NATIVE("canonical_runtime"));
 	auto initial_errors = err.accumulated_errors.size();
@@ -1117,7 +1146,12 @@ bool load_capital_owners(sys::state& state, parsers::scenario_building_context& 
 			add_row_error(err, "capital_owners.csv", owner.line, "owner '" + owner.id + "' already has an account for settlement '" + owner.settlement_key + "'");
 			continue;
 		}
-		auto account = economy::accounts::open_account(state, owner.actor, owner.settlement);
+		// A government's cash is its treasury: the account its budget, taxes and
+		// payroll run through. An ordinary account beside it would leave the
+		// treasury empty and the opening cash out of public finance.
+		auto account = owner.kind == "government"
+			? governance::finance::open_treasury_account(state, owner.institution, owner.settlement)
+			: economy::accounts::open_account(state, owner.actor, owner.settlement);
 		if(!account || !economy::accounts::bootstrap_set_balance(state, account, owner.opening_cash)) {
 			add_row_error(err, "capital_owners.csv", owner.line, "could not create opening cash account for owner '" + owner.id + "'");
 			continue;
@@ -2184,6 +2218,72 @@ bool load_land_forces(sys::state& state, parsers::scenario_building_context cons
 		if(item.id != 0 && !military::land_forces::create_stockpile(state, item))
 			add_row_error(err, "military_stockpiles.csv", source.line, "duplicate or invalid stockpile record");
 	}
+	// Names, echelons and opening strength are an optional table: a scenario
+	// without it has formations that are unnamed and unmanned, as before.
+	static constexpr std::array<std::string_view, 4> labels_header = {
+		"formation_id", "echelon", "name_key", "opening_personnel"
+	};
+	if(simple_fs::open_file(canonical, NATIVE("formation_labels.csv"))) {
+		auto label_rows = read_table(canonical, "formation_labels.csv", labels_header, err);
+		if(!label_rows) return false;
+		static constexpr std::array<std::string_view, 7> echelons = {
+			"", "theatre", "army", "corps", "division", "brigade", "regiment"
+		};
+		// Who can be called up where a formation stands, found once per province.
+		std::map<uint32_t, std::vector<persons::person_key>> available;
+		auto const catalog = persons::exact_population::export_snapshot(state);
+		auto people_of = [&](dcon::province_id province) -> std::vector<persons::person_key>& {
+			auto [found, fresh] = available.try_emplace(uint32_t(province.index()));
+			if(!fresh) return found->second;
+			for(auto const& cell : catalog.cells) {
+				auto pop = persons::population_for_source_cell(state, cell.source_population_cell);
+				if(!pop || state.world.pop_get_province_from_pop_location(pop) != province) continue;
+				for(uint64_t ordinal = 0; ordinal < cell.literal_count; ordinal += 4) {
+					persons::person_key key{cell.source_population_cell, ordinal};
+					if(!persons::alive(state, key) || !persons::is_source_workforce_anchor(state, key)
+						|| persons::exact_population::has_military_assignment(state, key)) continue;
+					auto const age = persons::age_years(state, key, state.current_date);
+					if(age >= 18 && age < 45) found->second.push_back(key);
+				}
+			}
+			return found->second;
+		};
+		for(auto const& source : label_rows->rows) {
+			auto formation_id = reference_id("formation", source.cells[0]);
+			auto formation = military::land_forces::find_formation(state, formation_id);
+			if(!formation_ids.contains(source.cells[0]) || !formation) {
+				add_row_error(err, "formation_labels.csv", source.line, "formation_id references a missing formation");
+				continue;
+			}
+			military::land_forces::formation_label label{};
+			label.formation_id = formation_id;
+			auto level = std::find(echelons.begin(), echelons.end(), source.cells[1]);
+			if(level == echelons.end())
+				add_row_error(err, "formation_labels.csv", source.line, "echelon must be theatre, army, corps, division, brigade, regiment, or empty");
+			else label.level = military::land_forces::echelon(uint8_t(level - echelons.begin()));
+			if(!valid_key(source.cells[2]) || source.cells[2].size() >= sizeof(label.name_key))
+				add_row_error(err, "formation_labels.csv", source.line, "name_key must be a text key of at most 54 characters");
+			else std::copy(source.cells[2].begin(), source.cells[2].end(), label.name_key);
+			if(!military::land_forces::set_label(state, label))
+				add_row_error(err, "formation_labels.csv", source.line, "duplicate or invalid formation label");
+			uint64_t opening = 0;
+			if(!source.cells[3].empty() && !parse_integer(source.cells[3], opening))
+				add_row_error(err, "formation_labels.csv", source.line, "opening_personnel must be an unsigned integer or empty");
+			if(opening > formation->personnel_authorization)
+				add_row_error(err, "formation_labels.csv", source.line, "opening_personnel exceeds the template authorization");
+			else if(opening != 0) {
+				// The garrison is drawn from the people of its own province; where they
+				// are too few the formation opens under strength.
+				auto& pool = people_of(state.world.site_get_province_from_site_location(formation->location));
+				auto const taken = std::min<uint64_t>(opening, pool.size());
+				if(taken != 0) {
+					auto const joined = military::land_forces::recruit_personnel(state, formation_id,
+						std::span<persons::person_key const>(pool.data() + pool.size() - taken, size_t(taken)), taken, 0);
+					if(joined != 0) pool.resize(pool.size() - size_t(taken));
+				}
+			}
+		}
+	}
 	state.world.for_each_regiment([&](dcon::regiment_id regiment) {
 		if(!military::land_forces::formation_for_legacy_regiment(state, regiment))
 			add_row_error(err, "military_formations.csv", 0,
@@ -2614,7 +2714,8 @@ bool load(sys::state& state, simple_fs::directory const& common,
 		err.fatal = true;
 		return false;
 	}
-	if(!load_canonical_technology(state, common, context, err, firms, assets) || !load_constitutions(state, common, err)) {
+	if(!load_canonical_technology(state, common, context, err, firms, assets) || !load_constitutions(state, common, err)
+		|| !load_national_accounts(state, common, err)) {
 		err.fatal = true;
 		return false;
 	}

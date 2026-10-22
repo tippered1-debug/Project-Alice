@@ -9,6 +9,7 @@
 #include "economy/economy_stats.hpp"
 #include "economy/human_development.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "persons/exact_population.hpp"
 #include "economy/relations/relations.hpp"
 #include "economy/price.hpp"
 #include "economy/world_trade_capacity.hpp"

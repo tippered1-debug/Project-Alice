@@ -11,6 +11,7 @@
 #include "nations.hpp"
 #include "nations_templates.hpp"
 #include "nations/strategic_statecraft.hpp"
+#include "nations/strategic_statecraft_forecast.hpp"
 #include "politics.hpp"
 #include "province_templates.hpp"
 #include "triggers.hpp"
@@ -34,6 +35,7 @@
 #include "validation.hpp"
 #include "compat/alice/legacy_bridge.hpp"
 #include "military/land_forces.hpp"
+#include "governance/command.hpp"
 
 #include <cstdlib>
 
@@ -473,6 +475,8 @@ void execute_increase_relations(sys::state& state, dcon::nation_id source, dcon:
 	nations::adjust_relationship(state, source, target, state.defines.increaserelation_relation_on_accept);
 	auto& current_diplo = state.world.nation_get_diplomatic_points(source);
 	state.world.nation_set_diplomatic_points(source, current_diplo - state.defines.increaserelation_diplomatic_cost);
+	// the mission's envoys report on the government they were sent to
+	nations::strategic_statecraft::record_diplomatic_mission(state, source, target);
 
 	notification::post(state, notification::message{
 		[source, target](sys::state& state, text::layout_base& contents) {
@@ -3683,6 +3687,7 @@ void move_retreat_or_stop_navy(sys::state& state, dcon::nation_id source, dcon::
 
 std::vector<dcon::province_id> can_move_army(sys::state& state, dcon::nation_id source, dcon::army_id a, dcon::province_id dest, bool reset) {
 	if(!state.world.army_is_valid(a)) return {};
+	if(military::land_forces::is_battle_projection(state, a)) return {};
 	if(!state.current_scene.game_in_progress) {
 		return std::vector<dcon::province_id>{};
 	}
@@ -3848,6 +3853,7 @@ void embark_army(sys::state& state, dcon::nation_id source, dcon::army_id a) {
 }
 
 bool can_embark_army(sys::state& state, dcon::nation_id source, dcon::army_id a) {
+	if(military::land_forces::is_battle_projection(state, a)) return false;
 	if(!state.world.army_is_valid(a)) return false;
 	if(!state.current_scene.game_in_progress) {
 		return false;
@@ -3910,6 +3916,8 @@ void merge_armies(sys::state& state, dcon::nation_id source, dcon::army_id a, dc
 }
 bool can_merge_armies(sys::state& state, dcon::nation_id source, dcon::army_id a, dcon::army_id b) {
 	if(!state.world.army_is_valid(a) || !state.world.army_is_valid(b) || a == b) return false;
+	if(military::land_forces::is_battle_projection(state, a)
+		|| military::land_forces::is_battle_projection(state, b)) return false;
 	if(!state.current_scene.game_in_progress) {
 		return false;
 	}
@@ -4949,6 +4957,162 @@ void execute_set_army_supply_priority(sys::state& state, dcon::army_id army, uin
 	if(!state.world.army_is_valid(army) || priority > 2) return;
 	state.world.army_set_supply_priority(army, priority);
 	military::invalidate_army_supply_cache(state);
+}
+
+void propose_deal(sys::state& state, dcon::nation_id, dcon::nation_id target, uint16_t gives, uint16_t asks) {
+	command_data command{ command_type::propose_deal, state.local_player_id };
+	auto data = deal_data{ target, gives, asks };
+	command << data;
+	add_to_command_queue(state, command);
+}
+
+// One diplomat carries the whole deal: an alliance costs what an alliance costs,
+// anything less what a request for access costs.
+float deal_cost(sys::state& state, uint16_t gives, uint16_t asks) {
+	namespace sc = nations::strategic_statecraft;
+	if(asks & sc::deal_alliance)
+		return state.defines.alliance_diplomatic_cost;
+	return (gives | asks) ? state.defines.askmilaccess_diplomatic_cost : 0.0f;
+}
+
+bool can_deal_item(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t item) {
+	namespace sc = nations::strategic_statecraft;
+	auto const theirs_on_us = state.world.get_unilateral_relationship_by_unilateral_pair(source, target); // what they hold in our country
+	auto const ours_on_them = state.world.get_unilateral_relationship_by_unilateral_pair(target, source); // what we hold in theirs
+	switch(item) {
+	case sc::deal_alliance: return can_ask_for_alliance(state, source, target, true);
+	case sc::deal_access_for_us: return can_ask_for_access(state, source, target, true);
+	case sc::deal_free_trade: return can_ask_for_free_trade_agreement(state, source, target, true);
+	case sc::deal_lift_their_embargo: return theirs_on_us && state.world.unilateral_relationship_get_embargo(theirs_on_us);
+	case sc::deal_access_for_them: return can_give_military_access(state, source, target, true);
+	case sc::deal_subsidies: return can_give_war_subsidies(state, source, target);
+	case sc::deal_lift_our_embargo: return ours_on_them && state.world.unilateral_relationship_get_embargo(ours_on_them);
+	default: return false;
+	}
+}
+
+bool can_propose_deal(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t gives, uint16_t asks) {
+	namespace sc = nations::strategic_statecraft;
+	if(!state.current_scene.game_in_progress || !source || !target || source == target)
+		return false;
+	if(!state.world.nation_is_valid(target) || state.world.nation_get_owned_province_count(target) == 0)
+		return false;
+	if(state.world.nation_get_is_player_controlled(target)) // a person answers another way
+		return false;
+	if((gives & ~sc::deal_gives) || (asks & ~sc::deal_asks) || (gives | asks) == 0)
+		return false;
+	if(military::are_at_war(state, source, target))
+		return false;
+	if(state.world.nation_get_diplomatic_points(source) < deal_cost(state, gives, asks))
+		return false;
+	for(int32_t i = 0; i < sc::deal_item_count; ++i) {
+		auto const bit = uint16_t(1u << i);
+		if(((gives | asks) & bit) && !can_deal_item(state, source, target, bit))
+			return false;
+	}
+	return true;
+}
+
+void execute_propose_deal(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t gives, uint16_t asks) {
+	namespace sc = nations::strategic_statecraft;
+	auto& points = state.world.nation_get_diplomatic_points(source);
+	state.world.nation_set_diplomatic_points(source, points - deal_cost(state, gives, asks));
+	auto const answer = sc::forecast_deal(state, target, source, gives, asks);
+	if(!answer.accepted) {
+		nations::adjust_relationship(state, source, target, sc::deal_refusal_relation);
+		return;
+	}
+	// What is asked comes about as an accepted request would bring it about.
+	auto const grant = [&](diplomatic_message::type kind) {
+		diplomatic_message::message m;
+		std::memset(&m, 0, sizeof(diplomatic_message::message));
+		m.from = source;
+		m.to = target;
+		m.type = kind;
+		diplomatic_message::accept(state, m);
+	};
+	if(asks & sc::deal_alliance)
+		grant(diplomatic_message::type::alliance_request);
+	if(asks & sc::deal_access_for_us)
+		grant(diplomatic_message::type::access_request);
+	if(asks & sc::deal_free_trade)
+		grant(diplomatic_message::type::free_trade_agreement);
+	if(asks & sc::deal_lift_their_embargo) {
+		if(auto rel = state.world.get_unilateral_relationship_by_unilateral_pair(source, target); rel && state.world.unilateral_relationship_get_embargo(rel))
+			nations::remove_embargo(state, rel);
+	}
+	if(gives & sc::deal_access_for_them) {
+		auto rel = state.world.get_unilateral_relationship_by_unilateral_pair(source, target);
+		if(!rel)
+			rel = state.world.force_create_unilateral_relationship(source, target);
+		state.world.unilateral_relationship_set_military_access(rel, true);
+	}
+	if(gives & sc::deal_subsidies) {
+		auto rel = state.world.get_unilateral_relationship_by_unilateral_pair(target, source);
+		if(!rel)
+			rel = state.world.force_create_unilateral_relationship(target, source);
+		state.world.unilateral_relationship_set_war_subsidies(rel, true);
+	}
+	if(gives & sc::deal_lift_our_embargo) {
+		if(auto rel = state.world.get_unilateral_relationship_by_unilateral_pair(target, source); rel && state.world.unilateral_relationship_get_embargo(rel))
+			nations::remove_embargo(state, rel);
+	}
+	nations::adjust_relationship(state, source, target, 10.0f);
+}
+
+void give_formation_order(sys::state& state, dcon::nation_id, uint64_t formation, formation_order_kind kind,
+	dcon::province_id destination, bool with_subordinates) {
+	command_data command{ command_type::formation_order, state.local_player_id };
+	auto data = formation_order_data{ formation, destination, kind, with_subordinates };
+	command << data;
+	add_to_command_queue(state, command);
+}
+
+// Orders reach a formation through the nation's military command, in the name
+// of whoever holds it, where the forces answer at all. A group order is accepted when at least one formation
+// under the addressee can carry it out.
+bool can_give_formation_order(sys::state& state, dcon::nation_id source, uint64_t formation, formation_order_kind kind,
+	dcon::province_id destination, bool with_subordinates) {
+	if(!state.current_scene.game_in_progress || !source || !military::land_forces::initialized(state)
+		|| uint8_t(kind) > uint8_t(formation_order_kind::replenish)) return false;
+	auto unit = military::land_forces::find_formation(state, formation);
+	if(!unit || unit->owner != source || unit->status == military::land_forces::formation_status::destroyed
+		|| !governance::command::forces_answer(state, source)) return false;
+	if(kind != formation_order_kind::march) return true;
+	auto const addressed = with_subordinates ? military::land_forces::subtree(state, formation)
+		: std::vector<military::land_forces::stable_id>{ formation };
+	for(auto id : addressed)
+		if(military::land_forces::can_order_march(state, source, id, destination) == military::land_forces::march_block::none)
+			return true;
+	return false;
+}
+
+void execute_formation_order(sys::state& state, dcon::nation_id source, uint64_t formation, formation_order_kind kind,
+	dcon::province_id destination, bool with_subordinates) {
+	auto unit = military::land_forces::find_formation(state, formation);
+	if(!unit || unit->owner != source || !governance::command::forces_answer(state, source)) return;
+	// In the commander's name where there is one; otherwise in the state's.
+	auto const person = governance::command::commander(state, source);
+	namespace lawful = governance::command;
+	namespace forces = military::land_forces;
+	switch(kind) {
+	case formation_order_kind::march:
+		if(person) (void)lawful::authorized_march(state, person, formation, destination, with_subordinates);
+		else (void)forces::order_march(state, source, formation, destination, with_subordinates);
+		break;
+	case formation_order_kind::halt:
+		if(person) (void)lawful::authorized_halt(state, person, formation, with_subordinates);
+		else (void)forces::halt_march(state, source, formation, with_subordinates);
+		break;
+	case formation_order_kind::resupply:
+		if(person) (void)lawful::authorized_resupply(state, person, formation, 30.0f, with_subordinates);
+		else (void)forces::request_resupply(state, source, formation, 30.0f, with_subordinates);
+		break;
+	case formation_order_kind::replenish:
+		if(person) (void)lawful::authorized_replenish(state, person, formation, 30, with_subordinates);
+		else (void)forces::replenish(state, source, formation, 30, with_subordinates);
+		break;
+	}
 }
 
 void toggle_production_directive(sys::state& state, dcon::nation_id source, dcon::state_instance_id for_state, dcon::production_directive_id directive) {
@@ -6639,6 +6803,16 @@ bool can_perform_command(sys::state& state, command_data& c) {
 		auto& data = c.get_payload<command::army_supply_priority_data>();
 		return can_set_army_supply_priority(state, source, data.army, data.priority);
 	}
+	case command_type::formation_order:
+	{
+		auto& data = c.get_payload<command::formation_order_data>();
+		return can_give_formation_order(state, source, data.formation, data.kind, data.destination, data.with_subordinates);
+	}
+	case command_type::propose_deal:
+	{
+		auto& data = c.get_payload<command::deal_data>();
+		return can_propose_deal(state, source, data.target, data.gives, data.asks);
+	}
 
 	case command_type::take_province:
 	{
@@ -7400,6 +7574,18 @@ void execute_command(sys::state& state, command_data& c) {
 	{
 		auto& data = c.get_payload<army_supply_priority_data>();
 		execute_set_army_supply_priority(state, data.army, data.priority);
+		break;
+	}
+	case command_type::formation_order:
+	{
+		auto& data = c.get_payload<formation_order_data>();
+		execute_formation_order(state, source_nation, data.formation, data.kind, data.destination, data.with_subordinates);
+		break;
+	}
+	case command_type::propose_deal:
+	{
+		auto& data = c.get_payload<deal_data>();
+		execute_propose_deal(state, source_nation, data.target, data.gives, data.asks);
 		break;
 	}
 	case command_type::take_province:

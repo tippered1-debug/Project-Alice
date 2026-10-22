@@ -1,12 +1,18 @@
 # Serialization and continuity
 
-The current normal save is version 55. Its framed `AOEX` v15 extension stores runtime state that lives outside the DCON world:
+The current normal save is version 61. Its framed `AOEX` v17 extension stores runtime state that lives outside the DCON world:
 
 - exact-person identity catalog, active memberships, birth/death ranges, and transfers;
 - exact household accounts, transactions, job applications, contracts, and separations;
 - household goods, needs, purchases, freight requests, and shipment ownership;
 - labor history and deterministic causal ordering;
 - construction request-to-project bindings and typed project results.
+
+Land-force snapshot v4 also stores native formation-to-battle-view bindings and
+retreat continuation state. The corresponding armies, regiments, active battles,
+and occupation progress restore from DCON. Older land-force v2/v3 snapshots have
+no native battle views; they are created from surviving staffed formations at
+the next military phase, without creating people or equipment.
 
 Strategic Statecraft is serialized in its required versioned section. Loading succeeds only after the exact-person and Statecraft data validate against the loaded DCON world. Unsupported save headers, missing runtime records, and malformed snapshots are rejected; older aggregate POP saves are not reconstructed.
 

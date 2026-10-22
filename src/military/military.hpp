@@ -265,6 +265,8 @@ int32_t regiments_under_construction_in_province(sys::state& state, dcon::provin
 int32_t main_culture_regiments_under_construction_in_province(sys::state& state, dcon::province_id p);
 int32_t mobilized_regiments_created_from_province(sys::state& state, dcon::province_id p);
 int32_t mobilized_regiments_possible_from_province(sys::state& state, dcon::province_id p);
+int32_t mobilized_regiments_created_for_nation(sys::state& state, dcon::nation_id n);
+float mobilization_progress(sys::state& state, dcon::nation_id n);
 dcon::pop_id find_available_soldier(sys::state& state, dcon::province_id p, dcon::culture_id pop_culture);
 
 // finds an available soldier pop for a regiment with the specific unit type anywhere in the nation

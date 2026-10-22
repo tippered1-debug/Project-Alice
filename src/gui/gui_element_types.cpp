@@ -1,3 +1,4 @@
+#include "commands.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stddef.h>

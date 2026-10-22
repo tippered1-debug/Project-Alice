@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gui_element_types.hpp"
+#include "gui_common_elements.hpp"
 #include "gui_context_window.hpp"
 #include "gui_province_window.hpp"
 #include "economy_trade_routes.hpp"
@@ -180,6 +181,10 @@ public:
 	void update_tooltip(sys::state& state, int32_t x, int32_t y, text::columnar_layout& contents, province_tile target) noexcept override {
 		auto type = state.world.regiment_get_type(target.regiment);
 		text::add_line(state, contents, state.military_definitions.unit_base_definitions[type].name);
+		if(military::land_forces::initialized(state)) {
+			ui::add_canonical_regiment_personnel_tooltip(state, contents, target.regiment);
+			return;
+		}
 
 		auto base_pop = state.world.regiment_get_pop_from_regiment_source(target.regiment);
 

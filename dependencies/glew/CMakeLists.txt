@@ -16,6 +16,12 @@ FetchContent_Declare(
 FetchContent_GetProperties(glew)
 if(NOT glew_POPULATED)
 	FetchContent_Populate(glew)
+	if(APPLE)
+		# The pinned GLEW build requires Carbon AGL, absent from newer SDKs.
+		# GLFW uses Cocoa; satisfy that obsolete lookup with OpenGL itself.
+		find_library(ALICE_GLEW_OPENGL_FRAMEWORK OpenGL REQUIRED)
+		set(AGL_LIBRARY "${ALICE_GLEW_OPENGL_FRAMEWORK}")
+	endif()
 	add_subdirectory(${glew_SOURCE_DIR} ${glew_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 

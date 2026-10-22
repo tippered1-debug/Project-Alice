@@ -635,7 +635,7 @@ std::vector<uint32_t> mobilization_map_from(sys::state& state) {
 		if(sel_nation && nation == sel_nation || !sel_nation) {
 			auto fat_id = dcon::fatten(state.world, prov_id);
 			auto cid = fat_id.get_continent().id.index();
-			float total_regs = float(military::regiments_max_possible_from_province(state, prov_id));
+			float total_regs = float(military::mobilized_regiments_possible_from_province(state, prov_id));
 			continent_max_pop[cid] = std::max(continent_max_pop[cid], total_regs);
 			auto i = province::to_map_id(prov_id);
 			prov_population[i] = total_regs;

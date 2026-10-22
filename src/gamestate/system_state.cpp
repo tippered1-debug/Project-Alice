@@ -4577,6 +4577,7 @@ void state::single_game_tick() {
 		// ALTERNATE PAR DEMO START POINT B
 		//
 
+		military::land_forces::prepare_battle_projections(*this);
 		military::recover_org(*this);
 		military::update_siege_progress(*this);
 		military::update_movement(*this);

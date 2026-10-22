@@ -685,6 +685,18 @@ bool person_has_active_contract(sys::state const& state, person_key worker) {
 	return !active_contracts_for_person(state, worker).empty();
 }
 
+std::vector<person_key> active_contract_workers(sys::state const& state) {
+	std::vector<person_key> result;
+	for(auto const& record : ensure_store(state)->contracts)
+		if(active_contract_on(state, record)) result.push_back(record.worker);
+	std::sort(result.begin(), result.end(), [](auto left, auto right) {
+		return left.source_population_cell == right.source_population_cell
+			? left.ordinal < right.ordinal : left.source_population_cell < right.source_population_cell;
+	});
+	result.erase(std::unique(result.begin(), result.end()), result.end());
+	return result;
+}
+
 std::vector<person_key> engaged_workers(sys::state const& state) {
 	std::vector<person_key> result;
 	auto store = ensure_store(state);

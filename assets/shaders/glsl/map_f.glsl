@@ -385,6 +385,35 @@ vec4 get_land_political_far() {
 // terrain only models it, and the colour deepens towards a national border.
 const vec3 LUMA = vec3(0.212671, 0.715160, 0.072169);
 
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+float value_noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3. - 2. * f);
+	return mix(mix(hash21(i), hash21(i + vec2(1., 0.)), f.x), mix(hash21(i + vec2(0., 1.)), hash21(i + vec2(1., 1.)), f.x), f.y);
+}
+// Ground in the manner of mountains: sharp crests, each scale half the last.
+// The camera coming down adds finer scales, the last of them fading in, so
+// that the smallest forms are always about a screen pixel or two across.
+float ridges(vec2 p, float scales) {
+	float height = 0.;
+	float weight = 0.5;
+	for(int i = 0; i < 8; ++i) {
+		float present = clamp(scales - float(i), 0., 1.);
+		if(present <= 0.)
+			break;
+		float n = 1. - abs(2. * value_noise(p) - 1.);
+		height += weight * present * n * n;
+		p = mat2(1.62, 1.18, -1.18, 1.62) * p + vec2(17.3, 9.1); // twice as fine, and turned, so no grain lines up
+		weight *= 0.5;
+	}
+	return height;
+}
+
 vec4 get_land_katechon() {
 	vec4 terrain = get_terrain_mix();
 	float is_land = terrain.a;
@@ -406,11 +435,60 @@ vec4 get_land_katechon() {
 		colour = vec3(0.47, 0.46, 0.43) * (0.62 + 0.75 * relief);
 	} else if(map_mode_is_data != 0) {
 		// a data layer must stay comparable across the map: relief only as a faint grain
-		colour = political * (0.84 + 0.30 * relief);
+		colour = political * (0.93 + 0.16 * relief);
 	} else {
-		float shade = 0.80 + 0.62 * relief;
-		colour = political * shade;
-		colour = mix(colour, terrain.rgb * dot(political, LUMA) * 1.6, 0.10);
+		// The colour of a state is laid on as a pigment on paper, not as a
+		// fresh fill: a little of it gives way to a warm grey, and the sheet
+		// under it is warm too. Reds turn towards brick, blues go drier,
+		// greens towards moss, yellows towards ochre; the hues keep apart.
+		political = mix(political, vec3(dot(political, LUMA)) * vec3(1.06, 1.00, 0.86), 0.40);
+		political = pow(political, vec3(1.10)) * vec3(0.95, 0.90, 0.80);
+		vec4 ground = texture(colormap_terrain, get_corrected_coords(tex_coord));
+		if(ground.a < 0.99) {
+			// The scenario brings the shading of the real ground (alpha of the
+			// terrain colormap, tools/katechon_2010/build_relief.py). Then the
+			// land is modelled by that alone: the tiled terrain texture, which
+			// grains plain and mountain alike, is left out but for a trace.
+			// seen from far away the colours would sink a little
+			colour = political * (0.95 + 0.06 * relief + 0.06 * clamp(2.2 / zoom - 0.3, 0., 1.));
+			float lit = ground.a * (255. / 250.) * 2. - 1.;
+			// The elevations behind this are no finer than the map itself, so
+			// close to they can only give soft masses. Where the ground is
+			// rugged (and only there) the camera coming down finds the smaller
+			// forms: spurs and side valleys, drawn in the same light. Level
+			// country gets none, so plains and deserts stay as calm as before.
+			vec2 texel = 1.5 / vec2(textureSize(colormap_terrain, 0));
+			vec2 at = get_corrected_coords(tex_coord);
+			float rugged = (abs(lit)
+				+ abs(texture(colormap_terrain, at + vec2(texel.x, 0.)).a * (255. / 250.) * 2. - 1.)
+				+ abs(texture(colormap_terrain, at - vec2(texel.x, 0.)).a * (255. / 250.) * 2. - 1.)
+				+ abs(texture(colormap_terrain, at + vec2(0., texel.y)).a * (255. / 250.) * 2. - 1.)
+				+ abs(texture(colormap_terrain, at - vec2(0., texel.y)).a * (255. / 250.) * 2. - 1.)) * 0.2;
+			float close_to = smoothstep(3.5, 11., zoom);
+			if(rugged > 0.03 && close_to > 0.) {
+				vec2 p = tex_coord * map_size / 3.6;
+				// the light comes from the north-west; north is up the rows of the map
+				const vec2 towards_light = vec2(-0.7071, 0.7071);
+				float scales = clamp(2. + log2(max(zoom, 3.5) / 3.5), 2., 8.);
+				float reach = 0.30 * exp2(1. - scales); // half the width of the finest form
+				float spurs = (ridges(p + towards_light * reach, scales) - ridges(p - towards_light * reach, scales)) / (2. * reach) * 0.16;
+				lit = clamp(lit * 1.25 + clamp(spurs, -1., 1.) * smoothstep(0.07, 0.36, rugged) * close_to, -1., 1.);
+			}
+			float strength = mix(1., 0.80, smoothstep(20., 45., zoom));
+			// Shade and light belong to the pigment, not to a layer over it:
+			// a slope in shade is the same colour deeper and a touch cooler,
+			// a slope in the light the same colour warmed.
+			float shade_in = max(-lit, 0.) * strength;
+			float light_in = max(lit, 0.) * strength;
+			colour *= mix(vec3(1.), vec3(0.50, 0.53, 0.60), shade_in);
+			colour += colour * vec3(0.30, 0.27, 0.20) * light_in;
+		} else {
+			// seen from far away the relief averages out and the colours would sink
+			float shade = 0.78 + 0.50 * relief + 0.08 * clamp(2.2 / zoom - 0.3, 0., 1.);
+			colour = political * shade;
+			colour = mix(colour, terrain.rgb * dot(political, LUMA) * 1.6, 0.10);
+		}
+
 		// the border band: deeper and more saturated, like a wash laid along the frontier
 		vec3 band = mix(vec3(dot(colour, LUMA)), colour, 1.30) * 0.74;
 		colour = mix(band, colour, inside);
@@ -418,28 +496,63 @@ vec4 get_land_katechon() {
 
 	float lit = texture(province_highlight, prov_id).r;
 	colour = mix(colour, vec3(1.0, 0.88, 0.62), clamp(lit, 0., 1.) * (0.26 + 0.10 * abs(cos(time * 2.2))));
-	colour *= texture(province_fow, prov_id).rgb;
+	// Fog of war only tones the political map down a little. At full strength it
+	// made every foreign country darker than the player's own, and on a data
+	// layer brightness is the data, so there it is not applied at all.
+	if(map_mode_is_data == 0)
+		colour *= mix(vec3(1.), texture(province_fow, prov_id).rgb, 0.18);
 	return vec4(colour, is_land);
 }
 
 vec4 get_water_katechon() {
 	vec2 corrected = get_corrected_coords(tex_coord);
-	float depth = dot(texture(colormap_water, corrected).rgb, LUMA);
-	if(corrected.y > 1. || corrected.y < 0.)
-		depth = 0.25;
-	vec3 deep = vec3(0.075, 0.125, 0.185);
-	vec3 shelf = vec3(0.135, 0.225, 0.300);
-	vec3 colour = mix(deep, shelf, smoothstep(0.12, 0.55, depth));
+	// The texture covers the province map; the game adds open water above and
+	// below it. There the nearest charted row is read, half a texel of the mip
+	// in use inside the edge, or the filter would wrap round to the other pole.
+	vec2 chart_size = vec2(textureSize(colormap_water, 0));
+	float mip = ceil(max(0., textureQueryLod(colormap_water, corrected).y));
+	float margin = 0.5 * exp2(mip) / chart_size.y;
+	vec4 chart = textureGrad(colormap_water, vec2(corrected.x, clamp(corrected.y, margin, 1. - margin)), dFdx(corrected), dFdy(corrected));
+	float beyond = max(max(-corrected.y, corrected.y - 1.), 0.) * map_size.y / 1.3; // map pixels outside the chart
+	vec3 colour;
+	if(chart.a < 0.99) {
+		// a sea chart (tools/katechon_2010/build_sea.py): the tint is the water
+		// itself, alpha is the distance to the coast in map pixels
+		colour = chart.rgb;
+		float a = chart.a * (255. / 250.);
+		float to_coast = a * a * 64.;
+		if(beyond > 0.) {
+			// Past the edge of the chart the water is the plain polar tone the
+			// chart itself ends in; only hard against the edge does it take up
+			// what the last charted row shows, so that nothing steps there.
+			colour = mix(colour, vec3(0.114, 0.206, 0.262), smoothstep(0., 10., beyond));
+			to_coast = 64.;
+		}
+		// the shoreline: a fine light rim, about a screen pixel and a half wide
+		float pixel = screen_size.y / map_size.y * zoom;
+		float rim = 1. - smoothstep(0., clamp(1.5 / pixel, 1.2, 4.), to_coast);
+		colour += vec3(0.085, 0.100, 0.095) * rim;
+		// and hard against the land a fine dark line, which is what makes a coast read as drawn
+		float shore = 1. - smoothstep(0., clamp(0.55 / pixel, 0.45, 1.5), to_coast);
+		colour = mix(colour, vec3(0.030, 0.050, 0.065), 0.42 * shore);
+	} else {
+		// any other water colormap: only its brightness is read, as a depth
+		float depth = dot(chart.rgb, LUMA);
+		colour = mix(vec3(0.085, 0.160, 0.225), vec3(0.165, 0.275, 0.335), smoothstep(0.12, 0.55, depth));
+	}
 
-	// a slow, faint swell so that open water is not a flat fill
-	vec2 swell_coord = tex_coord * vec2(30., 30. * map_size.y / map_size.x);
-	float swell = texture(water_normal, swell_coord + vec2(time * 0.004, time * 0.002)).g
-		+ texture(water_normal, swell_coord * 2.3 - vec2(time * 0.003, 0.)).g;
-	colour *= 0.94 + 0.06 * swell;
+	// the grain of the sheet: still, and too faint to read as waves
+	vec2 grain_coord = tex_coord * vec2(40., 40. * map_size.y / map_size.x);
+	float grain = texture(water_normal, grain_coord).g + texture(water_normal, grain_coord * 3.7 + vec2(0.37, 0.61)).g;
+	colour *= 0.975 + 0.025 * grain;
 
+	// unseen water is only a shade quieter: at full strength the fog blackens
+	// the sea and draws the outline of every sea zone
 	vec4 province_sample = texture(provinces_texture_sampler, gl_FragCoord.xy / screen_size);
-	colour += vec3(0.020, 0.040, 0.050) * (1. - smoothstep(0.0, 1.0, sqrt(province_sample.z)));
-	colour *= texture(province_fow, province_sample.xy).rgb;
+	// the water outside the province map belongs to no sea zone: it takes the
+	// shade of unseen water, or the edge of the chart would show as a step
+	vec3 fog = (province_sample.x == 0. && province_sample.y == 0.) ? vec3(0.482) : texture(province_fow, province_sample.xy).rgb;
+	colour *= mix(vec3(1.), fog, 0.16);
 	return vec4(colour, 1.);
 }
 

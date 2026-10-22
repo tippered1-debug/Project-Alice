@@ -35,3 +35,106 @@ katechon_hud_economy;ECONOMY
 katechon_hud_outliner;OUTLINER
 katechon_hud_log;LOG
 katechon_hud_menu;MENU
+katechon_mil_staff;Personnel: $x$ of $y$ authorized
+katechon_trade_period_since;first %1 days of play
+katechon_trade_period_month;the last 30 days
+katechon_trade_period_year;the last 12 months
+katechon_trade_level_critical;Critical
+katechon_trade_level_high;High
+katechon_trade_level_watch;Watch
+katechon_trade_kind_vital;Vital
+katechon_trade_kind_strategic;Strategic
+katechon_trade_vs_before;vs previous
+katechon_trade_span_month;30 days
+katechon_trade_span_year;12 months
+katechon_trade_exports;Exports
+katechon_trade_imports;Imports
+katechon_trade_key_width;wider: more value
+katechon_trade_key_sellers;sell it abroad
+katechon_trade_key_buyers;buy it abroad
+katechon_trade_key_world;the whole world
+katechon_trade_partner_tip;We sell them %1, we buy %2
+katechon_trade_dep_tip;%1 of what we use comes from abroad, %2
+katechon_trade_dep_tip_source;%1 of that from %2
+katechon_trade_export_tip;%1 of our exports
+katechon_trade_scope;Economy · Trade
+katechon_trade_all;All trade
+katechon_trade_world_sub;%1 trading partners · %2 deals across the border
+katechon_trade_partner_sub;%1 of our trade · relations %2
+katechon_trade_role_out;Net export
+katechon_trade_role_in;Net import
+katechon_trade_role_home;Traded at home only
+katechon_trade_asof;as of %1
+katechon_trade_period_line;Value across the border, %1
+katechon_trade_kpi_out;Exports
+katechon_trade_kpi_in;Imports
+katechon_trade_kpi_cover;Home cover
+katechon_trade_kpi_net;Balance
+katechon_trade_partners;Trading partners
+katechon_trade_partners_aside;% of exports + imports
+katechon_trade_quiet_border;Nothing crossed the border over %1
+katechon_trade_deps;Commodity dependencies
+katechon_trade_deps_aside;imported share of use
+katechon_trade_no_deps;No good relies on imports for a quarter of its use
+katechon_trade_earners;Main exports
+katechon_trade_earners_aside;bar: share of exports
+katechon_trade_open_analysis;Full trade analysis
+katechon_trade_they_buy;We sell them
+katechon_trade_they_sell;We buy from them
+katechon_trade_of_flow;% of it
+katechon_trade_nothing_goods;Nothing
+katechon_trade_reliance;They supply %1 of all the %2 we use.
+katechon_trade_hard_replace;Hardly anyone else sells it to us.
+katechon_trade_no_reliance;Nothing we use depends on them for a tenth of its supply.
+katechon_trade_no_partner_trade;No trade with them over %1.
+katechon_trade_lever_theirs_only;We need what they sell and they need nothing of ours: the leverage is theirs.
+katechon_trade_lever_ours;They take far more from us than they sell: the leverage is ours.
+katechon_trade_lever_theirs;We buy far more from them than we sell: the leverage is theirs.
+katechon_trade_lever_even;The trade runs about even both ways.
+katechon_trade_talks;Open talks
+katechon_trade_buyers;Who buys it from us
+katechon_trade_sellers;Who sells it to us
+katechon_trade_not_across;Not traded across the border over %1
+katechon_trade_home;At home
+katechon_trade_imported_use;%1 of what we use comes from abroad.
+katechon_trade_main_source;%1 of the imports from %2.
+katechon_trade_all_home;All we use of it is made at home.
+katechon_trade_only_abroad;We do not buy it at home; it is made for sale abroad.
+katechon_trade_prices;Price at home %1, in the world %2.
+katechon_trade_price_cheaper;Selling abroad pays %1 more.
+katechon_trade_price_dearer;Buying abroad is %1 cheaper.
+katechon_trade_analysis_scope;Economy · Trade analysis
+katechon_trade_back_map;Back to the map
+katechon_trade_all_tables;Classic trade tables
+katechon_trade_performance;Trade performance
+katechon_trade_against_before;against the span before
+katechon_trade_kpi_turnover;Turnover
+katechon_trade_chart_wait;The chart appears once three %1 are recorded; %2 so far.
+katechon_trade_day;days
+katechon_trade_month;months
+katechon_trade_month_of;%1 to %2
+katechon_trade_strategic;Strategic dependencies
+katechon_trade_no_deps_long;No good relies on imports for a quarter of its use: supply is safe from foreign shocks.
+katechon_trade_deps_summary;%1 goods rely on imports for a quarter or more of their use; %2 of them critically.
+katechon_trade_hardest;Hardest to replace: %1, for %2.
+katechon_trade_col_good;Good
+katechon_trade_col_imported;Imported
+katechon_trade_col_source;Main supplier
+katechon_trade_col_risk;Risk
+katechon_trade_dep_long_tip;%1 suppliers; we make %2 of our use at home
+katechon_trade_more;and %1 more
+katechon_trade_structure;Commodity structure
+katechon_trade_structure_aside;values in money, made and used in units
+katechon_trade_col_made;Made
+katechon_trade_col_used;Used
+katechon_trade_col_cover;Home cover
+katechon_trade_col_partner;Main partner
+katechon_trade_buyer_tip;%1 buys %2 of our exports of it
+katechon_trade_source_tip;%1 sells us %2 of our imports of it
+katechon_trade_home_only;%1 goods traded only at home
+katechon_trade_col_country;Country
+katechon_trade_col_share;Share
+katechon_trade_col_reliance;We rely on
+katechon_trade_sells_tip;We sell them mostly %1, buy mostly %2
+katechon_trade_cut_tip;Without them we lose %1 of our %2
+katechon_trade_layer;Trade

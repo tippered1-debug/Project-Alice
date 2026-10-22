@@ -11,6 +11,19 @@ uint32_t derive_color_from_ol_color(sys::state& state, uint32_t ol_color, dcon::
 	return sys::hsv_to_rgb(base);
 }
 
+// The colour a state is given is laid on the map by its weight in the world:
+// the most populous keep nearly all of it, the smallest are quieter. The hue
+// is never touched, so neighbours stay as far apart as they were.
+uint32_t colour_by_weight(sys::state& state, uint32_t color, dcon::nation_id n, float largest) {
+	auto const people = state.world.nation_get_demographics(n, demographics::total);
+	if(people <= 0.f || largest <= 0.f)
+		return color;
+	auto const smallness = std::clamp(std::log10(largest / people) / 2.5f, 0.f, 1.f); // 0 for the largest, 1 from a three-hundredth of it down
+	auto tone = sys::rgb_to_hsv(color);
+	tone.s *= 0.92f - 0.32f * smallness;
+	return sys::hsv_to_rgb(tone);
+}
+
 std::vector<uint32_t> political_map_from(sys::state& state) {
 	uint32_t province_size = state.world.province_size();
 	uint32_t texture_size = province_size + 256 - province_size % 256;
@@ -18,6 +31,10 @@ std::vector<uint32_t> political_map_from(sys::state& state) {
 	std::vector<uint32_t> prov_color(texture_size * 2);
 
 	std::vector<uint32_t> nation_color(state.world.nation_size() + 1);
+	auto largest = 0.f;
+	state.world.for_each_nation([&](dcon::nation_id n) {
+		largest = std::max(largest, state.world.nation_get_demographics(n, demographics::total));
+	});
 	state.world.for_each_nation([&](dcon::nation_id n) {
 		nation_color[n.value] = state.world.nation_get_color(n);
 		auto olr = state.world.nation_get_overlord_as_subject(n);
@@ -43,6 +60,7 @@ std::vector<uint32_t> political_map_from(sys::state& state) {
 				break;
 			}
 		}
+		nation_color[n.value] = colour_by_weight(state, nation_color[n.value], n, largest);
 	});
 
 	state.world.for_each_province([&](dcon::province_id prov_id) {

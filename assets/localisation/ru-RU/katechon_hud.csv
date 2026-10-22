@@ -35,3 +35,973 @@ katechon_hud_economy;ЭКОНОМИКА
 katechon_hud_outliner;СВОДКА
 katechon_hud_log;ЖУРНАЛ
 katechon_hud_menu;МЕНЮ
+katechon_pop_people;НАСЕЛЕНИЕ
+katechon_pop_growth;ПРИРОСТ ЗА МЕСЯЦ
+katechon_pop_density;ЧЕЛОВЕК НА КМ2, ПРИБЛ.
+katechon_pop_part;ДОЛЯ В СТРАНЕ
+katechon_pop_strata;СЛОИ
+katechon_pop_poor;Бедные
+katechon_pop_middle;Средние
+katechon_pop_rich;Богатые
+katechon_pop_age;ВОЗРАСТНАЯ СТРУКТУРА
+katechon_pop_age_missing;Симуляция пока не сводит эти данные.
+katechon_pop_workforce;РАБОЧАЯ СИЛА
+katechon_pop_employed;ЗАНЯТЫ
+katechon_pop_jobless;БЕЗРАБОТНЫЕ
+katechon_pop_occupations;ПРОФЕССИИ
+katechon_pop_income;ДОХОДЫ
+katechon_pop_income_missing;Симуляция пока не сводит эти данные.
+katechon_pop_internal;ВНУТРИ СТРАНЫ, МЕСЯЦ
+katechon_pop_external;ЧЕРЕЗ ГРАНИЦУ, МЕСЯЦ
+katechon_pop_gaining;ПРИНИМАЮТ ЛЮДЕЙ
+katechon_pop_losing;ТЕРЯЮТ ЛЮДЕЙ
+katechon_pop_none;Перемещений пока не было.
+katechon_pop_pressures;УСЛОВИЯ ЗДЕСЬ
+katechon_pop_life;БАЗОВЫЕ НУЖДЫ ПОКРЫТЫ
+katechon_pop_everyday;ПОВСЕДНЕВНЫЕ НУЖДЫ
+katechon_pop_luxury;РОСКОШЬ
+katechon_pop_militancy;АГРЕССИВНОСТЬ, 0–10
+katechon_pop_consciousness;СОЗНАТЕЛЬНОСТЬ, 0–10
+katechon_pop_cultures;КУЛЬТУРЫ
+katechon_pop_religions;РЕЛИГИИ
+katechon_pop_demography;ДЕМОГРАФИЯ
+katechon_pop_demography_about;Численность, прирост, плотность
+katechon_pop_employment;ЗАНЯТОСТЬ
+katechon_pop_employment_about;Работа, профессии, безработица
+katechon_pop_migration;МИГРАЦИЯ
+katechon_pop_migration_about;Кто приезжает, кто уезжает и почему
+katechon_pop_society;ОБЩЕСТВО
+katechon_pop_society_about;Грамотность, условия жизни, культуры
+katechon_pop_per_month;за месяц
+katechon_pop_kpi_growth;ПРИРОСТ
+katechon_pop_kpi_migration;МИГРАЦИЯ
+katechon_pop_kpi_work;ЗАНЯТОСТЬ
+katechon_pop_kpi_needs;НУЖДЫ
+katechon_pop_history;ПОСЛЕДНИЕ 30 ДНЕЙ
+katechon_pop_history_missing;Запись наполняется по мере хода дней.
+katechon_pop_empty;Здесь никто не живёт.
+katechon_pop_legend_density;ЧЕЛОВЕК НА КМ2, ПРИБЛ.
+katechon_pop_legend_jobless;БЕЗРАБОТИЦА
+katechon_pop_legend_movement;ЧИСТЫЙ ПРИТОК НА 1000, МЕСЯЦ
+katechon_pop_legend_literacy;ГРАМОТНОСТЬ
+katechon_pop_yours;  (ваша)
+katechon_pop_scope_region;НАСЕЛЕНИЕ  ·  РЕГИОН
+katechon_pop_scope_foreign;НАСЕЛЕНИЕ  ·  ДРУГАЯ СТРАНА
+katechon_pop_scope_own;НАСЕЛЕНИЕ  ·  ВАША СТРАНА
+katechon_pop_no_jobs;Симуляция пока никого здесь не трудоустроила.
+katechon_pop_area;ПЛОЩАДЬ, КМ2, ПРИБЛ.
+katechon_pop_history_foreign;Ведётся только для вашей страны.
+katechon_pop_history_low;минимум за период
+katechon_pop_regions;КРУПНЕЙШИЕ РЕГИОНЫ
+katechon_pop_on_the_map;НА КАРТЕ
+katechon_hud_zoom_in;ПРИБЛИЗИТЬ
+katechon_hud_zoom_out;ОТДАЛИТЬ
+katechon_hud_pause;ПАУЗА
+katechon_hud_resume;ПРОДОЛЖИТЬ
+katechon_hud_slower;МЕДЛЕННЕЕ
+katechon_hud_faster;БЫСТРЕЕ
+katechon_hud_paused;ПАУЗА
+katechon_hud_speed;СКОРОСТЬ
+katechon_pop_other;Прочие
+katechon_pop_t_land;Люди и земля
+katechon_pop_per_km2;на квадратный километр
+katechon_pop_scale_empty;пусто
+katechon_pop_scale_crowded;тесно
+katechon_pop_t_trend;Последние тридцать дней
+katechon_pop_t_wealth;Кто они: по достатку
+katechon_pop_t_age;По возрасту
+katechon_pop_t_hundred;Из каждых ста трудоспособных
+katechon_pop_have_work;работают
+katechon_pop_lack_work;без работы
+katechon_pop_t_trades;Чем они заняты
+katechon_pop_t_income;Сколько они зарабатывают
+katechon_pop_t_balance;Баланс за месяц
+katechon_pop_leaving;уезжают
+katechon_pop_arriving;приезжают
+katechon_pop_t_where;Куда едут и откуда уезжают
+katechon_pop_t_weigh;Что здесь взвешивают люди
+katechon_pop_t_levers;Что может государство
+katechon_pop_t_needs;Как они живут: лестница потребностей
+katechon_pop_t_mind;Что они знают и как настроены
+katechon_pop_t_cultures;Кто они: культуры
+katechon_pop_t_faiths;Во что они верят
+katechon_pop_t_regions;Где они живут
+katechon_pop_people_word;человек
+katechon_pop_s_shrinking;Убывает на %1 в месяц.
+katechon_pop_s_growing;Прирастает на %1 в месяц.
+katechon_pop_s_steady;Не растёт и не убывает.
+katechon_pop_s_density;Около %1 человек на квадратный километр.
+katechon_pop_s_no_workforce;Здесь нет людей трудоспособного возраста.
+katechon_pop_s_work;Работа есть у %1 трудоспособных.
+katechon_pop_s_arriving;Приезжает больше, чем уезжает: %1 в месяц.
+katechon_pop_s_leaving;Уезжает больше, чем приезжает: %1 в месяц.
+katechon_pop_s_literate;Грамотны %1.
+katechon_pop_s_needs;Базовые потребности покрыты на %1.
+katechon_pop_n_people;Люди
+katechon_pop_n_work;Труд
+katechon_pop_n_movement;Движение
+katechon_pop_n_life;Жизнь
+katechon_pop_s_mostly_poor;Бедных больше всего: %1.
+katechon_pop_s_mostly_middle;Средних слоёв больше всего: %1.
+katechon_pop_scale_third;30% и выше
+katechon_pop_c_jobless;трудоспособных без работы
+katechon_pop_c_net;чистый приток на тысячу жителей за месяц
+katechon_pop_c_literate;умеют читать и писать
+katechon_pop_l_area;Земля, км2, примерно
+katechon_pop_l_part;От всей страны
+katechon_pop_l_strata;Бедные, средние, богатые
+katechon_pop_l_able;Трудоспособных
+katechon_pop_l_in_work;Работают
+katechon_pop_l_internal;Внутри страны
+katechon_pop_l_external;Через границу
+katechon_pop_l_gaining;Больше всего едут в
+katechon_pop_l_losing;Больше всего уезжают из
+katechon_pop_l_life;Базовые потребности покрыты
+katechon_pop_l_everyday;Повседневные потребности покрыты
+katechon_hud_g_economy;ЭКОНОМИКА
+katechon_hud_g_state;ГОСУДАРСТВО
+katechon_hud_g_society;ОБЩЕСТВО
+katechon_hud_running;ВРЕМЯ ИДЁТ
+katechon_hud_in_days;за %1 дн.
+katechon_mil_scope;СУХОПУТНЫЕ ВОЙСКА
+katechon_mil_scope_many;ВЫБРАНО  ·  %1
+katechon_mil_title_many;Группа соединений
+katechon_mil_all;Все сухопутные войска
+katechon_mil_count;СОЕДИНЕНИЙ  ·  %1
+katechon_mil_e0;ВОЙСКА
+katechon_mil_e1;ГРУППИРОВКА
+katechon_mil_e2;АРМИЯ
+katechon_mil_e3;КОРПУС
+katechon_mil_e4;ДИВИЗИЯ
+katechon_mil_e5;БРИГАДА
+katechon_mil_e6;ПОЛК
+katechon_mil_s2;А
+katechon_mil_s3;АК
+katechon_mil_s4;д
+katechon_mil_s5;бр
+katechon_mil_s6;п
+katechon_mil_tag_army;СВ
+katechon_mil_unnamed;Соединение
+katechon_mil_men;в строю
+katechon_mil_staff;Личный состав: $x$ из $y$ по штату
+katechon_mil_of;из %1 по штату
+katechon_mil_ready;ГОТОВНОСТЬ
+katechon_mil_equipment;ТЕХНИКА
+katechon_mil_supply;ЗАПАСЫ
+katechon_mil_days;%1 сут.
+katechon_mil_no_need;не нужны
+katechon_mil_no_commander;Цепочка командования разорвана: приказы не принимаются
+katechon_mil_wait_supply;Марш ждёт колонну снабжения в пути
+katechon_mil_wait_combat;Марш остановлен боем
+katechon_mil_wait_route;Путь закрыт
+katechon_mil_short;Запасов меньше чем на трое суток: %1
+katechon_mil_unready;Небоеготовы: %1
+katechon_mil_marching;На марше · %1
+katechon_mil_groupings;ГРУППИРОВКИ
+katechon_mil_composition;СОСТАВ
+katechon_mil_chosen;ВЫБРАНЫ
+katechon_mil_more_rows;и ещё %1
+katechon_mil_march;МАРШ
+katechon_mil_cancel;ОТМЕНА
+katechon_mil_resupply;СНАБДИТЬ
+katechon_mil_replenish;ПОПОЛНИТЬ
+katechon_mil_more;Ещё
+katechon_mil_pick_place;Укажите место на карте
+katechon_mil_right_button;Правая кнопка на карте — марш
+katechon_mil_halt;ОСТАНОВИТЬ МАРШ
+katechon_mil_reserves;ПРИЗЫВ И РЕЗЕРВЫ
+katechon_mil_vacancies;Некомплект
+katechon_mil_mobilize;Объявить призыв резервистов
+katechon_mil_demobilize;Распустить резервистов
+katechon_mil_no_depots;Складов нет
+katechon_mil_food;Продовольствие
+katechon_mil_fuel;Топливо
+katechon_mil_ammunition;Боеприпасы
+katechon_dip_access;Военный доступ
+katechon_dip_access_ours;наш у них
+katechon_dip_access_theirs;их у нас
+katechon_dip_aim_alliance;союз
+katechon_dip_aim_balance;противовес угрозе
+katechon_dip_aim_claim;территориальное притязание
+katechon_dip_aim_market;доступ к рынкам
+katechon_dip_aim_none;Ничего определённого
+katechon_dip_aim_prestige;престиж
+katechon_dip_aim_protect;защиту партнёра
+katechon_dip_aim_resources;доступ к ресурсам
+katechon_dip_aim_routes;торговые пути
+katechon_dip_aim_security;безопасность
+katechon_dip_alliance;Союз
+katechon_dip_alliance_no;Союз они отвергнут
+katechon_dip_alliance_yes;Союз они примут
+katechon_dip_allied;союзники
+katechon_dip_allies;Союзники
+katechon_dip_ally;Предложить союз
+katechon_dip_ask_access;Просить военный доступ
+katechon_dip_at_war;война
+katechon_dip_back_attacker;Поддержать истца
+katechon_dip_back_defender;Поддержать ответчика
+katechon_dip_begin;НАЧАТЬ
+katechon_dip_both_ways;взаимный
+katechon_dip_break_alliance;Разорвать союз
+katechon_dip_broken;Нарушено обещаний им
+katechon_dip_cannot_justify;Сейчас против них нечего обосновать
+katechon_dip_care_claims;Территориальные притязания
+katechon_dip_care_markets;Рынки
+katechon_dip_care_partners;Защита партнёров
+katechon_dip_care_prestige;Региональное влияние
+katechon_dip_care_resources;Ресурсы
+katechon_dip_care_routes;Торговые пути
+katechon_dip_care_security;Безопасность
+katechon_dip_cares;Им важнее всего: %1
+katechon_dip_cold;холодные
+katechon_dip_concede;Уступить им то, чего они хотят
+katechon_dip_concede_note;Отдать им то, ради чего они воюют
+katechon_dip_concessions;Помнят наших уступок
+katechon_dip_cordial;сердечные
+katechon_dip_costs;Стоит дипломатов: %1
+katechon_dip_crisis;Кризис
+katechon_dip_crisis_between;%1 против %2
+katechon_dip_declare;Объявить войну
+katechon_dip_declare_note;Объявить войну по этому поводу  ·  дурная слава %1
+katechon_dip_diplomats;дипломатов в запасе
+katechon_dip_economy;Экономический вес
+katechon_dip_embargo;Ввести эмбарго
+katechon_dip_embargo_both;взаимное эмбарго
+katechon_dip_embargo_ours;наше эмбарго
+katechon_dip_embargo_theirs;их эмбарго против нас
+katechon_dip_end_access;Увести войска с их земли
+katechon_dip_end_subsidies;Прекратить военные субсидии
+katechon_dip_f_alliance;наш союз
+katechon_dip_f_claims;земли, на которые один из нас претендует
+katechon_dip_f_enemy;общий враг в войне
+katechon_dip_f_entanglement;войны и пакты, в которые мы их втянем
+katechon_dip_f_infamy;их собственная дурная слава
+katechon_dip_f_market;выгода нашего рынка
+katechon_dip_f_proximity;соседство
+katechon_dip_f_reliability;наша верность слову
+katechon_dip_f_security;риск для их безопасности
+katechon_dip_f_threat;общий соперник
+katechon_dip_f_value;наш вес для них
+katechon_dip_free_trade;свободная торговля
+katechon_dip_give_access;Дать военный доступ
+katechon_dip_grounds;ПОВОДЫ К ВОЙНЕ
+katechon_dip_hostile;враждебные
+katechon_dip_improve;Отправить посольство, чтобы потеплели отношения
+katechon_dip_infamy;дурная слава %1
+katechon_dip_justify;Подготовить повод к войне
+katechon_dip_justify_note;Около %1 дн. на обоснование
+katechon_dip_kept;Сдержано обещаний им
+katechon_dip_lift_embargo;Снять эмбарго
+katechon_dip_military;Военный вес
+katechon_dip_n_intelligence;Разведка
+katechon_dip_n_standing;Отношения
+katechon_dip_n_war;Война
+katechon_dip_neutral;ровные
+katechon_dip_no_allies;Союзов нет
+katechon_dip_no_grounds;Поводов против них нет
+katechon_dip_no_prospects;Сейчас союз не примет никто
+katechon_dip_no_wars;Мир со всеми
+katechon_dip_none;нет
+katechon_dip_peace;Мир
+katechon_dip_pick_hint;Выберите страну на карте; правый клик — что с ней можно сделать
+katechon_dip_pledges;ОБЯЗАТЕЛЬСТВА
+katechon_dip_press_goals;Потребовать то, ради чего воюем
+katechon_dip_press_goals_note;Предложить мир на всех наших целях войны против них
+katechon_dip_propose_trade;Предложить свободную торговлю
+katechon_dip_prospects;Вероятные союзники
+katechon_dip_record;НАША ИСТОРИЯ С НИМИ
+katechon_dip_relations;отношения
+katechon_dip_reliability;Надёжность
+katechon_dip_resolve;Решимость
+katechon_dip_revoke_access;Отозвать их военный доступ
+katechon_dip_scope_foreign;ДИПЛОМАТИЯ  ·  ИНОСТРАННОЕ ГОСУДАРСТВО
+katechon_dip_scope_own;ДИПЛОМАТИЯ  ·  ВАША СТРАНА
+katechon_dip_stop_justifying;ПРЕКРАТИТЬ
+katechon_dip_subsidies;Военные субсидии
+katechon_dip_subsidise;Дать военные субсидии
+katechon_dip_take_interest;Вмешаться
+katechon_dip_their_aim;ЧЕГО ОНИ ДОБИВАЮТСЯ
+katechon_dip_they_back;поддерживают нас в кризисе
+katechon_dip_they_guarantee;гарантируют нас
+katechon_dip_they_open;их рынок открыт нам
+katechon_dip_they_see;КАК ОНИ ВИДЯТ НАС
+katechon_dip_threats;Помнят наших угроз
+katechon_dip_toward_us;в отношении нас
+katechon_dip_trade;Торговля
+katechon_dip_truce;Перемирие до %1: война сейчас — нарушение слова
+katechon_dip_unknown_word;неизвестно
+katechon_dip_warm;тёплые
+katechon_dip_wars;Воюем с
+katechon_dip_warscore;счёт войны %1
+katechon_dip_we_back;поддерживаем их в кризисе
+katechon_dip_we_guarantee;гарантируем их
+katechon_dip_we_open;наш рынок открыт им
+katechon_dip_we_pay;платим им
+katechon_dip_we_see;КАК МЫ ВИДИМ ИХ
+katechon_dip_weight_note;Вес — доля от двоих вместе: 50% — равенство
+katechon_dip_white_peace;Предложить мир на нынешних условиях
+katechon_dip_white_peace_note;Мир без передачи чего-либо
+katechon_dip_worsen;Ухудшить отношения
+katechon_dip_would_accept;Они согласятся
+katechon_dip_would_ally;пойдут в союз
+katechon_dip_would_refuse;Они откажут
+katechon_dip_mostly_for;Прежде всего за: %1
+katechon_dip_mostly_against;Прежде всего против: %1
+katechon_dip_phase_inactive;нет кризиса
+katechon_dip_phase_demand;требование
+katechon_dip_phase_threat;угроза
+katechon_dip_phase_coalition;коалиции
+katechon_dip_phase_backing;поддержка
+katechon_dip_phase_bargaining;торг
+katechon_dip_phase_brinkmanship;на грани
+katechon_dip_phase_settled;урегулирован
+katechon_dip_phase_war;война
+katechon_dip_phase_withdrawn;отозван
+katechon_dip_key_self;эта страна
+katechon_dip_key_allies;союзники
+katechon_dip_key_enemies;враги
+katechon_dip_key_subjects;вассалы
+katechon_dip_improve_short;УЛУЧШИТЬ
+katechon_dip_worsen_short;УХУДШИТЬ
+katechon_dip_break_alliance_short;РАЗОРВАТЬ
+katechon_dip_ally_short;СОЮЗ
+katechon_dip_end_access_short;УЙТИ
+katechon_dip_ask_access_short;ДОСТУП
+katechon_dip_revoke_access_short;ОТОЗВАТЬ
+katechon_dip_give_access_short;ДАТЬ ДОСТУП
+katechon_dip_propose_trade_short;ТОРГОВЛЯ
+katechon_dip_lift_embargo_short;СНЯТЬ
+katechon_dip_embargo_short;ЭМБАРГО
+katechon_dip_end_subsidies_short;СТОП ПОМОЩЬ
+katechon_dip_subsidise_short;СУБСИДИИ
+katechon_dip_no_diplomats;Нет дипломатов: предложения ждут их
+katechon_dip_key_us;мы
+katechon_dip_key_cold;холодно
+katechon_dip_key_warm;тепло
+katechon_trade_period_since;первые %1 дн. игры
+katechon_trade_period_month;последние 30 дней
+katechon_trade_period_year;последние 12 месяцев
+katechon_trade_level_critical;Критично
+katechon_trade_level_high;Высокий
+katechon_trade_level_watch;Под наблюдением
+katechon_trade_kind_vital;Жизненно важно
+katechon_trade_kind_strategic;Стратегический
+katechon_trade_vs_before;к прошлому периоду
+katechon_trade_span_month;30 дней
+katechon_trade_span_year;12 месяцев
+katechon_trade_exports;Экспорт
+katechon_trade_imports;Импорт
+katechon_trade_key_width;толще — дороже
+katechon_trade_key_sellers;продают за рубеж
+katechon_trade_key_buyers;покупают за рубежом
+katechon_trade_key_world;весь мир
+katechon_trade_partner_tip;Продаём им на %1, покупаем на %2
+katechon_trade_dep_tip;%1 потребления — из-за рубежа, %2
+katechon_trade_dep_tip_source;%1 из них — от %2
+katechon_trade_export_tip;%1 нашего экспорта
+katechon_trade_scope;Экономика · Торговля
+katechon_trade_all;Вся торговля
+katechon_trade_world_sub;Партнёров: %1 · сделок через границу: %2
+katechon_trade_partner_sub;%1 нашего товарооборота · отношения %2
+katechon_trade_role_out;Чистый экспорт
+katechon_trade_role_in;Чистый импорт
+katechon_trade_role_home;Только внутренний рынок
+katechon_trade_asof;на %1
+katechon_trade_period_line;Стоимость через границу, %1
+katechon_trade_kpi_out;Экспорт
+katechon_trade_kpi_in;Импорт
+katechon_trade_kpi_cover;Своё покрытие
+katechon_trade_kpi_net;Сальдо
+katechon_trade_partners;Торговые партнёры
+katechon_trade_partners_aside;% от экспорта + импорта
+katechon_trade_quiet_border;За %1 ничего не пересекло границу
+katechon_trade_deps;Зависимость от импорта
+katechon_trade_deps_aside;доля импорта в потреблении
+katechon_trade_no_deps;Ни один товар не зависит от импорта на четверть
+katechon_trade_earners;Главный экспорт
+katechon_trade_earners_aside;полоса — доля экспорта
+katechon_trade_open_analysis;Полный анализ торговли
+katechon_trade_they_buy;Продаём им
+katechon_trade_they_sell;Покупаем у них
+katechon_trade_of_flow;% потока
+katechon_trade_nothing_goods;Ничего
+katechon_trade_reliance;Они дают %1 всего потребляемого нами товара «%2».
+katechon_trade_hard_replace;Почти никто больше нам его не продаёт.
+katechon_trade_no_reliance;Ни один наш товар не зависит от них даже на десятую часть.
+katechon_trade_no_partner_trade;За %1 торговли с ними не было.
+katechon_trade_lever_theirs_only;Нам нужно то, что они продают, а им наше не нужно: рычаг у них.
+katechon_trade_lever_ours;Они берут у нас гораздо больше, чем продают: рычаг у нас.
+katechon_trade_lever_theirs;Мы покупаем у них гораздо больше, чем продаём: рычаг у них.
+katechon_trade_lever_even;Торговля примерно уравновешена.
+katechon_trade_talks;Переговоры
+katechon_trade_buyers;Кто у нас покупает
+katechon_trade_sellers;Кто нам продаёт
+katechon_trade_not_across;За %1 через границу не продавался
+katechon_trade_home;Внутри страны
+katechon_trade_imported_use;%1 потребления приходит из-за рубежа.
+katechon_trade_main_source;%1 импорта — от %2.
+katechon_trade_all_home;Всё потребляемое производится внутри страны.
+katechon_trade_only_abroad;Внутри страны не покупается — производится на экспорт.
+katechon_trade_prices;Цена внутри страны %1, в мире %2.
+katechon_trade_price_cheaper;Продавать за рубеж выгоднее на %1.
+katechon_trade_price_dearer;Покупать за рубежом дешевле на %1.
+katechon_trade_analysis_scope;Экономика · Анализ торговли
+katechon_trade_back_map;К карте
+katechon_trade_all_tables;Классические таблицы торговли
+katechon_trade_performance;Динамика торговли
+katechon_trade_against_before;к предыдущему периоду
+katechon_trade_kpi_turnover;Товарооборот
+katechon_trade_chart_wait;График появится, когда наберётся три %1; пока — %2.
+katechon_trade_day;дня
+katechon_trade_month;месяца
+katechon_trade_month_of;%1 – %2
+katechon_trade_strategic;Стратегические зависимости
+katechon_trade_no_deps_long;Ни один товар не зависит от импорта на четверть: снабжение защищено от внешних шоков.
+katechon_trade_deps_summary;Товаров, на четверть и более зависящих от импорта: %1; критично — %2.
+katechon_trade_hardest;Труднее всего заменить: %1 (%2).
+katechon_trade_col_good;Товар
+katechon_trade_col_imported;Импорт
+katechon_trade_col_source;Главный поставщик
+katechon_trade_col_risk;Риск
+katechon_trade_dep_long_tip;Поставщиков: %1; своё производство покрывает %2 потребления
+katechon_trade_more;и ещё %1
+katechon_trade_structure;Структура товаров
+katechon_trade_structure_aside;стоимость в деньгах, выпуск и потребление в единицах
+katechon_trade_col_made;Выпуск
+katechon_trade_col_used;Потребл.
+katechon_trade_col_cover;Покрытие
+katechon_trade_col_partner;Гл. партнёр
+katechon_trade_buyer_tip;%1 покупает %2 нашего экспорта этого товара
+katechon_trade_source_tip;%1 продаёт нам %2 нашего импорта этого товара
+katechon_trade_home_only;товаров только на внутреннем рынке: %1
+katechon_trade_col_country;Страна
+katechon_trade_col_share;Доля
+katechon_trade_col_reliance;Зависим
+katechon_trade_sells_tip;Продаём им в основном: %1, покупаем: %2
+katechon_trade_cut_tip;Без них мы потеряем %1 товара «%2»
+katechon_trade_layer;Торговля
+katechon_dip_f_relations;наши с ними отношения
+katechon_deal_a_access;Проход для наших войск
+katechon_deal_a_alliance;Оборонительный союз
+katechon_deal_a_embargo;Снять их эмбарго
+katechon_deal_a_trade;Свободная торговля
+katechon_deal_agree;На такую сделку они пойдут
+katechon_deal_empty;Выберите, что дать и что попросить
+katechon_deal_g_access;Проход для их войск
+katechon_deal_g_embargo;Снять наше эмбарго
+katechon_deal_g_subsidies;Военные субсидии
+katechon_deal_more;Пока мало для них: дайте больше или просите меньше
+katechon_deal_no;отказ
+katechon_deal_nothing;положить на стол нечего
+katechon_deal_send;Предложить
+katechon_deal_veto;Откажут при любых условиях: %1
+katechon_deal_we_ask;МЫ ПРОСИМ
+katechon_deal_we_give;Мы даём
+katechon_deal_yes;согласие
+katechon_dip_and_more;и ещё %1
+katechon_dip_close_table;Закрыть переговоры
+katechon_dip_declare_for;Объявить войну за %1
+katechon_dip_declare_on;Объявить войну: %1
+katechon_dip_exact;Отношения %1 по шкале от -200 до +200
+katechon_dip_falling;Ухудшаются
+katechon_dip_fears;Боятся
+katechon_dip_foes;Враги
+katechon_dip_friends;Друзья
+katechon_dip_hostile_to_us;Враждебны нам
+katechon_dip_j_access;Проход войск
+katechon_dip_j_ally;Союз
+katechon_dip_j_deal;Сделка
+katechon_dip_j_no;отказали
+katechon_dip_j_trade;Свободная торговля
+katechon_dip_j_wait;ждём ответа
+katechon_dip_j_yes;согласились
+katechon_dip_journal;Наши предложения
+katechon_dip_o_allies;Наши союзники: %1.
+katechon_dip_o_alone;Мы не состоим ни в одном союзе.
+katechon_dip_o_hostile;Враждебны нам: %1.
+katechon_dip_o_infamy;Наша репутация на исходе.
+katechon_dip_o_prospects;%1 пошли бы к нам в союз, если попросить.
+katechon_dip_o_wars;Мы воюем: %1.
+katechon_dip_open_table;Переговоры
+katechon_dip_r_cannot;сейчас невозможно
+katechon_dip_r_diplomat;нужен дипломат
+katechon_dip_r_no;откажут
+katechon_dip_r_plus;+%1
+katechon_dip_r_yes;согласятся
+katechon_dip_rising;Улучшаются
+katechon_dip_s_ally;%1: наш союзник.
+katechon_dip_s_alone;Ни в каком союзе не состоит.
+katechon_dip_s_claims_both;Каждый из нас держит землю, которую другой считает своей.
+katechon_dip_s_claims_ours;Они держат землю, которую мы считаем своей.
+katechon_dip_s_claims_theirs;Мы держим землю, которую они считают своей.
+katechon_dip_s_leans;Опора: %1.
+katechon_dip_s_never_ally;Союз с нами для них исключён.
+katechon_dip_s_sphere;В орбите влияния: %1.
+katechon_dip_s_subject;Сюзерен: %1.
+katechon_dip_s_t0;%1: враждебна нам.
+katechon_dip_s_t1;%1: держит нас на холодной дистанции.
+katechon_dip_s_t2;%1: отношения ровные, без тепла.
+katechon_dip_s_t3;%1: расположена к нам.
+katechon_dip_s_t4;%1: считает нас одними из ближайших друзей.
+katechon_dip_s_truce;Перемирие связывает нас до %1.
+katechon_dip_s_war;Идёт война: мы и %1.
+katechon_dip_s_wont_ally;В союз с нами не пойдёт: мешает %1.
+katechon_dip_s_would_ally;Пошла бы с нами в союз — прежде всего ради того, что даёт %1.
+katechon_dip_scope_dispatch;ДЕПЕША
+katechon_dip_steady;Без перемен
+katechon_dip_t0;Враждебно
+katechon_dip_t1;Недружественно
+katechon_dip_t2;Нейтрально
+katechon_dip_t3;Дружественно
+katechon_dip_t4;Тесная дружба
+katechon_dip_table;СТОЛ ПЕРЕГОВОРОВ
+katechon_dip_us;мы
+katechon_dip_vs;и
+katechon_dip_wants;Хотят
+katechon_dip_what_now;ЧТО МОЖНО СДЕЛАТЬ
+katechon_dip_with;— %1
+katechon_rad_access;Проход
+katechon_rad_ally;Союз
+katechon_rad_break;Разрыв
+katechon_rad_deal;Переговоры
+katechon_rad_dossier;Страна
+katechon_rad_improve;Миссия
+katechon_rad_overview;Наша дипломатия
+katechon_rad_peace;Мир
+katechon_rad_war;Война
+katechon_req_accept;ПРИНЯТЬ
+katechon_req_access;Просят проход
+katechon_req_access_body;%1 просит пропустить войска через нашу землю.
+katechon_req_alliance;Предлагают союз
+katechon_req_alliance_body;%1 предлагает нам союз.
+katechon_req_call;Зовут на войну
+katechon_req_call_body;%1 зовёт нас как союзника: %2.
+katechon_req_crisis;Кризис
+katechon_req_crisis_body;%1 просит нас вступить в кризис.
+katechon_req_decline;ОТКАЗАТЬ
+katechon_req_peace;Предлагают мир
+katechon_req_peace_body;%1 предлагает условия мира.
+katechon_req_trade;Предлагают свободную торговлю
+katechon_req_trade_body;%1 предлагает свободную торговлю между нами.
+katechon_req_transfer;Предлагают территорию
+katechon_req_transfer_body;%1 предлагает нам %2.
+katechon_dip_r_never;исключено
+katechon_deal_g_access_line;их армия может идти через нашу землю
+katechon_deal_g_subsidies_line;мы оплачиваем часть их войны
+katechon_deal_g_embargo_line;наш рынок снова открыт для них
+katechon_deal_a_alliance_line;война против одного — война против обоих
+katechon_deal_a_access_line;наша армия может идти через их землю
+katechon_deal_a_trade_line;без пошлин в обе стороны
+katechon_deal_a_embargo_line;их рынок снова открыт для нас
+katechon_deal_take_back;Убрать со стола
+katechon_deal_put;Положить на стол
+katechon_deal_seal_empty;Ваш ход
+katechon_deal_seal_empty_line;положите что-нибудь на стол
+katechon_deal_seal_never;Никогда
+katechon_deal_seal_yes;Согласны
+katechon_deal_seal_yes_line;такое они подпишут
+katechon_deal_seal_no;Пока нет
+katechon_deal_seal_no_line;дайте больше или просите меньше
+katechon_deal_title;Предложение договора
+katechon_deal_diplomats;дипломатов в запасе: %1
+katechon_deal_relations;отношения: %1
+katechon_deal_they_give;%1 даёт
+katechon_deal_hint;Положите на стол, что даём мы и что просим
+katechon_deal_short;Нужно дипломатов: %1, а у нас меньше
+katechon_deal_cost;Сделку везёт один посланник: %1 дипломат.
+katechon_dip_n_diplomats;дипломаты: %1
+katechon_dip_relations_with_us;Отношения с нами
+katechon_dip_their_interests;Интересы
+katechon_dip_actions;Дипломатические действия
+katechon_dip_chip_wants;Хотят: %1
+katechon_dip_chip_leans;Опора: %1
+katechon_deal_envoy;посланник выезжает: %1
+katechon_deal_they_give_short;Они дают
+katechon_deal_our_side;Наша сторона
+katechon_deal_their_side;Их сторона
+katechon_deal_acceptance;Согласие
+katechon_deal_refuse_any;при любых условиях
+katechon_deal_will;примут
+katechon_deal_wont;откажут
+katechon_deal_choose;выберите пункты
+katechon_deal_cost_of;Стоит %1 из наших %2 дипломатов
+katechon_deal_nothing_yet;ничего не предложено
+katechon_deal_cancel;Отмена
+katechon_deal_would_refuse;Они откажут: дипломат уйдёт впустую
+katechon_dip_f_nothing;им это ничего не даёт
+katechon_dip_cares_for;Им важно: %1
+katechon_dip_nobody;никого
+katechon_deal_needed;Нужно для согласия
+katechon_dip_improve_note;+%1 к отношениям
+katechon_toast_yes;%1 согласилась: %2
+katechon_toast_no;%1 отказала: %2
+katechon_dip_a_yes;Согласятся
+katechon_dip_a_no;Откажут
+katechon_dip_a_never;Исключено
+katechon_dip_a_diplomat;Нет свободного дипломата
+katechon_dip_compose;Составить сделку…
+katechon_dip_deal;Сделка
+katechon_dip_deal_hide;закрыть
+katechon_dip_why;почему?
+katechon_dip_why_hide;скрыть причины
+katechon_dip_st_war;воюем
+katechon_dip_st_ally;наш союзник
+katechon_dip_st_subject;вассал: %1
+katechon_dip_st_leans;опора: %1
+katechon_dip_h_war;Война между нами
+katechon_dip_h_ally;Стоят на нашей стороне.
+katechon_dip_h_would;Пошли бы с нами в союз: %1.
+katechon_dip_h_never;Союз невозможен: мы враги.
+katechon_dip_h_wont;В союз не пойдут: %1.
+katechon_dip_o_peace;Мы ни с кем не воюем.
+katechon_swe_line;Предложить взамен: %1
+katechon_swe_offer;Предложить
+katechon_swe_access;проход для их войск
+katechon_swe_subsidies;военные субсидии
+katechon_swe_embargo;снятие нашего эмбарго
+katechon_swe_hint;По нашей оценке, такой обмен склонит их к согласию
+katechon_ppl_a_density;Человек на квадратный километр суши. На карте: чем светлее, тем теснее.
+katechon_ppl_a_literacy;Умеющие читать и писать. Грамотность открывает квалифицированную работу и наполняет школы следующего поколения.
+katechon_ppl_a_migration;Чистый приток за месяц на каждую тысячу жителей. На карте: синие регионы принимают людей, красные теряют.
+katechon_ppl_a_needs;Какую часть необходимого для жизни люди получают. Ниже половины люди голодают, и население убывает.
+katechon_ppl_a_work;Работники по найму, из всех работников. Остальные трудятся на своей земле и в своих мастерских или не имеют работы.
+katechon_ppl_abroad_with;За границей: куда уезжают и откуда приезжают
+katechon_ppl_accepted;Из культур государства или признанных
+katechon_ppl_across;Через границу
+katechon_ppl_asof;на %1
+katechon_ppl_basic;Базовые
+katechon_ppl_between_regions;Из других регионов
+katechon_ppl_c_abroad;%1 через границу, оценка на месяц
+katechon_ppl_c_basic;базовых потребностей покрыто
+katechon_ppl_c_demography;Демография
+katechon_ppl_c_density;человек на квадратный километр
+katechon_ppl_c_labour;Труд
+katechon_ppl_c_living;Уровень жизни
+katechon_ppl_c_migration;Миграция
+katechon_ppl_c_more;повседневные %1  ·  роскошь %2
+katechon_ppl_c_moves;%1 из других регионов, %2 из-за границы
+katechon_ppl_c_net;чистый приток на тысячу за месяц
+katechon_ppl_c_none_yet;в этом месяце не зафиксировано
+katechon_ppl_c_own;%1 трудятся на своей земле и в мастерских
+katechon_ppl_c_own_none;Труд домохозяйств здесь не учитывается
+katechon_ppl_c_still;Без движения
+katechon_ppl_c_wage;работников трудятся по найму
+katechon_ppl_close;Закрыть
+katechon_ppl_consciousness;Политическая сознательность
+katechon_ppl_consciousness_about;Насколько люди думают о политике и хотят в ней участвовать.
+katechon_ppl_country_value;по стране %1
+katechon_ppl_d_abroad;Из-за границы
+katechon_ppl_d_abroad_estimate;Из-за границы (оценка)
+katechon_ppl_d_army;Потери в армии
+katechon_ppl_d_crowding;Теснота жилья
+katechon_ppl_d_hunger;Голод
+katechon_ppl_d_internal;Из других регионов
+katechon_ppl_d_main;Сильнее всего влияет: %1, %2 за месяц.
+katechon_ppl_d_natural;Рождения сверх смертей
+katechon_ppl_d_net;Итоговое изменение
+katechon_ppl_d_transition;Меньшие семьи
+katechon_ppl_days_ago;30 дней назад
+katechon_ppl_development;Человеческое развитие
+katechon_ppl_development_about;Жильё, грамотность и доступ к образованию вместе.
+katechon_ppl_drivers;Почему меняется, за месяц
+katechon_ppl_e_arriving;приезжают, +5‰
+katechon_ppl_e_crowded;тесно, 1 000+
+katechon_ppl_e_empty;0,1 /км², пусто
+katechon_ppl_e_half;50% и выше
+katechon_ppl_e_hungry;0%, голод
+katechon_ppl_e_leaving;-5‰, уезжают
+katechon_ppl_estimate;оценка на этот месяц
+katechon_ppl_everyday;Повседневные
+katechon_ppl_everyone;Все
+katechon_ppl_figures;На карте
+katechon_ppl_highest;Выше всего
+katechon_ppl_housing;Доступность жилья в городах
+katechon_ppl_housing_about;Там, где в городах есть рынок жилья, — какая часть искомого жилья находится. Нехватка жилья создаёт тесноту и стоит рождений.
+katechon_ppl_hunger_note;Покрыто меньше половины базовых потребностей: люди голодают, и голод уносит жизни.
+katechon_ppl_identity;Кто они
+katechon_ppl_inspect_hint;Население этого региона, на карте
+katechon_ppl_job_access;Предложенный труд, нашедший работодателя
+katechon_ppl_l_other;Армия, подневольные, между работами
+katechon_ppl_l_other_about;Все прочие трудоспособные: на службе, в неволе или в поиске работы.
+katechon_ppl_l_own;Своя земля и мастерские
+katechon_ppl_l_own_about;Домохозяйства, которые без оплаты обрабатывают свою землю и ремёсла и живут тем, что производят.
+katechon_ppl_l_wage;По найму
+katechon_ppl_l_wage_about;Работники, нанятые фирмами и государством по договору.
+katechon_ppl_labour;Чем люди зарабатывают на жизнь
+katechon_ppl_land;около %1 км² суши
+katechon_ppl_last_days;последние 30 дней
+katechon_ppl_literacy;Грамотность
+katechon_ppl_living;Социальная структура и уровень жизни
+katechon_ppl_lowest;Ниже всего
+katechon_ppl_luxury;Роскошь
+katechon_ppl_m_density;Плотность
+katechon_ppl_m_literacy;Грамотность
+katechon_ppl_m_migration;Миграция
+katechon_ppl_m_needs;Базовые нужды покрыты
+katechon_ppl_m_work;Работа по найму
+katechon_ppl_militancy;Воинственность
+katechon_ppl_militancy_about;Насколько люди готовы взяться за оружие против государства. С пяти и выше волнения близко.
+katechon_ppl_mind;Развитие и настроения
+katechon_ppl_movement;Миграция за месяц
+katechon_ppl_needs_by_class;Покрытие потребностей по слоям
+katechon_ppl_net;чистый итог
+katechon_ppl_no_data;Нет данных
+katechon_ppl_no_record;Симуляция здесь этого не учитывает.
+katechon_ppl_nobody;Здесь никто не живёт, показывать нечего.
+katechon_ppl_of_country;%1 от страны
+katechon_ppl_open_overview;Обзор населения
+katechon_ppl_over_days;%1 за период
+katechon_ppl_overview;Обзор населения
+katechon_ppl_people_word;человек
+katechon_ppl_per_km2;%1 /км²
+katechon_ppl_point_hint;Наведите на регион, чтобы прочесть его; нажмите, чтобы изучить
+katechon_ppl_r_density;Чем светлее регион, тем больше людей живёт на каждом его квадратном километре.
+katechon_ppl_r_literacy;Чем светлее регион, тем больше в нём грамотных.
+katechon_ppl_r_migration;Синие регионы принимают людей, красные теряют; серые — ни то ни другое или в этом месяце ещё никто не переезжал.
+katechon_ppl_r_needs;Красные регионы испытывают нехватку еды и жилья; зелёные имеют необходимое.
+katechon_ppl_r_work;Чем синее регион, тем больше его работников трудятся по найму. Серые регионы живут своей землёй.
+katechon_ppl_rank;%1 из %2 регионов
+katechon_ppl_regions;Регионы: %1
+katechon_ppl_regions_count;%1 регионов, по убыванию
+katechon_ppl_relocating;Переезжают между регионами
+katechon_ppl_relocating_note;на общую численность не влияет
+katechon_ppl_schooling;Доступ к образованию
+katechon_ppl_schooling_about;Какую часть желаемого образования люди могут получить, платно или бесплатно.
+katechon_ppl_scope_foreign;Население  ·  другая страна
+katechon_ppl_scope_own;Население  ·  ваша страна
+katechon_ppl_scope_region;Население  ·  регион
+katechon_ppl_show_map;Показать на карте
+katechon_ppl_source;Все цифры взяты из работающей симуляции. Прочерк означает, что она этого не учитывает.
+katechon_ppl_t_growth;Прирост за месяц
+katechon_ppl_t_hint;Изучить этот регион
+katechon_ppl_t_literacy;Грамотность
+katechon_ppl_t_more;и ещё %1 регионов поменьше
+katechon_ppl_t_moved;Миграция ‰
+katechon_ppl_t_needs;Базовые нужды
+katechon_ppl_t_people;Население
+katechon_ppl_t_region;Регион
+katechon_ppl_t_share;Доля
+katechon_ppl_today;сегодня
+katechon_ppl_towns;Живут в городах
+katechon_ppl_towns_about;Доля людей, живущих в городах.
+katechon_ppl_trades;Профессии
+katechon_ppl_trend;Население за последние 30 дней
+katechon_ppl_trend_filling;Запись наполняется по мере хода дней.
+katechon_ppl_trend_own_only;Игра ведёт эту запись только для вашей страны.
+katechon_ppl_your_country;Ваша страна
+katechon_dip_f_third;наши связи с их соперниками и друзьями
+katechon_dip_l_very_likely;Весьма вероятно
+katechon_dip_l_likely;Вероятно
+katechon_dip_l_uncertain;Неясно
+katechon_dip_l_unlikely;Маловероятно
+katechon_dip_l_very_unlikely;Почти исключено
+katechon_dip_l_never;Исключено
+katechon_dip_r_veto;Исключено: %1
+katechon_dip_r_for;За: %1
+katechon_dip_r_both;За: %1  ·  Против: %2
+katechon_dip_r_against;Против: %1
+katechon_dip_q_diplomats;Нужно дипломатов: %1; у нас %2
+katechon_dip_q_war;Невозможно, пока мы с ними воюем
+katechon_dip_q_max;Отношения и так наилучшие
+katechon_dip_q_min;Хуже отношения уже не станут
+katechon_dip_q_crisis;Великие державы не заключают союзов во время кризиса
+katechon_dip_q_our_overlord;Мы подчинены: %1
+katechon_dip_q_their_overlord;Они подчинены: %1
+katechon_dip_q_our_sphere;Мы в сфере влияния: %1
+katechon_dip_q_their_sphere;Они в сфере влияния: %1
+katechon_dip_q_embargo;Между нами эмбарго: сначала его нужно снять
+katechon_dip_q_subjects;Подчинённые страны не вводят эмбарго и не подвергаются ему
+katechon_dip_q_own_sphere;Они в нашей собственной сфере влияния
+katechon_dip_q_free_trade;Свободная торговля связывает нас до %1
+katechon_dip_q_justifying;Мы уже готовим повод против: %1
+katechon_dip_q_truce;Перемирие действует до %1
+katechon_dip_q_no_grounds;Ни наши законы, ни притязания не дают повода против них
+katechon_dip_q_prepare;Повода нет: сначала подготовьте его (Принуждение)
+katechon_dip_q_now;Сейчас невозможно
+katechon_dip_justify_for;Подготовить повод: %1
+katechon_dip_justify_on;Подготовить повод: %1
+katechon_dip_e_white_peace;Каждый сохраняет то, что держит; затем перемирие
+katechon_dip_mission;Дипломатическая миссия
+katechon_dip_e_mission;Дипломатов: %1  ·  +%2 к отношениям  ·  наши посланники доложат об их правительстве
+katechon_dip_denounce;Осудить их правительство
+katechon_dip_e_denounce;Дипломатов: %1  ·  %2 к отношениям
+katechon_dip_e_break;Обе стороны запомнят это как нарушенное слово
+katechon_dip_e_ally;Каждый приходит на помощь другому, если тот подвергся нападению
+katechon_dip_e_end_access;Наши войска покидают их землю
+katechon_dip_e_access;Наши войска смогут проходить через их землю
+katechon_dip_e_trade;Без пошлин в обе стороны на %1 лет
+katechon_dip_ask_lift;Просить снять их эмбарго
+katechon_dip_e_ask_lift;Их рынок снова откроется для наших товаров
+katechon_dip_e_end_subsidies;Наши выплаты на их войну прекращаются
+katechon_dip_e_subsidise;Мы оплачиваем часть их войны; наше влияние растёт
+katechon_dip_e_revoke;Их войска должны покинуть нашу землю
+katechon_dip_e_give_access;Услуга, которую они зачтут нам
+katechon_dip_e_lift;Наш рынок снова откроется для них
+katechon_dip_e_press;Мир на наших целях войны
+katechon_dip_e_concede;Мир на их целях войны
+katechon_dip_e_embargo;Торговля между нами прекращается
+katechon_dip_cancel_justify;Прекратить подготовку повода
+katechon_dip_e_cancel_justify;Подготовленное будет потеряно
+katechon_dip_e_justify;Дипломатов: %1  ·  дурная слава +%2 по готовности  ·  может раскрыться
+katechon_dip_e_declare;Повод: %1
+katechon_dip_c_allies;Союзники
+katechon_dip_c_allies_why;Война против одного — война против обоих
+katechon_dip_c_enemy;Общий враг: %1
+katechon_dip_c_ally;Общий союзник: %1
+katechon_dip_c_ally_why;Друзья наших друзей склоняют их в нашу пользу
+katechon_dip_c_rival;Общий соперник: %1
+katechon_dip_c_rival_why;Так их понимают наши посланники и разведка
+katechon_dip_c_trade;Торговля: %1 их оборота
+katechon_dip_c_trade_why;Доля торговли с нами в их внешней торговле за последний месяц
+katechon_dip_c_free_trade;Свободная торговля
+katechon_dip_c_free_trade_why;Между нами нет пошлин
+katechon_dip_x_their_claim;Они претендуют на нашу землю
+katechon_dip_x_claim_why;Земля одной стороны — исконная земля другой
+katechon_dip_x_our_claim;Мы претендуем на их землю
+katechon_dip_x_war_ally;Воюют с нашим союзником: %1
+katechon_dip_x_ally_enemy;В союзе с нашим врагом: %1
+katechon_dip_x_their_embargo;Их эмбарго против нас
+katechon_dip_x_our_embargo;Наше эмбарго против них
+katechon_dip_x_justifying;Мы готовим повод против них
+katechon_dip_x_justifying_why;Если они узнают, отношения пострадают
+katechon_dip_x_rival;Они считают нас соперником
+katechon_dip_p_unclear;Их цели нам неясны
+katechon_dip_p_unclear_why;Дипломатическая миссия или разведка расскажут больше
+katechon_dip_p_why;Что для них важнее всего, как мы это понимаем
+katechon_dip_p_now;Сейчас добиваются: %1
+katechon_dip_h_alliance;Заключён союз
+katechon_dip_h_alliance_end;Союз расторгнут: слово нарушено
+katechon_dip_h_we_guarantee;Мы взяли их под защиту
+katechon_dip_h_they_guarantee;Они взяли нас под защиту
+katechon_dip_h_guarantee_end;Защита прекращена
+katechon_dip_h_we_backed;Мы поддержали их в кризисе
+katechon_dip_h_they_backed;Они поддержали нас в кризисе
+katechon_dip_h_record;Наше слово по их счёту: сдержано %1, нарушено %2
+katechon_dip_h_proposal;Наше предложение: %1 — %2
+katechon_dip_k_good;Хорошая
+katechon_dip_k_fair;Средняя
+katechon_dip_k_poor;Слабая
+katechon_dip_k_none;Почти никакой
+katechon_dip_k_title;Насколько надёжны наши оценки их намерений
+katechon_dip_k_allied;Союзники: мы знаем их советы
+katechon_dip_k_border;Общая граница
+katechon_dip_k_contact;Постоянный контакт: война, соперничество или внимание великой державы
+katechon_dip_k_no_contact;Постоянного контакта нет
+katechon_dip_k_intel;Донесение разведки: %1 дн. назад
+katechon_dip_k_no_intel;Донесений разведки о них нет
+katechon_dip_k_envoys;Наши посланники докладывали %1 дн. назад
+katechon_dip_k_no_envoys;Докладов посланников нет: дипломатическая миссия принесёт его
+katechon_dip_k_open;Хорошие отношения: их правительство говорит с нами открыто
+katechon_dip_relations_why;Миссии улучшают их; оскорбления, притязания и войны — портят
+katechon_dip_tr_high;Высокое
+katechon_dip_tr_moderate;Среднее
+katechon_dip_tr_low;Низкое
+katechon_dip_tr_broken;Подорвано
+katechon_dip_tr_rising;Растёт
+katechon_dip_tr_falling;Падает
+katechon_dip_tr_title;Насколько они верят, что мы сдержим слово
+katechon_dip_tr_record;Обещаний им сдержано: %1, нарушено: %2
+katechon_dip_tr_how;Верность союзам и поддержка укрепляют доверие; брошенные союзники подрывают
+katechon_dip_in_none;Ничтожное
+katechon_dip_in_low;Слабое
+katechon_dip_in_moderate;Умеренное
+katechon_dip_in_high;Сильное
+katechon_dip_in_dominant;Решающее
+katechon_dip_in_rising;Растёт
+katechon_dip_in_falling;Слабеет
+katechon_dip_in_title;Наши рычаги в их решениях
+katechon_dip_in_trade;Торговля: %1 их внешней торговли приходится на нас
+katechon_dip_in_stronger;Сила: они считают нас сильнее (наша оценка)
+katechon_dip_in_weaker;Сила: они считают нас слабее (наша оценка)
+katechon_dip_in_even;Сила: они считают нас равными (наша оценка)
+katechon_dip_in_subsidies;Мы субсидируем их войну
+katechon_dip_in_free_trade;Свободная торговля связывает наши рынки
+katechon_dip_in_subject;Они подчинены нам
+katechon_dip_in_sphere;Они в нашей сфере влияния
+katechon_dip_s_foes;В разладе с: %1.
+katechon_dip_j_lift;Снять их эмбарго
+katechon_dip_review_hint;Нажмите, чтобы рассмотреть условия до отправки
+katechon_dip_review;Рассмотреть
+katechon_dip_do;Выполнить
+katechon_dip_no_record;данных пока нет
+katechon_dip_tab_now;Главное
+katechon_dip_tab_relations;Отношения
+katechon_dip_tab_agreements;Соглашения
+katechon_dip_tab_influence;Влияние
+katechon_dip_tab_coercion;Принуждение
+katechon_dip_w_strong;сильно
+katechon_dip_w_moderate;умеренно
+katechon_dip_w_slight;слабо
+katechon_dip_w_veto;исключает
+katechon_dip_w_lever;они теряют рычаг давления
+katechon_dip_send;Отправить
+katechon_dip_b_ally;Каждый приходит на помощь другому, если тот подвергся нападению
+katechon_dip_b_their_war;%1 воюет (%2): нас могут призвать
+katechon_dip_b_our_war;Мы воюем (%1): мы сможем призвать %2
+katechon_dip_b_their_allies;Их прочие союзы нас не связывают: %1
+katechon_dip_t_ally;Пока одна из сторон его не расторгнет
+katechon_dip_x_ally;Дипломатов: %1; запомнится как нарушенное слово
+katechon_dip_b_access;Наши войска смогут проходить через их землю и воевать с неё
+katechon_dip_t_access;Пока одна из сторон его не отзовёт
+katechon_dip_x_access;Они могут отозвать его в любой момент
+katechon_dip_b_trade;Никаких пошлин в обе стороны
+katechon_dip_b_trade_embargo;Пока соглашение действует, эмбарго ввести нельзя
+katechon_dip_t_trade;%1 лет, до %2
+katechon_dip_x_trade;Досрочно не прекращается; истекает в срок
+katechon_dip_t_lift;Пока они не введут его снова
+katechon_dip_b_break;Обе стороны записывают нарушенное слово: их доверие к нам падает
+katechon_dip_b_break_war;%1 воюет: мы оставляем их одних
+katechon_dip_b_break_trust;Их доверие к нам сейчас: %1
+katechon_dip_b_embargo;Наш рынок закрывается для их товаров
+katechon_dip_b_embargo_trade;Пока оно действует, свободная торговля невозможна
+katechon_dip_x_embargo;Снять его потом стоит дипломатов: %1
+katechon_dip_b_grounds;Повод: %1
+katechon_dip_b_their_side;На их сторону могут встать союзники: %1
+katechon_dip_b_our_side;Мы сможем призвать союзников: %1
+katechon_dip_cost;Дипломатов: %1 (у нас %2)
+katechon_dip_reading;Наша оценка их ответа
+katechon_dip_confidence;Надёжность: %1
+katechon_dip_for_it;Что говорит за
+katechon_dip_against_it;Что говорит против
+katechon_dip_inferred;≈ наша реконструкция того, что они не показывают
+katechon_dip_binds;Обязательства и последствия
+katechon_dip_term_cost;Цена
+katechon_dip_term_length;Срок
+katechon_dip_term_end;Расторжение
+katechon_dip_others;Кого ещё это касается
+katechon_dip_re_lose;%1 может отвернуться от союза с нами
+katechon_dip_re_gain;%1 может склониться к союзу с нами
+katechon_dip_re_cool;%1 станет хуже смотреть на союз с нами
+katechon_dip_re_warm;%1 станет лучше смотреть на союз с нами
+katechon_dip_re_war;воюет с: %1
+katechon_dip_re_ally;союзник: %1
+katechon_dip_re_rival;считает соперником: %1
+katechon_dip_sweeten;Предложить что-то взамен
+katechon_dip_cancel;Не сейчас
+katechon_dip_home;Наша дипломатия
+katechon_dip_fig_relations;Отношения
+katechon_dip_fig_trust;Доверие
+katechon_dip_fig_influence;Влияние
+katechon_dip_interests;Стратегические интересы
+katechon_dip_common;Общее
+katechon_dip_frictions;Разногласия
+katechon_dip_their_aims;Их приоритеты
+katechon_dip_none_here;Сейчас ничего такого с ними сделать нельзя
+katechon_dip_h_none;Между нами пока ничего не было
+katechon_dip_our_reading;Наша осведомлённость:
+katechon_dip_back;К действиям
+katechon_dip_history;История отношений
+katechon_dip_hv_toward;К %1: %2
+katechon_dip_hv_war;Воюет с: %1
+katechon_dip_hv_ally;В союзе с: %1
+katechon_dip_hv_under;Под защитой: %1
+katechon_dip_hv_over;Защищает: %1
+katechon_dip_hv_holds;Держит землю, на которую претендует %1
+katechon_dip_hv_claims;Претендует на землю: %1
+katechon_dip_hv_rival;Считает соперником: %1
+katechon_dip_hv_us;К нам: %1
+katechon_rad_reading;Наша оценка: %1
+katechon_dip_layer;Дипломатия
+katechon_dip_refused_rel;Отношения %1; дипломаты потрачены
+katechon_dip_refused_none;Отношения не изменятся; дипломаты потрачены
+katechon_dip_term_refused;При отказе

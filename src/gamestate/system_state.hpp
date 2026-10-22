@@ -61,7 +61,9 @@ struct exact_person_economy_store;
 struct causal_order_store;
 struct foreign_exchange_store;
 struct payroll_event_index_store;
+struct firm_agency_event_store;
 namespace physical {
+struct concrete_market_order_index_store;
 struct exact_person_goods_store;
 struct exact_person_freight_store;
 struct labor_dynamics_store;
@@ -780,6 +782,8 @@ struct alignas(64) state {
 	mutable std::shared_ptr<economy::causal_order_store> causal_order;
 	mutable std::shared_ptr<economy::foreign_exchange_store> foreign_exchange;
 	mutable std::shared_ptr<economy::payroll_event_index_store> payroll_event_index;
+	mutable std::shared_ptr<economy::firm_agency_event_store> firm_agency_events;
+	mutable std::shared_ptr<economy::physical::concrete_market_order_index_store> concrete_market_order_index;
 	mutable std::shared_ptr<economy::physical::exact_person_goods_store> exact_person_goods;
 	mutable std::shared_ptr<economy::physical::exact_person_freight_store> exact_person_freight;
 	// Sparse labor-separation history and events. This does not allocate one

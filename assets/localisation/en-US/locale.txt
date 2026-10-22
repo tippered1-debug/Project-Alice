@@ -3,8 +3,7 @@ script = Latn
 
 body_font = LibreCaslonText-Regular.ttf
 
-header_font = SourceSerif4Subhead-Regular.otf
-header_feature = smcp
+header_font = FiraSansCondensed-Regular.ttf
 
 map_font = SourceSerif4Subhead-Regular.otf
 map_feature = smcp
