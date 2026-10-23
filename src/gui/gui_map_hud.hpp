@@ -459,7 +459,7 @@ class map_hud_element : public katechon_canvas {
 			qa_radial = true;
 		// KATECHON_HUD_DIP_TAB=<0..5> opens the sheet's actions on a kind (5: the history).
 		if(auto const* tab = std::getenv("KATECHON_HUD_DIP_TAB"); tab && tab[0])
-			qa_dip_tab = std::clamp(std::atoi(tab), 0, 5);
+			qa_dip_tab = std::clamp(std::atoi(tab), 0, 7);
 		if(auto const* send = std::getenv("KATECHON_HUD_DEAL_SEND"); send && send[0] == '1')
 			qa_deal_send = true;
 		// KATECHON_HUD_TRADE=1 opens the trade mode, =2 its full analysis; the old dashboard's own preview keeps the old window.
@@ -1562,7 +1562,7 @@ class map_hud_element : public katechon_canvas {
 			deal_asks = 0;
 			break;
 		case action::dip_tab:
-			dip_tab = t.value;
+			dip_tab ^= t.value; // a section of the sheet opens or closes
 			break;
 		case action::dip_review:
 			open_review(state, deed(uint8_t(t.value)), t.formation);
@@ -3986,6 +3986,7 @@ public:
 			overview_scroll = std::clamp(overview_scroll - amount * 72.f, 0.f, std::max(0.f, overview_content_h - overview_view_h));
 			return message_result::consumed;
 		}
+		dip_wheel(float(x), float(y), amount); // the diplomacy sheet scrolls under the mouse
 		return message_result::consumed;
 	}
 

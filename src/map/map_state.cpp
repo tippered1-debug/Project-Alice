@@ -1107,8 +1107,10 @@ void build_katechon_trade_lanes(sys::state& state, display_data& map_data) {
 			if(found->second.size() < 4)
 				continue;
 			auto const tie = uint8_t(l.kind) >= uint8_t(katechon_trade::lane_kind::tie_alliance);
-			// a tie is a thin line; war and alliance a little heavier than the rest
-			auto const tie_width = l.kind == katechon_trade::lane_kind::tie_war ? 900.f : (l.kind == katechon_trade::lane_kind::tie_alliance ? 760.f : 600.f);
+			// a tie is a thin line; war, alliance and the one under review a little heavier; a tie stepped back thinner
+			auto const dimmed = uint8_t(l.kind) > uint8_t(katechon_trade::lane_kind::tie_proposed);
+			auto const base = katechon_trade::lane_kind(dimmed ? uint8_t(l.kind) - katechon_trade::tie_dimmed : uint8_t(l.kind));
+			auto const tie_width = (base == katechon_trade::lane_kind::tie_war ? 900.f : (base == katechon_trade::lane_kind::tie_alliance || base == katechon_trade::lane_kind::tie_proposed ? 760.f : 600.f)) * (dimmed ? 0.55f : 1.f);
 			auto const width = tie ? tie_width : (foreign ? 500.f + 900.f * std::sqrt(foreign_top > 0.f ? l.value / foreign_top : 0.f)
 				: 1100.f + 4200.f * std::sqrt(top > 0.f ? l.value / top : 0.f));
 			auto const band = 2.f * float(uint8_t(l.kind));

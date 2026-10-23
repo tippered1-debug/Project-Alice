@@ -375,7 +375,7 @@ katechon_dip_embargo_short;ЭМБАРГО
 katechon_dip_end_subsidies_short;СТОП ПОМОЩЬ
 katechon_dip_subsidise_short;СУБСИДИИ
 katechon_dip_no_diplomats;Нет дипломатов: предложения ждут их
-katechon_dip_key_us;мы
+katechon_dip_key_us;Мы
 katechon_dip_key_cold;холодно
 katechon_dip_key_warm;тепло
 katechon_trade_period_since;первые %1 дн. игры
@@ -822,7 +822,7 @@ katechon_dip_justify_for;Подготовить повод: %1
 katechon_dip_justify_on;Подготовить повод: %1
 katechon_dip_e_white_peace;Каждый сохраняет то, что держит; затем перемирие
 katechon_dip_mission;Дипломатическая миссия
-katechon_dip_e_mission;Дипломатов: %1  ·  +%2 к отношениям  ·  наши посланники доложат об их правительстве
+katechon_dip_e_mission;Дипломатов: %1  ·  +%2 к отношениям  ·  доклад посланников
 katechon_dip_denounce;Осудить их правительство
 katechon_dip_e_denounce;Дипломатов: %1  ·  %2 к отношениям
 katechon_dip_e_break;Обе стороны запомнят это как нарушенное слово
@@ -940,7 +940,7 @@ katechon_dip_b_their_war;%1 воюет (%2): нас могут призвать
 katechon_dip_b_our_war;Мы воюем (%1): мы сможем призвать %2
 katechon_dip_b_their_allies;Их прочие союзы нас не связывают: %1
 katechon_dip_t_ally;Пока одна из сторон его не расторгнет
-katechon_dip_x_ally;Дипломатов: %1; запомнится как нарушенное слово
+katechon_dip_x_ally;Дипломатов: %1; нарушенное слово
 katechon_dip_b_access;Наши войска смогут проходить через их землю и воевать с неё
 katechon_dip_t_access;Пока одна из сторон его не отзовёт
 katechon_dip_x_access;Они могут отозвать его в любой момент
@@ -1005,3 +1005,98 @@ katechon_dip_layer;Дипломатия
 katechon_dip_refused_rel;Отношения %1; дипломаты потрачены
 katechon_dip_refused_none;Отношения не изменятся; дипломаты потрачены
 katechon_dip_term_refused;При отказе
+katechon_dip_q_ready;хватит к %1
+katechon_dip_fs_war;Война
+katechon_dip_fs_ally;Союзник
+katechon_dip_fs_subject;Под нашей защитой
+katechon_dip_fs_overlord;Наш покровитель
+katechon_dip_fs_truce;Перемирие
+katechon_dip_fs_none;Договоров нет
+katechon_dip_kn_well;хорошо
+katechon_dip_kn_partly;отчасти
+katechon_dip_kn_poorly;плохо
+katechon_dip_kn_hardly;почти не знаем
+katechon_dip_kn_s_ally;как союзники
+katechon_dip_kn_s_envoys;посланники докладывали %1 дн. назад
+katechon_dip_kn_s_border;через общую границу
+katechon_dip_kn_s_intel;агенты докладывали %1 дн. назад
+katechon_dip_kn_s_none;дипломатическая миссия расскажет больше
+katechon_dip_kn_line;Их намерения знаем %1: %2
+katechon_dip_aims_unclear;Их цели нам неясны.
+katechon_dip_aims;Для них важнее всего: %1
+katechon_dip_ag_alliance;Союз
+katechon_dip_ag_end;Расторгнуть
+katechon_dip_ag_protect;Они под нашей защитой
+katechon_dip_ag_our_access;Наши войска могут проходить через их землю
+katechon_dip_ag_give_up;Отказаться
+katechon_dip_ag_their_access;Их войска могут проходить через нашу землю
+katechon_dip_ag_withdraw;Отозвать
+katechon_dip_ag_free_trade;Свободная торговля до %1
+katechon_dip_ag_subsidies;Мы субсидируем их войну
+katechon_dip_ag_stop;Прекратить
+katechon_dip_ag_our_embargo;Наше эмбарго против них
+katechon_dip_ag_lift;Снять
+katechon_dip_ag_their_embargo;Их эмбарго против нас
+katechon_dip_ag_ask_lift;Просить снять
+katechon_dip_ag_truce;Перемирие до %1
+katechon_dip_ag_justifying;Мы готовим повод против них: готово %1
+katechon_dip_relations_use;Учитываются в любом их ответе; при -100 и ниже союз исключён
+katechon_dip_tr_untested;Не проверено
+katechon_dip_tr_none;обещания между нами ещё не проверялись
+katechon_dip_tr_short;обещаний сдержано %1, нарушено %2
+katechon_dip_tr_use;Учитывается в их ответе на союз
+katechon_dip_ov_full;больше держать нельзя
+katechon_dip_ov_next;следующий дипломат %1 (+%2 в месяц)
+katechon_dip_nw_war;Война  ·  %1
+katechon_dip_nw_ally;Союзник  ·  отношения: %1
+katechon_dip_nw_ally_war;Союзник  ·  отношения: %1  ·  воюет
+katechon_dip_nw_subject;Под нашей защитой
+katechon_dip_nw_overlord;Наш покровитель
+katechon_dip_nw_hostile;Враждебны  ·  %1
+katechon_dip_at_capacity;Дипломатический ресурс исчерпан
+katechon_dip_at_capacity_note;Для новых переговоров дипломатов нет до %1
+katechon_dip_at_capacity_none;Дипломаты к нам сейчас не прибывают
+katechon_dip_at_requests;Ждут нашего ответа: %1
+katechon_dip_at_requests_note;Карточки справа на экране
+katechon_dip_at_ally_war;Наш союзник воюет: %1
+katechon_dip_at_justifying;Готовим повод против: %1
+katechon_dip_at_justifying_note;Готово %1; если узнают, отношения пострадают
+katechon_dip_at_infamy_note;Дурная слава %1 из %2
+katechon_dip_at_trade_ends;Свободная торговля с %1 истекает %2
+katechon_dip_at_trade_ends_note;Её можно предложить снова
+katechon_dip_foreign_affairs;Внешняя политика
+katechon_dip_ov_diplomats;Дипломаты
+katechon_dip_ov_allies;Союзники
+katechon_dip_ov_peace;Мир
+katechon_dip_ov_wars;Войн: %1
+katechon_dip_ov_war_status;Война и мир
+katechon_dip_ov_network;Наша дипломатическая сеть
+katechon_dip_ov_alone;Мы ни с кем не в союзе и никого не защищаем.
+katechon_dip_ov_fewer;Свернуть
+katechon_dip_ov_all_ties;Все связи (%1)
+katechon_dip_ov_attention;Требует внимания
+katechon_dip_ov_quiet;Сейчас ничто не требует нашего внимания.
+katechon_dip_ov_partners;Возможные партнёры
+katechon_dip_ov_no_partners;По нашей оценке, сейчас никто не пошёл бы с нами в союз.
+katechon_dip_ov_proposals;Наши предложения
+katechon_dip_bilateral;Двусторонние отношения
+katechon_dip_why_cooperate;Почему они сотрудничают
+katechon_dip_what_divides;Что нас разделяет
+katechon_dip_opportunities;Дипломатические возможности
+katechon_dip_none_now;Предложить им сейчас нечего.
+katechon_dip_fewer_actions;Свернуть действия
+katechon_dip_all_actions;Все дипломатические действия (%1)
+katechon_dip_agreements;Действующие соглашения
+katechon_dip_history_n;История отношений (%1)
+katechon_dip_have_diplomats;У нас дипломатов: %1
+katechon_dip_key_alliance;Союз
+katechon_dip_key_war;Война
+katechon_dip_key_protection;Защита
+katechon_dip_key_hostile;Соперничество, притязания, вражда
+katechon_dip_key_cordial;Давняя дружба
+katechon_dip_key_proposed;На рассмотрении
+katechon_dip_partner_line;Союз: %1  ·  %2
+katechon_dip_key_our_allies;Наши союзники
+katechon_dip_key_its_allies;Её союзники
+katechon_dip_key_our_enemies;Наши враги
+katechon_dip_key_its_enemies;Воюют с ней

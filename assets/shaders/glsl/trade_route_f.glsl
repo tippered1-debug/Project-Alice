@@ -31,11 +31,25 @@ vec4 trade_lane(float across, float kind) {
 	return vec4(colour * (1.0 + bead * (own ? 0.45 : 0.1)) * alpha, alpha);
 }
 
-// The KATECHON diplomacy ties, kinds 4..8: a thin line from one capital to
+// The KATECHON diplomacy ties, kinds 4..9: a thin line from one capital to
 // another. 4 alliance (azure, solid), 5 war (red, with pulses), 6 protection
 // (pale steel, long dashes), 7 rivalry, claims or hostility (rust, short
-// dashes), 8 old friendship (jade, faint).
+// dashes), 8 old friendship (jade, faint), 9 the relation under review (gold,
+// dashed). Kinds 10..15 are the same ties stepped back: faint.
 vec4 tie_line(float across, float kind) {
+	float strength = 1.0;
+	if(kind > 9.5) {
+		kind -= 6.0;
+		strength = 0.26;
+	}
+	if(kind > 8.5) {
+		float edge9 = abs(across - 0.5) * 2.0;
+		float core9 = 1.0 - smoothstep(0.30, 0.62, edge9);
+		float glow9 = (1.0 - smoothstep(0.0, 1.0, edge9)) * 0.35;
+		float dash9 = 1.0 - smoothstep(0.55, 0.62, fract(o_dist * 0.6));
+		float alpha9 = clamp((glow9 + core9) * dash9, 0.0, 1.0);
+		return vec4(vec3(0.98, 0.80, 0.44) * alpha9, alpha9);
+	}
 	vec3 colour = kind < 4.5 ? vec3(0.50, 0.74, 0.96)
 		: (kind < 5.5 ? vec3(0.96, 0.38, 0.32)
 		: (kind < 6.5 ? vec3(0.74, 0.86, 0.94)
@@ -49,7 +63,7 @@ vec4 tie_line(float across, float kind) {
 	else if(kind > 6.5 && kind < 7.5)
 		dash = 1.0 - smoothstep(0.48, 0.56, fract(o_dist * 0.9));
 	float pulse = (kind > 4.5 && kind < 5.5) ? (1.0 - smoothstep(0.04, 0.18, abs(fract(o_dist * 0.3) - 0.5))) * (1.0 - smoothstep(0.5, 0.9, edge)) : 0.0;
-	float strength = kind > 7.5 ? 0.62 : 1.0;
+	strength *= kind > 7.5 ? 0.62 : 1.0;
 	float alpha = clamp((glow + core * 0.92) * dash + pulse * 0.7, 0.0, 1.0) * strength;
 	return vec4(colour * (1.0 + pulse * 0.5) * alpha, alpha);
 }

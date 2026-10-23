@@ -72,6 +72,15 @@ struct standing_figure {
 	std::string trend_word;
 	std::vector<std::string> detail;
 };
+// A line of the sheet: what it says, a note beside it, and what a press does.
+struct sheet_line {
+	std::string text;
+	std::string note;
+	int8_t tone = 0; // 1 good, -1 needs care, 0 neither
+	dcon::nation_id nation; // a press puts this country on the sheet
+	int32_t deed_index = -1; // a press does this deed of the sheet
+	ogl::color3f note_colour{ 0.70f, 0.74f, 0.78f };
+};
 // A tie drawn on the map from the country on the sheet.
 enum class tie_kind : uint8_t { war, alliance, subject, hostile, claim, rival, cordial };
 struct tie {
@@ -115,6 +124,19 @@ struct diplomacy_view {
 	std::string crisis_title;
 	std::vector<deed_entry> crisis_deeds;
 	std::vector<tie> ties;
+	// another country, said plainly
+	std::string formal; // the tie that binds us, or the stance when none does
+	ogl::color3f formal_colour{ 0.70f, 0.70f, 0.66f };
+	std::string trust_note; // what their trust is made of
+	std::string knowledge_line; // how well we know their intentions, and from what
+	std::string aims; // what they care for most, as far as we can tell
+	std::vector<size_t> opportunities; // the actions put forward, best first
+	std::vector<sheet_line> agreements; // what binds us now, each with how to end or change it
+	// one's own country
+	std::string diplomats_next; // when more diplomats come
+	std::vector<sheet_line> network;
+	std::vector<sheet_line> attention;
+	std::vector<sheet_line> partners;
 };
 // Something another state has put to us and waits for an answer.
 struct request_card {
@@ -162,7 +184,13 @@ diplomacy_view diplomacy;
 dcon::nation_id diplomacy_focus; // the country on the sheet; the player's own when unset
 dcon::province_id diplomacy_seen_province; // a new choice on the map changes the country on the sheet
 int32_t diplomacy_repaint_in = 0;
-int32_t dip_tab = 0; // 0 what matters now, 1..4 the four kinds of action, 5 the history
+int32_t dip_tab = 0; // the sections opened, by bit: 1 every action, 2 the history, 4 every tie of our network
+float dip_scroll = 0.f; // how far the sheet is scrolled
+float dip_content_h = 0.f; // how tall its content was when last drawn
+rect dip_area{}; // where the sheet is, for the wheel
+std::vector<dcon::nation_id> dip_highlight; // the countries the map puts forward: what the mouse rests on, or what is under review
+uint64_t dip_highlight_key = 0;
+uint64_t dip_hover_key = 0; // what the mouse rests on this frame
 std::string qa_diplomacy;
 // The review of a proposal: the deed, the ground of a war, what we ask and what we give with it.
 bool deal_open = false;
@@ -304,6 +332,25 @@ std::string diplomats_word(sys::state& state, float n) {
 static std::string whole(float n) {
 	return text::format_float(n, n == std::floor(n) ? 0 : 1);
 }
+// Diplomats come on the first of each month (nations::update_monthly_points). The day
+// the player will have this many, or no date when none come.
+sys::date diplomats_ready_on(sys::state& state, dcon::nation_id n, float needed, float* monthly = nullptr) {
+	auto const gain = (1.f + state.world.nation_get_modifier_values(n, sys::national_mod_offsets::diplomatic_points_modifier)) * state.defines.base_monthly_diplopoints;
+	if(monthly)
+		*monthly = gain;
+	auto const have = nations::diplomatic_points(state, n);
+	if(have >= needed)
+		return state.current_date;
+	if(gain <= 0.f || needed > 9.f)
+		return sys::date{};
+	auto const months = int32_t(std::ceil((needed - have) / gain - 0.0001f));
+	auto ymd = state.current_date.to_ymd(state.start_date);
+	auto month = int32_t(ymd.month) - 1 + months;
+	ymd.year += month / 12;
+	ymd.month = uint16_t(month % 12 + 1);
+	ymd.day = 1;
+	return sys::date(ymd, state.start_date);
+}
 
 // ---- the words of the model ----
 // A reason, as it appears among the reasons for an answer.
@@ -385,6 +432,25 @@ std::string reasons_line(sys::state& state, nations::strategic_statecraft::asses
 		return sentence(localized(state, "katechon_dip_r_both", "For: %1  ·  Against: %2"), pro, con);
 	return sentence(localized(state, "katechon_dip_r_against", "Against: %1"), con);
 }
+// Why a country might ally with us, as we read it: our reading and its two strongest reasons.
+std::string partner_line(sys::state& state, nations::strategic_statecraft::assessment const& a) {
+	std::array<std::pair<float, nations::strategic_statecraft::forecast_factor>, 2> best{};
+	for(auto const& p : a.parts) {
+		if(p.factor == nations::strategic_statecraft::forecast_factor::none || p.weight <= 0.01f)
+			continue;
+		if(p.weight > best[0].first) {
+			best[1] = best[0];
+			best[0] = { p.weight, p.factor };
+		} else if(p.weight > best[1].first) {
+			best[1] = { p.weight, p.factor };
+		}
+	}
+	std::string why = factor_word(state, best[0].second);
+	if(best[1].second != nations::strategic_statecraft::forecast_factor::none)
+		why += ", " + factor_word(state, best[1].second);
+	return sentence(localized(state, "katechon_dip_partner_line", "Alliance: %1  ·  %2"), verdict_word(state, a.verdict), why);
+}
+
 std::string objective_word(sys::state& state, nations::strategic_statecraft::objective_kind k) {
 	using ok = nations::strategic_statecraft::objective_kind;
 	switch(k) {
@@ -624,7 +690,11 @@ std::string requirement_for(sys::state& state, deed what, dcon::nation_id player
 	auto const their_overlord = overlord_of(state, target);
 	auto const our_overlord = overlord_of(state, player);
 	auto const need_diplomats = [&]() {
-		return sentence(localized(state, "katechon_dip_q_diplomats", "Diplomats needed: %1 (we have %2)"), whole(cost), whole(points));
+		auto const ready = diplomats_ready_on(state, player, cost);
+		auto text = sentence(localized(state, "katechon_dip_q_diplomats", "Requires %1 diplomats; we have %2"), whole(cost), whole(points));
+		if(ready)
+			text += "  ·  " + sentence(localized(state, "katechon_dip_q_ready", "enough on %1"), text::date_to_string(state, ready));
+		return text;
 	};
 	switch(what) {
 	case deed::improve:
@@ -811,7 +881,7 @@ void gather_deeds(sys::state& state, diplomacy_view& v, dcon::nation_id player, 
 	} else {
 		auto& mission = add(deed::improve, dip_kind::relations, "katechon_dip_mission", "Diplomatic mission", command::can_increase_relations(state, player, target) || (points < d.increaserelation_diplomatic_cost && relation < 200.f),
 			d.increaserelation_diplomatic_cost, 22.f);
-		mission.effect = sentence(localized(state, "katechon_dip_e_mission", "Diplomats: %1  ·  +%2 relations  ·  our envoys report on their government"), whole(d.increaserelation_diplomatic_cost),
+		mission.effect = sentence(localized(state, "katechon_dip_e_mission", "Diplomats: %1  ·  +%2 relations  ·  our envoys report back"), whole(d.increaserelation_diplomatic_cost),
 			whole(d.increaserelation_relation_on_accept));
 		// worth most where we stand badly with them, or know them least
 		if(relation < 50.f)
@@ -1143,6 +1213,127 @@ void gather_history(sys::state& state, diplomacy_view& v, dcon::nation_id player
 	std::stable_sort(v.history.begin(), v.history.end(), [](history_line const& a, history_line const& b) { return a.day > b.day; });
 }
 
+// The view of another country said in lines: the tie that binds us, how well we
+// know them, what they care for, the actions worth taking, and what binds us now.
+void gather_country_lines(sys::state& state, diplomacy_view& v, dcon::nation_id player, dcon::nation_id target, leverage const& lev) {
+	auto const them = v.title;
+	// the formal tie, so that an ally is never only "neutral"
+	if(military::are_at_war(state, player, target)) {
+		v.formal = localized(state, "katechon_dip_fs_war", "At war");
+		v.formal_colour = temper_colours[0];
+	} else if(nations::are_allied(state, player, target)) {
+		v.formal = localized(state, "katechon_dip_fs_ally", "Ally");
+		v.formal_colour = temper_colours[4];
+	} else if(overlord_of(state, target) == player) {
+		v.formal = localized(state, "katechon_dip_fs_subject", "Under our protection");
+		v.formal_colour = temper_colours[4];
+	} else if(overlord_of(state, player) == target) {
+		v.formal = localized(state, "katechon_dip_fs_overlord", "Our protector");
+		v.formal_colour = temper_colours[4];
+	} else if(military::has_truce_with(state, player, target)) {
+		v.formal = localized(state, "katechon_dip_fs_truce", "Truce");
+		v.formal_colour = temper_colours[1];
+	} else {
+		v.formal = localized(state, "katechon_dip_fs_none", "No treaty");
+		v.formal_colour = dip_muted;
+	}
+
+	// how well we know their intentions, in one line
+	{
+		auto const q = v.knowledge.quality;
+		auto const word = q >= 0.6f ? localized(state, "katechon_dip_kn_well", "well") : (q >= 0.35f ? localized(state, "katechon_dip_kn_partly", "partly")
+			: (q >= 0.15f ? localized(state, "katechon_dip_kn_poorly", "poorly") : localized(state, "katechon_dip_kn_hardly", "hardly at all")));
+		std::string source;
+		if(nations::are_allied(state, player, target))
+			source = localized(state, "katechon_dip_kn_s_ally", "as allies");
+		else if(v.knowledge.embassy_age >= 0)
+			source = sentence(localized(state, "katechon_dip_kn_s_envoys", "envoys reported %1 days ago"), std::to_string(v.knowledge.embassy_age));
+		else if(state.world.get_nation_adjacency_by_nation_adjacency_pair(player, target))
+			source = localized(state, "katechon_dip_kn_s_border", "across our border");
+		else if(v.knowledge.intelligence_age >= 0)
+			source = sentence(localized(state, "katechon_dip_kn_s_intel", "agents reported %1 days ago"), std::to_string(v.knowledge.intelligence_age));
+		else
+			source = localized(state, "katechon_dip_kn_s_none", "a diplomatic mission would tell us more");
+		v.knowledge_line = sentence(localized(state, "katechon_dip_kn_line", "We know their intentions %1: %2"), word, source);
+	}
+
+	// what they care for, or that we cannot tell
+	if(!v.priorities.empty()) {
+		if(v.priorities.front().tone == 0 && v.priorities.size() == 1 && v.knowledge.quality < 0.3f) {
+			v.aims = localized(state, "katechon_dip_aims_unclear", "Their aims are unclear to us.");
+		} else {
+			std::string list;
+			for(auto const& p : v.priorities)
+				list += (list.empty() ? "" : ", ") + p.text;
+			v.aims = sentence(localized(state, "katechon_dip_aims", "They care most for %1"), list);
+		}
+	}
+
+	// what binds us now, each with the way to end or change it
+	auto const deed_at = [&](deed d) -> int32_t {
+		for(size_t i = 0; i < v.deeds.size(); ++i)
+			if(v.deeds[i].what == d)
+				return int32_t(i);
+		return -1;
+	};
+	auto& a = v.agreements;
+	if(nations::are_allied(state, player, target))
+		a.push_back(sheet_line{ localized(state, "katechon_dip_ag_alliance", "Alliance"), localized(state, "katechon_dip_ag_end", "End"), 1, {}, deed_at(deed::break_alliance) });
+	if(overlord_of(state, target) == player)
+		a.push_back(sheet_line{ localized(state, "katechon_dip_ag_protect", "They are under our protection"), std::string(), 1 });
+	if(gives_access(state, target, player))
+		a.push_back(sheet_line{ localized(state, "katechon_dip_ag_our_access", "Our forces may cross their land"), localized(state, "katechon_dip_ag_give_up", "Give up"), 1, {}, deed_at(deed::end_access) });
+	if(gives_access(state, player, target))
+		a.push_back(sheet_line{ localized(state, "katechon_dip_ag_their_access", "Their forces may cross our land"), localized(state, "katechon_dip_ag_withdraw", "Withdraw"), 0, {}, deed_at(deed::revoke_access) });
+	if(auto const rel = economy::nation_gives_free_trade_rights(state, target, player); rel)
+		a.push_back(sheet_line{ sentence(localized(state, "katechon_dip_ag_free_trade", "Free trade until %1"), text::date_to_string(state, state.world.unilateral_relationship_get_no_tariffs_until(rel))), std::string(), 1 });
+	if(lev.subsidies)
+		a.push_back(sheet_line{ localized(state, "katechon_dip_ag_subsidies", "We subsidise their war"), localized(state, "katechon_dip_ag_stop", "Stop"), 0, {}, deed_at(deed::end_subsidies) });
+	if(embargoes(state, player, target))
+		a.push_back(sheet_line{ localized(state, "katechon_dip_ag_our_embargo", "Our embargo on them"), localized(state, "katechon_dip_ag_lift", "Lift"), -1, {}, deed_at(deed::lift_embargo) });
+	if(embargoes(state, target, player))
+		a.push_back(sheet_line{ localized(state, "katechon_dip_ag_their_embargo", "Their embargo on us"), localized(state, "katechon_dip_ag_ask_lift", "Ask to lift"), -1, {}, deed_at(deed::lift_their_embargo) });
+	if(!military::are_at_war(state, player, target) && military::has_truce_with(state, player, target))
+		a.push_back(sheet_line{ sentence(localized(state, "katechon_dip_ag_truce", "Truce until %1"), text::date_to_string(state, military::truce_end_date(state, player, target))), std::string(), 0 });
+	if(state.world.nation_get_constructing_cb_target(player) == target)
+		a.push_back(sheet_line{ sentence(localized(state, "katechon_dip_ag_justifying", "We prepare grounds against them: %1 ready"), text::format_percentage(state.world.nation_get_constructing_cb_progress(player) / 100.f, 0)),
+			localized(state, "katechon_dip_ag_stop", "Stop"), -1, {}, deed_at(deed::cancel_justification) });
+
+	// the actions worth taking now: not the ones that end what binds us, and not the hopeless
+	auto const managing = [](deed d) {
+		switch(d) {
+		case deed::break_alliance: case deed::end_access: case deed::revoke_access: case deed::end_subsidies: case deed::lift_embargo: case deed::cancel_justification:
+			return true;
+		default:
+			return false;
+		}
+	};
+	for(auto i : v.top) {
+		auto const& d = v.deeds[i];
+		if(managing(d.what) || d.verdict == likelihood::out_of_question || d.verdict == likelihood::very_unlikely)
+			continue;
+		v.opportunities.push_back(i);
+	}
+	if(v.opportunities.size() < 3) {
+		std::vector<size_t> rest;
+		for(size_t i = 0; i < v.deeds.size(); ++i) {
+			auto const& d = v.deeds[i];
+			if(managing(d.what) || std::find(v.opportunities.begin(), v.opportunities.end(), i) != v.opportunities.end() || d.verdict == likelihood::out_of_question || d.verdict == likelihood::very_unlikely || d.relevance <= 3.f)
+				continue;
+			rest.push_back(i);
+		}
+		std::stable_sort(rest.begin(), rest.end(), [&](size_t x, size_t y) { return v.deeds[x].relevance > v.deeds[y].relevance; });
+		for(auto i : rest) {
+			if(v.opportunities.size() >= 3)
+				break;
+			v.opportunities.push_back(i);
+		}
+	}
+	if(v.opportunities.size() > 3)
+		v.opportunities.resize(3);
+	(void)them;
+}
+
 void gather_foreign(sys::state& state, diplomacy_view& v, dcon::nation_id player, dcon::nation_id target) {
 	namespace sc = nations::strategic_statecraft;
 	auto const them = v.title;
@@ -1183,17 +1374,23 @@ void gather_foreign(sys::state& state, diplomacy_view& v, dcon::nation_id player
 		set_trend(state, r, size_t(target.index()) < relation_series.size() ? &relation_series[size_t(target.index())] : nullptr, 5.f, "katechon_dip_rising", "Improving", "katechon_dip_falling", "Worsening");
 		r.detail.push_back(filled(localized(state, "katechon_dip_exact", "Relations %1 on a scale from -200 to +200"), r.value));
 		r.detail.push_back(localized(state, "katechon_dip_relations_why", "Missions raise them; insults, claims and wars lower them"));
+		r.detail.push_back(localized(state, "katechon_dip_relations_use", "They count in every answer; at -100 or below they refuse an alliance outright"));
 	}
 	{
 		auto const record = sc::trust_of(state, target, player);
 		auto& t = v.trust;
 		auto const r = record.reliability;
-		t.value = r >= 0.62f ? localized(state, "katechon_dip_tr_high", "High") : (r >= 0.45f ? localized(state, "katechon_dip_tr_moderate", "Moderate") : (r >= 0.3f ? localized(state, "katechon_dip_tr_low", "Low") : localized(state, "katechon_dip_tr_broken", "Broken")));
-		t.colour = r >= 0.62f ? temper_colours[4] : (r >= 0.45f ? temper_colours[2] : temper_colours[r >= 0.3f ? 1 : 0]);
+		auto const tested = record.kept + record.broken > 0;
+		t.value = !tested ? localized(state, "katechon_dip_tr_untested", "Untested")
+			: (r >= 0.62f ? localized(state, "katechon_dip_tr_high", "High") : (r >= 0.45f ? localized(state, "katechon_dip_tr_moderate", "Moderate") : (r >= 0.3f ? localized(state, "katechon_dip_tr_low", "Low") : localized(state, "katechon_dip_tr_broken", "Broken"))));
+		v.trust_note = !tested ? localized(state, "katechon_dip_tr_none", "no promise between us tested yet")
+			: sentence(localized(state, "katechon_dip_tr_short", "promises kept %1, broken %2"), std::to_string(record.kept), std::to_string(record.broken));
+		t.colour = !tested ? temper_colours[2] : (r >= 0.62f ? temper_colours[4] : (r >= 0.45f ? temper_colours[2] : temper_colours[r >= 0.3f ? 1 : 0]));
 		set_trend(state, t, size_t(target.index()) < trust_series.size() ? &trust_series[size_t(target.index())] : nullptr, 0.02f, "katechon_dip_tr_rising", "Rising", "katechon_dip_tr_falling", "Falling");
 		t.detail.push_back(localized(state, "katechon_dip_tr_title", "How far they trust us to keep our word"));
 		t.detail.push_back(sentence(localized(state, "katechon_dip_tr_record", "Promises to them kept: %1, broken: %2"), std::to_string(record.kept), std::to_string(record.broken)));
 		t.detail.push_back(localized(state, "katechon_dip_tr_how", "Kept alliances and backing raise it; abandoned allies lower it"));
+		t.detail.push_back(localized(state, "katechon_dip_tr_use", "It counts in their answer to an alliance"));
 	}
 	auto const lev = leverage_over(state, player, target, v.knowledge.quality);
 	{
@@ -1240,13 +1437,7 @@ void gather_foreign(sys::state& state, diplomacy_view& v, dcon::nation_id player
 	// A sentence on how things stand: what is settled between us, and where they lean.
 	auto const allied = nations::are_allied(state, player, target);
 	auto const at_war = military::are_at_war(state, player, target);
-	std::string text;
-	if(at_war)
-		text = sentence(localized(state, "katechon_dip_s_war", "We are at war with %1."), them);
-	else if(allied)
-		text = sentence(localized(state, "katechon_dip_s_ally", "%1 is our ally."), them);
-	else if(military::has_truce_with(state, player, target))
-		text = sentence(localized(state, "katechon_dip_s_truce", "A truce binds us until %1."), text::date_to_string(state, military::truce_end_date(state, player, target)));
+	std::string text; // what binds us is said under the name; here, where they stand in the world
 	if(auto const overlord = overlord_of(state, target); overlord)
 		text += (text.empty() ? "" : " ") + sentence(localized(state, "katechon_dip_s_subject", "It answers to %1."), overlord == player ? localized(state, "katechon_dip_us", "us") : nation_name(state, overlord));
 	else if(auto const leader = state.world.nation_get_in_sphere_of(target); leader)
@@ -1262,6 +1453,80 @@ void gather_foreign(sys::state& state, diplomacy_view& v, dcon::nation_id player
 	gather_interests(state, v, player, target, lev);
 	gather_deeds(state, v, player, target);
 	gather_history(state, v, player, target);
+	gather_country_lines(state, v, player, target, lev);
+}
+
+// Our foreign affairs in lines: whom we are tied to and how, what needs our
+// attention now (only what is so in the world), and who might join us and why.
+void gather_overview(sys::state& state, diplomacy_view& v, dcon::nation_id player) {
+	namespace sc = nations::strategic_statecraft;
+	// when more diplomats come
+	{
+		float monthly = 0.f;
+		auto const have = nations::diplomatic_points(state, player);
+		auto const next_whole = std::min(9.f, std::floor(have) + 1.f);
+		auto const ready = diplomats_ready_on(state, player, next_whole, &monthly);
+		if(have >= 9.f)
+			v.diplomats_next = localized(state, "katechon_dip_ov_full", "the most we can keep");
+		else if(ready)
+			v.diplomats_next = sentence(localized(state, "katechon_dip_ov_next", "next diplomat on %1 (+%2 a month)"), text::date_to_string(state, ready), text::format_float(monthly, 2));
+	}
+	// the network: allies, those under our protection or protecting us, wars, open hostility
+	for(auto const& w : v.wars)
+		v.network.push_back(sheet_line{ nation_name(state, w.id), sentence(localized(state, "katechon_dip_nw_war", "At war  ·  %1"), w.name), -1, w.id, -1, temper_colours[0] });
+	for(auto const& a : v.allies) {
+		auto const at_war = state.world.nation_get_is_at_war(a.id);
+		v.network.push_back(sheet_line{ a.name, sentence(localized(state, at_war ? "katechon_dip_nw_ally_war" : "katechon_dip_nw_ally", at_war ? "Ally  ·  relations: %1  ·  at war" : "Ally  ·  relations: %1"), a.note), 1, a.id, -1, temper_colours[4] });
+	}
+	for(auto other : state.world.in_nation) {
+		if(other.id == player || other.get_owned_province_count() == 0)
+			continue;
+		if(overlord_of(state, other.id) == player)
+			v.network.push_back(sheet_line{ nation_name(state, other.id), localized(state, "katechon_dip_nw_subject", "Under our protection"), 1, other.id, -1, temper_colours[4] });
+		else if(overlord_of(state, player) == other.id)
+			v.network.push_back(sheet_line{ nation_name(state, other.id), localized(state, "katechon_dip_nw_overlord", "Our protector"), 0, other.id, -1, temper_colours[3] });
+	}
+	for(auto const& f : v.foes)
+		v.network.push_back(sheet_line{ f.name, sentence(localized(state, "katechon_dip_nw_hostile", "Hostile  ·  %1"), std::to_string(int32_t(relation_between(state, player, f.id)))), -1, f.id, -1, temper_colours[0] });
+
+	// what needs attention: only what is so
+	auto const points = nations::diplomatic_points(state, player);
+	if(points < 1.f) {
+		float monthly = 0.f;
+		auto const ready = diplomats_ready_on(state, player, 1.f, &monthly);
+		v.attention.push_back(sheet_line{ localized(state, "katechon_dip_at_capacity", "Diplomatic capacity exhausted"),
+			ready ? sentence(localized(state, "katechon_dip_at_capacity_note", "No diplomat for new negotiations until %1"), text::date_to_string(state, ready))
+				: localized(state, "katechon_dip_at_capacity_none", "No diplomats come to us now"), -1 });
+	}
+	if(!requests.empty())
+		v.attention.push_back(sheet_line{ sentence(localized(state, "katechon_dip_at_requests", "Proposals awaiting our answer: %1"), std::to_string(requests.size())),
+			localized(state, "katechon_dip_at_requests_note", "On the right of the screen"), 0, requests.front().message.from });
+	for(auto const& a : v.allies) {
+		if(!state.world.nation_get_is_at_war(a.id) || military::are_at_war(state, a.id, player))
+			continue;
+		for(auto participant : state.world.nation_get_war_participant(a.id)) {
+			v.attention.push_back(sheet_line{ sentence(localized(state, "katechon_dip_at_ally_war", "Our ally %1 is at war"), a.name), military::get_war_name(state, participant.get_war()), -1, a.id });
+			break;
+		}
+	}
+	if(auto const target = state.world.nation_get_constructing_cb_target(player); target)
+		v.attention.push_back(sheet_line{ sentence(localized(state, "katechon_dip_at_justifying", "Preparing grounds against %1"), nation_name(state, target)),
+			sentence(localized(state, "katechon_dip_at_justifying_note", "%1 ready; should they learn of it, relations suffer"), text::format_percentage(state.world.nation_get_constructing_cb_progress(player) / 100.f, 0)), 0, target });
+	if(v.infamy >= v.infamy_limit * 0.5f)
+		v.attention.push_back(sheet_line{ localized(state, "katechon_dip_o_infamy", "Our repute is wearing thin."),
+			sentence(localized(state, "katechon_dip_at_infamy_note", "Infamy %1 of %2"), text::format_float(v.infamy, 1), text::format_float(v.infamy_limit, 0)), -1 });
+	for(auto rel : state.world.nation_get_unilateral_relationship_as_source(player)) {
+		auto const until = rel.get_no_tariffs_until();
+		if(!until || until <= state.current_date || until > state.current_date + 120)
+			continue;
+		auto const other = rel.get_target();
+		v.attention.push_back(sheet_line{ sentence(localized(state, "katechon_dip_at_trade_ends", "Free trade with %1 ends on %2"), nation_name(state, other), text::date_to_string(state, until)),
+			localized(state, "katechon_dip_at_trade_ends_note", "It can be proposed again"), 0, other });
+	}
+
+	// who might join us, and why, as we read them
+	for(auto const& p : v.prospects)
+		v.partners.push_back(sheet_line{ p.name, p.note, 1, p.id });
 }
 
 void gather_own(sys::state& state, diplomacy_view& v, dcon::nation_id player) {
@@ -1287,7 +1552,7 @@ void gather_own(sys::state& state, diplomacy_view& v, dcon::nation_id player) {
 				// as we read them: a likely answer, not a known one
 				auto const a = sc::assess_alliance(state, player, other.id);
 				if(a.modelled && favourable(a.verdict))
-					prospects.push_back(ranked{ counterpart{ other.id, nation_name(state, other.id), verdict_word(state, a.verdict) }, a.margin - a.spread });
+					prospects.push_back(ranked{ counterpart{ other.id, nation_name(state, other.id), partner_line(state, a) }, a.margin - a.spread });
 			}
 		}
 	}
@@ -1295,7 +1560,7 @@ void gather_own(sys::state& state, diplomacy_view& v, dcon::nation_id player) {
 	std::sort(v.allies.begin(), v.allies.end(), by_rank);
 	std::sort(hostile.begin(), hostile.end(), by_rank);
 	std::sort(prospects.begin(), prospects.end(), [](ranked const& a, ranked const& b) { return a.weight > b.weight; });
-	for(size_t i = 0; i < prospects.size() && i < 6; ++i)
+	for(size_t i = 0; i < prospects.size() && i < 4; ++i)
 		v.prospects.push_back(std::move(prospects[i].who));
 	for(auto participant : state.world.nation_get_war_participant(player)) {
 		auto const war = participant.get_war();
@@ -1315,6 +1580,8 @@ void gather_own(sys::state& state, diplomacy_view& v, dcon::nation_id player) {
 		text += " " + localized(state, "katechon_dip_o_infamy", "Our repute is wearing thin.");
 	v.dispatch = std::move(text);
 
+	gather_overview(state, v, player);
+
 	if(state.current_crisis_state != sys::crisis_state::inactive) {
 		v.crisis = true;
 		v.crisis_title = sentence(localized(state, "katechon_dip_crisis_between", "%1 against %2"), state.primary_crisis_attacker ? nation_name(state, state.primary_crisis_attacker) : std::string("?"),
@@ -1329,10 +1596,13 @@ void gather_own(sys::state& state, diplomacy_view& v, dcon::nation_id player) {
 }
 
 // The ties of the country on the sheet as arcs on the map, from capital to capital.
+// What the sheet puts forward is drawn full; the rest of its ties step back. While
+// a decision is under review, a gold arc runs from our capital to theirs.
 void lay_tie_lanes(sys::state& state) {
 	namespace kt = map::katechon_trade;
 	kt::lanes.clear();
 	auto const from = state.world.nation_get_capital(diplomacy.nation);
+	auto const lit = [&](dcon::nation_id n) { return dip_highlight.empty() || std::find(dip_highlight.begin(), dip_highlight.end(), n) != dip_highlight.end(); };
 	if(from) {
 		for(auto const& t : diplomacy.ties) {
 			auto const to = state.world.nation_get_capital(t.other);
@@ -1348,8 +1618,13 @@ void lay_tie_lanes(sys::state& state) {
 			case tie_kind::rival: kind = kt::lane_kind::tie_hostile; break;
 			case tie_kind::cordial: kind = kt::lane_kind::tie_cordial; break;
 			}
+			if(!lit(t.other))
+				kind = kt::lane_kind(uint8_t(kind) + kt::tie_dimmed);
 			kt::lanes.push_back(kt::lane{ from, to, false, kind, 1.f, true });
 		}
+		auto const ours = state.world.nation_get_capital(state.local_player_nation);
+		if(deal_open && !diplomacy.own && ours && ours != from)
+			kt::lanes.push_back(kt::lane{ ours, from, false, kt::lane_kind::tie_proposed, 1.f, true });
 	}
 	kt::dirty.store(true, std::memory_order::release);
 }
@@ -1400,8 +1675,8 @@ void paint_relations(sys::state& state) {
 		auto& c = by_nation[size_t(other.id.index())];
 		if(other.id == focus)
 			c = ogl::color3f{ 0.90f, 0.72f, 0.40f };
-		else if(other.id == state.local_player_nation && !military::are_at_war(state, focus, other.id) && !nations::are_allied(state, focus, other.id))
-			c = ogl::color3f{ 0.56f, 0.48f, 0.66f };
+		else if(other.id == state.local_player_nation)
+			c = ogl::color3f{ 0.56f, 0.48f, 0.66f }; // we are always ourselves; the arc says how we are tied
 		else if(military::are_at_war(state, focus, other.id))
 			c = ogl::color3f{ 0.70f, 0.26f, 0.22f };
 		else if(nations::are_allied(state, focus, other.id))
@@ -1448,6 +1723,9 @@ void open_diplomacy_panel(sys::state& state, dcon::nation_id target) {
 		deal_gives = 0;
 		deal_asks = 0;
 		dip_tab = 0;
+		dip_scroll = 0.f;
+		dip_content_h = 0.f;
+		dip_highlight.clear();
 	}
 	diplomacy_focus = next;
 	diplomacy_seen_province = state.map_state.selected_province;
@@ -1796,6 +2074,7 @@ inline static constexpr ogl::color3f dip_yes{ 0.50f, 0.80f, 0.56f };
 inline static constexpr ogl::color3f dip_no{ 0.92f, 0.48f, 0.40f };
 inline static constexpr ogl::color3f dip_rule{ 0.19f, 0.24f, 0.30f };
 inline static constexpr ogl::color3f dip_war_text{ 0.98f, 0.70f, 0.62f };
+inline static constexpr ogl::color3f dip_ink{ 0.17f, 0.13f, 0.09f }; // type on bronze
 
 void load_dip_art(sys::state& state) {
 	dip_art_read = true;
@@ -1931,6 +2210,19 @@ void dip_ghost_button(sys::state& state, float x, float y, float w, float h, std
 	targets.push_back(t);
 }
 
+// A link: words in bronze that do something.
+bool dip_link(sys::state& state, std::string const& text, float x, float y, action act, bool hovering, float mx, float my, bool align_right = false) {
+	auto const tw = sans_w(state, text, 13);
+	auto const lx = align_right ? x - tw : x;
+	hit_target t{ lx - 4.f, y - 10.f, tw + 8.f, 20.f, act };
+	auto const hovered = hovering && over(t, mx, my);
+	sans(state, text, lx, y, 13, hovered ? dip_name : dip_bronze);
+	if(hovered)
+		fill(state, lx, y + 8.f, tw, 1.f, dip_name, 0.8f);
+	targets.push_back(t);
+	return hovered;
+}
+
 // A hint of several lines, the first in bronze.
 void dip_hint(std::vector<std::string> lines, hit_target const& t) {
 	dip_tip = std::move(lines);
@@ -1985,43 +2277,77 @@ float verdict_pill(sys::state& state, likelihood l, float right, float cy, int32
 	return cw;
 }
 
-// An action as a row: its medallion, its name, the answer as we read it, and
-// on the second line what it does, why they would answer so, or what would
-// allow it. The exchange that would win a refused proposal follows under it.
-float action_row(sys::state& state, deed_entry const& d, float left, float right, float y, bool hovering, float mx, float my) {
-	constexpr float row = 48.f;
+inline static constexpr ogl::color3f dip_heading_c{ 0.62f, 0.66f, 0.70f }; // a section's name: quiet, not gold
+inline static constexpr ogl::color3f dip_second{ 0.74f, 0.77f, 0.80f }; // the second line of a row
+inline static constexpr ogl::color3f dip_amber{ 0.90f, 0.72f, 0.46f }; // what would allow a locked action
+
+// A section: its name in quiet capitals over a hairline.
+float dip_section(sys::state& state, std::string const& text, float left, float right, float y) {
+	y += 12.f;
+	sans(state, upper(text), left, y + 7.f, 11, dip_heading_c, false, 0.14f);
+	fill(state, left, y + 17.f, right - left, 1.f, dip_rule, 1.f);
+	return y + 26.f;
+}
+
+// Our reading of an answer: a dot and a word, in its colour.
+float verdict_mark(sys::state& state, likelihood l, float right, float cy, int32_t size = 13) {
+	auto const word = verdict_word(state, l);
+	if(word.empty())
+		return 0.f;
+	auto const c = verdict_colour(l);
+	auto const tw = sans(state, word, right, cy, size, c, true);
+	fill(state, right - tw - 12.f, cy - 3.f, 6.f, 6.f, c, 1.f);
+	return tw + 14.f;
+}
+
+// Where the mouse rests on the sheet, the map puts these countries forward.
+void put_forward(std::initializer_list<dcon::nation_id> nations, uint64_t key) {
+	dip_hover_key = key;
+	dip_highlight.assign(nations.begin(), nations.end());
+}
+void put_forward_deed(sys::state& state, deed_entry const& d, dcon::nation_id target) {
+	std::vector<dcon::nation_id> list{ target };
+	if(d.what == deed::ally || d.what == deed::declare) {
+		for(auto const& f : diplomacy.friends)
+			if(nations::are_allied(state, target, f.id))
+				list.push_back(f.id);
+	}
+	dip_hover_key = (uint64_t(d.what) << 32) | uint64_t(target.index() + 1);
+	dip_highlight = std::move(list);
+}
+
+// An action: its emblem, its name and our reading of the answer; what it does;
+// and, when it cannot be taken, what would allow it, or else why they would answer so.
+float action_row(sys::state& state, deed_entry const& d, float left, float right, float y, bool hovering, float mx, float my, bool first = false) {
 	auto const usable = d.possible && d.verdict != likelihood::out_of_question;
-	auto const act = !usable ? action::none : (reviewed(d.what) ? action::dip_review : action::diplomacy_deed);
-	hit_target t{ left - 8.f, y, right - left + 16.f, row, act, nullptr, int32_t(d.what), pack_ground(d.cb, d.where) };
-	auto const hovered = hovering && over(t, mx, my);
-	if(hovered && usable)
-		fill(state, t.x, t.y + 2.f, t.w, t.h - 4.f, dip_bronze, 0.10f);
-	dip_medallion(state, deed_icon(d.what), left + 16.f, y + row * 0.5f, 32.f, hovered && usable, !usable ? ogl::color3f{ 0.45f, 0.48f, 0.52f } : (d.warlike ? ogl::color3f{ 0.95f, 0.60f, 0.52f } : ogl::color3f{ 0.89f, 0.82f, 0.66f }));
-	float right_w = 0.f;
+	std::string third;
+	ogl::color3f third_colour = dip_second;
 	if(!d.possible) {
-		dip_glyph(state, dip_icon::lock, right - 8.f, y + 16.f, 13.f, dip_faint);
-		right_w = 20.f;
+		third = d.requirement;
+		third_colour = dip_amber;
 	} else if(d.proposal) {
-		right_w = verdict_pill(state, d.verdict, right, y + 16.f) + 8.f;
+		third = d.reason;
 	}
-	sans(state, sans_fit(state, d.label, 15, right - left - 46.f - right_w), left + 42.f, y + 16.f, 15, !usable ? dip_faint : (d.warlike ? dip_war_text : dip_text));
-	std::string under;
-	ogl::color3f under_colour = dip_muted;
-	if(!d.possible) {
-		under = d.requirement;
-		under_colour = ogl::color3f{ 0.84f, 0.70f, 0.50f };
-	} else if(d.proposal && !d.reason.empty()) {
-		under = d.reason;
-	} else {
-		under = d.effect;
-	}
-	sans(state, sans_fit(state, under, 12, right - left - 46.f), left + 42.f, y + 34.f, 12, under_colour);
+	auto const row = third.empty() ? 50.f : 68.f;
+	auto const act = !usable ? action::none : (reviewed(d.what) ? action::dip_review : action::diplomacy_deed);
+	hit_target t{ left - 10.f, y, right - left + 20.f, row, act, nullptr, int32_t(d.what), pack_ground(d.cb, d.where) };
+	auto const hovered = hovering && over(t, mx, my);
+	if(first)
+		fill(state, t.x, t.y + 2.f, 2.f, t.h - 4.f, dip_bronze, usable ? 1.f : 0.4f);
+	if(hovered)
+		fill(state, t.x, t.y + 2.f, t.w, t.h - 4.f, dip_bronze, usable ? 0.10f : 0.05f);
+	dip_medallion(state, deed_icon(d.what), left + 15.f, y + 22.f, 30.f, hovered && usable, !usable ? ogl::color3f{ 0.52f, 0.55f, 0.58f } : (d.warlike ? ogl::color3f{ 0.95f, 0.60f, 0.52f } : ogl::color3f{ 0.89f, 0.82f, 0.66f }));
+	auto right_w = 0.f;
+	if(d.proposal)
+		right_w = verdict_mark(state, d.verdict, right, y + 15.f) + 8.f;
+	sans(state, sans_fit(state, d.label, 15, right - left - 42.f - right_w), left + 40.f, y + 15.f, 15, !usable ? ogl::color3f{ 0.72f, 0.74f, 0.76f } : (d.warlike ? dip_war_text : dip_text));
+	sans(state, sans_fit(state, d.effect, 13, right - left - 42.f), left + 40.f, y + 34.f, 13, dip_second);
+	if(!third.empty())
+		sans(state, sans_fit(state, third, 13, right - left - 42.f), left + 40.f, y + 52.f, 13, third_colour);
 	if(hovered) {
 		std::vector<std::string> lines{ d.label };
 		if(!d.effect.empty())
 			lines.push_back(d.effect);
-		if(d.cost > 0.f)
-			lines.push_back(diplomats_word(state, d.cost));
 		if(d.proposal && !d.reason.empty())
 			lines.push_back(verdict_word(state, d.verdict) + ":  " + d.reason);
 		if(!d.possible && !d.requirement.empty())
@@ -2029,203 +2355,100 @@ float action_row(sys::state& state, deed_entry const& d, float left, float right
 		if(usable && reviewed(d.what))
 			lines.push_back(localized(state, "katechon_dip_review_hint", "Press to review the terms before anything is sent"));
 		dip_hint(std::move(lines), t);
+		if(diplomacy.nation && !diplomacy.own)
+			put_forward_deed(state, d, diplomacy.nation);
 	}
 	if(usable)
 		targets.push_back(t);
 	y += row;
 	if(d.in_return && usable) {
 		auto const text = sentence(localized(state, "katechon_swe_line", "Offer in return: %1"), d.in_return_text);
-		hit_target link{ left + 34.f, y - 8.f, right - left - 34.f, 22.f, action::dip_trade, nullptr, int32_t(d.ask_bit), uint64_t(d.in_return) };
+		hit_target link{ left + 34.f, y - 6.f, right - left - 34.f, 22.f, action::dip_trade, nullptr, int32_t(d.ask_bit), uint64_t(d.in_return) };
 		auto const on = hovering && over(link, mx, my);
-		if(on)
-			fill(state, link.x, link.y, link.w, link.h, dip_bronze, 0.12f);
-		draw_icon(state, icon::chevron_right, left + 46.f, y + 3.f, 9.f, on ? dip_name : dip_bronze);
-		auto const tw = sans(state, sans_fit(state, text, 12, right - left - 62.f), left + 56.f, y + 3.f, 12, on ? dip_name : dip_bronze);
+		draw_icon(state, icon::chevron_right, left + 44.f, y + 4.f, 9.f, on ? dip_name : dip_bronze);
+		auto const tw = sans(state, sans_fit(state, text, 13, right - left - 60.f), left + 54.f, y + 4.f, 13, on ? dip_name : dip_bronze);
 		if(on) {
-			fill(state, left + 56.f, y + 10.f, tw, 1.f, dip_name, 0.8f);
+			fill(state, left + 54.f, y + 12.f, tw, 1.f, dip_name, 0.8f);
 			hint(localized(state, "katechon_swe_hint", "As we read them, this would win their agreement"), link);
 		}
 		targets.push_back(link);
 		y += 22.f;
 	}
-	return y;
+	return y + 2.f;
 }
 
-// The action that matters most, set apart: a framed card with its reasons and a button.
-float primary_card(sys::state& state, deed_entry const& d, float left, float right, float y, bool hovering, float mx, float my) {
-	constexpr float h = 112.f;
-	auto const usable = d.possible && d.verdict != likelihood::out_of_question;
-	auto const x = left - 10.f;
-	auto const w = right - left + 20.f;
-	nine(state, usable ? dip_item_on : dip_item, x, y, w, h, 128.f, 64.f, 16.f, 8.f);
-	frame(state, x, y, w, h, dip_bronze, usable ? 0.55f : 0.25f);
-	dip_medallion(state, deed_icon(d.what), x + 30.f, y + 34.f, 40.f, usable, !usable ? ogl::color3f{ 0.45f, 0.48f, 0.52f } : (d.warlike ? ogl::color3f{ 0.95f, 0.60f, 0.52f } : ogl::color3f{ 0.92f, 0.85f, 0.68f }));
-	float pill = 0.f;
-	if(d.proposal && d.possible)
-		pill = verdict_pill(state, d.verdict, right, y + 24.f, 13);
-	else if(!d.possible)
-		dip_glyph(state, dip_icon::lock, right - 8.f, y + 24.f, 14.f, dip_faint);
-	sans(state, sans_fit(state, d.label, 17, right - left - 52.f - pill), x + 58.f, y + 24.f, 17, usable ? (d.warlike ? dip_war_text : dip_name) : dip_faint);
-	auto const second = !d.possible ? d.requirement : (d.proposal ? d.reason : std::string());
-	if(!second.empty())
-		sans(state, sans_fit(state, second, 13, right - x - 58.f), x + 58.f, y + 46.f, 13, !d.possible ? ogl::color3f{ 0.84f, 0.70f, 0.50f } : dip_text);
-	sans_paragraph(state, d.effect, x + 58.f, right, y + (second.empty() ? 36.f : 56.f), 12, dip_muted, second.empty() ? 2 : 1, true);
-	auto const label = reviewed(d.what) ? localized(state, "katechon_dip_review", "Review proposal") : localized(state, "katechon_dip_do", "Carry it out");
-	auto const bw = std::max(150.f, sans_w(state, upper(label), 13, 0.12f) + 36.f);
-	dip_gold_button(state, right - bw, y + h - 38.f, bw, 28.f, label, usable,
-		hit_target{ 0.f, 0.f, 0.f, 0.f, reviewed(d.what) ? action::dip_review : action::diplomacy_deed, nullptr, int32_t(d.what), pack_ground(d.cb, d.where) }, hovering, mx, my);
-	if(d.cost > 0.f && d.effect.find(whole(d.cost)) == std::string::npos)
-		sans(state, diplomats_word(state, d.cost), x + 58.f, y + h - 24.f, 12, dip_faint);
-	return y + h + 10.f;
-}
-
-// A row of flags; a press puts that country on the panel.
-float flag_row(sys::state& state, std::vector<counterpart> const& list, float left, float right, float y, bool hovering, float mx, float my) {
+// A row of the sheet: a dot or a flag, the text, and a note; a press opens the country or does the deed.
+float line_row(sys::state& state, sheet_line const& l, float left, float right, float y, bool hovering, float mx, float my, bool with_flag, bool note_below) {
+	auto const row = note_below && !l.note.empty() ? 44.f : 30.f;
+	auto const target_deed = l.deed_index >= 0 && size_t(l.deed_index) < diplomacy.deeds.size() ? &diplomacy.deeds[size_t(l.deed_index)] : nullptr;
+	auto const deed_usable = target_deed && target_deed->possible && target_deed->verdict != likelihood::out_of_question;
+	hit_target t{ left - 10.f, y, right - left + 20.f, row, action::none };
+	if(l.nation && !target_deed) {
+		t.act = action::diplomacy_target;
+		t.value = nation_value(l.nation);
+	}
+	auto const hovered = hovering && over(t, mx, my);
+	if(hovered && t.act != action::none) {
+		fill(state, t.x, t.y + 2.f, t.w, t.h - 4.f, dip_bronze, 0.08f);
+		put_forward({ l.nation }, uint64_t(l.nation.index() + 1) << 40);
+	}
 	auto x = left;
-	size_t shown = 0;
-	for(auto const& c : list) {
-		if(x + 34.f > right)
-			break;
-		hit_target t{ x - 2.f, y - 2.f, 32.f, 24.f, action::diplomacy_target, nullptr, nation_value(c.id) };
-		auto const hovered = hovering && over(t, mx, my);
-		dip_flag(state, c.id, x, y, 28.f, 19.f);
-		if(hovered) {
-			frame(state, x - 3.f, y - 3.f, 34.f, 25.f, dip_bronze, 1.f);
-			hint(c.note.empty() ? c.name : c.name + "  ·  " + c.note, t);
-		}
-		targets.push_back(t);
+	if(with_flag && l.nation) {
+		dip_flag(state, l.nation, left, y + 7.f, 24.f, 16.f);
 		x += 34.f;
-		++shown;
-	}
-	if(shown < list.size())
-		sans(state, "+" + std::to_string(list.size() - shown), x + 2.f, y + 10.f, 12, dip_muted);
-	return y + 28.f;
-}
-
-// One of the three figures: a caption, the figure, and the way it went.
-void figure_column(sys::state& state, std::string const& caption, standing_figure const& f, float x, float w, float y, bool hovering, float mx, float my) {
-	sans(state, upper(caption), x, y + 6.f, 10, dip_bronze, false, 0.16f);
-	sans(state, sans_fit(state, f.value, 20, w - 6.f), x, y + 28.f, 20, f.colour);
-	if(f.trend_known) {
-		auto const c = f.trend > 0 ? dip_yes : (f.trend < 0 ? dip_no : dip_muted);
-		if(f.trend != 0)
-			arrow(state, x + 4.f, y + 50.f, f.trend > 0, c);
-		sans(state, f.trend_word, x + (f.trend != 0 ? 14.f : 0.f), y + 50.f, 12, c);
 	} else {
-		sans(state, localized(state, "katechon_dip_no_record", "no record yet"), x, y + 50.f, 12, dip_faint);
+		auto const dot = l.tone > 0 ? dip_yes : (l.tone < 0 ? dip_no : dip_heading_c);
+		fill(state, left + 2.f, y + 13.f, 5.f, 5.f, dot, 1.f);
+		x += 16.f;
 	}
-	hit_target t{ x - 4.f, y - 4.f, w, 64.f, action::none };
-	if(hovering && over(t, mx, my) && !f.detail.empty())
-		dip_hint(f.detail, t);
-}
-
-// A line of chips under a label; returns the bottom.
-float chip_line(sys::state& state, std::string const& label, std::vector<interest_chip> const& chips, float left, float right, float y, bool hovering, float mx, float my) {
-	if(chips.empty())
-		return y;
-	sans(state, label, left, y + 11.f, 12, dip_muted);
-	auto x = left + 104.f;
-	for(size_t i = 0; i < chips.size(); ++i) {
-		auto const& c = chips[i];
-		auto const dot = c.tone > 0 ? dip_yes : (c.tone < 0 ? dip_no : dip_bronze);
-		auto const cw = sans_w(state, c.text, 12) + 28.f;
-		if(x + cw > right) {
-			if(i < chips.size())
-				sans(state, "+" + std::to_string(chips.size() - i), x + 2.f, y + 11.f, 12, dip_muted);
-			break;
+	auto right_edge = right;
+	if(target_deed) {
+		// the way to end or change it, as a link
+		auto const label = l.note;
+		auto const lw = sans_w(state, label, 14);
+		hit_target link{ right - lw - 8.f, y + 4.f, lw + 8.f, 22.f, deed_usable ? (reviewed(target_deed->what) ? action::dip_review : action::diplomacy_deed) : action::none, nullptr,
+			int32_t(target_deed->what), pack_ground(target_deed->cb, target_deed->where) };
+		auto const on = hovering && over(link, mx, my);
+		sans(state, label, right, y + 15.f, 14, !deed_usable ? dip_faint : (on ? dip_name : dip_bronze), true);
+		if(on) {
+			std::vector<std::string> lines{ target_deed->label };
+			if(!target_deed->effect.empty())
+				lines.push_back(target_deed->effect);
+			if(!target_deed->possible && !target_deed->requirement.empty())
+				lines.push_back(target_deed->requirement);
+			dip_hint(std::move(lines), link);
 		}
-		dip_chip_label(state, c.text, x, y, dot);
-		hit_target t{ x, y, cw, 22.f, action::none };
-		if(hovering && over(t, mx, my) && !c.why.empty())
-			dip_hint({ c.text, c.why }, t);
-		x += cw + 6.f;
+		if(deed_usable)
+			targets.push_back(link);
+		right_edge = right - lw - 14.f;
+		sans(state, sans_fit(state, l.text, 15, right_edge - x), x, y + 15.f, 15, dip_text);
+	} else if(note_below) {
+		sans(state, sans_fit(state, l.text, 15, right - x), x, y + 15.f, 15, dip_text);
+		if(!l.note.empty())
+			sans(state, sans_fit(state, l.note, 13, right - x), x, y + 33.f, 13, dip_second);
+	} else {
+		auto const nw = l.note.empty() ? 0.f : sans(state, sans_fit(state, l.note, 13, (right - x) * 0.6f), right, y + 15.f, 13, l.note_colour, true);
+		sans(state, sans_fit(state, l.text, 15, right - x - nw - 10.f), x, y + 15.f, 15, dip_text);
 	}
-	return y + 28.f;
+	if(t.act != action::none)
+		targets.push_back(t);
+	return y + row;
 }
 
-// The tabs of the actions: what matters now, the four kinds, and the history.
-float action_tabs(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
-	static constexpr std::array<std::pair<std::string_view, std::string_view>, 5> names{ std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_now", "Priority" },
-		std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_relations", "Relations" }, std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_agreements", "Agreements" },
-		std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_influence", "Influence" }, std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_coercion", "Coercion" } };
-	float total = 0.f;
-	for(auto const& n : names)
-		total += sans_w(state, localized(state, n.first, n.second), 13);
-	auto const gap = std::max(10.f, (right - left - total) / float(names.size() - 1));
-	auto x = left;
-	for(size_t i = 0; i < names.size(); ++i) {
-		auto const label = localized(state, names[i].first, names[i].second);
-		auto const tw = sans_w(state, label, 13);
-		hit_target t{ x - 4.f, y, tw + 8.f, 24.f, action::dip_tab, nullptr, int32_t(i) };
-		auto const on = dip_tab == int32_t(i);
-		auto const hovered = hovering && over(t, mx, my);
-		sans(state, label, x, y + 11.f, 13, on ? dip_name : (hovered ? dip_text : dip_muted));
-		if(on)
-			fill(state, x, y + 21.f, tw, 2.f, dip_bronze, 1.f);
-		targets.push_back(t);
-		x += tw + gap;
-	}
-	dip_rule_line(state, left, right, y + 24.f);
+// Words in gold that open or close a section.
+float expander(sys::state& state, std::string const& text, bool open, int32_t bit, float left, float y, bool hovering, float mx, float my) {
+	auto const tw = sans_w(state, text, 14);
+	hit_target t{ left - 4.f, y + 2.f, tw + 30.f, 26.f, action::dip_tab, nullptr, bit };
+	auto const on = hovering && over(t, mx, my);
+	sans(state, text, left, y + 15.f, 14, on ? dip_name : dip_bronze);
+	draw_icon(state, open ? icon::chevron_up : icon::chevron_down, left + tw + 12.f, y + 15.f, 10.f, on ? dip_name : dip_bronze);
+	targets.push_back(t);
 	return y + 30.f;
 }
 
-void draw_own_panel(sys::state& state, float x0, float y0, float w, float h, bool hovering, float mx, float my) {
-	auto const& v = diplomacy;
-	auto const left = x0 + 24.f;
-	auto const right = x0 + w - 24.f;
-	auto content = 96.f + sans_paragraph(state, v.dispatch, left, right, 0.f, 14, dip_text, 4, false) + 18.f;
-	for(auto const* rows : { &v.wars, &v.allies, &v.prospects, &v.foes })
-		content += rows->empty() ? 0.f : 36.f;
-	if(v.crisis)
-		content += 26.f + 48.f * float(v.crisis_deeds.size());
-	content += journal.empty() ? 0.f : 30.f + 24.f * float(std::min<size_t>(journal.size(), 3));
-	content += 30.f;
-	auto const ph = std::min(h - y0 - 16.f, content);
-	dip_frame(state, x0, y0, w, ph);
-	auto const floor_y = y0 + ph - 14.f;
-	if(v.nation)
-		dip_flag(state, v.nation, left, y0 + 22.f, 66.f, 44.f);
-	auto const tx = left + 82.f;
-	draw_text(state, fit(state, v.title, 25, 0.01f, right - tx - 24.f), tx, y0 + 34.f, 25, 0.01f, dip_name);
-	sans(state, diplomats_word(state, v.diplomats) + (v.infamy > 0.f ? "  ·  " + filled(localized(state, "katechon_dip_infamy", "infamy %1"), text::format_float(v.infamy, 1)) : std::string()),
-		tx, y0 + 58.f, 14, dip_muted);
-	{
-		hit_target close{ right - 12.f, y0 + 10.f, 26.f, 26.f, action::toggle_diplomacy };
-		draw_icon(state, icon::close, close.x + 13.f, close.y + 13.f, 11.f, hovering && over(close, mx, my) ? dip_text : dip_bronze);
-		targets.push_back(close);
-	}
-	auto y = y0 + 86.f;
-	y = sans_paragraph(state, v.dispatch, left, right, y, 14, dip_text, 4, true) + 12.f;
-	auto const row_of = [&](std::string const& label, std::vector<counterpart> const& rows) {
-		if(rows.empty() || y + 32.f > floor_y)
-			return;
-		sans(state, label, left, y + 12.f, 13, dip_muted);
-		flag_row(state, rows, left + 112.f, right, y + 3.f, hovering, mx, my);
-		y += 36.f;
-	};
-	if(v.crisis) {
-		sans(state, localized(state, "katechon_dip_crisis", "Crisis") + ": " + v.crisis_title, left, y + 10.f, 14, dip_no);
-		y += 26.f;
-		for(auto const& d : v.crisis_deeds)
-			y = action_row(state, d, left, right, y, hovering, mx, my);
-	}
-	row_of(localized(state, "katechon_dip_wars", "At war with"), v.wars);
-	row_of(localized(state, "katechon_dip_allies", "Allies"), v.allies);
-	row_of(localized(state, "katechon_dip_prospects", "Likely partners"), v.prospects);
-	row_of(localized(state, "katechon_dip_hostile_to_us", "Hostile to us"), v.foes);
-	if(!journal.empty() && y + 50.f < floor_y) {
-		dip_rule_line(state, left, right, y + 4.f);
-		y += 14.f;
-		for(size_t i = journal.size(), shown = 0; i-- > 0 && shown < 3; ++shown) {
-			auto const& e = journal[i];
-			dip_flag(state, e.target, left, y + 4.f, 18.f, 12.f);
-			sans(state, sans_fit(state, e.what, 13, right - left - 130.f), left + 26.f, y + 10.f, 13, dip_text);
-			auto const word = e.outcome > 0 ? localized(state, "katechon_dip_j_yes", "agreed") : (e.outcome < 0 ? localized(state, "katechon_dip_j_no", "refused") : localized(state, "katechon_dip_j_wait", "awaiting"));
-			sans(state, word, right, y + 10.f, 13, e.outcome > 0 ? dip_yes : (e.outcome < 0 ? dip_no : dip_muted), true);
-			y += 24.f;
-		}
-	}
-	sans(state, localized(state, "katechon_dip_pick_hint", "Choose a country on the map; a right press shows what can be done with it"), left, floor_y - 6.f, 12, dip_faint);
+// A plain line of text in the sheet.
+float note_line(sys::state& state, std::string const& text, float left, float right, float y, ogl::color3f colour, int32_t size = 14, int32_t lines = 2) {
+	return sans_paragraph(state, text, left, right, y + 4.f, size, colour, lines, true) + 2.f;
 }
 
 // ---- the review of a proposal ----
@@ -2338,7 +2561,7 @@ void draw_review(sys::state& state, float x, float y0, float screen_h, bool hove
 		if(!diplomacy.friends.empty())
 			binds.push_back(sentence(localized(state, "katechon_dip_b_their_allies", "Their other ties do not bind us: %1"), join_names(state, diplomacy.friends, 3)));
 		term_line = localized(state, "katechon_dip_t_ally", "Until one side ends it");
-		end_line = sentence(localized(state, "katechon_dip_x_ally", "Diplomats: %1; remembered as a broken promise"), whole(d.cancelalliance_diplomatic_cost));
+		end_line = sentence(localized(state, "katechon_dip_x_ally", "Diplomats: %1; a broken promise"), whole(d.cancelalliance_diplomatic_cost));
 		break;
 	}
 	case deed::ask_access:
@@ -2466,7 +2689,7 @@ void draw_review(sys::state& state, float x, float y0, float screen_h, bool hove
 	if(allowed)
 		content += 22.f + 30.f * float(std::popcount(allowed)) + 8.f;
 	content += 56.f + 24.f;
-	auto const h = std::min(screen_h - y0 - 16.f, content);
+	auto const h = std::min(screen_h - y0 - 62.f, content); // the map's key stays clear below it
 	dip_frame(state, x, y0, w, h, true);
 	auto const floor_y = y0 + h - 16.f;
 
@@ -2487,7 +2710,7 @@ void draw_review(sys::state& state, float x, float y0, float screen_h, bool hove
 		dip_rule_line(state, left, right, y);
 		y += 8.f;
 		sans(state, localized(state, "katechon_dip_reading", "Our reading of their answer"), left, y + 12.f, 13, dip_muted);
-		verdict_pill(state, a.verdict, right, y + 12.f, 13);
+		verdict_mark(state, a.verdict, right, y + 12.f, 14);
 		y += 28.f;
 		{
 			auto const conf = sentence(localized(state, "katechon_dip_confidence", "Confidence: %1"), diplomacy.knowledge_word);
@@ -2619,149 +2842,210 @@ void draw_review(sys::state& state, float x, float y0, float screen_h, bool hove
 	}
 }
 
-// ---- the panel of another country ----
-void draw_foreign_panel(sys::state& state, float x0, float y0, float w, float h, bool hovering, float mx, float my) {
-	auto const& v = diplomacy;
-	auto const left = x0 + 24.f;
-	auto const right = x0 + w - 24.f;
-	// as tall as what it has to say
-	float content = 92.f + 74.f;
-	content += sans_paragraph(state, v.dispatch, left, right, 0.f, 13, dip_text, 3, false) + 10.f;
-	auto const chip_rows = float(!v.common.empty()) + float(!v.frictions.empty()) + float(!v.priorities.empty());
-	content += chip_rows > 0.f ? 24.f + 28.f * chip_rows + 4.f : 0.f;
-	content += 36.f;
-	if(dip_tab == 0) {
-		for(size_t i = 0; i < v.top.size(); ++i)
-			content += i == 0 ? 122.f : 48.f + (v.deeds[v.top[i]].in_return ? 22.f : 0.f);
-	} else if(dip_tab >= 1 && dip_tab <= 4) {
-		for(auto const& d : v.deeds)
-			if(int32_t(d.kind) == dip_tab - 1)
-				content += 48.f + (d.in_return && d.possible ? 22.f : 0.f);
-	} else {
-		content += 22.f * float(std::max<size_t>(1, std::min<size_t>(v.history.size(), 12)));
-	}
-	content += 58.f;
-	auto const ph = std::min(h - y0 - 16.f, content);
-	dip_frame(state, x0, y0, w, ph);
-	auto const floor_y = y0 + ph - 14.f;
+// ---- the sheet ----
+//
+// Two states and a third on demand: our foreign affairs when no other country
+// is chosen; a country, with how we stand, why, and what can be done; and the
+// review of a decision beside it. The sheet's head stays; what is under it
+// scrolls with the wheel.
 
-	// who they are, and how they stand with us
-	dip_flag(state, v.nation, left, y0 + 22.f, 69.f, 46.f);
-	auto const tx = left + 84.f;
-	auto const stance_w = sans_w(state, v.temper_word, 14) + 28.f;
-	draw_text(state, fit(state, v.title, 25, 0.01f, right - tx - 34.f), tx, y0 + 34.f, 25, 0.01f, dip_name);
-	sans(state, sans_fit(state, v.subtitle, 13, right - tx - stance_w - 8.f), tx, y0 + 60.f, 13, dip_muted);
-	{
-		auto const sx = right - stance_w;
-		nine(state, dip_chip, sx, y0 + 49.f, stance_w, 22.f, 64.f, 32.f, 16.f, 11.f);
-		fill(state, sx + 10.f, y0 + 57.f, 6.f, 6.f, temper_colours[size_t(v.temper)], 1.f);
-		sans(state, v.temper_word, sx + 20.f, y0 + 60.f, 14, temper_colours[size_t(v.temper)]);
-	}
-	{
-		hit_target close{ right - 12.f, y0 + 10.f, 26.f, 26.f, action::toggle_diplomacy };
-		draw_icon(state, icon::close, close.x + 13.f, close.y + 13.f, 11.f, hovering && over(close, mx, my) ? dip_text : dip_bronze);
-		targets.push_back(close);
+// The country's name, what it is, and the tie between us.
+float sheet_head(sys::state& state, float x0, float y0, float left, float right, bool hovering, float mx, float my) {
+	auto const& v = diplomacy;
+	auto const tx = left + 80.f;
+	if(v.own) {
+		sans(state, upper(localized(state, "katechon_dip_foreign_affairs", "Foreign affairs")), tx, y0 + 22.f, 11, dip_heading_c, false, 0.14f);
+		dip_flag(state, v.nation, left, y0 + 24.f, 66.f, 44.f);
+		draw_text(state, fit(state, v.title, 26, 0.01f, right - tx - 30.f), tx, y0 + 46.f, 26, 0.01f, dip_name);
+		sans(state, sans_fit(state, text::date_to_string(state, state.current_date) + "  ·  " + v.subtitle, 14, right - tx), tx, y0 + 70.f, 14, dip_second);
+	} else {
+		dip_flag(state, v.nation, left, y0 + 22.f, 66.f, 44.f);
+		draw_text(state, fit(state, v.title, 26, 0.01f, right - tx - 56.f), tx, y0 + 34.f, 26, 0.01f, dip_name);
+		sans(state, sans_fit(state, v.subtitle, 14, right - tx), tx, y0 + 58.f, 14, dip_second);
+		sans(state, v.formal, tx, y0 + 78.f, 15, v.formal_colour);
 		hit_target home{ right - 40.f, y0 + 10.f, 26.f, 26.f, action::diplomacy_home };
 		draw_icon(state, icon::home, home.x + 13.f, home.y + 13.f, 12.f, hovering && over(home, mx, my) ? dip_text : dip_bronze);
 		if(hovering && over(home, mx, my))
 			hint(localized(state, "katechon_dip_home", "Our own diplomacy"), home);
 		targets.push_back(home);
 	}
-	auto y = y0 + 88.f;
+	hit_target close{ right - 12.f, y0 + 10.f, 26.f, 26.f, action::toggle_diplomacy };
+	draw_icon(state, icon::close, close.x + 13.f, close.y + 13.f, 11.f, hovering && over(close, mx, my) ? dip_text : dip_bronze);
+	targets.push_back(close);
+	return y0 + (v.own ? 92.f : 96.f);
+}
 
-	// the three figures
-	dip_rule_line(state, left, right, y);
-	y += 10.f;
+// Our foreign affairs: where we stand, what needs attention, where we could go.
+float draw_overview(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
+	auto const& v = diplomacy;
+	// three figures
 	{
 		auto const cw = (right - left) / 3.f;
-		figure_column(state, localized(state, "katechon_dip_fig_relations", "Relations"), v.relations, left, cw, y, hovering, mx, my);
-		figure_column(state, localized(state, "katechon_dip_fig_trust", "Trust"), v.trust, left + cw, cw, y, hovering, mx, my);
-		figure_column(state, localized(state, "katechon_dip_fig_influence", "Influence"), v.influence, left + 2.f * cw, cw, y, hovering, mx, my);
+		auto const figure = [&](float x, std::string const& value, ogl::color3f colour, std::string const& label, std::string const& note) {
+			sans(state, value, x, y + 16.f, 24, colour);
+			sans(state, label, x, y + 40.f, 13, dip_second);
+			if(!note.empty())
+				sans(state, sans_fit(state, note, 12, cw * 3.f - (x - left)), x, y + 57.f, 12, dip_faint);
+		};
+		figure(left, whole(std::floor(v.diplomats)), v.diplomats < 1.f ? dip_amber : dip_name, localized(state, "katechon_dip_ov_diplomats", "Diplomats"), v.diplomats_next);
+		figure(left + cw, std::to_string(v.allies.size()), dip_name, localized(state, "katechon_dip_ov_allies", "Allies"), std::string());
+		figure(left + 2.f * cw, v.wars.empty() ? localized(state, "katechon_dip_ov_peace", "Peace") : sentence(localized(state, "katechon_dip_ov_wars", "Wars: %1"), std::to_string(v.wars.size())),
+			v.wars.empty() ? dip_name : temper_colours[0], localized(state, "katechon_dip_ov_war_status", "War status"), std::string());
+		y += v.diplomats_next.empty() ? 52.f : 66.f;
 	}
-	y += 62.f;
-	dip_rule_line(state, left, right, y);
-	y += 8.f;
-
-	// how things stand
-	y = sans_paragraph(state, v.dispatch, left, right, y, 13, dip_text, 3, true) + 6.f;
-
-	// what we share and what divides us
-	if(chip_rows > 0.f) {
-		y = dip_heading(state, localized(state, "katechon_dip_interests", "Strategic interests"), left, right, y + 2.f);
-		y = chip_line(state, localized(state, "katechon_dip_common", "Common ground"), v.common, left, right, y, hovering, mx, my);
-		y = chip_line(state, localized(state, "katechon_dip_frictions", "Frictions"), v.frictions, left, right, y, hovering, mx, my);
-		y = chip_line(state, localized(state, "katechon_dip_their_aims", "Their priorities"), v.priorities, left, right, y, hovering, mx, my);
-		y += 4.f;
+	// the network
+	y = dip_section(state, localized(state, "katechon_dip_ov_network", "Our diplomatic network"), left, right, y);
+	if(v.network.empty())
+		y = note_line(state, localized(state, "katechon_dip_ov_alone", "We stand in no alliance and protect no one."), left, right, y, dip_second);
+	auto const all = (dip_tab & 4) != 0;
+	for(size_t i = 0; i < v.network.size(); ++i) {
+		if(!all && i >= 5)
+			break;
+		y = line_row(state, v.network[i], left, right, y, hovering, mx, my, true, false);
 	}
-
-	// what can be done
-	y = action_tabs(state, left, right, y + 4.f, hovering, mx, my);
-	auto const room = floor_y - 42.f;
-	if(dip_tab == 0) {
-		for(size_t i = 0; i < v.top.size(); ++i) {
-			auto const& d = v.deeds[v.top[i]];
-			if(i == 0) {
-				if(y + 112.f > room)
-					break;
-				y = primary_card(state, d, left, right, y + 2.f, hovering, mx, my);
-			} else {
-				if(y + 48.f > room)
-					break;
-				y = action_row(state, d, left, right, y, hovering, mx, my);
-			}
-		}
-	} else if(dip_tab >= 1 && dip_tab <= 4) {
-		auto any = false;
-		for(auto const& d : v.deeds) {
-			if(int32_t(d.kind) != dip_tab - 1)
-				continue;
-			any = true;
-			if(y + 48.f > room)
-				break;
+	if(v.network.size() > 5)
+		y = expander(state, all ? localized(state, "katechon_dip_ov_fewer", "Fewer") : sentence(localized(state, "katechon_dip_ov_all_ties", "All ties (%1)"), std::to_string(v.network.size())), all, 4, left, y, hovering, mx, my);
+	// what needs attention
+	y = dip_section(state, localized(state, "katechon_dip_ov_attention", "Needs attention"), left, right, y);
+	if(v.attention.empty() && !v.crisis)
+		y = note_line(state, localized(state, "katechon_dip_ov_quiet", "Nothing needs our attention now."), left, right, y, dip_second);
+	for(auto const& l : v.attention)
+		y = line_row(state, l, left, right, y, hovering, mx, my, false, true);
+	if(v.crisis) {
+		y = note_line(state, localized(state, "katechon_dip_crisis", "Crisis") + ": " + v.crisis_title, left, right, y, dip_no, 15, 1);
+		for(auto const& d : v.crisis_deeds)
 			y = action_row(state, d, left, right, y, hovering, mx, my);
-		}
-		if(!any)
-			sans(state, localized(state, "katechon_dip_none_here", "Nothing of this kind can be done with them now"), left, y + 14.f, 13, dip_faint);
-	} else {
-		if(v.history.empty())
-			sans(state, localized(state, "katechon_dip_h_none", "Nothing has passed between us yet"), left, y + 14.f, 13, dip_faint);
-		for(auto const& e : v.history) {
-			if(y + 22.f > room)
-				break;
-			auto const date = e.day > 0 ? text::date_to_string(state, date_of_day(e.day)) : std::string();
-			auto const dw = sans(state, date, left, y + 11.f, 12, dip_faint);
-			auto const dot = e.tone > 0 ? dip_yes : (e.tone < 0 ? dip_no : dip_bronze);
-			fill(state, left + std::max(dw, 86.f) + 6.f, y + 8.f, 5.f, 5.f, dot, 1.f);
-			sans(state, sans_fit(state, e.text, 13, right - left - std::max(dw, 86.f) - 18.f), left + std::max(dw, 86.f) + 18.f, y + 11.f, 13, dip_text);
-			y += 22.f;
+	}
+	// where we could go
+	y = dip_section(state, localized(state, "katechon_dip_ov_partners", "Possible partners"), left, right, y);
+	if(v.partners.empty())
+		y = note_line(state, localized(state, "katechon_dip_ov_no_partners", "As we read them, no government would ally with us now."), left, right, y, dip_second);
+	for(auto const& l : v.partners)
+		y = line_row(state, l, left, right, y, hovering, mx, my, true, true);
+	// our own proposals of late
+	if(!journal.empty()) {
+		y = dip_section(state, localized(state, "katechon_dip_ov_proposals", "Our proposals"), left, right, y);
+		for(size_t i = journal.size(), shown = 0; i-- > 0 && shown < 3; ++shown) {
+			auto const& e = journal[i];
+			auto const word = e.outcome > 0 ? localized(state, "katechon_dip_j_yes", "agreed") : (e.outcome < 0 ? localized(state, "katechon_dip_j_no", "refused") : localized(state, "katechon_dip_j_wait", "awaiting"));
+			sheet_line l{ nation_name(state, e.target) + ":  " + e.what, word, int8_t(e.outcome), e.target, -1, e.outcome > 0 ? dip_yes : (e.outcome < 0 ? dip_no : dip_second) };
+			y = line_row(state, l, left, right, y, hovering, mx, my, true, false);
 		}
 	}
+	y = note_line(state, localized(state, "katechon_dip_pick_hint", "Choose a country on the map; a right press shows what can be done with it"), left, right, y + 8.f, dip_faint, 13);
+	return y;
+}
 
-	// how well we read them, and the way to what has passed
+// Another country: how we stand and why, what can be done, what binds us, what has passed.
+float draw_country(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
+	auto const& v = diplomacy;
+	if(!v.dispatch.empty())
+		y = note_line(state, v.dispatch, left, right, y, dip_text, 14, 3);
+
+	// how we stand
+	y = dip_section(state, localized(state, "katechon_dip_bilateral", "Bilateral relations"), left, right, y);
 	{
-		auto const fy = floor_y - 40.f;
-		dip_rule_line(state, left, right, fy);
-		auto const label = localized(state, "katechon_dip_our_reading", "Our reading of them:");
-		auto const lw = sans(state, label, left, fy + 16.f, 12, dip_muted);
-		auto const q = v.knowledge.quality;
-		auto const qc = q >= 0.6f ? dip_yes : (q >= 0.35f ? ogl::color3f{ 0.92f, 0.76f, 0.42f } : dip_no);
-		auto const kw = sans(state, v.knowledge_word, left + lw + 6.f, fy + 16.f, 12, qc);
-		auto const bar_x = left + lw + kw + 16.f;
-		auto const bar_w = 60.f;
-		fill(state, bar_x, fy + 14.f, bar_w, 4.f, dip_rule, 1.f);
-		fill(state, bar_x, fy + 14.f, bar_w * std::clamp(q / 0.9f, 0.f, 1.f), 4.f, qc, 1.f);
-		hit_target t{ left, fy + 4.f, bar_x + bar_w - left, 22.f, action::none };
+		constexpr float label_w = 92.f;
+		auto const row = [&](std::string const& label, std::string const& value, ogl::color3f colour, std::string const& note, std::vector<std::string> const& detail) {
+			sans(state, label, left, y + 14.f, 14, dip_second);
+			auto const vw = sans(state, value, left + label_w, y + 14.f, 15, colour);
+			if(!note.empty())
+				sans(state, sans_fit(state, note, 13, right - left - label_w - vw - 12.f), left + label_w + vw + 10.f, y + 14.f, 13, dip_second);
+			hit_target t{ left - 4.f, y, right - left + 8.f, 28.f, action::none };
+			if(hovering && over(t, mx, my) && !detail.empty())
+				dip_hint(detail, t);
+			y += 28.f;
+		};
+		auto const relation_value = v.relations.value + "  " + v.temper_word;
+		auto const relation_note = v.relations.trend_known && v.relations.trend != 0 ? v.relations.trend_word : std::string();
+		row(localized(state, "katechon_dip_fig_relations", "Relations"), relation_value, temper_colours[size_t(v.temper)], relation_note, v.relations.detail);
+		row(localized(state, "katechon_dip_fig_trust", "Trust"), v.trust.value, v.trust.colour, v.trust_note, v.trust.detail);
+		auto const before = y;
+		y = note_line(state, v.knowledge_line, left, right, y, dip_second, 13, 2);
+		hit_target t{ left - 4.f, before, right - left + 8.f, y - before, action::none };
 		if(hovering && over(t, mx, my))
 			dip_hint(v.knowledge_detail, t);
-		auto const history_label = dip_tab == 5 ? localized(state, "katechon_dip_back", "Back to actions") : localized(state, "katechon_dip_history", "Diplomatic history");
-		auto const hw = sans_w(state, history_label, 13);
-		hit_target link{ right - hw - 18.f, fy + 6.f, hw + 18.f, 22.f, action::dip_tab, nullptr, dip_tab == 5 ? 0 : 5 };
-		auto const on = hovering && over(link, mx, my);
-		sans(state, history_label, right - 14.f, fy + 16.f, 13, on ? dip_name : dip_bronze, true);
-		draw_icon(state, icon::chevron_right, right - 5.f, fy + 16.f, 9.f, on ? dip_name : dip_bronze);
-		targets.push_back(link);
-		sans(state, sans_fit(state, diplomats_word(state, v.diplomats), 12, right - left), left, fy + 34.f, 12, dip_faint);
+		if(!v.aims.empty()) {
+			auto const at = y;
+			y = note_line(state, v.aims, left, right, y, dip_second, 13, 2);
+			hit_target a{ left - 4.f, at, right - left + 8.f, y - at, action::none };
+			if(hovering && over(a, mx, my) && !v.priorities.empty() && !v.priorities.front().why.empty())
+				dip_hint({ v.aims, v.priorities.front().why }, a);
+		}
 	}
+
+	// why they would work with us, and what stands between us
+	auto const reasons = [&](std::string const& heading, std::vector<interest_chip> const& list, int8_t tone) {
+		if(list.empty())
+			return;
+		y = dip_section(state, heading, left, right, y);
+		for(auto const& c : list) {
+			sheet_line l{ c.text, std::string(), tone };
+			auto const at = y;
+			y = line_row(state, l, left, right, y, hovering, mx, my, false, false);
+			hit_target t{ left - 4.f, at, right - left + 8.f, y - at, action::none };
+			if(hovering && over(t, mx, my) && !c.why.empty())
+				dip_hint({ c.text, c.why }, t);
+		}
+	};
+	reasons(localized(state, "katechon_dip_why_cooperate", "Why they cooperate"), v.common, 1);
+	reasons(localized(state, "katechon_dip_what_divides", "What divides us"), v.frictions, -1);
+
+	// what can be done now
+	y = dip_section(state, localized(state, "katechon_dip_opportunities", "Diplomatic opportunities"), left, right, y);
+	if(v.opportunities.empty())
+		y = note_line(state, localized(state, "katechon_dip_none_now", "Nothing worth proposing to them now."), left, right, y, dip_second);
+	for(size_t i = 0; i < v.opportunities.size(); ++i)
+		y = action_row(state, v.deeds[v.opportunities[i]], left, right, y, hovering, mx, my, i == 0);
+	{
+		auto const open = (dip_tab & 1) != 0;
+		y = expander(state, open ? localized(state, "katechon_dip_fewer_actions", "Fewer actions") : sentence(localized(state, "katechon_dip_all_actions", "All diplomatic actions (%1)"), std::to_string(v.deeds.size())), open, 1, left, y + 4.f, hovering, mx, my);
+		if(open) {
+			static constexpr std::array<std::pair<std::string_view, std::string_view>, 4> kinds{ std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_relations", "Relations" },
+				std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_agreements", "Agreements" }, std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_influence", "Influence" },
+				std::pair<std::string_view, std::string_view>{ "katechon_dip_tab_coercion", "Coercion" } };
+			for(size_t k = 0; k < kinds.size(); ++k) {
+				auto any = false;
+				for(auto const& d : v.deeds) {
+					if(size_t(d.kind) != k)
+						continue;
+					if(!any) {
+						sans(state, localized(state, kinds[k].first, kinds[k].second), left, y + 12.f, 13, dip_heading_c);
+						y += 22.f;
+						any = true;
+					}
+					y = action_row(state, d, left, right, y, hovering, mx, my);
+				}
+			}
+		}
+	}
+
+	// what binds us now
+	if(!v.agreements.empty()) {
+		y = dip_section(state, localized(state, "katechon_dip_agreements", "Existing agreements"), left, right, y);
+		for(auto const& l : v.agreements)
+			y = line_row(state, l, left, right, y, hovering, mx, my, false, false);
+	}
+
+	// what has passed
+	{
+		auto const open = (dip_tab & 2) != 0;
+		y = expander(state, sentence(localized(state, "katechon_dip_history_n", "Diplomatic history (%1)"), std::to_string(v.history.size())), open, 2, left, y + 10.f, hovering, mx, my);
+		if(open) {
+			if(v.history.empty())
+				y = note_line(state, localized(state, "katechon_dip_h_none", "Nothing has passed between us yet"), left, right, y, dip_second);
+			for(auto const& e : v.history) {
+				auto const date = e.day > 0 ? text::date_to_string(state, date_of_day(e.day)) : std::string();
+				auto const dw = std::max(sans(state, date, left, y + 13.f, 13, dip_faint), 92.f);
+				auto const dot = e.tone > 0 ? dip_yes : (e.tone < 0 ? dip_no : dip_heading_c);
+				fill(state, left + dw + 6.f, y + 10.f, 5.f, 5.f, dot, 1.f);
+				sans(state, sans_fit(state, e.text, 14, right - left - dw - 18.f), left + dw + 18.f, y + 13.f, 14, dip_text);
+				y += 26.f;
+			}
+		}
+	}
+	y = note_line(state, sentence(localized(state, "katechon_dip_have_diplomats", "We have %1 diplomats"), text::format_float(v.diplomats, 1)), left, right, y + 6.f, dip_faint, 13, 1);
+	return y;
 }
 
 void draw_diplomacy(sys::state& state, float h, bool hovering, float mx, float my) {
@@ -2770,12 +3054,122 @@ void draw_diplomacy(sys::state& state, float h, bool hovering, float mx, float m
 	constexpr float w = 436.f;
 	auto const x0 = ribbon_w + 8.f;
 	auto const y0 = top_h + 12.f;
-	if(diplomacy.own)
-		draw_own_panel(state, x0, y0, w, h, hovering, mx, my);
-	else
-		draw_foreign_panel(state, x0, y0, w, h, hovering, mx, my);
+	auto const left = x0 + 26.f;
+	auto const right = x0 + w - 26.f;
+	auto const head_h = diplomacy.own ? 92.f : 96.f;
+	if(dip_content_h <= 0.f)
+		dip_content_h = 420.f;
+	auto const ph = std::min(h - y0 - 16.f, head_h + dip_content_h + 14.f);
+	dip_frame(state, x0, y0, w, ph);
+	dip_area = rect{ x0, y0, w, ph };
+	dip_hover_key = 0;
+	auto const body_top = sheet_head(state, x0, y0, left, right, hovering, mx, my);
+	auto const body_bottom = y0 + ph - 10.f;
+	auto const visible = body_bottom - body_top;
+	dip_scroll = std::clamp(dip_scroll, 0.f, std::max(0.f, dip_content_h - visible));
+	fill(state, left, body_top - 1.f, right - left, 1.f, dip_rule, 1.f);
+
+	// what scrolls: clipped to the body, and pressable only where it shows
+	auto const scale = state.user_settings.ui_scale;
+	glEnable(GL_SCISSOR_TEST);
+	glScissor(GLint(x0 * scale), GLint(float(state.y_size) - body_bottom * scale), GLsizei(w * scale), GLsizei(visible * scale));
+	auto const first_target = targets.size();
+	auto const inside = hovering && my >= body_top && my < body_bottom;
+	auto const start = body_top - dip_scroll;
+	auto const end = diplomacy.own ? draw_overview(state, left, right, start, inside, mx, my) : draw_country(state, left, right, start, inside, mx, my);
+	glDisable(GL_SCISSOR_TEST);
+	dip_content_h = end - start + 8.f;
+	targets.erase(std::remove_if(targets.begin() + std::ptrdiff_t(first_target), targets.end(), [&](hit_target const& t) { return t.y + t.h <= body_top || t.y >= body_bottom; }), targets.end());
+	for(size_t i = first_target; i < targets.size(); ++i) {
+		auto& t = targets[i];
+		auto const top = std::max(t.y, body_top);
+		t.h = std::min(t.y + t.h, body_bottom) - top;
+		t.y = top;
+	}
+	// a thin bar when there is more than shows
+	if(dip_content_h > visible + 1.f) {
+		auto const bar_h = std::max(30.f, visible * visible / dip_content_h);
+		auto const bar_y = body_top + (visible - bar_h) * (dip_scroll / (dip_content_h - visible));
+		fill(state, x0 + w - 9.f, bar_y, 3.f, bar_h, dip_bronze, 0.55f);
+	}
+
 	if(deal_open)
 		draw_review(state, x0 + w + 14.f, y0, h, hovering, mx, my);
+	if(diplomacy_layer)
+		draw_map_key(state, x0 + w + 14.f, h - 46.f);
+
+	// what the map puts forward: what is under review, or what the mouse rests on
+	if(deal_open && !diplomacy.own) {
+		std::vector<dcon::nation_id> list{ diplomacy.nation };
+		for(auto const& f : diplomacy.friends)
+			if(nations::are_allied(state, diplomacy.nation, f.id))
+				list.push_back(f.id);
+		for(auto const& r : review_reactions)
+			list.push_back(r.nation);
+		dip_highlight = std::move(list);
+		dip_hover_key = 0xFFFF000000000000ull | (uint64_t(review_deed) << 32) | uint64_t(review_reactions.size());
+	} else if(dip_hover_key == 0) {
+		dip_highlight.clear();
+	}
+	if(dip_hover_key != dip_highlight_key) {
+		dip_highlight_key = dip_hover_key;
+		if(diplomacy_layer)
+			lay_tie_lanes(state);
+	}
+}
+
+// Whether the wheel turns the sheet.
+bool dip_wheel(float x, float y, float amount) {
+	if(!diplomacy_open || x < dip_area.x || x >= dip_area.x + dip_area.w || y < dip_area.y || y >= dip_area.y + dip_area.h)
+		return false;
+	dip_scroll -= amount * 48.f;
+	return true;
+}
+
+// The key to the map, beside the sheet.
+void draw_map_key(sys::state& state, float x, float y) {
+	bool kinds[7]{};
+	for(auto const& t : diplomacy.ties)
+		kinds[size_t(t.kind)] = true;
+	struct entry {
+		ogl::color3f colour;
+		std::string text;
+		bool line;
+	};
+	std::vector<entry> entries;
+	entries.push_back(entry{ ogl::color3f{ 0.90f, 0.72f, 0.40f }, diplomacy.own ? localized(state, "katechon_dip_key_us", "Us") : diplomacy.title, false });
+	if(!diplomacy.own)
+		entries.push_back(entry{ ogl::color3f{ 0.56f, 0.48f, 0.66f }, localized(state, "katechon_dip_key_us", "Us"), false });
+	if(kinds[size_t(tie_kind::alliance)])
+		entries.push_back(entry{ ogl::color3f{ 0.30f, 0.50f, 0.70f }, diplomacy.own ? localized(state, "katechon_dip_key_our_allies", "Our allies") : localized(state, "katechon_dip_key_its_allies", "Its allies"), false });
+	if(kinds[size_t(tie_kind::war)])
+		entries.push_back(entry{ ogl::color3f{ 0.70f, 0.26f, 0.22f }, diplomacy.own ? localized(state, "katechon_dip_key_our_enemies", "Our enemies") : localized(state, "katechon_dip_key_its_enemies", "At war with it"), false });
+	if(kinds[size_t(tie_kind::alliance)])
+		entries.push_back(entry{ tie_colour(tie_kind::alliance), localized(state, "katechon_dip_key_alliance", "Alliance"), true });
+	if(kinds[size_t(tie_kind::war)])
+		entries.push_back(entry{ tie_colour(tie_kind::war), localized(state, "katechon_dip_key_war", "War"), true });
+	if(kinds[size_t(tie_kind::subject)])
+		entries.push_back(entry{ tie_colour(tie_kind::subject), localized(state, "katechon_dip_key_protection", "Protection"), true });
+	if(kinds[size_t(tie_kind::hostile)] || kinds[size_t(tie_kind::claim)] || kinds[size_t(tie_kind::rival)])
+		entries.push_back(entry{ tie_colour(tie_kind::claim), localized(state, "katechon_dip_key_hostile", "Rivalry, claims, hostility"), true });
+	if(kinds[size_t(tie_kind::cordial)])
+		entries.push_back(entry{ tie_colour(tie_kind::cordial), localized(state, "katechon_dip_key_cordial", "Old friendship"), true });
+	if(deal_open && !diplomacy.own)
+		entries.push_back(entry{ ogl::color3f{ 0.98f, 0.80f, 0.44f }, localized(state, "katechon_dip_key_proposed", "Under review"), true });
+	auto width = 24.f;
+	for(auto const& e : entries)
+		width += sans_w(state, e.text, 13) + 40.f;
+	fill(state, x, y, width, 30.f, ogl::color3f{ 0.05f, 0.07f, 0.09f }, 0.82f);
+	frame(state, x, y, width, 30.f, dip_rule, 1.f);
+	auto at = x + 12.f;
+	for(auto const& e : entries) {
+		if(e.line)
+			fill(state, at, y + 14.f, 18.f, 2.f, e.colour, 1.f);
+		else
+			fill(state, at + 3.f, y + 9.f, 12.f, 12.f, e.colour, 1.f);
+		at += 26.f;
+		at += sans(state, e.text, at, y + 15.f, 13, dip_second) + 14.f;
+	}
 }
 
 // Under the mouse, while the sheet paints the map: how a country stands with the one on the sheet.

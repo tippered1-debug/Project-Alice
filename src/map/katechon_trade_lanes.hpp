@@ -16,8 +16,11 @@ namespace map::katechon_trade {
 enum class lane_kind : uint8_t {
 	outgoing = 1, incoming = 2, foreign = 3,
 	// the ties of a country, drawn as arcs
-	tie_alliance = 4, tie_war = 5, tie_subject = 6, tie_hostile = 7, tie_cordial = 8
+	tie_alliance = 4, tie_war = 5, tie_subject = 6, tie_hostile = 7, tie_cordial = 8,
+	tie_proposed = 9 // the relation under review, from our capital
+	// a tie's kind plus tie_dimmed: the same tie, stepped back
 };
+inline constexpr uint8_t tie_dimmed = 6;
 
 struct lane {
 	dcon::province_id from;
