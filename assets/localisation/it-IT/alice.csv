@@ -477,9 +477,6 @@ event_show_odds;Probabilità dell'evento
 value_mod_product;Il valore $val$ è il prodotto di:
 value_mod_sum;Il valore $val$ è la somma di:
 value_mod_sum_factor;Il valore $val$ è $x$ volte la somma di:
-admin_explain_1;Modificatore di efficienza amministrativa di $val$
-admin_explain_2;Applicato al rapporto tra burocrati non coloniali: $val$
-admin_explain_3;Alla percentuale richiesta: $val$ (base $x$ + $y$ dalle riforme)
 factory_condition_1;La nazione è civilizzata
 factory_condition_2;Questo non è uno stato coloniale
 factory_condition_3;Il partito al potere permette la costruzione di fabbriche
@@ -1032,8 +1029,6 @@ et_on_po_accepted;Gli effetti ottenuti dall'accettazione di un'offerta di pace c
 alice_no_possible_units;Non è possibile costruire unità possibili e nessuna unità è in costruzione.
 alice_debt_spending;Abilita/disabilita la spesa per il debito
 alice_loan_size;Il nostro prestito massimo attuale è di $x$. Un debito maggiore ci porterà alla bancarotta
-alice_currently_bankrupt;Siamo in bancarotta (fino a $x$)
-alice_no_loans_possible;Al momento non siamo in grado di prendere prestiti
 alice_rf_demands_enforced_trigger;I ribelli faranno rispettare le loro richieste solo se:
 alice_rf_demands_enforced_effect;Una volta che i ribelli faranno rispettare le loro richieste, applicheranno il seguente effetto:
 alice_rf_siege_won_trigger;Se un ribelle vince un assedio, viene controllato quanto segue, ad esempio nella tua capitale $x$:

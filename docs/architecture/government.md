@@ -188,6 +188,59 @@ Money moves only between real accounts; allocating a budget never creates money.
 
 The governing programme becomes fiscal law through the finance minister (see [Politics](politics.md)). Legacy tax and spending sliders, budget figures on nations and provinces, ruling party, reforms, and national modifiers are read by no state action. A nation the scenario does not constitute is founded with the default model, a unitary parliamentary republic; no legacy government type is consulted.
 
+**The player's fiscal bill.** The player governs through the same bill (`governance::government::propose_fiscal_bill`, command `propose_fiscal_bill`). It carries the six fiscal topics: the base rate of income tax, its progressivity, and the weights of the education, public order, public works and local government appropriations. It is laid like the government's own bill:
+
+1. every member of the deciding chambers votes on their own economic exposure and their party's platform, governing parties also for the bill;
+2. the assenting offices must assent;
+3. a member enacts it.
+
+The chambers take one fiscal bill in thirty days, whoever lays it. Once enacted, the governing parties record a new coalition agreement with the enacted figures, so that their finance minister keeps the law instead of restoring the old programme. The outcome and the vote are kept as an interface notice.
+
+**Sovereign bonds.** The finance minister may offer bonds to the domestic banks (command `place_public_bonds`). The issue needs:
+
+- an office holding `issue_public_debt` over the national treasury;
+- a law that allows issuance and leaves room under the ceiling;
+- a bank that underwrites it. A bank buys only when the state's credit assessment clears its risk appetite (`economy::banking::quote_sovereign_credit`), within its capital, liquidity and exposure limits, at its own lending rate.
+
+The bank pays the principal from its reserves into the treasury and holds the bond (`economy::banking::buy_sovereign_bond`). An office holding `spend_public_funds` may repay an obligation before maturity from its debtor's treasury, interest first (command `repay_public_debt`).
+
+## The books of the state
+
+`governance::finance::fiscal_ledger` keeps each state's books: a one-way projection of the canonical fiscal flows for the interface. It moves no money and nothing reads it back as a cause. It is fed where money moves:
+
+- `economy::relations::record_transaction`, for transfers between DCON accounts;
+- the exact-person transfer ledger, for payments to and from persons;
+- the fiscal API, for what a transaction alone does not say: which tax was collected, what was assessed, and how a debt payment splits into interest and principal.
+
+The fiscal perimeter is every institution of the nation except the household sector (the pass-through account wage taxes are collected through). Money moving between two institutions of one state is never counted, so the monthly tax sweep, appropriations and transfers into construction subaccounts appear nowhere. A flow that crosses the perimeter is classified once:
+
+| Flow | Books |
+| --- | --- |
+| Tax received | Revenue by tax: income tax, resource royalties, customs duties, dividend tax. Tax a state institution pays its own state is internal. |
+| Tax assessed | Assessed (accrual); receivables are the open tax obligations. |
+| Dividend to the state as owner | State enterprises revenue. |
+| Other payments in | Other revenue. |
+| Public debt issued, loan received | Borrowing: financing, not revenue. |
+| Payroll, purchases and other final spending | Spending by the function of the paying institution: military, education, public order (police, intelligence, courts, prosecutors), infrastructure (public works), otherwise administration. |
+| Spending paid to a person outside payroll | Social transfers. |
+| Interest paid | Debt service. |
+| Principal repaid | Financing, not spending. |
+| Deposits, withdrawals, exchange, equity, lending | Financial flows. |
+
+At the end of each simulated day the books close it with the closing cash of every treasury, the finance ministry's own cash and the public debt outstanding. Each state keeps 400 days and 36 months; presimulated days are dropped. `governance::finance::report` reads a period (30 days, 90 days or the last 12 months) by day, week or month, and adds what is true now: treasuries, receivables, the obligations of public debt, the debt policy in law and the fiscal law in force.
+
+**Credit assessment.** `governance::finance::assess_credit` scores five ratios from the books and the obligations, each from 1 (at or better than its good bound) to 0 (at or worse than its poor bound):
+
+| Factor | Good | Poor |
+| --- | --- | --- |
+| Public debt to annual revenue | 60% | 300% |
+| Annual interest to annual revenue | 5% | 30% |
+| Treasury cash to debt service due within 90 days | 1 | 0 |
+| Budget balance to revenue | surplus | -50% |
+| Payment record | clean | in default (overdue: 0.4) |
+
+The assessment is the weakest factor; grades run from AAA (0.95) down to D (below 0.10, or in default). Without 30 recorded days of revenue there is nothing to annualize, and the state is not assessed. Banks underwrite sovereign bonds against this score.
+
 ## Central bank and armed forces
 
 **Central bank.** The central bank organization (see [Banking](banking.md)) is the economic arm of the constitutional `central_bank` institution. It reviews rates and lends reserves only while that institution holds `issue_currency` over the nation. Its inflation target is set by law.

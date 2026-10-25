@@ -201,6 +201,22 @@ endif()
 add_dependencies(collective_labor_focus_tests GENERATE_TEST_PARSERS GENERATE_PARSERS GENERATE_CONTAINER)
 catch_discover_tests(collective_labor_focus_tests WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets")
 
+# The books of the state: classification, periods, saves and the credit assessment.
+add_executable(fiscal_ledger_focus_tests
+	"${PROJECT_SOURCE_DIR}/tests/fiscal_ledger_main.cpp")
+alice_configure_test_compile(fiscal_ledger_focus_tests)
+target_compile_definitions(fiscal_ledger_focus_tests PRIVATE
+	GLM_ENABLE_EXPERIMENTAL ALICE_SPLIT_BUILD=1 DCON_TRAP_INVALID_STORE=1)
+target_precompile_headers(fiscal_ledger_focus_tests REUSE_FROM alice_test_engine)
+target_link_libraries(fiscal_ledger_focus_tests PRIVATE AliceCommon Catch2::Catch2 alice_test_engine)
+if(WIN32)
+	target_link_libraries(fiscal_ledger_focus_tests PRIVATE ${PROJECT_SOURCE_DIR}/libs/LLVM-C.lib)
+else()
+	target_link_libraries(fiscal_ledger_focus_tests PRIVATE fmt::fmt)
+endif()
+add_dependencies(fiscal_ledger_focus_tests GENERATE_TEST_PARSERS GENERATE_PARSERS GENERATE_CONTAINER)
+catch_discover_tests(fiscal_ledger_focus_tests WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/assets")
+
 add_executable(land_forces_focus_tests
 	"${PROJECT_SOURCE_DIR}/tests/land_forces_main.cpp"
 	"${PROJECT_SOURCE_DIR}/src/economy/collective_labor.cpp"

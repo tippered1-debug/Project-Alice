@@ -13,6 +13,7 @@
 #include "governance/law/law.hpp"
 #include "governance/policy.hpp"
 #include "governance/finance/finance.hpp"
+#include "governance/finance/fiscal_ledger.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
 
@@ -451,6 +452,11 @@ transfer_result transfer_with_result(sys::state& state, account_ref source, acco
 	record.kind = kind;
 	record.timestamp = timestamp;
 	store->transactions.push_back(record);
+	// The books of the state see the public side of a payment to or from a person.
+	governance::finance::observe_transfer(state,
+		source.kind == account_kind::dcon ? accounts::owner_of(state, source.dcon_account) : dcon::economic_actor_id{},
+		destination.kind == account_kind::dcon ? accounts::owner_of(state, destination.dcon_account) : dcon::economic_actor_id{},
+		amount, record.settlement, kind);
 	result.success = true;
 	result.exact_transaction_id = transaction_id;
 	return result;

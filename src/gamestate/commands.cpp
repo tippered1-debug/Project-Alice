@@ -36,6 +36,12 @@
 #include "compat/alice/legacy_bridge.hpp"
 #include "military/land_forces.hpp"
 #include "governance/command.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/government.hpp"
+#include "governance/law/law.hpp"
+#include "governance/offices.hpp"
+#include "economy/banking/banking.hpp"
+#include "economy/money.hpp"
 
 #include <cstdlib>
 
@@ -885,69 +891,6 @@ void execute_release_and_play_as(sys::state& state, dcon::nation_id source, dcon
 		auto pid = p.get_province();
 		state.world.province_set_is_colonial(pid, false);
 	}
-}
-
-inline bool can_change_budget_settings(sys::state& state, dcon::nation_id source, budget_settings_data const& values) {
-	if(!state.current_scene.game_in_progress) {
-		return false;
-	}
-	return true;
-}
-
-void change_budget_settings(sys::state& state, dcon::nation_id source, budget_settings_data const& values) {
-
-	command_data p{ command_type::change_budget, state.local_player_id };
-	p << values;
-	add_to_command_queue(state, p);
-
-}
-void execute_change_budget_settings(sys::state& state, dcon::nation_id source, budget_settings_data const& values) {
-	if(values.administrative_spending != int8_t(-127)) {
-		state.world.nation_set_administrative_spending(source, std::clamp(values.administrative_spending, int8_t(0), int8_t(100)));
-	}
-	if(values.construction_spending != int8_t(-127)) {
-		state.world.nation_set_construction_spending(source, std::clamp(values.construction_spending, int8_t(0), int8_t(100)));
-	}
-	if(values.education_spending != int8_t(-127)) {
-		state.world.nation_set_education_spending(source, std::clamp(values.education_spending, int8_t(0), int8_t(100)));
-	}
-	if(values.land_spending != int8_t(-127)) {
-		state.world.nation_set_land_spending(source, std::clamp(values.land_spending, int8_t(0), int8_t(100)));
-	}
-	if(values.middle_tax != int8_t(-127)) {
-		state.world.nation_set_middle_tax(source, std::clamp(values.middle_tax, int8_t(0), int8_t(100)));
-	}
-	if(values.poor_tax != int8_t(-127)) {
-		state.world.nation_set_poor_tax(source, std::clamp(values.poor_tax, int8_t(0), int8_t(100)));
-	}
-	if(values.rich_tax != int8_t(-127)) {
-		state.world.nation_set_rich_tax(source, std::clamp(values.rich_tax, int8_t(0), int8_t(100)));
-	}
-	if(values.military_spending != int8_t(-127)) {
-		state.world.nation_set_military_spending(source, std::clamp(values.military_spending, int8_t(0), int8_t(100)));
-	}
-	if(values.naval_spending != int8_t(-127)) {
-		state.world.nation_set_naval_spending(source, std::clamp(values.naval_spending, int8_t(0), int8_t(100)));
-	}
-	if(values.social_spending != int8_t(-127)) {
-		state.world.nation_set_social_spending(source, std::clamp(values.social_spending, int8_t(0), int8_t(100)));
-	}
-	if(values.tariffs_import != int8_t(-127)) {
-		state.world.nation_set_tariffs_import(source, std::clamp(values.tariffs_import, int8_t(-100), int8_t(100)));
-	}
-	if(values.tariffs_export != int8_t(-127)) {
-		state.world.nation_set_tariffs_export(source, std::clamp(values.tariffs_export, int8_t(-100), int8_t(100)));
-	}
-	if(values.domestic_investment != int8_t(-127)) {
-		state.world.nation_set_domestic_investment_spending(source, std::clamp(values.domestic_investment, int8_t(0), int8_t(100)));
-	}
-	if(values.overseas != int8_t(-127)) {
-		state.world.nation_set_overseas_spending(source, std::clamp(values.overseas, int8_t(0), int8_t(100)));
-	}
-	if(values.subsidies != int8_t(-127)) {
-		state.world.nation_set_subsidies_spending(source, std::clamp(values.subsidies, int8_t(0), int8_t(100)));
-	}
-	economy::bound_budget_settings(state, source);
 }
 
 void start_election(sys::state& state, dcon::nation_id source) {
@@ -5134,6 +5077,137 @@ void execute_toggle_production_directive(sys::state& state, dcon::nation_id sour
 	}
 }
 
+namespace {
+
+bool fiscal_fraction(float value, float top) {
+	return std::isfinite(value) && value >= 0.0f && value <= top;
+}
+
+// The person who exercises a fiscal power of the state over the national treasury.
+dcon::person_id fiscal_officer(sys::state& state, dcon::nation_id nation, governance::authority_kind power) {
+	auto ministry = governance::find_institution(state, nation, governance::institution_kind::finance_ministry);
+	if(!ministry) return {};
+	auto scope = governance::jurisdiction_of(state, ministry);
+	for(auto institution : governance::institutions_of(state, nation))
+		for(auto office : governance::offices_of(state, institution)) {
+			auto person = governance::offices::holder(state, office);
+			if(person && governance::offices::exercising(state, person, power, scope, state.current_date))
+				return person;
+		}
+	return {};
+}
+
+}
+
+void propose_fiscal_bill(sys::state& state, dcon::nation_id, fiscal_bill_data const& bill) {
+	command_data command{ command_type::propose_fiscal_bill, state.local_player_id };
+	auto data = bill;
+	command << data;
+	add_to_command_queue(state, command);
+}
+
+bool can_propose_fiscal_bill(sys::state& state, dcon::nation_id source, fiscal_bill_data const& bill) {
+	if(!state.current_scene.game_in_progress || !source || !state.world.nation_is_valid(source))
+		return false;
+	return fiscal_fraction(bill.income_tax, 0.4f) && fiscal_fraction(bill.progressivity, 1.0f) && fiscal_fraction(bill.education, 1.0f)
+		&& fiscal_fraction(bill.public_order, 1.0f) && fiscal_fraction(bill.infrastructure, 1.0f) && fiscal_fraction(bill.local_government, 1.0f);
+}
+
+void execute_propose_fiscal_bill(sys::state& state, dcon::nation_id source, fiscal_bill_data const& bill) {
+	using governance::policy::topic_id;
+	governance::policy::position proposal;
+	(void)governance::policy::set(proposal, topic_id::income_tax, bill.income_tax);
+	(void)governance::policy::set(proposal, topic_id::progressivity, bill.progressivity);
+	(void)governance::policy::set(proposal, topic_id::education_appropriation, bill.education);
+	(void)governance::policy::set(proposal, topic_id::policing_appropriation, bill.public_order);
+	(void)governance::policy::set(proposal, topic_id::public_works_appropriation, bill.infrastructure);
+	(void)governance::policy::set(proposal, topic_id::local_government_appropriation, bill.local_government);
+	auto notice = governance::government::propose_fiscal_bill(state, source, proposal, state.current_date);
+	governance::finance::note_bill(state, source, notice);
+}
+
+void place_public_bonds(sys::state& state, dcon::nation_id, float amount, uint16_t tenor_days) {
+	command_data command{ command_type::place_public_bonds, state.local_player_id };
+	auto data = public_bonds_data{ amount, tenor_days };
+	command << data;
+	add_to_command_queue(state, command);
+}
+
+bool can_place_public_bonds(sys::state& state, dcon::nation_id source, float amount, uint16_t tenor_days) {
+	return state.current_scene.game_in_progress && source && state.world.nation_is_valid(source)
+		&& std::isfinite(amount) && amount > 0.0f && tenor_days >= 30 && tenor_days <= 3650;
+}
+
+void execute_place_public_bonds(sys::state& state, dcon::nation_id source, float amount, uint16_t tenor_days) {
+	using governance::finance::debt_outcome;
+	governance::finance::debt_notice notice;
+	notice.on = state.current_date;
+	notice.amount = amount;
+	auto settle = [&](debt_outcome outcome) {
+		notice.outcome = outcome;
+		governance::finance::note_debt(state, source, notice);
+	};
+	auto ministry = governance::find_institution(state, source, governance::institution_kind::finance_ministry);
+	auto treasury = ministry ? governance::finance::treasury_account_for(state, ministry, economy::money) : dcon::monetary_account_id{};
+	auto minister = fiscal_officer(state, source, governance::authority_kind::issue_public_debt);
+	if(!treasury || !minister) return settle(debt_outcome::no_office);
+	auto policy = governance::law::public_debt_policy_for(state, source, economy::money, state.current_date);
+	if(!policy.issuance_allowed) return settle(debt_outcome::prohibited);
+	if(policy.ceiling && governance::finance::national_public_debt(state, source, economy::money) + amount > *policy.ceiling)
+		return settle(debt_outcome::ceiling);
+	bool any_bank = false;
+	state.world.for_each_organization([&](dcon::organization_id bank) {
+		if(state.world.organization_get_bank_jurisdiction(bank) == source
+			&& state.world.organization_get_bank_settlement_currency(bank) == economy::money
+			&& economy::banking::status_of(state, bank) == economy::banking::bank_status::solvent) any_bank = true;
+	});
+	if(!any_bank) return settle(debt_outcome::no_bank);
+	auto issuer = governance::actor_for_institution(state, ministry);
+	auto quote = economy::banking::quote_sovereign_credit(state, issuer, source, economy::money, amount,
+		governance::finance::assess_credit(state, source).score);
+	notice.bank = quote.bank;
+	notice.annual_rate = quote.annual_interest_rate;
+	if(!quote.bank || quote.amount + 1.0e-4f < amount) {
+		notice.amount = quote.amount; // what the banks would take, if anything
+		return settle(debt_outcome::declined);
+	}
+	auto action = governance::finance::authorized_issue_public_debt_to_bank(state, minister, treasury, quote.bank,
+		amount, state.current_date + int32_t(tenor_days), quote.annual_interest_rate, state.current_date);
+	settle(action ? debt_outcome::placed : debt_outcome::invalid);
+}
+
+void repay_public_debt(sys::state& state, dcon::nation_id, dcon::obligation_id obligation) {
+	command_data command{ command_type::repay_public_debt, state.local_player_id };
+	auto data = public_debt_data{ obligation };
+	command << data;
+	add_to_command_queue(state, command);
+}
+
+bool can_repay_public_debt(sys::state& state, dcon::nation_id source, dcon::obligation_id obligation) {
+	if(!state.current_scene.game_in_progress || !source || !obligation || !state.world.obligation_is_valid(obligation))
+		return false;
+	auto debtor = state.world.obligation_get_economic_actor_from_obligation_debtor(obligation);
+	auto institution = debtor ? state.world.economic_actor_get_institution_from_institution_actor(debtor) : dcon::institution_id{};
+	return institution && governance::nation_of(state, institution) == source;
+}
+
+void execute_repay_public_debt(sys::state& state, dcon::nation_id source, dcon::obligation_id obligation) {
+	using governance::finance::debt_outcome;
+	governance::finance::debt_notice notice;
+	notice.on = state.current_date;
+	auto minister = fiscal_officer(state, source, governance::authority_kind::spend_public_funds);
+	if(!minister) {
+		notice.outcome = debt_outcome::no_office;
+		governance::finance::note_debt(state, source, notice);
+		return;
+	}
+	auto due = economy::relations::total_due(state, obligation);
+	auto paid = governance::finance::authorized_repay_public_debt(state, minister, obligation, due, state.current_date);
+	notice.amount = paid ? state.world.transaction_get_amount(paid) : 0.0f;
+	notice.outcome = paid ? debt_outcome::repaid : debt_outcome::no_cash;
+	governance::finance::note_debt(state, source, notice);
+}
+
 void take_province(sys::state& state, dcon::nation_id source, dcon::province_id prov) {
 
 
@@ -6361,11 +6435,6 @@ bool can_perform_command(sys::state& state, command_data& c) {
 		return can_release_and_play_as(state, source, data.ident, c.header.player_id);
 	}
 
-	case command_type::change_budget:
-	{
-		auto& data = c.get_payload<command::budget_settings_data>();
-		return can_change_budget_settings(state, source, data);
-	}
 
 	case command_type::start_election:
 	{
@@ -6813,6 +6882,21 @@ bool can_perform_command(sys::state& state, command_data& c) {
 		auto& data = c.get_payload<command::deal_data>();
 		return can_propose_deal(state, source, data.target, data.gives, data.asks);
 	}
+	case command_type::propose_fiscal_bill:
+	{
+		auto& data = c.get_payload<command::fiscal_bill_data>();
+		return can_propose_fiscal_bill(state, source, data);
+	}
+	case command_type::place_public_bonds:
+	{
+		auto& data = c.get_payload<command::public_bonds_data>();
+		return can_place_public_bonds(state, source, data.amount, data.tenor_days);
+	}
+	case command_type::repay_public_debt:
+	{
+		auto& data = c.get_payload<command::public_debt_data>();
+		return can_repay_public_debt(state, source, data.obligation);
+	}
 
 	case command_type::take_province:
 	{
@@ -7121,12 +7205,6 @@ void execute_command(sys::state& state, command_data& c) {
 	{
 		auto& data = c.get_payload<tag_target_data>();
 		execute_release_and_play_as(state, source_nation, data.ident, c.header.player_id);
-		break;
-	}
-	case command_type::change_budget:
-	{
-		auto& data = c.get_payload<budget_settings_data>();
-		execute_change_budget_settings(state, source_nation, data);
 		break;
 	}
 	case command_type::start_election:;
@@ -7586,6 +7664,24 @@ void execute_command(sys::state& state, command_data& c) {
 	{
 		auto& data = c.get_payload<deal_data>();
 		execute_propose_deal(state, source_nation, data.target, data.gives, data.asks);
+		break;
+	}
+	case command_type::propose_fiscal_bill:
+	{
+		auto& data = c.get_payload<fiscal_bill_data>();
+		execute_propose_fiscal_bill(state, source_nation, data);
+		break;
+	}
+	case command_type::place_public_bonds:
+	{
+		auto& data = c.get_payload<public_bonds_data>();
+		execute_place_public_bonds(state, source_nation, data.amount, data.tenor_days);
+		break;
+	}
+	case command_type::repay_public_debt:
+	{
+		auto& data = c.get_payload<public_debt_data>();
+		execute_repay_public_debt(state, source_nation, data.obligation);
 		break;
 	}
 	case command_type::take_province:

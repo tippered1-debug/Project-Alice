@@ -10,6 +10,7 @@
 #include "economy/physical/exact_person_freight.hpp"
 #include "economy/physical/exact_person_goods.hpp"
 #include "economy/physical/labor_dynamics.hpp"
+#include "governance/finance/fiscal_ledger.hpp"
 #include "gamerule/gamerule.hpp"
 #include "persons/exact_population.hpp"
 #include "military/land_forces.hpp"
@@ -50,7 +51,7 @@ constexpr std::size_t strategic_statecraft_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 
 constexpr uint32_t exact_runtime_save_magic = 0x414F4558u; // AOEX
-constexpr uint16_t exact_runtime_save_version = 17;
+constexpr uint16_t exact_runtime_save_version = 18;
 constexpr std::size_t exact_runtime_save_header_size =
 	sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
 constexpr uint32_t exact_runtime_max_records = 64'000'000u;
@@ -66,6 +67,7 @@ struct exact_runtime_snapshot {
 	military::land_forces::snapshot land_forces;
 	technology::kernel::snapshot technology;
 	std::vector<economy::capital_projects::request_record> construction;
+	std::vector<governance::finance::fiscal_day> fiscal_days; // version 18
 	uint16_t extension_version = 0;
 	bool extension_found = false;
 	bool present = false;
@@ -318,6 +320,7 @@ std::size_t exact_runtime_payload_size(exact_runtime_snapshot const& snapshot) {
 	size += sizeof(foreign_exchange.version) + sizeof(foreign_exchange.next_order_id)
 		+ sizeof(foreign_exchange.next_fill_id) + pod_vector_size(foreign_exchange.orders)
 		+ pod_vector_size(foreign_exchange.fills);
+	size += pod_vector_size(snapshot.fiscal_days);
 	return size;
 }
 
@@ -333,6 +336,7 @@ exact_runtime_snapshot capture_exact_runtime_snapshot(sys::state const& state) {
 	result.land_forces = military::land_forces::export_snapshot(state);
 	result.technology = technology::kernel::export_snapshot(state);
 	result.construction = economy::capital_projects::export_requests(state);
+	result.fiscal_days = governance::finance::export_ledger(state);
 	result.present = true;
 	return result;
 }
@@ -443,6 +447,7 @@ uint8_t* write_exact_runtime_save(uint8_t* ptr, sys::state const& state) {
 	ptr = memcpy_serialize(ptr, foreign_exchange.next_fill_id);
 	ptr = write_pod_vector(ptr, foreign_exchange.orders);
 	ptr = write_pod_vector(ptr, foreign_exchange.fills);
+	ptr = write_pod_vector(ptr, snapshot.fiscal_days);
 	assert(std::size_t(ptr - payload_start) == payload_size);
 	return ptr;
 }
@@ -612,6 +617,7 @@ uint8_t const* read_exact_runtime_save(uint8_t const* ptr,
 	if(valid && version >= 16) ptr = memcpy_deserialize(ptr, result.foreign_exchange.next_fill_id);
 	if(valid && version >= 16) valid = read_pod_vector(ptr, payload_end, result.foreign_exchange.orders);
 	if(valid && version >= 16) valid = read_pod_vector(ptr, payload_end, result.foreign_exchange.fills);
+	if(valid && version >= 18) valid = read_pod_vector(ptr, payload_end, result.fiscal_days);
 	valid = valid && ptr == payload_end;
 	if(valid) result.present = true;
 	else {
@@ -636,6 +642,7 @@ void clear_exact_runtime_state(sys::state& state) {
 	economy::causal_order::clear_store(state);
 	military::land_forces::clear_store(state);
 	technology::kernel::clear_store(state);
+	governance::finance::clear_ledger(state);
 }
 
 bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const& snapshot) {
@@ -654,6 +661,7 @@ bool restore_exact_runtime_state(sys::state& state, exact_runtime_snapshot const
 	if(restored && snapshot.extension_version < 15) economy::capital_projects::isolate_pre_cut_projects(state);
 	if(restored && snapshot.extension_version >= 12)
 		restored = technology::kernel::import_snapshot(state, snapshot.technology);
+	if(restored) restored = governance::finance::import_ledger(state, snapshot.fiscal_days);
 	if(restored)
 		restored = economy::physical::exact_person_goods::validate_canonical_household_economy(state);
 	if(restored) {

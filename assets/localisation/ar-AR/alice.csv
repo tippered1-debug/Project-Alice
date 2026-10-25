@@ -477,9 +477,6 @@ event_show_odds;احتمالات الحدث
 value_mod_product;القيمة $val$ هي حاصل ضرب:
 value_mod_sum;القيمة $val$ هي مجموع:
 value_mod_sum_factor;القيمة $val$ هي $x$ مضروبة في مجموع:
-admin_explain_1;معدل الكفاءة الإدارية $val$
-admin_explain_2;تطبق على نسبة البيروقراطيين غير الاستعماريين: $val$
-admin_explain_3;إلى النسبة المطلوبة: $val$ (الأساس $x$ + $y$ من الإصلاحات)
 factory_condition_1;الأمة متحضرة
 factory_condition_2;هذه ليست دولة استعمارية
 factory_condition_3;الحزب الحاكم يسمح ببناء المصانع
@@ -1030,8 +1027,6 @@ et_on_po_accepted;الآثار المترتبة على قبول عرض السل�
 alice_no_possible_units;لا يمكن بناء وحدات محتملة، ولا توجد وحدات قيد الإنشاء.
 alice_debt_spending;تمكين/تعطيل الإنفاق على الديون
 alice_loan_size;الحد الأقصى الحالي لقرضنا هو $x$. الديون الأكبر من ذلك ستؤدي إلى إفلاسنا
-alice_currently_bankrupt;نحن مفلسون (حتى $x$)
-alice_no_loans_possible;نحن حاليا غير قادرين على الحصول على القروض
 alice_rf_demands_enforced_trigger;ولن ينفذ المتمردون مطالبهم إلا إذا:
 alice_rf_demands_enforced_effect;وبمجرد أن ينفذ المتمردون مطالبهم فسوف يطبقون التأثير التالي:
 alice_rf_siege_won_trigger;إذا فاز أحد المتمردين بالحصار، يتم التحقق مما يلي، على سبيل المثال في عاصمتك $x$:

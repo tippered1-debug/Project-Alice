@@ -506,6 +506,43 @@ uint32_t defaulted_loan_count(sys::state const& state, dcon::economic_actor_id b
 }
 }
 
+dcon::obligation_id buy_sovereign_bond(sys::state& state, dcon::organization_id bank,
+	dcon::monetary_account_id treasury_account, float principal, float annual_interest_rate,
+	sys::date due_date, sys::date date) {
+	if(!policy_configured(state, bank) || status_of(state, bank) != bank_status::solvent
+		|| !treasury_account || !state.world.monetary_account_is_valid(treasury_account)
+		|| !valid_positive_amount(principal) || !std::isfinite(annual_interest_rate)
+		|| annual_interest_rate < 0.0f || annual_interest_rate > 1.0f || !due_date || due_date < date) return {};
+	auto issuer = accounts::owner_of(state, treasury_account);
+	auto settlement = accounts::settlement_of(state, treasury_account);
+	auto lender = actors::organizations::actor_for_organization(state, bank);
+	auto reserve = reserve_account_for(state, bank, settlement);
+	if(!issuer || !lender || issuer == lender || !reserve
+		|| settlement != state.world.organization_get_bank_settlement_currency(bank)
+		|| accounts::balance(state, reserve) + balance_tolerance < principal
+		|| principal > bank_credit_capacity(state, bank, issuer, settlement, false) + balance_tolerance) return {};
+	auto projected_cash = double(accounts::balance(state, treasury_account)) + double(principal);
+	if(!std::isfinite(projected_cash) || projected_cash > std::numeric_limits<float>::max()) return {};
+	auto bond = relations::create_obligation(state, issuer, lender, principal, settlement,
+		date, due_date, annual_interest_rate, relations::obligation_kind::public_debt);
+	if(!bond) return {};
+	state.world.obligation_set_canonical_id(bond, stable_hash(id_key("sovereign-bond",
+		state.world.organization_get_canonical_id(bank), state.world.economic_actor_get_canonical_id(issuer),
+		date.to_raw_value()) + ":" + std::to_string(std::bit_cast<uint32_t>(principal))));
+	// The bond replaces reserves on the bank's books; the treasury receives the cash.
+	state.world.monetary_account_set_balance(reserve, accounts::balance(state, reserve) - principal);
+	state.world.monetary_account_set_balance(treasury_account, accounts::balance(state, treasury_account) + principal);
+	auto issuance = relations::record_transaction(state, lender, issuer, principal, settlement,
+		relations::transaction_kind::public_debt_issuance, date);
+	if(issuance) {
+		state.world.force_create_transaction_source_account(issuance, reserve);
+		state.world.force_create_transaction_destination_account(issuance, treasury_account);
+		state.world.force_create_transaction_obligation(issuance, bond);
+	}
+	refresh_bank_state(state, bank);
+	return bond;
+}
+
 dcon::obligation_id originate_loan_with_consent(sys::state& state, dcon::organization_id bank,
 	dcon::deposit_account_id borrower_account, float principal, sys::date creation_date,
 	sys::date due_date, float annual_interest_rate, dcon::economic_proposal_id proposal) {
@@ -1244,6 +1281,39 @@ project_credit_quote quote_project_credit(sys::state const& state, dcon::economi
 			best.amount = amount;
 			best.annual_interest_rate = rate;
 			best.underwriting_score = score;
+		}
+	}
+	return best;
+}
+
+project_credit_quote quote_sovereign_credit(sys::state const& state, dcon::economic_actor_id borrower,
+	dcon::nation_id nation, dcon::commodity_id settlement, float requested_amount, float credit_score) {
+	project_credit_quote best{};
+	if(!borrower || !nation || !settlement || !valid_positive_amount(requested_amount) || !std::isfinite(credit_score)) return best;
+	std::vector<dcon::organization_id> banks;
+	state.world.for_each_organization([&](dcon::organization_id candidate) {
+		if(policy_configured(state, candidate)
+			&& state.world.organization_get_bank_settlement_currency(candidate) == settlement
+			&& state.world.organization_get_bank_jurisdiction(candidate) == nation)
+			banks.push_back(candidate);
+	});
+	std::sort(banks.begin(), banks.end(), [&](auto left, auto right) {
+		return state.world.organization_get_canonical_id(left) < state.world.organization_get_canonical_id(right);
+	});
+	for(auto candidate : banks) {
+		if(status_of(state, candidate) != bank_status::solvent) continue;
+		if(credit_score + balance_tolerance < 1.0f - state.world.organization_get_bank_risk_appetite(candidate)) continue;
+		auto reserve = reserve_account_for(state, candidate, settlement);
+		if(!reserve) continue;
+		auto amount = std::min({ requested_amount, bank_credit_capacity(state, candidate, borrower, settlement, false),
+			std::max(0.0f, accounts::balance(state, reserve)) });
+		if(amount <= balance_tolerance) continue;
+		auto rate = bank_base_rate(state, candidate) + state.world.organization_get_bank_lending_spread(candidate);
+		if(amount > best.amount || (amount == best.amount && rate < best.annual_interest_rate)) {
+			best.bank = candidate;
+			best.amount = amount;
+			best.annual_interest_rate = rate;
+			best.underwriting_score = credit_score;
 		}
 	}
 	return best;

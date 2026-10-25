@@ -138,3 +138,220 @@ katechon_trade_col_reliance;We rely on
 katechon_trade_sells_tip;We sell them mostly %1, buy mostly %2
 katechon_trade_cut_tip;Without them we lose %1 of our %2
 katechon_trade_layer;Trade
+katechon_fin_government;Government
+katechon_fin_back;Back to the map
+katechon_fin_title;State Finances
+katechon_fin_vs_30;vs prev. 30d
+katechon_fin_vs_90;vs prev. 90d
+katechon_fin_vs_12;vs prev. 12m
+katechon_fin_no_previous;no earlier period on record
+katechon_fin_treasury;Treasury
+katechon_fin_per_day;/ day
+katechon_fin_no_days;no closed day yet
+katechon_fin_treasury_tip;Cash in every treasury of the state. The finance ministry holds %1 of it
+katechon_fin_balance;Budget Balance
+katechon_fin_of_revenue;%1 of revenue
+katechon_fin_no_revenue;no revenue yet
+katechon_fin_balance_tip;Revenue less spending over the period. Borrowing and repaid principal are financing, not revenue or spending
+katechon_fin_revenue_total;Total Revenue
+katechon_fin_revenue_tip;Taxes received and other income from outside the state, over the period
+katechon_fin_spending_total;Total Spending
+katechon_fin_spending_tip;Payroll, purchases, transfers and interest paid outside the state. Money moved between its institutions is not counted
+katechon_fin_public_debt;Public Debt
+katechon_fin_interest_rate;%1 interest rate
+katechon_fin_no_bonds;no bonds outstanding
+katechon_fin_debt_tip;Public debt of every institution of the state: principal and interest accrued
+katechon_fin_daily;Daily
+katechon_fin_weekly;Weekly
+katechon_fin_monthly;Monthly
+katechon_fin_as_bars;As bars
+katechon_fin_as_lines;As lines
+katechon_fin_books_open;The books open on %1. The first day closes at midnight
+katechon_fin_revenue;Revenue
+katechon_fin_spending;Spending
+katechon_fin_balance_short;Balance
+katechon_fin_amount;Amount
+katechon_fin_a_day;A day
+katechon_fin_share;% of Total
+katechon_fin_income_tax;Income Tax
+katechon_fin_income_tax_tip;Tax on wages, at the rates of the fiscal law for each stratum
+katechon_fin_royalties;Resource Royalties
+katechon_fin_royalties_tip;The royalty on sales of extracted resources, at the rate the law sets
+katechon_fin_customs;Customs Duties
+katechon_fin_customs_tip;Duties on goods crossing the border, at the tariffs in force
+katechon_fin_dividend_tax;Dividend Tax
+katechon_fin_dividend_tax_tip;Tax on dividends paid to owners
+katechon_fin_enterprises;State Enterprises
+katechon_fin_enterprises_tip;Dividends the state receives as owner of companies
+katechon_fin_other_revenue;Other Revenue
+katechon_fin_other_revenue_tip;Rents, sales, interest and other payments to the state's institutions
+katechon_fin_administration;Administration
+katechon_fin_administration_tip;The ministries, the tax authority, the legislature and local governments
+katechon_fin_military;Military
+katechon_fin_military_tip;The military command: pay and procurement
+katechon_fin_education;Education
+katechon_fin_education_tip;Schools: teachers' pay and what they need
+katechon_fin_public_order;Public Order
+katechon_fin_public_order_tip;Police, intelligence, courts and prosecutors
+katechon_fin_infrastructure;Infrastructure
+katechon_fin_infrastructure_tip;Public works: construction paid by the state
+katechon_fin_social;Social Transfers
+katechon_fin_social_tip;Benefits paid to people, such as unemployment benefits
+katechon_fin_debt_service;Debt Service
+katechon_fin_debt_service_tip;Interest paid on public debt. Repaid principal is financing, not spending
+katechon_fin_votes;%1 for, %2 against
+katechon_fin_bill_enacted;Enacted
+katechon_fin_bill_rejected;Rejected by the chambers
+katechon_fin_bill_no_assent;Passed, but assent was withheld
+katechon_fin_bill_too_soon;The chambers take a new fiscal bill from %1
+katechon_fin_bill_no_state;There is no constitutional state to legislate
+katechon_fin_bill_no_enactor;Nobody holds an office that could enact it
+katechon_fin_bill_unchanged;The law already says this
+katechon_fin_bill_invalid;The bill could not be drafted
+katechon_fin_policy;Fiscal Policy
+katechon_fin_no_law;No fiscal law is in force to amend
+katechon_fin_move_first;Move the sliders to draft a bill
+katechon_fin_propose_tip;Lay these rates and priorities before the chambers as a fiscal bill
+katechon_fin_propose;Propose Changes
+katechon_fin_base_rate;Base Rate
+katechon_fin_base_rate_tip;The rate on the wages of the middle stratum, from 0 to 40%
+katechon_fin_progressivity;Progressivity
+katechon_fin_progressivity_tip;At 0 every stratum pays the base rate. At 100% the poor pay 40% of it and the rich twice it
+katechon_fin_effective;Effective Rates
+katechon_fin_as_proposed;as proposed
+katechon_fin_priorities;Expenditure Priorities
+katechon_fin_total;Total:
+katechon_fin_share_tip;The share of each monthly disbursement of the national treasury. The other priorities make room
+katechon_fin_debt_placed;Bonds placed: %1 at %2
+katechon_fin_debt_repaid;Repaid %1
+katechon_fin_debt_no_office;No finance minister holds the power to borrow
+katechon_fin_debt_no_bank;No solvent domestic bank to buy the bonds
+katechon_fin_debt_declined_part;The banks would take only %1
+katechon_fin_debt_declined;The banks declined: the state's credit is below their risk appetite
+katechon_fin_debt_prohibited;The law prohibits public borrowing
+katechon_fin_debt_ceiling_hit;The issue would exceed the debt ceiling in law
+katechon_fin_debt_no_cash;The treasury has no free cash to repay it
+katechon_fin_debt_invalid;The operation was refused
+katechon_fin_not_assessed;Not assessed
+katechon_fin_debt_title;Debt & Borrowing
+katechon_fin_manage_debt;Manage Debt
+katechon_fin_manage_tip;The obligations of the state, the bonds it may offer and how the banks rate it
+katechon_fin_outstanding;Outstanding Debt
+katechon_fin_annual_interest;Annual Interest
+katechon_fin_next_payment;Next Payment
+katechon_fin_none_due;None due
+katechon_fin_ceiling;Debt Ceiling
+katechon_fin_prohibited;Borrowing prohibited
+katechon_fin_no_ceiling;No ceiling in law
+katechon_fin_rating;Credit Rating
+katechon_fin_rating_tip;Assessed from the books: the weakest of five ratios scores %1. See Manage Debt
+katechon_fin_rating_wait;The banks assess the state after %1 days of revenue on the books
+katechon_fin_by_source;Revenue by Source
+katechon_fin_source;Source
+katechon_fin_assessed;Tax assessed
+katechon_fin_assessed_tip;Tax charged to taxpayers over the period, paid or not
+katechon_fin_collected;Tax collected
+katechon_fin_collected_tip;Tax actually received in the treasuries over the period
+katechon_fin_collection;Collected of assessed
+katechon_fin_collection_tip;What part of the tax charged was received. The rest stays owed
+katechon_fin_receivables;Tax still owed
+katechon_fin_receivables_tip;Tax obligations outstanding today
+katechon_fin_rates_in_force;Income tax in force
+katechon_fin_poor;Poor
+katechon_fin_middle;Middle
+katechon_fin_rich;Rich
+katechon_fin_not_revenue;Not revenue
+katechon_fin_borrowed;Borrowing received
+katechon_fin_borrowed_tip;Proceeds of bonds and loans: financing, owed back with interest
+katechon_fin_assessment;Assessment & Collection
+katechon_fin_by_function;Spending by Function
+katechon_fin_function;Function
+katechon_fin_appropriated_spent;Appropriated  /  spent
+katechon_fin_local_admin;Local Government / Administration
+katechon_fin_local_admin_tip;Local governments spend on their own administration. The national ministries are administration too
+katechon_fin_financing;Financing
+katechon_fin_interest_paid;Interest paid
+katechon_fin_principal_repaid;Principal repaid
+katechon_fin_principal_tip;Repaying principal settles debt. It is not spending
+katechon_fin_financial;Other financial flows
+katechon_fin_financial_tip;Deposits, withdrawals, exchange, equity and lending, net into the treasuries
+katechon_fin_priorities_spent;Priorities & Financing
+katechon_fin_holder;Holder
+katechon_fin_bank_no;Bank No. %1
+katechon_fin_cash_debt;Treasury & Debt
+katechon_fin_obligations;Obligations
+katechon_fin_principal;Principal
+katechon_fin_rate;Rate
+katechon_fin_issued;Issued
+katechon_fin_due;Due
+katechon_fin_no_obligations;The state owes no public debt
+katechon_fin_repay;Repay
+katechon_fin_repay_tip;Repay %1 now from the debtor's treasury, interest first
+katechon_fin_rating_model;The weakest of the five factors below. Banks buy bonds when it clears their risk appetite
+katechon_fin_f_debt;Debt to revenue
+katechon_fin_f_debt_tip;Full score up to 60% of a year's revenue, none from 300%
+katechon_fin_f_interest;Interest to revenue
+katechon_fin_f_interest_tip;Full score up to 5%, none from 30%
+katechon_fin_f_liquidity;Cash to service due in 90 days
+katechon_fin_f_liquidity_tip;Treasury cash over principal and interest falling due within 90 days
+katechon_fin_f_balance;Balance to revenue
+katechon_fin_f_balance_tip;Full score for a surplus, none at a deficit of half the revenue
+katechon_fin_f_record;Payment record
+katechon_fin_f_record_tip;Clean, overdue (40%) or in default (0)
+katechon_fin_assessment_title;Credit Assessment
+katechon_fin_offer_title;Offer Bonds
+katechon_fin_amount_tip;A share of a year's revenue
+katechon_fin_tenor;Term
+katechon_fin_years;%1 y
+katechon_fin_quote;Best bank's price
+katechon_fin_quote_value;%1 a year
+katechon_fin_no_quote;no bank would buy it
+katechon_fin_offer;Offer %1 in bonds
+katechon_fin_offer_tip;The finance minister offers the bonds. The bank that underwrites them pays from its reserves
+katechon_fin_law_vs_draft;Law in force  /  proposal
+katechon_fin_local_government;Local Government
+katechon_fin_the_bill;The Bill
+katechon_fin_next_bill;Next fiscal bill
+katechon_fin_now;now
+katechon_fin_next_bill_tip;The chambers take one fiscal bill in thirty days, the government's or the player's
+katechon_fin_last_bill;Last bill laid
+katechon_fin_no_bill;No bill laid yet
+katechon_fin_seats;Seats in the deciding chambers
+katechon_fin_how;How a bill passes
+katechon_fin_how_1;Each member weighs it against their own income
+katechon_fin_how_2;and their party's platform. Governing parties
+katechon_fin_how_3;back the government. Assent follows the law.
+katechon_fin_legislation;Legislation
+katechon_fin_reset;Keep the law
+katechon_fin_reset_tip;Put the sliders back to the law in force
+katechon_fin_chart;Revenue & Spending
+katechon_fin_30_days;30 Days
+katechon_fin_90_days;90 Days
+katechon_fin_12_months;12 Months
+katechon_fin_overview;Overview
+katechon_fin_debt;Debt
+katechon_fin_policy_short;Policy
+katechon_fin_mon_1;Jan
+katechon_fin_month_1;January
+katechon_fin_mon_2;Feb
+katechon_fin_month_2;February
+katechon_fin_mon_3;Mar
+katechon_fin_month_3;March
+katechon_fin_mon_4;Apr
+katechon_fin_month_4;April
+katechon_fin_mon_5;May
+katechon_fin_month_5;May
+katechon_fin_mon_6;Jun
+katechon_fin_month_6;June
+katechon_fin_mon_7;Jul
+katechon_fin_month_7;July
+katechon_fin_mon_8;Aug
+katechon_fin_month_8;August
+katechon_fin_mon_9;Sep
+katechon_fin_month_9;September
+katechon_fin_mon_10;Oct
+katechon_fin_month_10;October
+katechon_fin_mon_11;Nov
+katechon_fin_month_11;November
+katechon_fin_mon_12;Dec
+katechon_fin_month_12;December

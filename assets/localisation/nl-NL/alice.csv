@@ -477,9 +477,6 @@ event_show_odds;Kansen van het evenement
 value_mod_product;Waarde $val$ is het product van:
 value_mod_sum;Waarde $val$ is de som van:
 value_mod_sum_factor;Waarde $val$ is $x$ maal de som van:
-admin_explain_1;Modifier voor administratieve efficiëntie van $val$
-admin_explain_2;Toegepast op de verhouding niet-koloniale bureaucraten: $val$
-admin_explain_3;Naar het vereiste percentage: $val$ (basis $x$ + $y$ van hervormingen)
 factory_condition_1;De natie is beschaafd
 factory_condition_2;Dit is geen koloniale staat
 factory_condition_3;De regerende partij staat het bouwen van fabrieken toe
@@ -1031,8 +1028,6 @@ et_on_po_accepted;De gevolgen van het accepteren van een vredesaanbod met dit oo
 alice_no_possible_units;Er kunnen geen mogelijke eenheden worden gebouwd en er zijn geen eenheden in aanbouw.
 alice_debt_spending;Schulduitgaven in-/uitschakelen
 alice_loan_size;Onze huidige maximale lening is $x$. Als de schulden groter zijn dan dat, zullen we failliet gaan
-alice_currently_bankrupt;Wij zijn failliet (tot $x$)
-alice_no_loans_possible;Momenteel kunnen wij geen leningen aangaan
 alice_rf_demands_enforced_trigger;De rebellen zullen hun eisen alleen afdwingen als:
 alice_rf_demands_enforced_effect;Zodra de rebellen hun eisen hebben afgedwongen, zullen ze het volgende effect toepassen:
 alice_rf_siege_won_trigger;Als een rebel een belegering wint, wordt het volgende gecontroleerd, bijvoorbeeld in uw hoofdletter $x$:

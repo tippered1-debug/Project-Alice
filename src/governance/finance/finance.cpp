@@ -160,6 +160,7 @@ dcon::fiscal_action_id authorized_assess_tax(sys::state& state, dcon::person_id 
 	auto obligation = economy::relations::create_obligation(state, taxpayer_actor, creditor, amount,
 		context.settlement, date, due_date, 0.0f, obligation_kind::tax);
 	if(!obligation) return {};
+	post_tax_assessed(state, context.institution, taxpayer_actor, amount, context.settlement);
 	return record_action(state, fiscal_action_kind::tax_assessment, initiator, context.office,
 		context.institution, treasury_account, date, obligation);
 }
@@ -191,6 +192,7 @@ dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state& state,
 		state.world.obligation_set_principal_outstanding(rolling_obligation, principal_outstanding);
 		state.world.obligation_set_due_date(rolling_obligation, due_date);
 		state.world.obligation_set_status(rolling_obligation, uint8_t(obligation_status::active));
+		post_tax_assessed(state, authority, taxpayer_actor, amount, settlement);
 		state.world.obligation_for_each_fiscal_action_resulting_obligation_as_obligation(rolling_obligation,
 			[&](dcon::fiscal_action_resulting_obligation_id relation) {
 				if(!assessment_action) assessment_action = state.world.fiscal_action_resulting_obligation_get_fiscal_action(relation);
@@ -205,13 +207,14 @@ dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state& state,
 	auto obligation = economy::relations::create_obligation(state, taxpayer_actor, creditor, amount,
 		settlement, date, due_date, 0.0f, obligation_kind::tax);
 	if(!obligation) return {};
+	post_tax_assessed(state, authority, taxpayer_actor, amount, settlement);
 	return record_action(state, fiscal_action_kind::tax_assessment, {}, {}, authority,
 		treasury_account, date, obligation);
 }
 
 dcon::transaction_id pay_tax(sys::state& state, dcon::obligation_id tax_obligation,
 	dcon::monetary_account_id taxpayer_account, dcon::monetary_account_id treasury_account,
-	float amount, sys::date date) {
+	float amount, sys::date date, revenue_source source) {
 	if(!valid_amount(amount) || !tax_obligation || !state.world.obligation_is_valid(tax_obligation) || state.world.obligation_get_kind(tax_obligation) != uint8_t(obligation_kind::tax) || !payable_obligation(state, tax_obligation)) return {};
 	auto debtor = state.world.obligation_get_economic_actor_from_obligation_debtor(tax_obligation);
 	auto creditor = state.world.obligation_get_economic_actor_from_obligation_creditor(tax_obligation);
@@ -223,18 +226,19 @@ dcon::transaction_id pay_tax(sys::state& state, dcon::obligation_id tax_obligati
 	auto transaction = economy::accounts::transfer(state, taxpayer_account, treasury_account, accepted,
 		transaction_kind::tax_payment, date);
 	if(!transaction || economy::relations::repay_obligation(state, tax_obligation, accepted) != accepted) return {};
+	post_tax_collected(state, institution, debtor, source, accepted, settlement);
 	return transaction;
 }
 
 economy::exact_person_economy::transfer_result pay_tax(sys::state& state,
 	dcon::obligation_id tax_obligation, economy::exact_person_economy::account_ref taxpayer_account,
-	dcon::monetary_account_id treasury_account, float amount, sys::date date) {
+	dcon::monetary_account_id treasury_account, float amount, sys::date date, revenue_source source) {
 	using economy::exact_person_economy::account_kind;
 	using economy::exact_person_economy::account_ref;
 	using economy::exact_person_economy::transfer_result;
 	if(taxpayer_account.kind == account_kind::dcon) {
 		auto transaction = pay_tax(state, tax_obligation, taxpayer_account.dcon_account,
-			treasury_account, amount, date);
+			treasury_account, amount, date, source);
 		return { bool(transaction), 0, transaction };
 	}
 	if(taxpayer_account.kind != account_kind::exact || !valid_amount(amount)
@@ -257,6 +261,7 @@ economy::exact_person_economy::transfer_result pay_tax(sys::state& state,
 	auto transfer = economy::exact_person_economy::transfer_with_result(state, taxpayer_account,
 		account_ref::from_dcon(treasury_account), accepted, transaction_kind::tax_payment, date);
 	if(!transfer.success || economy::relations::repay_obligation(state, tax_obligation, accepted) != accepted) return {};
+	post_tax_collected(state, institution, debtor, source, accepted, settlement);
 	return transfer;
 }
 
@@ -264,7 +269,7 @@ policy_tax_result assess_and_collect_tax_at_rate(sys::state& state,
 	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
 	float taxable_value, float rate,
 	economy::exact_person_economy::account_ref payer_wallet,
-	dcon::deposit_account_id payer_deposit, sys::date date) {
+	dcon::deposit_account_id payer_deposit, sys::date date, revenue_source source) {
 	policy_tax_result result{};
 	if(!jurisdiction || !taxpayer_actor || !state.world.economic_actor_is_valid(taxpayer_actor)
 		|| !std::isfinite(taxable_value) || taxable_value <= 0.0f
@@ -316,14 +321,16 @@ policy_tax_result assess_and_collect_tax_at_rate(sys::state& state,
 			result.transaction = economy::banking::pay_from_deposit(state, payer_deposit, {},
 				economy::exact_person_economy::account_ref::from_dcon(treasury), due,
 				transaction_kind::tax_payment, date);
-			if(result.transaction && economy::relations::repay_obligation(state, result.obligation, due) == due)
+			if(result.transaction && economy::relations::repay_obligation(state, result.obligation, due) == due) {
 				result.collected = due;
+				post_tax_collected(state, authority, taxpayer_actor, source, due, settlement);
+			}
 		}
 	} else if(payer_wallet) {
 		auto due = std::min({result.assessed, economy::relations::total_due(state, result.obligation),
 			economy::wallets::spendable(state, payer_wallet)});
 		if(due > 1.0e-6f) {
-			auto transfer = pay_tax(state, result.obligation, payer_wallet, treasury, due, date);
+			auto transfer = pay_tax(state, result.obligation, payer_wallet, treasury, due, date, source);
 			if(transfer.success) {
 				result.transaction = transfer.dcon_transaction_id;
 				result.exact_transaction_id = transfer.exact_transaction_id;
@@ -343,7 +350,7 @@ policy_tax_result assess_and_collect_topic_tax(sys::state& state, policy::topic_
 	auto rate = policy_value ? std::get_if<float>(&*policy_value) : nullptr;
 	if(!rate) return {};
 	return assess_and_collect_tax_at_rate(state, jurisdiction, taxpayer_actor,
-		taxable_value, *rate, payer_wallet, payer_deposit, date);
+		taxable_value, *rate, payer_wallet, payer_deposit, date, source_of_topic(topic));
 }
 
 dcon::fiscal_action_id authorized_spend(sys::state& state, dcon::person_id initiator,
@@ -457,6 +464,34 @@ dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state& sta
 	return action;
 }
 
+dcon::fiscal_action_id authorized_issue_public_debt_to_bank(sys::state& state, dcon::person_id initiator,
+	dcon::monetary_account_id treasury_account, dcon::organization_id bank,
+	float principal, sys::date due_date, float annual_interest_rate, sys::date date) {
+	authority_context context{};
+	if(!bank || !state.world.organization_is_valid(bank) || !valid_amount(principal) || due_date < date
+		|| !authority_for_treasury(state, initiator, authority_kind::issue_public_debt, treasury_account, date, context)) return {};
+	auto issuer = governance::actor_for_institution(state, context.institution);
+	auto nation = governance::nation_of(state, context.institution);
+	if(!issuer || !nation) return {};
+	auto policy = governance::law::public_debt_policy_for(state, nation, context.settlement, date);
+	if(!policy.issuance_allowed) return {};
+	if(policy.ceiling && national_public_debt(state, nation, context.settlement) + principal > *policy.ceiling) return {};
+	auto quote = economy::banking::quote_sovereign_credit(state, issuer, nation, context.settlement, principal,
+		assess_credit(state, nation).score);
+	// The bank buys what it underwrites, at its own price, and nothing else.
+	if(quote.bank != bank || quote.amount + 1.0e-4f < principal
+		|| std::abs(quote.annual_interest_rate - annual_interest_rate) > 1.0e-5f) return {};
+	auto bond = economy::banking::buy_sovereign_bond(state, bank, treasury_account, principal,
+		annual_interest_rate, due_date, date);
+	if(!bond) return {};
+	dcon::transaction_id issuance{};
+	state.world.obligation_for_each_transaction_obligation_as_obligation(bond, [&](dcon::transaction_obligation_id relation) {
+		if(!issuance) issuance = state.world.transaction_obligation_get_transaction(relation);
+	});
+	return record_action(state, fiscal_action_kind::public_debt_issuance, initiator, context.office,
+		context.institution, treasury_account, date, bond, issuance);
+}
+
 float accrue_public_debt_interest(sys::state& state, dcon::obligation_id obligation, uint32_t days) {
 	if(!obligation || !state.world.obligation_is_valid(obligation) || state.world.obligation_get_kind(obligation) != uint8_t(obligation_kind::public_debt)) return 0.0f;
 	return economy::relations::accrue_interest(state, obligation, days);
@@ -479,8 +514,15 @@ dcon::transaction_id service_public_debt(sys::state& state, dcon::obligation_id 
 		economy::exact_person_economy::account_ref::from_dcon(treasury_account)));
 	auto accepted = std::min({amount, economy::relations::total_due(state, obligation), free_cash});
 	if(accepted <= 0.0f) return {};
-	return economy::accounts::settle_obligation_payment(state, obligation, treasury_account,
+	// Accrued interest is paid first; the books keep the interest as spending and the rest as principal repaid.
+	auto const interest_before = state.world.obligation_get_accrued_interest(obligation);
+	auto transaction = economy::accounts::settle_obligation_payment(state, obligation, treasury_account,
 		holder_account, accepted, date, transaction_kind::public_debt_service, true);
+	if(transaction) {
+		auto const interest_paid = std::clamp(interest_before, 0.0f, accepted);
+		post_debt_service(state, institution, interest_paid, accepted - interest_paid, settlement);
+	}
+	return transaction;
 }
 
 public_debt_service_result process_public_debt(sys::state& state,
@@ -567,6 +609,21 @@ sys::date last_public_debt_payment_date(sys::state const& state, dcon::obligatio
 			}
 		});
 	return latest;
+}
+
+dcon::transaction_id authorized_repay_public_debt(sys::state& state, dcon::person_id initiator,
+	dcon::obligation_id obligation, float amount, sys::date date) {
+	if(!valid_amount(amount) || !obligation || !state.world.obligation_is_valid(obligation)
+		|| state.world.obligation_get_kind(obligation) != uint8_t(obligation_kind::public_debt)
+		|| !payable_obligation(state, obligation)) return {};
+	auto institution = institution_for_actor(state, state.world.obligation_get_economic_actor_from_obligation_debtor(obligation));
+	auto settlement = state.world.obligation_get_settlement_commodity(obligation);
+	auto treasury = institution ? treasury_account_for(state, institution, settlement) : dcon::monetary_account_id{};
+	authority_context context{};
+	if(!treasury || !authority_for_treasury(state, initiator, authority_kind::spend_public_funds, treasury, date, context)) return {};
+	auto holder = payment_account_for(state, state.world.obligation_get_economic_actor_from_obligation_creditor(obligation), settlement);
+	if(!holder) return {};
+	return service_public_debt(state, obligation, treasury, holder, amount, date);
 }
 
 float public_debt_held_by(sys::state const& state, dcon::economic_actor_id holder, dcon::commodity_id settlement) {

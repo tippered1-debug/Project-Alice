@@ -47,6 +47,7 @@
 #include "economy/banking/banking.cpp"
 #include "economy/industrial_dynamics.cpp"
 #include "governance/finance/finance.cpp"
+#include "governance/finance/fiscal_ledger.cpp"
 #include "governance/law/law.cpp"
 #include "governance/governance.cpp"
 #include "governance/offices.cpp"

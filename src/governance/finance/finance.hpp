@@ -3,6 +3,7 @@
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
 #include "economy/exact_person_economy.hpp"
+#include "governance/finance/fiscal_ledger.hpp"
 
 #include <cstdint>
 
@@ -36,12 +37,13 @@ dcon::fiscal_action_id authorized_assess_tax(sys::state&, dcon::person_id initia
 dcon::fiscal_action_id authorized_assess_tax_by_institution(sys::state&, dcon::institution_id authority,
 	dcon::economic_actor_id taxpayer_actor, dcon::monetary_account_id treasury_account,
 	float amount, sys::date due_date, sys::date date);
+// Pays a tax obligation; the books record it as revenue of `source`.
 dcon::transaction_id pay_tax(sys::state&, dcon::obligation_id tax_obligation,
 	dcon::monetary_account_id taxpayer_account, dcon::monetary_account_id treasury_account,
-	float amount, sys::date date);
+	float amount, sys::date date, revenue_source source);
 economy::exact_person_economy::transfer_result pay_tax(sys::state&, dcon::obligation_id tax_obligation,
 	economy::exact_person_economy::account_ref taxpayer_account,
-	dcon::monetary_account_id treasury_account, float amount, sys::date date);
+	dcon::monetary_account_id treasury_account, float amount, sys::date date, revenue_source source);
 
 struct policy_tax_result {
 	float rate = 0.0f;
@@ -77,7 +79,7 @@ policy_tax_result assess_and_collect_tax_at_rate(sys::state&,
 	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
 	float taxable_value, float rate,
 	economy::exact_person_economy::account_ref payer_wallet,
-	dcon::deposit_account_id payer_deposit, sys::date date);
+	dcon::deposit_account_id payer_deposit, sys::date date, revenue_source source);
 
 dcon::fiscal_action_id authorized_spend(sys::state&, dcon::person_id initiator,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id recipient_account,
@@ -100,6 +102,14 @@ dcon::fiscal_action_id authorized_issue_public_debt_with_consent(sys::state&, dc
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id investor_account,
 	float principal, sys::date due_date, float annual_interest_rate, sys::date date,
 	dcon::economic_proposal_id investor_proposal);
+// Sells a sovereign bond to a bank that underwrites it (see
+// economy::banking::quote_sovereign_credit): the initiator must exercise an
+// office holding `issue_public_debt` over the treasury's jurisdiction, the law
+// must allow the issue and its ceiling, and the bank pays the principal from
+// its reserves into the treasury. No money is created.
+dcon::fiscal_action_id authorized_issue_public_debt_to_bank(sys::state&, dcon::person_id initiator,
+	dcon::monetary_account_id treasury_account, dcon::organization_id bank,
+	float principal, sys::date due_date, float annual_interest_rate, sys::date date);
 float accrue_public_debt_interest(sys::state&, dcon::obligation_id, uint32_t days);
 dcon::transaction_id service_public_debt(sys::state&, dcon::obligation_id,
 	dcon::monetary_account_id treasury_account, dcon::monetary_account_id holder_account,
@@ -111,6 +121,11 @@ dcon::transaction_id service_public_debt(sys::state&, dcon::obligation_id,
 public_debt_service_result process_public_debt(sys::state&, dcon::institution_id,
 	sys::date date, uint32_t default_grace_days = 30);
 sys::date last_public_debt_payment_date(sys::state const&, dcon::obligation_id);
+// Pays an obligation of public debt before or at maturity, from its debtor's
+// own treasury, by a person exercising `spend_public_funds` over the debtor's
+// jurisdiction. Interest accrued is paid first.
+dcon::transaction_id authorized_repay_public_debt(sys::state&, dcon::person_id initiator,
+	dcon::obligation_id, float amount, sys::date date);
 
 fiscal_position fiscal_position_for(sys::state const&, dcon::institution_id,
 	dcon::commodity_id settlement);

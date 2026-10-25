@@ -55,6 +55,10 @@ namespace technology {
 struct technology_kernel_store;
 }
 
+namespace governance::finance {
+struct fiscal_ledger_store;
+}
+
 namespace economy {
 struct capital_projects_store;
 struct exact_person_economy_store;
@@ -792,6 +796,9 @@ struct alignas(64) state {
 	// Canonical organization-held capabilities, funded research programs, exact
 	// Person Kernel assignments, adoption, and explicit transfer history.
 	mutable std::shared_ptr<technology::technology_kernel_store> technology_kernel;
+	// The books of every state: a one-way projection of fiscal flows for the
+	// interface, kept with the canonical runtime (governance/finance/fiscal_ledger).
+	mutable std::shared_ptr<governance::finance::fiscal_ledger_store> fiscal_ledger;
 
 	// scenario data
 

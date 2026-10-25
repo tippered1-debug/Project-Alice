@@ -24,6 +24,12 @@
 #include "economy/households.hpp"
 #include "economy/human_development.hpp"
 #include "economy/trade_picture.hpp"
+#include "economy/banking/banking.hpp"
+#include "economy/money.hpp"
+#include "actors/organizations/organizations.hpp"
+#include "governance/governance.hpp"
+#include "governance/finance/fiscal_ledger.hpp"
+#include "governance/policy.hpp"
 #include "map/katechon_trade_lanes.hpp"
 #include "nations/strategic_statecraft_forecast.hpp"
 #include "user_interactions.hpp"
@@ -42,7 +48,8 @@ class map_hud_element : public katechon_canvas {
 		none, press, toggle_layers, set_layer, zoom_in, zoom_out, capital, close_province, province_details,
 		center_province, diplomacy, toggle_outliner, toggle_log, toggle_population, population_metric, population_overview, population_scroll_to, population_inspect,
 		population_whole_country, population_home, population_region, toggle_military, pick_formation, military_back, military_order, military_march, military_more, military_mobilize,
-		toggle_diplomacy, diplomacy_target, diplomacy_home, diplomacy_deed, dip_deal_toggle, dip_why, dip_item, dip_send, dip_trade, dip_answer, dip_radial, dip_radial_close, dip_tab, dip_review, toggle_trade, trade_details, trade_span, trade_focus, trade_analysis
+		toggle_diplomacy, diplomacy_target, diplomacy_home, diplomacy_deed, dip_deal_toggle, dip_why, dip_item, dip_send, dip_trade, dip_answer, dip_radial, dip_radial_close, dip_tab, dip_review, toggle_trade, trade_details, trade_span, trade_focus, trade_analysis,
+		toggle_finance, fin_page, fin_period, fin_step_menu, fin_step, fin_chart, fin_slider, fin_propose, fin_reset, fin_bond, fin_tenor, fin_offer, fin_repay
 	};
 	// The cells of assets/katechon_hud_icons.png, in the order tools/katechon_ui/build_icons.py draws them.
 	enum class icon : int32_t {
@@ -434,6 +441,7 @@ class map_hud_element : public katechon_canvas {
 		// Every way into diplomacy leads to the sheet. KATECHON_HUD_DIPLOMACY=<tag> opens
 		// it on that country (1: the player's own); KATECHON_HUD_DIPLOMACY_SECTION=<0..2> on a reading.
 		the_hud = this;
+		fin_resolve(state); // the budget button of every bar opens the finance sheet
 		sys::diplomacy_screen = [](sys::state& s, dcon::nation_id target) {
 			if(the_hud)
 				the_hud->open_diplomacy_panel(s, target ? target : s.local_player_nation);
@@ -1518,6 +1526,12 @@ class map_hud_element : public katechon_canvas {
 	}
 
 	void activate(sys::state& state, hit_target const& t) {
+		if(finance_open && fin_leaves(t.act, t.button))
+			close_finance(state);
+		if(fin_handles(t.act)) {
+			fin_activate(state, t);
+			return;
+		}
 		switch(t.act) {
 		case action::press:
 			// A country window and the population atlas do not share the screen.
@@ -2095,14 +2109,16 @@ class map_hud_element : public katechon_canvas {
 			auto const is_diplomacy = tabs[index].element == "topbarbutton_diplomacy";
 			// Trade opens its sheet over the map; the old dashboard is a press away from it.
 			auto const is_trade = tabs[index].element == "topbarbutton_trade";
-			hit_target t{ 0.f, y, ribbon_w - 3.f, pitch, is_population ? action::toggle_population : (is_military ? action::toggle_military : (is_diplomacy ? action::toggle_diplomacy : (is_trade ? action::toggle_trade : action::press))), tab_buttons[index] };
-			auto const active = is_population ? population_open : (is_military ? military_open : (is_diplomacy ? diplomacy_open : (is_trade ? trade_open : (tab_buttons[index] && static_cast<topbar_tab_button*>(tab_buttons[index])->is_active(state)))));
+			// The state's finances are a sheet as well; the old budget window is gone.
+			auto const is_budget = tabs[index].element == "topbarbutton_budget";
+			hit_target t{ 0.f, y, ribbon_w - 3.f, pitch, is_population ? action::toggle_population : (is_military ? action::toggle_military : (is_diplomacy ? action::toggle_diplomacy : (is_trade ? action::toggle_trade : (is_budget ? action::toggle_finance : action::press)))), tab_buttons[index] };
+			auto const active = is_population ? population_open : (is_military ? military_open : (is_diplomacy ? diplomacy_open : (is_trade ? trade_open : (is_budget ? finance_open : (tab_buttons[index] && static_cast<topbar_tab_button*>(tab_buttons[index])->is_active(state))))));
 			auto const hovered = hovering && over(t, mx, my);
 			auto const cy = y + pitch * 0.5f;
 			if(shell_rounds && (active || hovered))
 				ogl::render_tinted_subsprite(state, active ? 0 : 1, 5, cx - 24.f, cy - 24.f, 48.f, 48.f, 1.f, 1.f, 1.f, shell_rounds, ui::rotation::upright, false, false);
 			draw_icon(state, entries[i].image, cx, cy, 22.f, active ? ogl::color3f{ 1.f, 0.93f, 0.76f } : (hovered ? ogl::color3f{ 1.f, 0.88f, 0.58f } : ogl::color3f{ 0.84f, 0.70f, 0.45f }));
-			if(tab_buttons[index] || is_population || is_military || is_diplomacy || is_trade)
+			if(tab_buttons[index] || is_population || is_military || is_diplomacy || is_trade || is_budget)
 				targets.push_back(t);
 			if(hovered)
 				hint(as_a_name(localized(state, tabs[index].key, tabs[index].fallback)), t);
@@ -3805,6 +3821,7 @@ class map_hud_element : public katechon_canvas {
 #include "gui_map_hud_diplomacy.hpp"
 
 #include "gui_map_hud_trade.hpp"
+#include "gui_map_hud_finance.hpp"
 
 	void draw_navigation(sys::state& state, float w, float h, bool hovering, float mx, float my) {
 		struct tool {
@@ -3937,6 +3954,8 @@ public:
 			the_hud = nullptr;
 			sys::diplomacy_screen = nullptr;
 			sys::diplomacy_context = nullptr;
+			sys::finance_screen = nullptr;
+			sys::finance_screen_open = nullptr;
 		}
 	}
 
@@ -3990,7 +4009,16 @@ public:
 		return message_result::consumed;
 	}
 
+	void on_drag(sys::state& state, int32_t oldx, int32_t oldy, int32_t x, int32_t y, sys::key_modifiers mods) noexcept override {
+		fin_drag_to(float(x)); // a slider of the finance sheet follows the mouse
+	}
+	void on_drag_finish(sys::state& state) noexcept override {
+		fin_drag = -1;
+	}
+
 	message_result on_key_down(sys::state& state, sys::virtual_key key, sys::key_modifiers mods) noexcept override {
+		if(key == sys::virtual_key::ESCAPE && fin_escape(state))
+			return message_result::consumed;
 		if(key == sys::virtual_key::ESCAPE && layers_open) {
 			layers_open = false;
 			return message_result::consumed;
@@ -4150,13 +4178,19 @@ public:
 				fps_mark = now;
 		}
 
+		fin_qa(state);
+		// Another sheet opened from elsewhere replaces the finances.
+		if(finance_open && (population_open || military_open || diplomacy_open || trade_open || country_window_open(state)))
+			close_finance(state);
 		// A country window takes the whole screen; only the bar stays with it.
-		auto const overview = population_open && population_overview;
+		auto const overview = (population_open && population_overview) || finance_open;
 		if(!country_window_open(state)) {
 			if(!overview)
 				draw_map_names(state, w, h);
 			auto* details = state.ui_state.province_window;
-			if(military_open) {
+			if(finance_open) {
+				draw_finance(state, w, h, hovering, mx, my);
+			} else if(military_open) {
 				draw_forces(state, w, h, hovering, mx, my);
 				draw_military(state, h, hovering, mx, my);
 			} else if(diplomacy_open) {

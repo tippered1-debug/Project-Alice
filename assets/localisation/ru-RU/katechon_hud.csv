@@ -1100,3 +1100,220 @@ katechon_dip_key_our_allies;Наши союзники
 katechon_dip_key_its_allies;Её союзники
 katechon_dip_key_our_enemies;Наши враги
 katechon_dip_key_its_enemies;Воюют с ней
+katechon_fin_government;Государство
+katechon_fin_back;Назад к карте
+katechon_fin_title;Государственные финансы
+katechon_fin_vs_30;к пред. 30 дн.
+katechon_fin_vs_90;к пред. 90 дн.
+katechon_fin_vs_12;к пред. 12 мес.
+katechon_fin_no_previous;прежнего периода в книгах нет
+katechon_fin_treasury;Казна
+katechon_fin_per_day;в день
+katechon_fin_no_days;ни один день ещё не закрыт
+katechon_fin_treasury_tip;Деньги во всех казначействах государства. Из них у министерства финансов %1
+katechon_fin_balance;Сальдо бюджета
+katechon_fin_of_revenue;%1 доходов
+katechon_fin_no_revenue;доходов пока нет
+katechon_fin_balance_tip;Доходы минус расходы за период. Займы и погашение основного долга - это финансирование, а не доходы и расходы
+katechon_fin_revenue_total;Доходы
+katechon_fin_revenue_tip;Полученные налоги и прочие поступления извне государства за период
+katechon_fin_spending_total;Расходы
+katechon_fin_spending_tip;Жалованье, закупки, выплаты и проценты за пределы государства. Переводы между его учреждениями не считаются
+katechon_fin_public_debt;Госдолг
+katechon_fin_interest_rate;ставка %1
+katechon_fin_no_bonds;облигаций в обращении нет
+katechon_fin_debt_tip;Государственный долг всех учреждений государства: основная сумма и начисленные проценты
+katechon_fin_daily;По дням
+katechon_fin_weekly;По неделям
+katechon_fin_monthly;По месяцам
+katechon_fin_as_bars;Столбцами
+katechon_fin_as_lines;Линиями
+katechon_fin_books_open;Книги открыты %1. Первый день закроется в полночь
+katechon_fin_revenue;Доходы
+katechon_fin_spending;Расходы
+katechon_fin_balance_short;Сальдо
+katechon_fin_amount;Сумма
+katechon_fin_a_day;В день
+katechon_fin_share;% от итога
+katechon_fin_income_tax;Подоходный налог
+katechon_fin_income_tax_tip;Налог на заработную плату по ставкам фискального закона для каждого слоя
+katechon_fin_royalties;Рентные платежи
+katechon_fin_royalties_tip;Роялти с продаж добытых ресурсов по ставке закона
+katechon_fin_customs;Таможенные пошлины
+katechon_fin_customs_tip;Пошлины на товары, пересекающие границу, по действующим тарифам
+katechon_fin_dividend_tax;Налог на дивиденды
+katechon_fin_dividend_tax_tip;Налог с дивидендов, выплаченных владельцам
+katechon_fin_enterprises;Госпредприятия
+katechon_fin_enterprises_tip;Дивиденды, которые государство получает как владелец компаний
+katechon_fin_other_revenue;Прочие доходы
+katechon_fin_other_revenue_tip;Аренда, продажи, проценты и прочие платежи учреждениям государства
+katechon_fin_administration;Управление
+katechon_fin_administration_tip;Министерства, налоговая служба, парламент и местные власти
+katechon_fin_military;Оборона
+katechon_fin_military_tip;Военное командование: жалованье и закупки
+katechon_fin_education;Образование
+katechon_fin_education_tip;Школы: жалованье учителей и всё, что им нужно
+katechon_fin_public_order;Правопорядок
+katechon_fin_public_order_tip;Полиция, разведка, суды и прокуратура
+katechon_fin_infrastructure;Инфраструктура
+katechon_fin_infrastructure_tip;Общественные работы: строительство за счёт государства
+katechon_fin_social;Социальные выплаты
+katechon_fin_social_tip;Пособия людям, например пособия по безработице
+katechon_fin_debt_service;Обслуживание долга
+katechon_fin_debt_service_tip;Проценты по госдолгу. Погашение основной суммы - финансирование, а не расход
+katechon_fin_votes;%1 за, %2 против
+katechon_fin_bill_enacted;Принят
+katechon_fin_bill_rejected;Отклонён палатами
+katechon_fin_bill_no_assent;Принят, но не подписан
+katechon_fin_bill_too_soon;Новый фискальный законопроект палаты примут с %1
+katechon_fin_bill_no_state;Нет конституционного государства, чтобы принимать законы
+katechon_fin_bill_no_enactor;Никто не занимает должности, способной его принять
+katechon_fin_bill_unchanged;Закон уже это предусматривает
+katechon_fin_bill_invalid;Законопроект не удалось составить
+katechon_fin_policy;Фискальная политика
+katechon_fin_no_law;Нет действующего фискального закона для поправок
+katechon_fin_move_first;Сдвиньте ползунки, чтобы составить законопроект
+katechon_fin_propose_tip;Внести эти ставки и приоритеты в палаты как фискальный законопроект
+katechon_fin_propose;Внести изменения
+katechon_fin_base_rate;Базовая ставка
+katechon_fin_base_rate_tip;Ставка на заработок среднего слоя, от 0 до 40%
+katechon_fin_progressivity;Прогрессивность
+katechon_fin_progressivity_tip;При 0 все платят базовую ставку. При 100% бедные платят 40% от неё, богатые - вдвое больше
+katechon_fin_effective;Эффективные ставки
+katechon_fin_as_proposed;по проекту
+katechon_fin_priorities;Приоритеты расходов
+katechon_fin_total;Итого:
+katechon_fin_share_tip;Доля каждого ежемесячного распределения национальной казны. Остальные приоритеты подстраиваются
+katechon_fin_debt_placed;Облигации размещены: %1 под %2
+katechon_fin_debt_repaid;Погашено %1
+katechon_fin_debt_no_office;Ни один министр финансов не вправе занимать
+katechon_fin_debt_no_bank;Нет платёжеспособного отечественного банка для покупки облигаций
+katechon_fin_debt_declined_part;Банки возьмут только %1
+katechon_fin_debt_declined;Банки отказались: кредит государства ниже их готовности к риску
+katechon_fin_debt_prohibited;Закон запрещает государственные заимствования
+katechon_fin_debt_ceiling_hit;Выпуск превысит законный потолок долга
+katechon_fin_debt_no_cash;В казне нет свободных денег для погашения
+katechon_fin_debt_invalid;Операция отклонена
+katechon_fin_not_assessed;Не оценён
+katechon_fin_debt_title;Долг и заимствования
+katechon_fin_manage_debt;Управлять долгом
+katechon_fin_manage_tip;Обязательства государства, облигации, которые оно может предложить, и как его оценивают банки
+katechon_fin_outstanding;Непогашенный долг
+katechon_fin_annual_interest;Проценты в год
+katechon_fin_next_payment;Ближайший платёж
+katechon_fin_none_due;Платежей нет
+katechon_fin_ceiling;Потолок долга
+katechon_fin_prohibited;Займы запрещены
+katechon_fin_no_ceiling;Потолка в законе нет
+katechon_fin_rating;Кредитный рейтинг
+katechon_fin_rating_tip;Оценка по книгам: слабейшее из пяти отношений даёт %1. Подробно - в управлении долгом
+katechon_fin_rating_wait;Банки оценивают государство после %1 дней доходов в книгах
+katechon_fin_by_source;Доходы по источникам
+katechon_fin_source;Источник
+katechon_fin_assessed;Начислено налогов
+katechon_fin_assessed_tip;Налог, начисленный плательщикам за период, уплаченный или нет
+katechon_fin_collected;Собрано налогов
+katechon_fin_collected_tip;Налог, фактически поступивший в казну за период
+katechon_fin_collection;Собрано от начисленного
+katechon_fin_collection_tip;Какая часть начисленного налога получена. Остальное остаётся долгом
+katechon_fin_receivables;Налоговая недоимка
+katechon_fin_receivables_tip;Налоговые обязательства, не погашенные на сегодня
+katechon_fin_rates_in_force;Действующий подоходный налог
+katechon_fin_poor;Бедные
+katechon_fin_middle;Средние
+katechon_fin_rich;Богатые
+katechon_fin_not_revenue;Не доходы
+katechon_fin_borrowed;Получено займов
+katechon_fin_borrowed_tip;Поступления от облигаций и кредитов: финансирование, которое вернут с процентами
+katechon_fin_assessment;Начисление и сбор
+katechon_fin_by_function;Расходы по функциям
+katechon_fin_function;Функция
+katechon_fin_appropriated_spent;Выделено  /  потрачено
+katechon_fin_local_admin;Местные власти / управление
+katechon_fin_local_admin_tip;Местные власти тратят на собственное управление. Национальные министерства тоже управление
+katechon_fin_financing;Финансирование
+katechon_fin_interest_paid;Уплачено процентов
+katechon_fin_principal_repaid;Погашено основного долга
+katechon_fin_principal_tip;Погашение основной суммы закрывает долг, это не расход
+katechon_fin_financial;Прочие финансовые потоки
+katechon_fin_financial_tip;Вклады, снятия, обмен валют, взносы в капитал и кредиты, нетто в казну
+katechon_fin_priorities_spent;Приоритеты и финансирование
+katechon_fin_holder;Держатель
+katechon_fin_bank_no;Банк № %1
+katechon_fin_cash_debt;Казна и долг
+katechon_fin_obligations;Обязательства
+katechon_fin_principal;Основная сумма
+katechon_fin_rate;Ставка
+katechon_fin_issued;Выпуск
+katechon_fin_due;Срок
+katechon_fin_no_obligations;Государство не имеет госдолга
+katechon_fin_repay;Погасить
+katechon_fin_repay_tip;Погасить %1 сейчас из казны должника, сначала проценты
+katechon_fin_rating_model;Слабейший из пяти факторов ниже. Банки покупают облигации, когда он выше их порога риска
+katechon_fin_f_debt;Долг к доходам
+katechon_fin_f_debt_tip;Полный балл до 60% годовых доходов, ноль от 300%
+katechon_fin_f_interest;Проценты к доходам
+katechon_fin_f_interest_tip;Полный балл до 5%, ноль от 30%
+katechon_fin_f_liquidity;Деньги к платежам за 90 дней
+katechon_fin_f_liquidity_tip;Деньги казны к основному долгу и процентам со сроком в ближайшие 90 дней
+katechon_fin_f_balance;Сальдо к доходам
+katechon_fin_f_balance_tip;Полный балл при профиците, ноль при дефиците в половину доходов
+katechon_fin_f_record;Платёжная история
+katechon_fin_f_record_tip;Чисто, просрочка (40%) или дефолт (0)
+katechon_fin_assessment_title;Кредитная оценка
+katechon_fin_offer_title;Выпуск облигаций
+katechon_fin_amount_tip;Доля годовых доходов
+katechon_fin_tenor;Срок
+katechon_fin_years;%1 г.
+katechon_fin_quote;Цена лучшего банка
+katechon_fin_quote_value;%1 годовых
+katechon_fin_no_quote;ни один банк не купит
+katechon_fin_offer;Выпустить облигации на %1
+katechon_fin_offer_tip;Министр финансов предлагает облигации. Банк, который их андеррайтит, платит из своих резервов
+katechon_fin_law_vs_draft;Действующий закон  /  проект
+katechon_fin_local_government;Местные власти
+katechon_fin_the_bill;Законопроект
+katechon_fin_next_bill;Следующий фискальный закон
+katechon_fin_now;сейчас
+katechon_fin_next_bill_tip;Палаты принимают один фискальный законопроект в тридцать дней: правительственный или игрока
+katechon_fin_last_bill;Последний законопроект
+katechon_fin_no_bill;Законопроектов ещё не вносили
+katechon_fin_seats;Мест в решающих палатах
+katechon_fin_how;Как проходит закон
+katechon_fin_how_1;Каждый депутат взвешивает его по своему доходу
+katechon_fin_how_2;и программе своей партии. Правящие партии
+katechon_fin_how_3;поддерживают правительство. Подпись - по закону.
+katechon_fin_legislation;Законодательство
+katechon_fin_reset;Оставить закон
+katechon_fin_reset_tip;Вернуть ползунки к действующему закону
+katechon_fin_chart;Доходы и расходы
+katechon_fin_30_days;30 дней
+katechon_fin_90_days;90 дней
+katechon_fin_12_months;12 месяцев
+katechon_fin_overview;Обзор
+katechon_fin_debt;Долг
+katechon_fin_policy_short;Политика
+katechon_fin_mon_1;янв
+katechon_fin_month_1;Январь
+katechon_fin_mon_2;фев
+katechon_fin_month_2;Февраль
+katechon_fin_mon_3;мар
+katechon_fin_month_3;Март
+katechon_fin_mon_4;апр
+katechon_fin_month_4;Апрель
+katechon_fin_mon_5;мая
+katechon_fin_month_5;Май
+katechon_fin_mon_6;июн
+katechon_fin_month_6;Июнь
+katechon_fin_mon_7;июл
+katechon_fin_month_7;Июль
+katechon_fin_mon_8;авг
+katechon_fin_month_8;Август
+katechon_fin_mon_9;сен
+katechon_fin_month_9;Сентябрь
+katechon_fin_mon_10;окт
+katechon_fin_month_10;Октябрь
+katechon_fin_mon_11;ноя
+katechon_fin_month_11;Ноябрь
+katechon_fin_mon_12;дек
+katechon_fin_month_12;Декабрь

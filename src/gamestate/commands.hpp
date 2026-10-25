@@ -30,7 +30,6 @@ enum class command_type : uint8_t {
 	release_and_play_nation = 13,
 	war_subsidies = 14,
 	cancel_war_subsidies = 15,
-	change_budget = 16,
 	start_election = 17,
 	change_influence_priority = 18,
 	discredit_advisors = 19,
@@ -126,6 +125,9 @@ enum class command_type : uint8_t {
 		set_army_supply_priority = 118,
 		formation_order = 119,
 		propose_deal = 120,
+		propose_fiscal_bill = 121,
+		place_public_bonds = 122,
+		repay_public_debt = 123,
 
 
 		// network
@@ -273,6 +275,28 @@ struct deal_data {
 	uint16_t asks;
 };
 
+// The fiscal topics of a bill the government lays (governance::policy topics,
+// as fractions): the base rate of income tax, its progressivity, and the
+// weights of the four appropriations.
+struct fiscal_bill_data {
+	float income_tax;
+	float progressivity;
+	float education;
+	float public_order;
+	float infrastructure;
+	float local_government;
+};
+
+// A sovereign bond offered to the domestic banks, due after `tenor_days`.
+struct public_bonds_data {
+	float amount;
+	uint16_t tenor_days;
+};
+
+struct public_debt_data {
+	dcon::obligation_id obligation;
+};
+
 struct generic_state_definition_data {
 	dcon::state_definition_id state_def;
 };
@@ -287,6 +311,8 @@ struct political_party_data {
 	dcon::political_party_id p;
 };
 
+// Bounds of the legacy national budget fields that modifiers and laws still
+// set (economy::budget_minimums, economy::budget_maximums).
 struct budget_settings_data {
 	int8_t education_spending;
 	int8_t military_spending;
@@ -650,7 +676,6 @@ constexpr enum_array<command_type, command_handler> command_type_handlers = {
 	{command_type::release_and_play_nation, command_handler{ sizeof(command::tag_target_data), sizeof(command::tag_target_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::war_subsidies, command_handler{ sizeof(command::diplo_action_data), sizeof(command::diplo_action_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::cancel_war_subsidies, command_handler{ sizeof(command::diplo_action_data), sizeof(command::diplo_action_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
-	{command_type::change_budget, command_handler{ sizeof(command::budget_settings_data), sizeof(command::budget_settings_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::start_election, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::change_influence_priority, command_handler{ sizeof(command::influence_priority_data), sizeof(command::influence_priority_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{command_type::discredit_advisors, command_handler{ sizeof(command::influence_action_data), sizeof(command::influence_action_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
@@ -733,6 +758,9 @@ constexpr enum_array<command_type, command_handler> command_type_handlers = {
 	{ command_type::set_army_supply_priority, command_handler{ sizeof(command::army_supply_priority_data), sizeof(command::army_supply_priority_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::formation_order, command_handler{ sizeof(command::formation_order_data), sizeof(command::formation_order_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::propose_deal, command_handler{ sizeof(command::deal_data), sizeof(command::deal_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
+	{ command_type::propose_fiscal_bill, command_handler{ sizeof(command::fiscal_bill_data), sizeof(command::fiscal_bill_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
+	{ command_type::place_public_bonds, command_handler{ sizeof(command::public_bonds_data), sizeof(command::public_bonds_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
+	{ command_type::repay_public_debt, command_handler{ sizeof(command::public_debt_data), sizeof(command::public_debt_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::take_province, command_handler{ sizeof(command::generic_location_data), sizeof(command::generic_location_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::grant_province, command_handler{ 0, 0, &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
 	{ command_type::ask_for_free_trade_agreement, command_handler{ sizeof(command::diplo_action_data), sizeof(command::diplo_action_data), &command_handler::true_is_host_receive_command, &command_handler::true_is_host_broadcast_command } },
@@ -844,33 +872,6 @@ bool can_cancel_war_subsidies(sys::state& state, dcon::nation_id source, dcon::n
 void increase_relations(sys::state& state, dcon::nation_id source, dcon::nation_id target);
 bool can_increase_relations(sys::state& state, dcon::nation_id source, dcon::nation_id target);
 
-inline budget_settings_data make_empty_budget_settings() {
-	return budget_settings_data{
-		.education_spending = int8_t(-127),
-		.military_spending = int8_t(-127),
-		.administrative_spending = int8_t(-127),
-		.social_spending = int8_t(-127),
-		.land_spending = int8_t(-127),
-		.naval_spending = int8_t(-127),
-		.construction_spending = int8_t(-127),
-		.poor_tax = int8_t(-127),
-		.middle_tax = int8_t(-127),
-		.rich_tax = int8_t(-127),
-		.tariffs_import = int8_t(-127),
-		.tariffs_export = int8_t(-127),
-		.domestic_investment = int8_t(-127),
-		.overseas = int8_t(-127),
-		.subsidies = int8_t(-127)
-	};
-}
-// when sending new budget settings, leaving any value as int8_t(-127) will cause it to be ignored, leaving the setting the same
-// You can use the function above to easily make an instance of the settings struct that will change no values
-// Also, in consideration for future networking performance, do not send this command as the slider moves; only send it when the
-// player has stopped dragging the slider, in the case of drag, or maybe even only when the window closes / a day passes while the
-// window is open, if you think we can get away with it. In any case, we want to try to minimize how many times the command is
-// sent per average interaction with the budget.
-void change_budget_settings(sys::state& state, dcon::nation_id source, budget_settings_data const& values);
-inline bool can_change_budget_settings(sys::state& state, dcon::nation_id source, budget_settings_data const& values);
 
 void start_election(sys::state& state, dcon::nation_id source);
 bool can_start_election(sys::state& state, dcon::nation_id source);
@@ -1127,6 +1128,18 @@ bool can_give_formation_order(sys::state& state, dcon::nation_id source, uint64_
 void propose_deal(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t gives, uint16_t asks);
 bool can_propose_deal(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t gives, uint16_t asks);
 bool can_deal_item(sys::state& state, dcon::nation_id source, dcon::nation_id target, uint16_t item);
+
+// The government lays a fiscal bill before the chambers (governance::government::propose_fiscal_bill);
+// the outcome is noted for the finance sheet (governance::finance::last_bill).
+void propose_fiscal_bill(sys::state& state, dcon::nation_id source, fiscal_bill_data const& bill);
+bool can_propose_fiscal_bill(sys::state& state, dcon::nation_id source, fiscal_bill_data const& bill);
+// The finance minister offers a sovereign bond to the domestic banks, and the
+// one that underwrites it buys it (governance::finance::authorized_issue_public_debt_to_bank).
+void place_public_bonds(sys::state& state, dcon::nation_id source, float amount, uint16_t tenor_days);
+bool can_place_public_bonds(sys::state& state, dcon::nation_id source, float amount, uint16_t tenor_days);
+// The finance minister repays an obligation of public debt from its debtor's treasury.
+void repay_public_debt(sys::state& state, dcon::nation_id source, dcon::obligation_id obligation);
+bool can_repay_public_debt(sys::state& state, dcon::nation_id source, dcon::obligation_id obligation);
 float deal_cost(sys::state& state, uint16_t gives, uint16_t asks);
 
 void take_province(sys::state& state, dcon::nation_id source, dcon::province_id prov);

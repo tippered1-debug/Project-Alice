@@ -55,6 +55,7 @@
 #include "governance/public_administration.hpp"
 #include "governance/offices.hpp"
 #include "governance/government.hpp"
+#include "governance/finance/fiscal_ledger.hpp"
 #include <vector>
 #include <algorithm>
 #include <cassert>
@@ -1313,6 +1314,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	// banking commands, using stable transaction IDs and reserve netting.
 	(void)banking::clear_interbank_payments(state, state.current_date);
 	banking::update_bank_statuses(state, state.current_date);
+	// Every fiscal flow of the day has moved; the states' books close on it.
+	governance::finance::close_fiscal_day(state, presimulation);
 #ifndef NDEBUG
 	{
 		std::vector<std::string> banking_errors;

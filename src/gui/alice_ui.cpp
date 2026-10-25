@@ -32,7 +32,6 @@
 #include "game_scene_title.hpp"
 #include "gamerules.cpp"
 #include "macrobuilder2.cpp"
-#include "budgetwindow.cpp"
 #include "demographicswindow.cpp"
 #include "province_economy_overview.cpp"
 #include "pop_details.cpp"
