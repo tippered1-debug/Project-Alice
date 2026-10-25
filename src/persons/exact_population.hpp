@@ -233,8 +233,25 @@ bool retire_person(sys::state&, person_key, int32_t death_day, uint8_t death_cau
 int32_t death_day_index(sys::state const&, person_key);
 
 persons::birth_day_index_t birth_day_index(sys::state const&, person_key);
+// Living people by whole years of age on a day, in groups of population rows
+// the caller names (group_of_pop by pop index; below 0 leaves a row out); the
+// last age gathers everyone that old or older. People are found through their
+// current membership. Those born in the game count at their birth day; those
+// who came with the scenario count by the catalog's age draw taken in
+// expectation, which is what the draw gives over any range of them up to
+// rounding. Workforce anchors are also counted apart.
+struct age_profiles {
+	std::vector<std::vector<double>> everyone; // [group][age]
+	std::vector<std::vector<double>> anchors;
+	std::vector<std::vector<double>> men;
+};
+age_profiles count_ages(sys::state const&, sys::date current_day, int32_t oldest,
+	std::vector<int32_t> const& group_of_pop, int32_t groups);
 int32_t age_days(sys::state const&, person_key, sys::date current_day);
 int32_t age_years(sys::state const&, person_key, sys::date current_day);
+// A person's sex is drawn from their identity: at birth slightly more boys;
+// among the scenario's people under the stable policy, fewer men with age.
+bool is_male(sys::state const&, person_key);
 dcon::site_id home_site(sys::state const&, person_key);
 bool set_home_site(sys::state&, person_key, dcon::site_id);
 bool set_home_site_storage(sys::state&, person_key, dcon::site_id);

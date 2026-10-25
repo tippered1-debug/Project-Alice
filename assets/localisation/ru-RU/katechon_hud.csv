@@ -1180,7 +1180,7 @@ katechon_ppl_x_hunger;Голод: покрыто лишь %1 базовых по
 katechon_ppl_x_war;Война: армия теряет %1 в месяц
 katechon_ppl_x_decline;Население быстро сокращается: %1 в месяц
 katechon_ppl_population;Население
-katechon_ppl_to_inspector;Инспектор карты  ›
+katechon_ppl_to_inspector;На карте  ›
 katechon_ppl_dynamics;Динамика населения
 katechon_ppl_a_month;в месяц
 katechon_ppl_monthly;за месяц
@@ -1249,8 +1249,6 @@ katechon_ppl_of_people_short;населения
 katechon_ppl_urban;Горожане
 katechon_ppl_wage_work;Наём
 katechon_ppl_own_land;Своя земля
-katechon_ppl_trouble;Регионы в беде
-katechon_ppl_lens_hint;Другой показатель: список и карта следуют за ним
 katechon_ppl_view_all;Все регионы (%1)  ›
 katechon_trade_col_home;Покрыто изнутри
 katechon_trade_home_note;Из всего купленного в стране — доля, поставленная своими производителями. Остальное пришло из-за границы
@@ -1292,3 +1290,178 @@ katechon_trade_none_leans;Свои производители покрывают
 katechon_trade_lean_source;в основном %1, %2 спроса
 katechon_trade_flows_all;Показать всю торговлю
 katechon_trade_other_goods_n;Прочие товары (%1)
+katechon_ppl_tab_overview;Обзор
+katechon_ppl_tab_demography;Демография
+katechon_demo_age;Возраст
+katechon_demo_age_in;Возраст в %1
+katechon_demo_age_now;Возраст сейчас
+katechon_demo_ages_short;Возраст %1
+katechon_demo_alive_in;Живы в %1
+katechon_demo_arrivals;Приезжают
+katechon_demo_back;‹  Демография
+katechon_demo_band_follow;Родились в %1. Нажмите, чтобы следить за этим поколением.
+katechon_demo_band_hint;Возраст %1: %2 населения.
+katechon_demo_birth_years;Годы рождения
+katechon_demo_births;Рождения
+katechon_demo_born_in;Родились в %1
+katechon_demo_change_to;Изменение к %1
+katechon_demo_children_ages;Дети  ·  0–%1
+katechon_demo_deaths;Смерти
+katechon_demo_departures;Уезжают
+katechon_demo_dependency;Коэффициент нагрузки
+katechon_demo_dependency_about;Дети и люди старше трудового возраста на каждую сотню людей трудового возраста.
+katechon_demo_fewer;На %1 меньше, чем в %2
+katechon_demo_more;На %1 больше, чем в %2
+katechon_demo_fewer_people;Меньше средней группы года
+katechon_demo_more_people;Больше
+katechon_demo_foot_forecast;Сегодняшние месячные темпы на все годы вперёд. Смертность в этом мире не зависит от возраста.
+katechon_demo_foot_generations;Диагональ ведёт одно поколение через годы. Смертность здесь не зависит от возраста.
+katechon_demo_foot_main;Возраст считается по каждому человеку. Будущее держит сегодняшние месячные темпы.
+katechon_demo_forecast;Прогноз населения
+katechon_demo_forecast_kind;%1  ·  при сегодняшних темпах
+katechon_demo_future_of;Будущее: %1
+katechon_demo_generations;История поколений
+katechon_demo_generations_kind;Возрастные группы по годам
+katechon_demo_in_year;В %1
+katechon_demo_inspector;Инспектор прогноза
+katechon_demo_life_course;Жизненный путь
+katechon_demo_line_relief;Без голода, тесноты и войны
+katechon_demo_line_today;При сегодняшних темпах
+katechon_demo_median;Медианный возраст
+katechon_demo_median_note;половина старше
+katechon_demo_members;Численность
+katechon_demo_migration;Миграционные потоки
+katechon_demo_movement;Движение людей
+katechon_demo_moves;Миграция и война
+katechon_demo_no_ages;Симуляция не хранит возраст этих людей.
+katechon_demo_now;Сейчас
+katechon_demo_of_workforce;Доля среди трудоспособных
+katechon_demo_old;Старше трудового возраста
+katechon_demo_old_ages;%1 лет и старше
+katechon_demo_old_row;%1 лет и старше
+katechon_demo_on_map;На карте  ›
+katechon_demo_open_forecast;Открыть прогноз  ›
+katechon_demo_open_forecast_hint;Открыть прогноз по годам
+katechon_demo_open_generations;Открыть поколения  ›
+katechon_demo_open_generations_hint;Проследить поколение через годы
+katechon_demo_population_in;Население  ·  %1
+katechon_demo_press_cell;Нажмите клетку, чтобы следить за её поколением
+katechon_demo_profile;Возрастной профиль
+katechon_demo_profile_kind;Возраст и этап жизни  ·  пятилетние группы
+katechon_demo_profile_of;Выбранное поколение  ·  профиль
+katechon_demo_projected;Прогноз  ·  %1
+katechon_demo_selected;Выбранное поколение
+katechon_demo_share;Доля населения
+katechon_demo_stage;Этап жизни
+katechon_demo_stage_child;Детство
+katechon_demo_stage_old;После трудового возраста
+katechon_demo_stage_work;Трудовой возраст
+katechon_demo_through_time;Поколения во времени
+katechon_demo_unborn;Ещё не родились
+katechon_demo_what_happens;Что ждёт это поколение
+katechon_demo_why;Почему меняется будущее
+katechon_demo_why_kind;%1  ·  сумма месяцев
+katechon_demo_working;Трудовой возраст
+katechon_demo_working_ages;Возраст %1
+katechon_demo_working_row;Трудовой возраст  ·  %1
+katechon_demo_year;%1 год
+katechon_demo_years;%1 лет
+katechon_demo_young;Дети
+katechon_demo_outlook;Перспектива  ·  при сегодняшних темпах
+katechon_demo_to_tab;Демография  ›
+katechon_demo_outlook_about;Сегодняшние месячные темпы на годы вперёд. Вкладка «Демография» показывает их по годам.
+katechon_demo_working_now_then;Трудовой возраст, сейчас и в %1
+katechon_demo_median_now_then;Медианный возраст, сейчас и в %1
+katechon_demo_age_short;Возраст %1
+katechon_demo_at_year;В %1
+katechon_demo_between_regions;между регионами, за месяц
+katechon_demo_birth_year;Год рождения
+katechon_demo_compare;Сравнить поколения  ›
+katechon_demo_compare_clear;Убрать сравнение  ›
+katechon_demo_compared;Сравнение: %1
+katechon_demo_course_early;Начало карьеры
+katechon_demo_course_enter;Выход на работу
+katechon_demo_course_peak;Пик трудовых лет
+katechon_demo_course_retiring;Скоро пенсия
+katechon_demo_course_senior;Старшие работники
+katechon_demo_dependency_short;иждивенцев на сотню
+katechon_demo_estimate;оценка игры, за месяц
+katechon_demo_explore;Подробнее  ›
+katechon_demo_foot_abroad;Через границу: оценка игры на этот месяц по странам. Цифра наверху считает уже совершённые переезды.
+katechon_demo_foot_groups;Посчитано по самим людям: возраст, трудовые договоры, назначения в армию. Образование по возрасту не хранится.
+katechon_demo_foot_internal;Переезды этого месяца между регионами страны, как их совершила игра.
+katechon_demo_from;Откуда
+katechon_demo_groups;Ключевые показатели по возрастным группам
+katechon_demo_groups_kind;Посчитано по каждому человеку
+katechon_demo_in_births;Рождения в растущих группах
+katechon_demo_in_deaths;Убыль в сокращающихся группах
+katechon_demo_in_labor;В рабочей силе
+katechon_demo_in_labor_about;Рабочие якоря трудового возраста: каждый четвёртый человек, как их нумерует каталог.
+katechon_demo_in_moves;Миграция и армия
+katechon_demo_in_relief;Голод и теснота, снятые во второй линии
+katechon_demo_inputs;Вводные сценария
+katechon_demo_inputs_kind;За месяц, на все годы вперёд
+katechon_demo_internal;Внутренняя
+katechon_demo_international;Международная
+katechon_demo_lens_change;Изменение к %1
+katechon_demo_lens_change_note;при сегодняшних темпах, по регионам
+katechon_demo_lens_generation;Родились в %1
+katechon_demo_lens_generation_note;доля населения относительно страны
+katechon_demo_lens_median_note;лет, по регионам
+katechon_demo_lens_old;%1 лет и старше
+katechon_demo_lens_old_note;доля населения
+katechon_demo_map;Карта
+katechon_demo_month_made;за месяц, совершённые переезды
+katechon_demo_net_abroad;Переехали через границу
+katechon_demo_nobody_moves;В этом месяце никто
+katechon_demo_of_workforce_about;Какую часть всех людей от 14 до 64 лет в тот год составляет это поколение.
+katechon_demo_open_groups;Показатели по возрастным группам  ›
+katechon_demo_outlook_in;Перспектива на %1
+katechon_demo_recruitable;Годны к службе
+katechon_demo_recruitable_about;Рабочие якоря от 18 до 64 лет, из которых набирают сухопутные войска.
+katechon_demo_recruits;Потенциальные призывники
+katechon_demo_recruits_about;Рабочая сила от 18 до 64 лет, из которой набирают сухопутные войска, за вычетом уже служащих.
+katechon_demo_relocations;Переезды внутри страны
+katechon_demo_select_cohort;Выбрать поколение  ›
+katechon_demo_serving;В армии
+katechon_demo_serving_about;Люди группы, назначенные сейчас в сухопутные соединения.
+katechon_demo_show_inputs;Вводные сценария  ›
+katechon_demo_show_why;Почему меняется будущее  ›
+katechon_demo_to;Куда
+katechon_demo_wage;С трудовым договором
+katechon_demo_wage_about;Люди группы, у которых сейчас есть действующий трудовой договор.
+katechon_demo_years_short;%1 лет
+katechon_ppl_by_location;Население по месту жительства
+katechon_ppl_rural;Сельские жители
+katechon_demo_born_short;Рожд. %1
+katechon_demo_share_short;доля
+katechon_demo_men;Мужчины
+katechon_demo_women;Женщины
+katechon_demo_band_sexes;Мужчин %1, женщин %2.
+katechon_demo_sex_ratio;Мужчин на 100 женщин
+katechon_demo_sex_ratio_about;Пол каждого человека выводится из его идентичности: мальчиков рождается чуть больше, среди пожилых женщин больше, чем мужчин.
+katechon_ppl_everyday_met;Повседневные нужды удовлетворены
+katechon_demo_about;Как получены эти цифры
+katechon_demo_relief_end;Без голода, тесноты и войны: %1 в %2
+katechon_demo_still_here;Остаются в стране
+katechon_demo_still_here_about;Какая часть нынешних членов поколения будет здесь через двадцать лет при сегодняшних темпах.
+katechon_demo_structure;Этапы жизни по годам
+katechon_demo_structure_kind;%1  ·  при сегодняшних темпах
+katechon_demo_nothing_yet;пока не зафиксировано
+katechon_demo_expected_in;Ожидаемый приезд
+katechon_demo_expected_out;Ожидаемый отъезд
+katechon_demo_expected_net;ожидается, за месяц
+katechon_demo_lens_density_note;регионы не различаются по возрасту
+katechon_ppl_against_births_short;против %1 рождений сверх смертей за месяц
+katechon_ppl_cause_below;суммы — ниже
+katechon_demo_children_line;Дети до %1 лет: %2
+katechon_demo_since;с %1
+katechon_demo_median_in;Медианный возраст  ·  %1
+katechon_demo_now_is;сейчас %1
+katechon_demo_dependency_in;Нагрузка  ·  %1
+katechon_demo_recruits_in;Призывники  ·  %1
+katechon_demo_size;Размер
+katechon_demo_size_note;от среднего года возраста
+katechon_demo_place;Место в пирамиде
+katechon_demo_place_note;населения моложе
+katechon_demo_now_and_later;Сейчас и потом

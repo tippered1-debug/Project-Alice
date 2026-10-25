@@ -217,7 +217,7 @@ TEST_CASE("pre-base bootstrap persons have signed canonical birth days", "[popul
 		REQUIRE(persons::age_days(*f.state, person)
 			== persons::age_days(*f.state, persons::canonical_key(*f.state, person), f.state->current_date));
 		REQUIRE(persons::age_days(*f.state, person) >= 0);
-		REQUIRE(persons::age_days(*f.state, person) <= 91 * 365 - 1);
+		REQUIRE(persons::age_days(*f.state, person) <= 100 * 365);
 	}
 }
 

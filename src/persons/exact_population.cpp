@@ -1,9 +1,11 @@
 #include "exact_population.hpp"
 
 #include "actors/ownership.hpp"
+#include "demographics.hpp"
 #include "system_state.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iterator>
@@ -54,6 +56,11 @@ namespace {
 constexpr uint32_t anchor_minimum_age_days = 18u * 365u;
 constexpr uint32_t anchor_age_span_days = (65u - 18u) * 365u;
 constexpr uint32_t dependent_age_span_days = 91u * 365u;
+constexpr double born_male_share = 0.512;
+
+struct stable_table;
+bool is_stable_policy(cell_descriptor const& cell);
+uint32_t stable_policy_for(sys::state const& state, dcon::pop_id pop);
 
 uint64_t mix(uint64_t value) {
 	value ^= value >> 30;
@@ -510,7 +517,8 @@ dcon::site_id deterministic_home_site(sys::state& state, dcon::pop_id pop, dcon:
 }
 
 bool valid_descriptor(sys::state const& state, cell_descriptor const& descriptor) {
-	if(descriptor.source_population_cell == 0 || descriptor.bootstrap_version != bootstrap_semantics_version || descriptor.demographic_policy != demographic_policy_version)
+	if(descriptor.source_population_cell == 0 || descriptor.bootstrap_version != bootstrap_semantics_version
+		|| (descriptor.demographic_policy != demographic_policy_version && !is_stable_policy(descriptor)))
 		return false;
 	if(descriptor.home_site && !state.world.site_is_valid(descriptor.home_site)) return false;
 	if(descriptor.source_culture && !state.world.culture_is_valid(descriptor.source_culture)) return false;
@@ -555,6 +563,7 @@ bool ensure_population_descriptor(sys::state& state, dcon::pop_id pop, double in
 	descriptor.literal_count = uint64_t(literal);
 	descriptor.bootstrap_base_day = state.current_date ? state.current_date.to_raw_value() - 1 : 0;
 	descriptor.demographic_seed = uint64_t(source) * 0x9e3779b97f4a7c15ULL;
+	descriptor.demographic_policy = stable_policy_for(state, pop);
 	descriptor.home_site = deterministic_home_site(state, pop, {});
 	descriptor.source_culture = state.world.pop_get_culture(pop);
 	descriptor.source_religion = state.world.pop_get_religion(pop);
@@ -587,11 +596,121 @@ int32_t clamp_day(int64_t day) {
 	return int32_t(day);
 }
 
-uint32_t bootstrap_age_days(cell_descriptor const& cell, person_key key) {
+// ---- the stable-population policy ----
+//
+// Policy 1 draws the scenario's dependants evenly from 0 to 91, which makes
+// a column of the age profile, not a pyramid. Under the stable policy they
+// follow the ages of a population that has grown at one rate for a long time
+// under a Gompertz-Makeham mortality (life expectancy at birth about 73):
+// the rate is the policy's, chosen from the row's literacy when the cell is
+// registered. The dependants take those ages oldest first along their
+// ordinals, so the lowest ordinals, which a shrinking row loses first, are
+// the oldest. Workforce anchors keep the policy-1 draw of 18 to 65, so the
+// labor force and recruitment are as before. The policy is the number
+// stable_policy_base + bucket, the bucket the growth rate in tenths of a
+// percent above -1%.
+constexpr uint32_t stable_policy_base = 100;
+constexpr uint32_t stable_policy_buckets = 100;
+constexpr int32_t stable_oldest_years = 100;
+
+struct stable_table {
+	std::array<double, stable_oldest_years + 1> cdf{}; // of the dependants: the share younger than each whole year
+	std::array<float, stable_oldest_years + 1> male{}; // the share of men at each age
+};
+
+stable_table build_stable_table(double growth) {
+	stable_table table;
+	std::array<double, stable_oldest_years> everyone{};
+	auto survival = 1.0;
+	auto all = 0.0;
+	for(int32_t a = 0; a < stable_oldest_years; ++a) {
+		everyone[size_t(a)] = survival * std::exp(-growth * (double(a) + 0.5));
+		all += everyone[size_t(a)];
+		auto const mortality = 0.0008 + 0.00005 * std::exp(0.092 * double(a)) + (a == 0 ? 0.015 : 0.0);
+		survival *= std::exp(-mortality);
+	}
+	// what the anchors (a quarter, evenly 18 to 65) leave to the dependants
+	std::array<double, stable_oldest_years> dependants{};
+	auto dependants_all = 0.0;
+	for(int32_t a = 0; a < stable_oldest_years; ++a) {
+		auto const anchors = a >= 18 && a < 65 ? 0.25 / 47.0 : 0.0;
+		dependants[size_t(a)] = std::max(0.0, everyone[size_t(a)] / all - anchors);
+		dependants_all += dependants[size_t(a)];
+	}
+	auto seen = 0.0;
+	for(int32_t a = 0; a < stable_oldest_years; ++a) {
+		table.cdf[size_t(a)] = seen / dependants_all;
+		seen += dependants[size_t(a)];
+	}
+	table.cdf[stable_oldest_years] = 1.0;
+	// men are a little more at birth and fewer among the old
+	for(int32_t a = 0; a <= stable_oldest_years; ++a) {
+		auto const share = a < 50 ? 0.512 - 0.00044 * double(a) : 0.49 - 0.0042 * double(a - 50);
+		table.male[size_t(a)] = float(std::clamp(share, 0.28, 0.512));
+	}
+	return table;
+}
+
+bool is_stable_policy(cell_descriptor const& cell) {
+	return cell.demographic_policy >= stable_policy_base && cell.demographic_policy < stable_policy_base + stable_policy_buckets;
+}
+
+stable_table const& stable_table_for(cell_descriptor const& cell) {
+	static std::array<stable_table, stable_policy_buckets> const tables = [] {
+		std::array<stable_table, stable_policy_buckets> result;
+		for(uint32_t b = 0; b < stable_policy_buckets; ++b)
+			result[b] = build_stable_table(-0.01 + 0.001 * double(b));
+		return result;
+	}();
+	return tables[std::min<uint32_t>(cell.demographic_policy - stable_policy_base, stable_policy_buckets - 1)];
+}
+
+// Literate rows have grown slowly for long and are older; unlettered ones are young.
+uint32_t stable_policy_for(sys::state const& state, dcon::pop_id pop) {
+	auto const literacy = pop && state.world.pop_is_valid(pop) ? std::clamp(pop_demographics::get_literacy(state, pop), 0.0f, 1.0f) : 0.5f;
+	auto const growth = 0.032 - 0.032 * double(literacy);
+	auto const bucket = std::lround((growth + 0.01) / 0.001);
+	return stable_policy_base + uint32_t(std::clamp<long>(bucket, 0, long(stable_policy_buckets) - 1));
+}
+
+// The anchors among the ordinals [first, end): those divisible by four.
+uint64_t anchors_between(uint64_t first, uint64_t end) {
+	return end <= first ? uint64_t(0) : (end + 3u) / 4u - (first + 3u) / 4u;
+}
+
+// How many people a cell came with: its ordinals before its first birth cohort.
+uint64_t bootstrap_count(exact_population_store const& store, cell_descriptor const& cell) {
+	auto found = std::lower_bound(store.birth_cohorts.begin(), store.birth_cohorts.end(), cell.source_population_cell,
+		[](birth_cohort const& cohort, uint32_t value) { return cohort.source_population_cell < value; });
+	if(found != store.birth_cohorts.end() && found->source_population_cell == cell.source_population_cell)
+		return std::min(found->first_ordinal, cell.literal_count);
+	return cell.literal_count;
+}
+
+// The age in days at a share of the dependants counted from the youngest.
+double stable_age_days(stable_table const& table, double younger) {
+	younger = std::clamp(younger, 0.0, 1.0);
+	auto const above = std::upper_bound(table.cdf.begin(), table.cdf.end(), younger);
+	auto const a = std::clamp<int64_t>(int64_t(above - table.cdf.begin()) - 1, 0, stable_oldest_years - 1);
+	auto const width = table.cdf[size_t(a) + 1] - table.cdf[size_t(a)];
+	auto const within = width > 0.0 ? (younger - table.cdf[size_t(a)]) / width : 0.5;
+	return (double(a) + std::clamp(within, 0.0, 1.0)) * 365.0;
+}
+
+uint32_t bootstrap_age_days(exact_population_store const& store, cell_descriptor const& cell, person_key key) {
 	auto hash = deterministic_hash(cell, key);
 	if((key.ordinal % 4u) == 0u)
 		return anchor_minimum_age_days + uint32_t(hash % anchor_age_span_days);
-	return uint32_t(hash % dependent_age_span_days);
+	if(!is_stable_policy(cell))
+		return uint32_t(hash % dependent_age_span_days);
+	auto const count = bootstrap_count(store, cell);
+	auto const dependants = count - anchors_between(0, count);
+	if(dependants == 0 || key.ordinal >= count)
+		return 0;
+	auto const rank = key.ordinal - anchors_between(0, key.ordinal);
+	// the first is the oldest
+	auto const younger = 1.0 - (double(rank) + 0.5) / double(dependants);
+	return uint32_t(stable_age_days(stable_table_for(cell), younger));
 }
 
 } // namespace
@@ -632,6 +751,7 @@ registration_result register_population_cell(sys::state& state, dcon::pop_id pop
 	descriptor.literal_count = count;
 	descriptor.bootstrap_base_day = state.current_date ? state.current_date.to_raw_value() - 1 : 0;
 	descriptor.demographic_seed = uint64_t(source_cell) * 0x9e3779b97f4a7c15ULL;
+	descriptor.demographic_policy = stable_policy_for(state, pop);
 	descriptor.home_site = home;
 	descriptor.source_culture = state.world.pop_get_culture(pop);
 	descriptor.source_religion = state.world.pop_get_religion(pop);
@@ -1187,12 +1307,165 @@ persons::birth_day_index_t birth_day_index(sys::state const& state, person_key k
 	if(auto cohort = birth_cohort_for(*state.exact_population, key))
 		return persons::birth_day_index_t(cohort->birth_day);
 	return persons::birth_day_index_t(clamp_day(int64_t(descriptor->bootstrap_base_day)
-		- int64_t(bootstrap_age_days(*descriptor, key))));
+		- int64_t(bootstrap_age_days(*state.exact_population, *descriptor, key))));
+}
+
+age_profiles count_ages(sys::state const& state, sys::date current_day, int32_t oldest,
+	std::vector<int32_t> const& group_of_pop, int32_t groups) {
+	age_profiles result;
+	auto const ages = size_t(std::max(oldest, 0)) + 1u;
+	result.everyone.assign(size_t(std::max(groups, 0)), std::vector<double>(ages, 0.0));
+	result.anchors.assign(size_t(std::max(groups, 0)), std::vector<double>(ages, 0.0));
+	result.men.assign(size_t(std::max(groups, 0)), std::vector<double>(ages, 0.0));
+	if(!state.exact_population || !current_day || groups <= 0) return result;
+	auto const& store = *state.exact_population;
+	auto const today = int64_t(current_day.to_raw_value()) - 1;
+	auto const last = int64_t(ages) - 1;
+	std::vector<double>* into = nullptr;
+	std::vector<double>* anchors_into = nullptr;
+	std::vector<double>* men_into = nullptr;
+	// people of one age in days, a share of them men
+	auto const add_one = [&](double people, int64_t age, double men) {
+		auto const year = size_t(std::clamp<int64_t>(age / 365, 0, last));
+		(*into)[year] += people;
+		(*men_into)[year] += people * men;
+	};
+	// people whose ages in days spread evenly over [low, high)
+	auto const add_spread = [&](double people, int64_t low, int64_t high, double men) {
+		if(people <= 0.0) return;
+		if(high <= low + 1) {
+			add_one(people, low, men);
+			return;
+		}
+		auto const per_day = people / double(high - low);
+		for(auto year = std::max<int64_t>(low, 0) / 365; year * 365 < high; ++year) {
+			auto const from = std::max(low, year * 365);
+			auto const to = std::min(high, (year + 1) * 365);
+			if(to <= from) continue;
+			auto const at = size_t(std::min(year, last));
+			(*into)[at] += per_day * double(to - from);
+			(*men_into)[at] += per_day * double(to - from) * men;
+		}
+		if(low < 0) {
+			(*into)[0] += per_day * double(std::min<int64_t>(high, 0) - low);
+			(*men_into)[0] += per_day * double(std::min<int64_t>(high, 0) - low) * men;
+		}
+	};
+	std::vector<double> ignored(ages, 0.0);
+	auto const add_anchors = [&](double people, int64_t low, int64_t high) {
+		auto const keep = into;
+		auto const keep_men = men_into;
+		into = anchors_into;
+		men_into = &ignored;
+		add_spread(people, low, high, 0.0);
+		into = keep;
+		men_into = keep_men;
+	};
+	// the scenario's people in [first, end) of a cell: one in four is a working
+	// anchor of 18 to 65; the rest as the cell's policy draws them
+	auto const add_bootstrap = [&](cell_descriptor const& cell, uint64_t first, uint64_t end) {
+		if(end <= first) return;
+		auto const anchors = anchors_between(first, end);
+		auto const others = (end - first) - anchors;
+		auto const lived = today - int64_t(cell.bootstrap_base_day);
+		auto const stable = is_stable_policy(cell);
+		add_spread(double(anchors), lived + anchor_minimum_age_days, lived + anchor_minimum_age_days + anchor_age_span_days, stable ? 0.49 : 0.5);
+		add_anchors(double(anchors), lived + anchor_minimum_age_days, lived + anchor_minimum_age_days + anchor_age_span_days);
+		if(!stable) {
+			add_spread(double(others), lived, lived + dependent_age_span_days, 0.5);
+			return;
+		}
+		// the dependants take the table's ages oldest first: the shares of
+		// them younger than the first and the last of the stretch
+		auto const& table = stable_table_for(cell);
+		auto const count = bootstrap_count(store, cell);
+		auto const dependants = double(count - anchors_between(0, count));
+		if(dependants <= 0.0) return;
+		auto const rank_first = double(first - anchors_between(0, first));
+		auto const rank_end = rank_first + double(others);
+		auto const low = 1.0 - rank_end / dependants;
+		auto const high = 1.0 - rank_first / dependants;
+		for(int32_t a = 0; a < stable_oldest_years; ++a) {
+			auto const from = std::max(low, table.cdf[size_t(a)]);
+			auto const to = std::min(high, table.cdf[size_t(a) + 1]);
+			if(to <= from) continue;
+			auto const width = table.cdf[size_t(a) + 1] - table.cdf[size_t(a)];
+			auto const day_low = (double(a) + (from - table.cdf[size_t(a)]) / width) * 365.0;
+			auto const day_high = (double(a) + (to - table.cdf[size_t(a)]) / width) * 365.0;
+			add_spread((to - from) * dependants, lived + int64_t(day_low), lived + std::max(int64_t(day_low) + 1, int64_t(day_high)), table.male[size_t(a)]);
+		}
+	};
+	// the living of [first, end) of a cell, split into the born and the scenario's
+	auto const add_living = [&](cell_descriptor const& cell, uint64_t first, uint64_t end) {
+		auto const source = cell.source_population_cell;
+		auto at = std::upper_bound(store.birth_cohorts.begin(), store.birth_cohorts.end(), std::pair{ source, first },
+			[](std::pair<uint32_t, uint64_t> value, birth_cohort const& cohort) {
+				return value.first == cohort.source_population_cell ? value.second < cohort.first_ordinal : value.first < cohort.source_population_cell;
+			});
+		if(at != store.birth_cohorts.begin()) {
+			auto const before = std::prev(at);
+			if(before->source_population_cell == source && before->first_ordinal + before->count > first) at = before;
+		}
+		auto cursor = first;
+		for(; at != store.birth_cohorts.end() && at->source_population_cell == source && at->first_ordinal < end; ++at) {
+			auto const from = std::max(cursor, at->first_ordinal);
+			auto const to = std::min(end, at->first_ordinal + at->count);
+			if(to <= from) continue;
+			add_bootstrap(cell, cursor, from);
+			add_one(double(to - from), today - int64_t(at->birth_day), born_male_share);
+			add_anchors(double(anchors_between(from, to)), today - int64_t(at->birth_day), today - int64_t(at->birth_day) + 1);
+			cursor = to;
+		}
+		add_bootstrap(cell, cursor, end);
+	};
+	std::unordered_map<uint32_t, int32_t> group_of_cell;
+	for(auto const& range : store.membership_ranges) {
+		auto known = group_of_cell.find(range.current_population_cell);
+		if(known == group_of_cell.end()) {
+			auto const pop = population_for_source_cell(state, range.current_population_cell);
+			auto const group = pop && size_t(pop.index()) < group_of_pop.size() ? group_of_pop[size_t(pop.index())] : -1;
+			known = group_of_cell.emplace(range.current_population_cell, group < groups ? group : -1).first;
+		}
+		if(known->second < 0) continue;
+		auto const cell = find_cell(state, range.identity_population_cell);
+		if(!cell) continue;
+		into = &result.everyone[size_t(known->second)];
+		anchors_into = &result.anchors[size_t(known->second)];
+		men_into = &result.men[size_t(known->second)];
+		// the stretches between the retired ranges of the cell
+		auto const end = range.first_ordinal + range.count;
+		auto retired = std::lower_bound(store.retired_people.begin(), store.retired_people.end(), range.identity_population_cell,
+			[](person_range const& r, uint32_t value) { return r.source_population_cell < value; });
+		auto cursor = range.first_ordinal;
+		for(; retired != store.retired_people.end() && retired->source_population_cell == range.identity_population_cell && retired->first_ordinal < end; ++retired) {
+			auto const retired_end = retired->first_ordinal + retired->count;
+			if(retired_end <= cursor) continue;
+			if(retired->first_ordinal > cursor) add_living(*cell, cursor, retired->first_ordinal);
+			cursor = std::max(cursor, retired_end);
+		}
+		if(cursor < end) add_living(*cell, cursor, end);
+	}
+	return result;
 }
 
 int32_t age_days(sys::state const& state, person_key key, sys::date current_day) {
 	if(!persons::exact_population::exists(state, key) || !current_day) return -1;
 	return clamp_day(int64_t(current_day.to_raw_value() - 1) - int64_t(persons::exact_population::birth_day_index(state, key)));
+}
+
+bool is_male(sys::state const& state, person_key key) {
+	auto descriptor = find_cell(state, key);
+	if(!descriptor) return false;
+	auto const& store = *state.exact_population;
+	auto share = 0.5;
+	if(birth_cohort_for(store, key)) {
+		share = born_male_share;
+	} else if(is_stable_policy(*descriptor)) {
+		auto const at_bootstrap = int32_t(bootstrap_age_days(store, *descriptor, key) / 365u);
+		share = stable_table_for(*descriptor).male[size_t(std::clamp(at_bootstrap, 0, stable_oldest_years))];
+	}
+	auto const draw = mix(deterministic_hash(*descriptor, key) ^ 0x6a09e667f3bcc909ULL) % 1000000u;
+	return double(draw) < share * 1000000.0;
 }
 
 int32_t age_years(sys::state const& state, person_key key, sys::date current_day) {
@@ -1462,7 +1735,7 @@ int32_t snapshot_birth_day(exact_population_store const& store, person_key key) 
 	if(it == store.cell_by_source.end()) return 0;
 	auto const& descriptor = store.cells[it->second];
 	return clamp_day(int64_t(descriptor.bootstrap_base_day)
-		- int64_t(bootstrap_age_days(descriptor, key)));
+		- int64_t(bootstrap_age_days(store, descriptor, key)));
 }
 
 dcon::site_id snapshot_home_site(exact_population_store const& store, person_key key) {
@@ -1649,12 +1922,30 @@ bool import_snapshot(sys::state& state, catalog_snapshot const& snapshot) {
 		if(!state.world.pop_is_valid(pop) || !bind_population(*candidate, pop, binding.source_population_cell)) return false;
 	}
 	if(candidate->source_by_pop_slot.size() != snapshot.source_bindings.size()) return false;
+	// Cells of policy 1 take the stable policy when they are loaded, chosen
+	// from their row as a new cell's would be. Their dependants' ages change,
+	// so the detailed profiles bridged to such people follow below.
+	std::unordered_set<uint32_t> upgraded;
+	for(auto& cell : candidate->cells) {
+		if(cell.demographic_policy != demographic_policy_version) continue;
+		dcon::pop_id pop{};
+		if(auto slot = candidate->pop_slot_by_source.find(cell.source_population_cell); slot != candidate->pop_slot_by_source.end() && slot->second > 0)
+			pop = dcon::pop_id{ dcon::pop_id::value_base_t(slot->second - 1u) };
+		cell.demographic_policy = stable_policy_for(state, pop);
+		upgraded.insert(cell.source_population_cell);
+	}
 	for(auto const& override : snapshot.overrides) {
 		if(!candidate->cell_by_source.contains(override.key.source_population_cell) || override.key.ordinal >= candidate->cells[candidate->cell_by_source.at(override.key.source_population_cell)].literal_count || override.has_alive && override.alive && retired_ordinal(*candidate, override.key) || candidate->overrides.contains(override.key)) return false;
 		if(override.has_home_site && !override.home_site || !state.world.site_is_valid(override.home_site)) return false;
 		candidate->overrides.emplace(override.key, override);
 	}
 	for(auto const& bridge : snapshot.bridges) {
+		if(upgraded.contains(bridge.key.source_population_cell) && bridge.profile && state.world.person_is_valid(bridge.profile)
+			&& candidate->cell_by_source.contains(bridge.key.source_population_cell)) {
+			auto const day = snapshot_birth_day(*candidate, bridge.key);
+			state.world.person_set_birth_day_index(bridge.profile, day);
+			state.world.person_set_birth_date(bridge.profile, day >= 0 && day <= int32_t(std::numeric_limits<uint16_t>::max() - 1) ? sys::date{ uint16_t(day) } : sys::date{});
+		}
 		if(!candidate->cell_by_source.contains(bridge.key.source_population_cell) || bridge.key.ordinal >= candidate->cells[candidate->cell_by_source.at(bridge.key.source_population_cell)].literal_count || !bridge.profile || !state.world.person_is_valid(bridge.profile) || candidate->bridges.contains(bridge.key) || candidate->person_by_profile.contains(uint32_t(bridge.profile.index()) + 1u) || !profile_matches_snapshot(state, *candidate, bridge.key, bridge.profile)) return false;
 		candidate->bridges.emplace(bridge.key, bridge.profile);
 		candidate->person_by_profile.emplace(uint32_t(bridge.profile.index()) + 1u, bridge.key);
