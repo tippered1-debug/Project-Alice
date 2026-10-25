@@ -43,6 +43,12 @@ struct commodity_line {
 	float self_sufficiency() const {
 		return bought > 0.f ? std::max(0.f, 1.f - net_import / bought) : -1.f;
 	}
+	// Dependence on imports: the part of demand our own production does not meet, 1 - production /
+	// demand, never below 0; -1 when there was no demand. Unlike the gross share of imports it agrees
+	// with production and demand set side by side.
+	float dependence() const {
+		return bought > 0.f ? std::clamp(1.f - sold / bought, 0.f, 1.f) : -1.f;
+	}
 	// Of all the country bought, the part that came from abroad; -1 when nothing was bought.
 	float import_share() const {
 		return bought > 0.f ? std::min(1.f, imported_quantity / bought) : -1.f;
@@ -69,6 +75,7 @@ struct flow_part {
 
 struct picture {
 	dcon::nation_id nation;
+	sys::date as_of; // the day the figures were taken, as the top bar shows it
 	int32_t span_days = 0;
 	int32_t recorded_days = 0; // of the span, the days the game has run
 	float exported = 0.f;
@@ -80,7 +87,15 @@ struct picture {
 	std::vector<float> exported_series; // oldest first: a day each over 30 days, a month each over a year
 	std::vector<float> imported_series;
 	size_t first_recorded_bucket = 0; // the buckets before it lie before the start of the game
-	std::vector<commodity_line> commodities; // goods the country trades or buys, by value bought, largest first
+	// by bucket and good, flat: [bucket * goods_count + good], value
+	uint32_t goods_count = 0;
+	std::vector<float> exported_by_good_series;
+	std::vector<float> imported_by_good_series;
+	// by bucket and partner, flat: [bucket * nations_count + nation], value
+	uint32_t nations_count = 0;
+	std::vector<float> exported_by_nation_series;
+	std::vector<float> imported_by_nation_series;
+	std::vector<commodity_line> commodities; // every good but money, by value bought, largest first
 	std::vector<partner_line> partners; // by value both ways, largest first
 	std::vector<float> share_by_nation; // of the country's foreign trade, indexed by nation
 	std::vector<flow_part> parts; // every good with every country, largest first
@@ -150,6 +165,7 @@ void for_each_deal(sys::state const& state, int32_t since, F&& visit) {
 inline picture take(sys::state const& state, dcon::nation_id n, int32_t span_days) {
 	picture result;
 	result.nation = n;
+	result.as_of = state.current_date;
 	result.span_days = span_days;
 	result.share_by_nation.assign(state.world.nation_size(), 0.f);
 	auto const buckets = span_days <= 30 ? size_t(span_days) : size_t(12);
@@ -159,6 +175,12 @@ inline picture take(sys::state const& state, dcon::nation_id n, int32_t span_day
 		return result;
 
 	auto const commodity_count = state.world.commodity_size();
+	result.goods_count = commodity_count;
+	result.exported_by_good_series.assign(buckets * commodity_count, 0.f);
+	result.imported_by_good_series.assign(buckets * commodity_count, 0.f);
+	result.nations_count = state.world.nation_size();
+	result.exported_by_nation_series.assign(buckets * result.nations_count, 0.f);
+	result.imported_by_nation_series.assign(buckets * result.nations_count, 0.f);
 	std::vector<commodity_line> lines(commodity_count);
 	for(uint32_t i = 0; i < commodity_count; ++i)
 		lines[i].commodity = dcon::commodity_id{ dcon::commodity_id::value_base_t(i) };
@@ -219,6 +241,8 @@ inline picture take(sys::state const& state, dcon::nation_id n, int32_t span_day
 			by_good_and_partner_in[key(d.commodity, from)] += value;
 			quantity_in[key(d.commodity, from)] += d.quantity;
 			result.imported_series[bucket_of(d.day)] += value;
+			result.imported_by_good_series[bucket_of(d.day) * commodity_count + d.commodity.index()] += value;
+			result.imported_by_nation_series[bucket_of(d.day) * result.nations_count + from.index()] += value;
 		} else {
 			result.exported += value;
 			line.exported += value;
@@ -228,6 +252,8 @@ inline picture take(sys::state const& state, dcon::nation_id n, int32_t span_day
 			by_good_and_partner_out[key(d.commodity, to)] += value;
 			quantity_out[key(d.commodity, to)] += d.quantity;
 			result.exported_series[bucket_of(d.day)] += value;
+			result.exported_by_good_series[bucket_of(d.day) * commodity_count + d.commodity.index()] += value;
+			result.exported_by_nation_series[bucket_of(d.day) * result.nations_count + to.index()] += value;
 		}
 	});
 
@@ -255,10 +281,10 @@ inline picture take(sys::state const& state, dcon::nation_id n, int32_t span_day
 
 	auto const capital = state.world.nation_get_capital(n);
 	auto const home_market = capital ? state.world.state_instance_get_market_from_local_market(state.world.province_get_state_membership(capital)) : dcon::market_id{};
+	// every good of the simulation, money aside: a good with no trade abroad, or none at all over the
+	// span, still belongs to the economy and stays in the picture
 	for(auto& line : lines) {
 		if(state.world.commodity_get_money_rgo(line.commodity))
-			continue;
-		if(line.bought <= 0.f && line.exported <= 0.f && line.imported <= 0.f)
 			continue;
 		result.commodities.push_back(line);
 	}

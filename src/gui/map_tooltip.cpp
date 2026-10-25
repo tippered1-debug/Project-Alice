@@ -554,15 +554,16 @@ void population_map_tt_box(sys::state& state, text::columnar_layout& contents, d
 	auto fat = dcon::fatten(state.world, prov);
 	country_name_box(state, contents, prov);
 
-	if(prov.value < state.province_definitions.first_sea_province.value) {
+	if(prov.value < state.province_definitions.first_sea_province.value && fat.get_demographics(demographics::total) > 0.f) {
 		auto box = text::open_layout_box(contents);
+		// The simulation counts a sample; a scenario may say how many people one unit stands for.
+		auto people_per_unit = 1.0;
+		if(state.key_is_localized(std::string_view("katechon_people_per_unit")))
+			people_per_unit = std::max(1.0, std::atof(text::produce_simple_string(state, std::string_view("katechon_people_per_unit")).c_str()));
 		text::localised_single_sub_box(state, contents, box, std::string_view("population_density_at_province"), text::variable_type::prov, (
 			text::produce_simple_string(state, fat.get_name()) +
 			": " +
-			text::format_float(fat.get_demographics(demographics::total), 0) +
-			" (" +
-			text::prettify(int64_t(fat.get_demographics(demographics::total))) +
-			")"
+			text::prettify(int64_t(double(fat.get_demographics(demographics::total)) * people_per_unit))
 			));
 		text::close_layout_box(contents, box);
 	}

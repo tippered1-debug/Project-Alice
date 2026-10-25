@@ -16,12 +16,12 @@ vec4 gamma_correct(vec4 colour) {
 }
 
 // The KATECHON trade lanes carry their kind in the texture coordinate across
-// the line: 2..3 outgoing (gold), 4..5 incoming (azure), 6..7 the trade of
+// the line: 2..3 outgoing (copper), 4..5 incoming (azure), 6..7 the trade of
 // other countries (faint ivory). They are drawn without the arrow texture: a
 // soft glow, a thin core, and beads running from the start of the lane.
 vec4 trade_lane(float across, float kind) {
 	bool own = kind < 2.5;
-	vec3 colour = kind < 1.5 ? vec3(0.98, 0.78, 0.44) : (kind < 2.5 ? vec3(0.62, 0.84, 0.98) : vec3(0.90, 0.86, 0.78));
+	vec3 colour = kind < 1.5 ? vec3(0.94, 0.57, 0.37) : (kind < 2.5 ? vec3(0.62, 0.84, 0.98) : vec3(0.90, 0.86, 0.78));
 	float edge = abs(across - 0.5) * 2.0;
 	float glow = (1.0 - smoothstep(0.0, 1.0, edge)) * (own ? 0.38 : 0.10);
 	float core = 1.0 - smoothstep(own ? 0.30 : 0.10, own ? 0.50 : 0.22, edge);

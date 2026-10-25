@@ -36,105 +36,215 @@ katechon_hud_outliner;OUTLINER
 katechon_hud_log;LOG
 katechon_hud_menu;MENU
 katechon_mil_staff;Personnel: $x$ of $y$ authorized
-katechon_trade_period_since;first %1 days of play
-katechon_trade_period_month;the last 30 days
-katechon_trade_period_year;the last 12 months
+katechon_trade_all;All trade
+katechon_trade_all_home;All we use of it is made at home.
+katechon_trade_all_tables;Classic trade tables
+katechon_trade_asof;as of %1
+katechon_trade_back_map;Back to map
+katechon_trade_balance_with;Balance with them
+katechon_trade_balanced;Balanced
+katechon_trade_buyers;Who buys it from us
+katechon_trade_buyers_aside;of exports · value
+katechon_trade_by_good;Balance by good
+katechon_trade_by_good_aside;imports · exports
+katechon_trade_chart_wait;The trends appear once three %1 are recorded, %2 so far.
+katechon_trade_clear_search;Clear the search
+katechon_trade_close_details;Close details
+katechon_trade_col_balance;Balance, £
+katechon_trade_col_country;Country
+katechon_trade_col_demand;Demand
+katechon_trade_col_exports;Exports, £
+katechon_trade_col_good;Commodity
+katechon_trade_col_imports;Imports, £
+katechon_trade_col_made;Production
+katechon_trade_col_share;Share
+katechon_trade_col_shortage;Shortage / surplus
+katechon_trade_col_supply;Domestic supply
+katechon_trade_col_turnover;Turnover
+katechon_trade_concentration;Concentration
+katechon_trade_concentration_aside;largest partner each way
+katechon_trade_countries;Countries
+katechon_trade_cover_deficit;Imports exceed exports by %1
+katechon_trade_cover_label;Exports cover imports
+katechon_trade_cover_surplus;Exports exceed imports by %1
+katechon_trade_day;days
+katechon_trade_day_note;each day
+katechon_trade_deficit_line;%1 structural supply deficit
+katechon_trade_dep_critical;Critical dependency
+katechon_trade_dep_high;High dependency
+katechon_trade_dep_watch;Dependency to watch
+katechon_trade_exports;Exports
+katechon_trade_exports_note;What went out over the span
+katechon_trade_exposed;Most exposed goods
+katechon_trade_exposed_aside;short of demand · imports
+katechon_trade_filter_all;All
+katechon_trade_filter_deps;Import dependencies
+katechon_trade_filter_exports;Exports
+katechon_trade_flows;Trade flows
+katechon_trade_flows_in;Imports from
+katechon_trade_flows_out;Exports to
+katechon_trade_flows_title;Flows of trade
+katechon_trade_goods;Goods
+katechon_trade_group_other;Other goods
+katechon_trade_group_strategic;Industry and defence
+katechon_trade_group_vital;Vital needs
+katechon_trade_halves_note;first half of the span → second half
+katechon_trade_hard_replace;Hardly anyone else sells it to us.
+katechon_trade_home;At home
+katechon_trade_home_supply;Home supply
+katechon_trade_how_met;How demand is met
+katechon_trade_how_met_aside;of demand · value
+katechon_trade_idle_good;No production, demand or trade: %1
+katechon_trade_idle_goods;%1 goods with no production, demand or trade over the span
+katechon_trade_imported_use;%1 of demand depends on imports.
+katechon_trade_imports;Imports
+katechon_trade_imports_note;What came in over the span
+katechon_trade_ins_brief;%1 — %2 import-dependent
+katechon_trade_ins_buyer;%1 buys %2 of our exports
+katechon_trade_ins_buyer_detail;Exports %1 against imports %2
+katechon_trade_ins_dep_detail;%1 of demand depends on imports
+katechon_trade_ins_dep_imports;%1 supply heavily dependent on imports
+katechon_trade_ins_dep_on;%1 supply heavily dependent on %2
+katechon_trade_ins_dep_partly;%1 supply partly imported
+katechon_trade_ins_from;%1 of the imports from %2
+katechon_trade_ins_good;%1 earns %2 of export income
+katechon_trade_ins_good_detail;One good carries the export side
+katechon_trade_ins_hidden;Hidden deficit with %1
+katechon_trade_ins_hidden_detail;Overall %1 · with them %2
+katechon_trade_ins_many;Bought from several countries
+katechon_trade_key_buyers;buy it abroad
+katechon_trade_key_sellers;sell it abroad
+katechon_trade_key_width;wider: more value
+katechon_trade_key_world;the whole world
+katechon_trade_kpi_dependence;Dependence
+katechon_trade_kpi_in;Imports
+katechon_trade_kpi_net;Balance
+katechon_trade_kpi_out;Exports
+katechon_trade_largest_days;Largest days
+katechon_trade_layer;Trade
 katechon_trade_level_critical;Critical
 katechon_trade_level_high;High
 katechon_trade_level_watch;Watch
-katechon_trade_kind_vital;Vital
-katechon_trade_kind_strategic;Strategic
-katechon_trade_vs_before;vs previous
-katechon_trade_span_month;30 days
-katechon_trade_span_year;12 months
-katechon_trade_exports;Exports
-katechon_trade_imports;Imports
-katechon_trade_key_width;wider: more value
-katechon_trade_key_sellers;sell it abroad
-katechon_trade_key_buyers;buy it abroad
-katechon_trade_key_world;the whole world
-katechon_trade_partner_tip;We sell them %1, we buy %2
-katechon_trade_dep_tip;%1 of what we use comes from abroad, %2
-katechon_trade_dep_tip_source;%1 of that from %2
-katechon_trade_export_tip;%1 of our exports
-katechon_trade_scope;Economy · Trade
-katechon_trade_all;All trade
-katechon_trade_world_sub;%1 trading partners · %2 deals across the border
-katechon_trade_partner_sub;%1 of our trade · relations %2
-katechon_trade_role_out;Net export
-katechon_trade_role_in;Net import
-katechon_trade_role_home;Traded at home only
-katechon_trade_asof;as of %1
-katechon_trade_period_line;Value across the border, %1
-katechon_trade_kpi_out;Exports
-katechon_trade_kpi_in;Imports
-katechon_trade_kpi_cover;Home cover
-katechon_trade_kpi_net;Balance
-katechon_trade_partners;Trading partners
-katechon_trade_partners_aside;% of exports + imports
-katechon_trade_quiet_border;Nothing crossed the border over %1
-katechon_trade_deps;Commodity dependencies
-katechon_trade_deps_aside;imported share of use
-katechon_trade_no_deps;No good relies on imports for a quarter of its use
-katechon_trade_earners;Main exports
-katechon_trade_earners_aside;bar: share of exports
-katechon_trade_open_analysis;Full trade analysis
-katechon_trade_they_buy;We sell them
-katechon_trade_they_sell;We buy from them
-katechon_trade_of_flow;% of it
-katechon_trade_nothing_goods;Nothing
-katechon_trade_reliance;They supply %1 of all the %2 we use.
-katechon_trade_hard_replace;Hardly anyone else sells it to us.
-katechon_trade_no_reliance;Nothing we use depends on them for a tenth of its supply.
-katechon_trade_no_partner_trade;No trade with them over %1.
-katechon_trade_lever_theirs_only;We need what they sell and they need nothing of ours: the leverage is theirs.
+katechon_trade_lever_even;The trade runs about even both ways.
 katechon_trade_lever_ours;They take far more from us than they sell: the leverage is ours.
 katechon_trade_lever_theirs;We buy far more from them than we sell: the leverage is theirs.
-katechon_trade_lever_even;The trade runs about even both ways.
-katechon_trade_talks;Open talks
-katechon_trade_buyers;Who buys it from us
-katechon_trade_sellers;Who sells it to us
-katechon_trade_not_across;Not traded across the border over %1
-katechon_trade_home;At home
-katechon_trade_imported_use;%1 of what we use comes from abroad.
+katechon_trade_lever_theirs_only;We need what they sell and they need nothing of ours: the leverage is theirs.
+katechon_trade_main_buyers;Buyers
 katechon_trade_main_source;%1 of the imports from %2.
-katechon_trade_all_home;All we use of it is made at home.
-katechon_trade_only_abroad;We do not buy it at home; it is made for sale abroad.
-katechon_trade_prices;Price at home %1, in the world %2.
+katechon_trade_met_home;Demand met from home
+katechon_trade_money_line;Imports %1 · Exports %2
+katechon_trade_month;months
+katechon_trade_month_note;each month
+katechon_trade_no_finding;Nothing in the trade calls for attention
+katechon_trade_no_home_demand;made, not used at home
+katechon_trade_no_partner_trade;No trade with them: %1.
+katechon_trade_no_reliance;Nothing we use depends on them for a tenth of its supply.
+katechon_trade_none_exposed;Our production meets demand for every good
+katechon_trade_not_across;Not traded across the border: %1
+katechon_trade_nothing_found;Nothing matches
+katechon_trade_nothing_goods;Nothing
+katechon_trade_nothing_in;Nothing came in
+katechon_trade_nothing_out;Nothing went out
+katechon_trade_of_bought;of %1 units bought
+katechon_trade_of_exports_aside;of our exports to them · value
+katechon_trade_of_exports_short;of exports
+katechon_trade_of_flow;share of it
+katechon_trade_of_imports_aside;of our demand · value
+katechon_trade_of_imports_short;of imports
+katechon_trade_of_our_trade;%1 of our trade
+katechon_trade_only_abroad;We do not buy it at home: it is made for sale abroad.
+katechon_trade_open_analysis;Full trade analysis
+katechon_trade_other_goods;Other goods (%1)
+katechon_trade_other_parts;Other (%1)
+katechon_trade_other_suppliers;Other suppliers (%1)
+katechon_trade_overview;Trade overview
+katechon_trade_partner_sub;%1 of our trade · relations %2
+katechon_trade_partners;Trading partners
+katechon_trade_partners_aside;share of exports + imports
+katechon_trade_period_first_day;First day of play
+katechon_trade_period_month;Last 30 days
+katechon_trade_period_since;First %1 days of play
+katechon_trade_period_year;Last 12 months
+katechon_trade_position;Trade position
 katechon_trade_price_cheaper;Selling abroad pays %1 more.
 katechon_trade_price_dearer;Buying abroad is %1 cheaper.
-katechon_trade_analysis_scope;Economy · Trade analysis
-katechon_trade_back_map;Back to the map
-katechon_trade_all_tables;Classic trade tables
-katechon_trade_performance;Trade performance
-katechon_trade_against_before;against the span before
-katechon_trade_kpi_turnover;Turnover
-katechon_trade_chart_wait;The chart appears once three %1 are recorded; %2 so far.
-katechon_trade_day;days
-katechon_trade_month;months
-katechon_trade_month_of;%1 to %2
-katechon_trade_strategic;Strategic dependencies
-katechon_trade_no_deps_long;No good relies on imports for a quarter of its use: supply is safe from foreign shocks.
-katechon_trade_deps_summary;%1 goods rely on imports for a quarter or more of their use; %2 of them critically.
-katechon_trade_hardest;Hardest to replace: %1, for %2.
-katechon_trade_col_good;Good
-katechon_trade_col_imported;Imported
-katechon_trade_col_source;Main supplier
-katechon_trade_col_risk;Risk
-katechon_trade_dep_long_tip;%1 suppliers; we make %2 of our use at home
-katechon_trade_more;and %1 more
-katechon_trade_structure;Commodity structure
-katechon_trade_structure_aside;values in money, made and used in units
-katechon_trade_col_made;Made
-katechon_trade_col_used;Used
-katechon_trade_col_cover;Home cover
-katechon_trade_col_partner;Main partner
-katechon_trade_buyer_tip;%1 buys %2 of our exports of it
-katechon_trade_source_tip;%1 sells us %2 of our imports of it
-katechon_trade_home_only;%1 goods traded only at home
-katechon_trade_col_country;Country
-katechon_trade_col_share;Share
-katechon_trade_col_reliance;We rely on
-katechon_trade_sells_tip;We sell them mostly %1, buy mostly %2
-katechon_trade_cut_tip;Without them we lose %1 of our %2
-katechon_trade_layer;Trade
+katechon_trade_prices;Price at home %1, in the world %2.
+katechon_trade_quiet_border;Nothing crossed the border: %1
+katechon_trade_reliance;They supply %1 of all the %2 we use.
+katechon_trade_role_home;Traded at home only
+katechon_trade_role_in;Net import
+katechon_trade_role_out;Net export
+katechon_trade_search_countries;Search countries
+katechon_trade_search_goods;Search goods
+katechon_trade_sellers;Who sells it to us
+katechon_trade_share_aside;trade share
+katechon_trade_shifts;Shifts in structure
+katechon_trade_short_cell;%1 short
+katechon_trade_shortage_note;The part of demand our production does not meet, or how far it goes past it
+katechon_trade_show_map;Show on map
+katechon_trade_span_month;30 days
+katechon_trade_span_year;12 months
+katechon_trade_state_critical;Critical shortage
+katechon_trade_state_idle;Not in use over the span
+katechon_trade_state_mostly;Mostly met by our production
+katechon_trade_state_self;Self-sufficient
+katechon_trade_state_short;Short of demand
+katechon_trade_state_surplus;Surplus: production past demand
+katechon_trade_state_unused;Made for others: not used at home
+katechon_trade_structure_view;Structure
+katechon_trade_supplies_line;%1 supplies %2 of imports
+katechon_trade_supply_note;Our production against our demand, in units of the good: the bar is full when production meets demand
+katechon_trade_surplus_cell;+%1 surplus
+katechon_trade_talks;Open talks
+katechon_trade_they_buy;We sell them
+katechon_trade_they_sell;We buy from them
+katechon_trade_top_export;Top export
+katechon_trade_top_import;Top import
+katechon_trade_trends;Trends
+katechon_trade_turnover_hint;Exports %1 · Imports %2
+katechon_trade_turnover_is;Turnover %1
+katechon_trade_turnover_note;Exports and imports together, on one scale for every country listed
+katechon_trade_units_short;units
+katechon_trade_vs_before;vs previous
+katechon_trade_week_note;7-day average
+katechon_trade_word;Trade
+katechon_trade_col_home;Met from home
+katechon_trade_home_note;Of all the good the country bought, the part its own producers supplied. The rest came from abroad
+katechon_trade_col_net;Net, £
+katechon_trade_net_note;Exports less imports
+katechon_trade_demand_bar;Demand
+katechon_trade_output_bar;Output
+katechon_trade_why_none_home;None of what was used here was made here.
+katechon_trade_why_home;%1 units were made and used at home.
+katechon_trade_why_no_use;Nothing of it was used at home.
+katechon_trade_why_both;Besides, %1 came in and %2 went out: regions near a border buy abroad while others sell there.
+katechon_trade_why_net_out;Net, %1 more went out than came in.
+katechon_trade_why_net_in;Net, %1 more came in than went out.
+katechon_trade_why_in;The other %1 came in from abroad.
+katechon_trade_why_out;Another %1 went abroad.
+katechon_trade_suppliers;Suppliers
+katechon_trade_of_demand;of demand
+katechon_trade_of_output;of output
+katechon_trade_other_buyers;Other buyers (%1)
+katechon_trade_if_imports_stop;If imports stopped
+katechon_trade_unmet;of demand would go unmet at first
+katechon_trade_cover_by_exports;Our exports, %1 units, are larger: kept at home they would close the gap.
+katechon_trade_partly_by_exports;Kept at home, our exports would close %1 of it.
+katechon_trade_nothing_to_divert;We export none of it: there is nothing to keep at home instead.
+katechon_trade_structural;Our production meets only %1 of demand.
+katechon_trade_if_buyers_stop;If buyers abroad stopped
+katechon_trade_lose_market;of our output would lose its market
+katechon_trade_of_our_demand;of our demand for it
+katechon_trade_of_our_exports_of_it;of our exports of it
+katechon_trade_if_trade_stops;If trade with them stopped
+katechon_trade_lose_exports;%1 of our exports would lose their buyer.
+katechon_trade_replace_imports;%1 of our imports would have to be found elsewhere.
+katechon_trade_hard_replace_good;Hardly anyone else sells us %1.
+katechon_trade_cover_surplus_short;Exports pay for every import
+katechon_trade_cover_deficit_short;Imports run past exports
+katechon_trade_leans;Where we lean on others
+katechon_trade_leans_aside;of demand from abroad
+katechon_trade_none_leans;Our own producers supply every good we use
+katechon_trade_lean_source;mostly from %1, %2 of demand
+katechon_trade_flows_all;Show all trade
+katechon_trade_other_goods_n;Other goods (%1)

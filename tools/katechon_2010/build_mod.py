@@ -153,8 +153,18 @@ for o in owners:
                 if t=='aristocrats': continue
                 sz[major]=sz.get(major,0.0)+sz.pop(t)
         if sz.get('aristocrats',0.0)<25.0 and 'aristocrats' in sz: sz['clerks']=sz.get('clerks',0.0)+sz.pop('aristocrats')
-        for t in ('farmers','clerks'):
-            if 0.0<sz.get(t,0.0)<25.0: sz[t]=25.0
+        # Every peopled place keeps at least one unit of farmers: their farm is
+        # what gives the place its site, and its workshops stand on it. A place
+        # too small for two pops of the sample keeps the farmers alone, at its
+        # own size. (Raising farmers and clerks to 25 units each made every
+        # small island a million people.)
+        units=sum(sz.values())
+        if units<2.0:
+            sz.clear(); sz['farmers']=max(1.0,units)
+        elif sz.get('farmers',0.0)<1.0:
+            short=1.0-sz.get('farmers',0.0)
+            sz['farmers']=1.0
+            if 'clerks' in sz: sz['clerks']=max(0.0,sz['clerks']-short)
         for t in TYPES:
             size=int(round(sizes[p['id']].get(t,0.0)))
             if size<1: continue

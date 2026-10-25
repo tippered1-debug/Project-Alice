@@ -955,7 +955,7 @@ trade_volume_data_detailed export_volume_detailed(
 				? state.world.trade_route_get_connected_markets(trade_route, 0)
 				: state.world.trade_route_get_connected_markets(trade_route, 1);
 
-			if(origin != market) return;
+			if(origin != market || !target) return;
 
 			auto sat = state.world.market_get_actual_probability_to_buy(origin, c);
 			auto absolute_volume = std::abs(current_volume);
@@ -968,7 +968,8 @@ trade_volume_data_detailed export_volume_detailed(
 
 			auto trade_good_loss_mult = std::max(0.f, 1.f - 0.0001f * distance);
 
-			if(n_origin != n_target) {
+			// a market with no country behind it has no column in the table
+			if(n_origin && n_target && n_origin != n_target) {
 				per_nation_data.get(n_target) += sat * absolute_volume;
 				total += sat * absolute_volume;
 			}
@@ -1049,7 +1050,7 @@ trade_volume_data_detailed import_volume_detailed(
 				? state.world.trade_route_get_connected_markets(trade_route, 0)
 				: state.world.trade_route_get_connected_markets(trade_route, 1);
 
-			if(target != market) return;
+			if(target != market || !origin) return;
 
 			auto sat = state.world.market_get_actual_probability_to_buy(origin, c);
 			auto absolute_volume = std::abs(current_volume);
@@ -1062,7 +1063,7 @@ trade_volume_data_detailed import_volume_detailed(
 
 			auto trade_good_loss_mult = std::max(0.f, 1.f - 0.0001f * distance);
 
-			if(n_origin != n_target) {
+			if(n_origin && n_target && n_origin != n_target) {
 				per_nation_data.get(n_origin) += sat * absolute_volume * trade_good_loss_mult;
 				total += sat * absolute_volume * trade_good_loss_mult;
 			}
