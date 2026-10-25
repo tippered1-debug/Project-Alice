@@ -378,108 +378,178 @@ katechon_dip_no_diplomats;Нет дипломатов: предложения ж
 katechon_dip_key_us;Мы
 katechon_dip_key_cold;холодно
 katechon_dip_key_warm;тепло
-katechon_trade_period_since;первые %1 дн. игры
-katechon_trade_period_month;последние 30 дней
-katechon_trade_period_year;последние 12 месяцев
+katechon_trade_all;Вся торговля
+katechon_trade_all_home;Всё потребляемое производится внутри страны.
+katechon_trade_all_tables;Классические таблицы торговли
+katechon_trade_asof;на %1
+katechon_trade_back_map;К карте
+katechon_trade_balance_with;Сальдо с ними
+katechon_trade_balanced;Сбалансировано
+katechon_trade_buyers;Кто у нас покупает
+katechon_trade_buyers_aside;доля экспорта · стоимость
+katechon_trade_by_good;Сальдо по товарам
+katechon_trade_by_good_aside;импорт · экспорт
+katechon_trade_chart_wait;Динамика появится, когда наберётся три %1, пока — %2.
+katechon_trade_clear_search;Очистить поиск
+katechon_trade_close_details;Закрыть
+katechon_trade_col_balance;Сальдо, £
+katechon_trade_col_country;Страна
+katechon_trade_col_demand;Спрос
+katechon_trade_col_exports;Экспорт, £
+katechon_trade_col_good;Товар
+katechon_trade_col_imports;Импорт, £
+katechon_trade_col_made;Производство
+katechon_trade_col_share;Доля
+katechon_trade_col_shortage;Нехватка / избыток
+katechon_trade_col_supply;Внутреннее снабжение
+katechon_trade_col_turnover;Оборот
+katechon_trade_concentration;Концентрация
+katechon_trade_concentration_aside;крупнейший партнёр в каждую сторону
+katechon_trade_countries;Страны
+katechon_trade_cover_deficit;Импорт превышает экспорт на %1
+katechon_trade_cover_label;Экспорт покрывает импорт
+katechon_trade_cover_surplus;Экспорт превышает импорт на %1
+katechon_trade_day;дня
+katechon_trade_day_note;по дням
+katechon_trade_deficit_line;структурный дефицит снабжения %1
+katechon_trade_dep_critical;Критическая зависимость
+katechon_trade_dep_high;Высокая зависимость
+katechon_trade_dep_watch;Зависимость под наблюдением
+katechon_trade_exports;Экспорт
+katechon_trade_exports_note;Что ушло за границу за период
+katechon_trade_exposed;Самые уязвимые товары
+katechon_trade_exposed_aside;нехватка · импорт
+katechon_trade_filter_all;Все
+katechon_trade_filter_deps;Зависимость от импорта
+katechon_trade_filter_exports;Экспорт
+katechon_trade_flows;Торговые потоки
+katechon_trade_flows_in;Импорт из
+katechon_trade_flows_out;Экспорт в
+katechon_trade_flows_title;Потоки торговли
+katechon_trade_goods;Товары
+katechon_trade_group_other;Прочие товары
+katechon_trade_group_strategic;Промышленность и оборона
+katechon_trade_group_vital;Жизненно необходимое
+katechon_trade_halves_note;первая половина периода → вторая
+katechon_trade_hard_replace;Почти никто больше нам его не продаёт.
+katechon_trade_home;Внутри страны
+katechon_trade_home_supply;Своё производство
+katechon_trade_how_met;Чем покрыт спрос
+katechon_trade_how_met_aside;доля спроса · стоимость
+katechon_trade_idle_good;Нет производства, спроса и торговли: %1
+katechon_trade_idle_goods;Без производства, спроса и торговли за период: %1
+katechon_trade_imported_use;%1 спроса зависит от импорта.
+katechon_trade_imports;Импорт
+katechon_trade_imports_note;Что пришло из-за границы за период
+katechon_trade_ins_brief;%1 — зависимость %2
+katechon_trade_ins_buyer;%1 покупает %2 нашего экспорта
+katechon_trade_ins_buyer_detail;Экспорт %1 против импорта %2
+katechon_trade_ins_dep_detail;%1 спроса зависит от импорта
+katechon_trade_ins_dep_imports;Снабжение товаром «%1» сильно зависит от импорта
+katechon_trade_ins_dep_on;Снабжение товаром «%1» сильно зависит от %2
+katechon_trade_ins_dep_partly;Товар «%1» частично импортируется
+katechon_trade_ins_from;%1 импорта — от %2
+katechon_trade_ins_good;%1 даёт %2 экспортной выручки
+katechon_trade_ins_good_detail;Экспорт держится на одном товаре
+katechon_trade_ins_hidden;Скрытый дефицит: %1
+katechon_trade_ins_hidden_detail;В целом %1 · с ними %2
+katechon_trade_ins_many;Закупается у нескольких стран
+katechon_trade_key_buyers;покупают за рубежом
+katechon_trade_key_sellers;продают за рубеж
+katechon_trade_key_width;толще — дороже
+katechon_trade_key_world;весь мир
+katechon_trade_kpi_dependence;Зависимость
+katechon_trade_kpi_in;Импорт
+katechon_trade_kpi_net;Сальдо
+katechon_trade_kpi_out;Экспорт
+katechon_trade_largest_days;Крупнейшие дни
+katechon_trade_layer;Торговля
 katechon_trade_level_critical;Критично
 katechon_trade_level_high;Высокий
 katechon_trade_level_watch;Под наблюдением
-katechon_trade_kind_vital;Жизненно важно
-katechon_trade_kind_strategic;Стратегический
-katechon_trade_vs_before;к прошлому периоду
-katechon_trade_span_month;30 дней
-katechon_trade_span_year;12 месяцев
-katechon_trade_exports;Экспорт
-katechon_trade_imports;Импорт
-katechon_trade_key_width;толще — дороже
-katechon_trade_key_sellers;продают за рубеж
-katechon_trade_key_buyers;покупают за рубежом
-katechon_trade_key_world;весь мир
-katechon_trade_partner_tip;Продаём им на %1, покупаем на %2
-katechon_trade_dep_tip;%1 потребления — из-за рубежа, %2
-katechon_trade_dep_tip_source;%1 из них — от %2
-katechon_trade_export_tip;%1 нашего экспорта
-katechon_trade_scope;Экономика · Торговля
-katechon_trade_all;Вся торговля
-katechon_trade_world_sub;Партнёров: %1 · сделок через границу: %2
-katechon_trade_partner_sub;%1 нашего товарооборота · отношения %2
-katechon_trade_role_out;Чистый экспорт
-katechon_trade_role_in;Чистый импорт
-katechon_trade_role_home;Только внутренний рынок
-katechon_trade_asof;на %1
-katechon_trade_period_line;Стоимость через границу, %1
-katechon_trade_kpi_out;Экспорт
-katechon_trade_kpi_in;Импорт
-katechon_trade_kpi_cover;Своё покрытие
-katechon_trade_kpi_net;Сальдо
-katechon_trade_partners;Торговые партнёры
-katechon_trade_partners_aside;% от экспорта + импорта
-katechon_trade_quiet_border;За %1 ничего не пересекло границу
-katechon_trade_deps;Зависимость от импорта
-katechon_trade_deps_aside;доля импорта в потреблении
-katechon_trade_no_deps;Ни один товар не зависит от импорта на четверть
-katechon_trade_earners;Главный экспорт
-katechon_trade_earners_aside;полоса — доля экспорта
-katechon_trade_open_analysis;Полный анализ торговли
-katechon_trade_they_buy;Продаём им
-katechon_trade_they_sell;Покупаем у них
-katechon_trade_of_flow;% потока
-katechon_trade_nothing_goods;Ничего
-katechon_trade_reliance;Они дают %1 всего потребляемого нами товара «%2».
-katechon_trade_hard_replace;Почти никто больше нам его не продаёт.
-katechon_trade_no_reliance;Ни один наш товар не зависит от них даже на десятую часть.
-katechon_trade_no_partner_trade;За %1 торговли с ними не было.
-katechon_trade_lever_theirs_only;Нам нужно то, что они продают, а им наше не нужно: рычаг у них.
+katechon_trade_lever_even;Торговля примерно уравновешена.
 katechon_trade_lever_ours;Они берут у нас гораздо больше, чем продают: рычаг у нас.
 katechon_trade_lever_theirs;Мы покупаем у них гораздо больше, чем продаём: рычаг у них.
-katechon_trade_lever_even;Торговля примерно уравновешена.
-katechon_trade_talks;Переговоры
-katechon_trade_buyers;Кто у нас покупает
-katechon_trade_sellers;Кто нам продаёт
-katechon_trade_not_across;За %1 через границу не продавался
-katechon_trade_home;Внутри страны
-katechon_trade_imported_use;%1 потребления приходит из-за рубежа.
+katechon_trade_lever_theirs_only;Нам нужно то, что они продают, а им наше не нужно: рычаг у них.
+katechon_trade_main_buyers;Покупатели
 katechon_trade_main_source;%1 импорта — от %2.
-katechon_trade_all_home;Всё потребляемое производится внутри страны.
+katechon_trade_met_home;Спрос покрыт изнутри
+katechon_trade_money_line;Импорт %1 · Экспорт %2
+katechon_trade_month;месяца
+katechon_trade_month_note;по месяцам
+katechon_trade_no_finding;В торговле нет ничего, требующего внимания
+katechon_trade_no_home_demand;производится, не потребляется
+katechon_trade_no_partner_trade;Торговли с ними не было: %1.
+katechon_trade_no_reliance;Ни один наш товар не зависит от них даже на десятую часть.
+katechon_trade_none_exposed;Наше производство покрывает спрос на все товары
+katechon_trade_not_across;Через границу не продавался: %1
+katechon_trade_nothing_found;Ничего не найдено
+katechon_trade_nothing_goods;Ничего
+katechon_trade_nothing_in;Ничего не ввезено
+katechon_trade_nothing_out;Ничего не вывезено
+katechon_trade_of_bought;из %1 купленных единиц
+katechon_trade_of_exports_aside;доля экспорта к ним · стоимость
+katechon_trade_of_exports_short;экспорта
+katechon_trade_of_flow;доля потока
+katechon_trade_of_imports_aside;доля нашего спроса · стоимость
+katechon_trade_of_imports_short;импорта
+katechon_trade_of_our_trade;%1 нашей торговли
 katechon_trade_only_abroad;Внутри страны не покупается — производится на экспорт.
-katechon_trade_prices;Цена внутри страны %1, в мире %2.
+katechon_trade_open_analysis;Полный анализ торговли
+katechon_trade_other_goods;Прочие товары (%1)
+katechon_trade_other_parts;Прочее (%1)
+katechon_trade_other_suppliers;Прочие поставщики (%1)
+katechon_trade_overview;Обзор торговли
+katechon_trade_partner_sub;%1 нашего товарооборота · отношения %2
+katechon_trade_partners;Торговые партнёры
+katechon_trade_partners_aside;доля в экспорте + импорте
+katechon_trade_period_first_day;Первый день игры
+katechon_trade_period_month;Последние 30 дней
+katechon_trade_period_since;Первые %1 дн. игры
+katechon_trade_period_year;Последние 12 месяцев
+katechon_trade_position;Торговое положение
 katechon_trade_price_cheaper;Продавать за рубеж выгоднее на %1.
 katechon_trade_price_dearer;Покупать за рубежом дешевле на %1.
-katechon_trade_analysis_scope;Экономика · Анализ торговли
-katechon_trade_back_map;К карте
-katechon_trade_all_tables;Классические таблицы торговли
-katechon_trade_performance;Динамика торговли
-katechon_trade_against_before;к предыдущему периоду
-katechon_trade_kpi_turnover;Товарооборот
-katechon_trade_chart_wait;График появится, когда наберётся три %1; пока — %2.
-katechon_trade_day;дня
-katechon_trade_month;месяца
-katechon_trade_month_of;%1 – %2
-katechon_trade_strategic;Стратегические зависимости
-katechon_trade_no_deps_long;Ни один товар не зависит от импорта на четверть: снабжение защищено от внешних шоков.
-katechon_trade_deps_summary;Товаров, на четверть и более зависящих от импорта: %1; критично — %2.
-katechon_trade_hardest;Труднее всего заменить: %1 (%2).
-katechon_trade_col_good;Товар
-katechon_trade_col_imported;Импорт
-katechon_trade_col_source;Главный поставщик
-katechon_trade_col_risk;Риск
-katechon_trade_dep_long_tip;Поставщиков: %1; своё производство покрывает %2 потребления
-katechon_trade_more;и ещё %1
-katechon_trade_structure;Структура товаров
-katechon_trade_structure_aside;стоимость в деньгах, выпуск и потребление в единицах
-katechon_trade_col_made;Выпуск
-katechon_trade_col_used;Потребл.
-katechon_trade_col_cover;Покрытие
-katechon_trade_col_partner;Гл. партнёр
-katechon_trade_buyer_tip;%1 покупает %2 нашего экспорта этого товара
-katechon_trade_source_tip;%1 продаёт нам %2 нашего импорта этого товара
-katechon_trade_home_only;товаров только на внутреннем рынке: %1
-katechon_trade_col_country;Страна
-katechon_trade_col_share;Доля
-katechon_trade_col_reliance;Зависим
-katechon_trade_sells_tip;Продаём им в основном: %1, покупаем: %2
-katechon_trade_cut_tip;Без них мы потеряем %1 товара «%2»
-katechon_trade_layer;Торговля
+katechon_trade_prices;Цена внутри страны %1, в мире %2.
+katechon_trade_quiet_border;Ничего не пересекло границу: %1
+katechon_trade_reliance;Они дают %1 всего потребляемого нами товара «%2».
+katechon_trade_role_home;Только внутренний рынок
+katechon_trade_role_in;Чистый импорт
+katechon_trade_role_out;Чистый экспорт
+katechon_trade_search_countries;Поиск страны
+katechon_trade_search_goods;Поиск товара
+katechon_trade_sellers;Кто нам продаёт
+katechon_trade_share_aside;доля в торговле
+katechon_trade_shifts;Сдвиги в структуре
+katechon_trade_short_cell;нехватка %1
+katechon_trade_shortage_note;Доля спроса, которую не покрывает наше производство, или насколько оно его превышает
+katechon_trade_show_map;Показать на карте
+katechon_trade_span_month;30 дней
+katechon_trade_span_year;12 месяцев
+katechon_trade_state_critical;Критическая нехватка
+katechon_trade_state_idle;Не использовался за период
+katechon_trade_state_mostly;Почти полностью покрыт нашим производством
+katechon_trade_state_self;Самообеспечение
+katechon_trade_state_short;Спрос покрыт не полностью
+katechon_trade_state_surplus;Избыток: производство выше спроса
+katechon_trade_state_unused;Производится для других: дома не потребляется
+katechon_trade_structure_view;Структура
+katechon_trade_supplies_line;%1 поставляет %2 импорта
+katechon_trade_supply_note;Наше производство против нашего спроса в единицах товара: полоса полна, когда производство покрывает спрос
+katechon_trade_surplus_cell;+%1 избыток
+katechon_trade_talks;Переговоры
+katechon_trade_they_buy;Продаём им
+katechon_trade_they_sell;Покупаем у них
+katechon_trade_top_export;Главный экспорт
+katechon_trade_top_import;Главный импорт
+katechon_trade_trends;Динамика
+katechon_trade_turnover_hint;Экспорт %1 · Импорт %2
+katechon_trade_turnover_is;Оборот %1
+katechon_trade_turnover_note;Экспорт и импорт вместе, в одном масштабе для всех стран списка
+katechon_trade_units_short;ед.
+katechon_trade_vs_before;к прошлому периоду
+katechon_trade_week_note;среднее за 7 дней
+katechon_trade_word;Торговля
 katechon_dip_f_relations;наши с ними отношения
 katechon_deal_a_access;Проход для наших войск
 katechon_deal_a_alliance;Оборонительный союз
@@ -660,12 +730,12 @@ katechon_swe_access;проход для их войск
 katechon_swe_subsidies;военные субсидии
 katechon_swe_embargo;снятие нашего эмбарго
 katechon_swe_hint;По нашей оценке, такой обмен склонит их к согласию
-katechon_ppl_a_density;Человек на квадратный километр суши. На карте: чем светлее, тем теснее.
-katechon_ppl_a_literacy;Умеющие читать и писать. Грамотность открывает квалифицированную работу и наполняет школы следующего поколения.
-katechon_ppl_a_migration;Чистый приток за месяц на каждую тысячу жителей. На карте: синие регионы принимают людей, красные теряют.
+katechon_ppl_a_density;Человек на квадратный километр суши.
+katechon_ppl_a_literacy;Умеющие читать и писать. Грамотность открывает квалифицированную работу.
+katechon_ppl_a_migration;Чистый приток за месяц на каждую тысячу жителей.
 katechon_ppl_a_needs;Какую часть необходимого для жизни люди получают. Ниже половины люди голодают, и население убывает.
 katechon_ppl_a_work;Работники по найму, из всех работников. Остальные трудятся на своей земле и в своих мастерских или не имеют работы.
-katechon_ppl_abroad_with;За границей: куда уезжают и откуда приезжают
+katechon_ppl_abroad_with;За границей, прогноз: куда и откуда
 katechon_ppl_accepted;Из культур государства или признанных
 katechon_ppl_across;Через границу
 katechon_ppl_asof;на %1
@@ -1005,6 +1075,11 @@ katechon_dip_layer;Дипломатия
 katechon_dip_refused_rel;Отношения %1; дипломаты потрачены
 katechon_dip_refused_none;Отношения не изменятся; дипломаты потрачены
 katechon_dip_term_refused;При отказе
+katechon_ppl_forecast;Прогноз на месяц через границу: %1
+katechon_ppl_c_forecast;прогноз на месяц: %1
+katechon_ppl_where_region;Регион
+katechon_ppl_where_foreign;Другая страна
+katechon_ppl_where_own;Ваша страна
 katechon_dip_q_ready;хватит к %1
 katechon_dip_fs_war;Война
 katechon_dip_fs_ally;Союзник
@@ -1100,3 +1175,120 @@ katechon_dip_key_our_allies;Наши союзники
 katechon_dip_key_its_allies;Её союзники
 katechon_dip_key_our_enemies;Наши враги
 katechon_dip_key_its_enemies;Воюют с ней
+katechon_ppl_x_famine;Голод: уносит %1 в месяц, больше, чем дают рождения (%2)
+katechon_ppl_x_hunger;Голод: покрыто лишь %1 базовых потребностей; он уносит %2 в месяц
+katechon_ppl_x_war;Война: армия теряет %1 в месяц
+katechon_ppl_x_decline;Население быстро сокращается: %1 в месяц
+katechon_ppl_population;Население
+katechon_ppl_to_inspector;Инспектор карты  ›
+katechon_ppl_dynamics;Динамика населения
+katechon_ppl_a_month;в месяц
+katechon_ppl_monthly;за месяц
+katechon_ppl_breakdown;Изменение за месяц по причинам
+katechon_ppl_d_none;В этом месяце численность не меняется.
+katechon_ppl_by_class;Базовые нужды покрыты, по слоям
+katechon_ppl_of_people;%1 населения
+katechon_ppl_society;Общество и труд
+katechon_ppl_own_short;своя земля
+katechon_ppl_wage_short;наём
+katechon_ppl_other_short;прочие
+katechon_ppl_livelihood_hint;Чем живут работники: своей землёй и ремеслом, работой по найму или ни тем ни другим (армия, неволя, поиск работы).
+katechon_ppl_people_mood;Люди и настроения
+katechon_ppl_accepted_hint;%1 принадлежат к культурам государства или признанным
+katechon_ppl_housing_short;Жильё в городах
+katechon_ppl_consciousness_short;Сознательность
+katechon_ppl_still_month;В этом месяце не зафиксирована
+katechon_ppl_moves_country;%1 из-за границы, %2 переезжают между регионами
+katechon_ppl_regions_short;Регионы
+katechon_ppl_land_short;%1 км²
+katechon_ppl_region_hint;Открыть в инспекторе карты
+katechon_ppl_all_regions;Все регионы (%1)  ›
+katechon_ppl_back_overview;‹  Назад к обзору
+katechon_ppl_u_density;человек на км²
+katechon_ppl_u_growth;‰ в месяц, естественное изменение
+katechon_ppl_u_migration;‰ в месяц, чистый приток
+katechon_ppl_u_needs;базовых нужд покрыто
+katechon_ppl_u_literacy;умеют читать и писать
+katechon_ppl_u_work;работников трудятся по найму
+katechon_ppl_m_growth;Естественное изменение
+katechon_ppl_a_growth;Рождения сверх смертей за вычетом потерь от голода, тесноты и малых семей, за месяц на тысячу жителей.
+katechon_ppl_t_needs_bad;населения живёт в регионах, где покрыто меньше половины базовых нужд
+katechon_ppl_t_growth_bad;населения живёт в сокращающихся регионах
+katechon_ppl_t_migration_bad;населения живёт в регионах, из которых уезжают
+katechon_ppl_t_literacy_bad;населения живёт в регионах, где читают меньше 60%
+katechon_ppl_rank_of;%1 из %2
+katechon_ppl_map_inspector;Инспектор карты
+katechon_ppl_worst;Где хуже всего
+katechon_ppl_of_regions;из %1 регионов
+katechon_ppl_overview_of;Обзор: %1
+katechon_ppl_situation;Демографическая ситуация
+katechon_ppl_x_hunger_word;Голод
+katechon_ppl_x_war_word;Потери на войне
+katechon_ppl_x_flight_word;Эмиграция
+katechon_ppl_x_outweighs;перевешены
+katechon_ppl_x_holds;пока перевешивают
+katechon_ppl_linked;Связанный показатель
+katechon_ppl_linked_hint;Показать этот показатель на карте по регионам
+katechon_ppl_short_of;населения относится к слоям, где покрыто меньше половины базовых нужд
+katechon_ppl_class_open;Нажмите: повседневные нужды, роскошь и численность слоя
+katechon_ppl_education;Образование
+katechon_ppl_education_value;грамотность %1  ·  обучение %2
+katechon_ppl_education_about;Грамотность: умеющие читать и писать. Обучение: какую часть желаемого образования люди могут получить, платно или бесплатно.
+katechon_ppl_housing_found;Найденное жильё в городах
+katechon_ppl_housing_found_about;Там, где в городах есть рынок жилья: доля жилья, которое люди искали и нашли. Нехватка жилья создаёт тесноту и уменьшает рождаемость.
+katechon_ppl_leading_trades;Ведущие профессии
+katechon_ppl_work_line;Работа
+katechon_ppl_change;Изменение
+katechon_ppl_main_cause;Главная причина
+katechon_ppl_against_births;в месяц, против %1 рождений сверх смертей
+katechon_ppl_caused_by;Чем вызвано
+katechon_ppl_below_half;Население ниже половины нужд
+katechon_ppl_below_half_about;Люди тех слоёв, которые получают меньше половины базовых потребностей.
+katechon_ppl_by_class_short;По слоям
+katechon_ppl_of_people_short;населения
+katechon_ppl_urban;Горожане
+katechon_ppl_wage_work;Наём
+katechon_ppl_own_land;Своя земля
+katechon_ppl_trouble;Регионы в беде
+katechon_ppl_lens_hint;Другой показатель: список и карта следуют за ним
+katechon_ppl_view_all;Все регионы (%1)  ›
+katechon_trade_col_home;Покрыто изнутри
+katechon_trade_home_note;Из всего купленного в стране — доля, поставленная своими производителями. Остальное пришло из-за границы
+katechon_trade_col_net;Сальдо, £
+katechon_trade_net_note;Экспорт минус импорт
+katechon_trade_demand_bar;Спрос
+katechon_trade_output_bar;Выпуск
+katechon_trade_why_none_home;Ничего из потреблённого не произведено внутри страны.
+katechon_trade_why_home;%1 ед. произведено и потреблено внутри страны.
+katechon_trade_why_no_use;Внутри страны товар не потреблялся.
+katechon_trade_why_both;Сверх того %1 ввезено и %2 вывезено: приграничные регионы покупают за рубежом, пока другие туда продают.
+katechon_trade_why_net_out;В итоге вывезено на %1 больше, чем ввезено.
+katechon_trade_why_net_in;В итоге ввезено на %1 больше, чем вывезено.
+katechon_trade_why_in;Остальные %1 ввезены из-за границы.
+katechon_trade_why_out;Ещё %1 ушло за границу.
+katechon_trade_suppliers;Поставщики
+katechon_trade_of_demand;доля спроса
+katechon_trade_of_output;доля выпуска
+katechon_trade_other_buyers;Прочие покупатели (%1)
+katechon_trade_if_imports_stop;Если импорт прекратится
+katechon_trade_unmet;спроса сначала останется без покрытия
+katechon_trade_cover_by_exports;Наш экспорт, %1 ед., больше: оставшись дома, он закроет разрыв.
+katechon_trade_partly_by_exports;Оставшись дома, наш экспорт закроет %1 разрыва.
+katechon_trade_nothing_to_divert;Мы его не экспортируем: перенаправить на внутренний рынок нечего.
+katechon_trade_structural;Собственное производство покрывает лишь %1 спроса.
+katechon_trade_if_buyers_stop;Если зарубежные покупатели уйдут
+katechon_trade_lose_market;нашего выпуска потеряет рынок сбыта
+katechon_trade_of_our_demand;доля нашего спроса
+katechon_trade_of_our_exports_of_it;доля нашего экспорта товара
+katechon_trade_if_trade_stops;Если торговля с ними прекратится
+katechon_trade_lose_exports;%1 нашего экспорта лишится покупателя.
+katechon_trade_replace_imports;%1 нашего импорта придётся искать в другом месте.
+katechon_trade_hard_replace_good;Почти никто другой не продаёт нам товар «%1».
+katechon_trade_cover_surplus_short;Экспорт оплачивает весь импорт
+katechon_trade_cover_deficit_short;Импорт превышает экспорт
+katechon_trade_leans;Где мы зависим от других
+katechon_trade_leans_aside;доля спроса из-за границы
+katechon_trade_none_leans;Свои производители покрывают все потребляемые товары
+katechon_trade_lean_source;в основном %1, %2 спроса
+katechon_trade_flows_all;Показать всю торговлю
+katechon_trade_other_goods_n;Прочие товары (%1)

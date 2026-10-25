@@ -40,9 +40,9 @@ namespace ui {
 class map_hud_element : public katechon_canvas {
 	enum class action : uint8_t {
 		none, press, toggle_layers, set_layer, zoom_in, zoom_out, capital, close_province, province_details,
-		center_province, diplomacy, toggle_outliner, toggle_log, toggle_population, population_metric, population_overview, population_scroll_to, population_inspect,
+		center_province, diplomacy, toggle_outliner, toggle_log, toggle_population, population_metric, population_overview, population_all_regions, population_page, population_class, population_lens, population_inspect,
 		population_whole_country, population_home, population_region, toggle_military, pick_formation, military_back, military_order, military_march, military_more, military_mobilize,
-		toggle_diplomacy, diplomacy_target, diplomacy_home, diplomacy_deed, dip_deal_toggle, dip_why, dip_item, dip_send, dip_trade, dip_answer, dip_radial, dip_radial_close, dip_tab, dip_review, toggle_trade, trade_details, trade_span, trade_focus, trade_analysis
+		toggle_diplomacy, diplomacy_target, diplomacy_home, diplomacy_deed, dip_deal_toggle, dip_why, dip_item, dip_send, dip_trade, dip_answer, dip_radial, dip_radial_close, dip_tab, dip_review, toggle_trade, trade_details, trade_span, trade_focus, trade_analysis, trade_select, trade_sort, trade_chart, trade_findings
 	};
 	// The cells of assets/katechon_hud_icons.png, in the order tools/katechon_ui/build_icons.py draws them.
 	enum class icon : int32_t {
@@ -72,7 +72,7 @@ class map_hud_element : public katechon_canvas {
 	};
 	// What the population pages can paint the map with. Each is also one of
 	// the figures the inspector lists, so choosing a figure chooses its map.
-	enum class population_metric : uint8_t { density, work, migration, needs, literacy, count };
+	enum class population_metric : uint8_t { needs, growth, migration, literacy, density, work, count };
 	struct share {
 		std::string label;
 		float part = 0.f;
@@ -99,7 +99,8 @@ class map_hud_element : public katechon_canvas {
 		float internal_month = 0.f; // net arrivals from other regions of the country
 		float external_month = 0.f; // net arrivals from abroad
 		float relocations = 0.f; // people moving between the country's regions, whatever the direction
-		bool external_estimated = false; // the month's directed estimate, not today's moves
+		bool forecast_known = false;
+		float external_forecast = 0.f; // the game's estimate of the month's moves across the border, not yet made
 		float change_month = 0.f; // all of it together
 		// How people make a living, as shares of the workforce; negative when not kept.
 		float wage_share = -1.f;
@@ -142,9 +143,10 @@ class map_hud_element : public katechon_canvas {
 			float amount = 0.f; // positive: they come from there
 		};
 		std::vector<partner> abroad; // the countries people leave for or come from, largest flow first
-		// The regions that stand out on the map for the figure painted on it.
-		std::vector<std::pair<dcon::province_id, float>> highest;
-		std::vector<std::pair<dcon::province_id, float>> lowest;
+		// The regions on the figure the map shows: the worst first, or the largest
+		// first where neither side is worse; and the share of the people in trouble on it.
+		std::vector<std::pair<dcon::province_id, float>> ranking;
+		float affected = -1.f;
 		int32_t rank = 0; // of the region among its country's, for that figure
 		int32_t ranked = 0;
 	};
@@ -305,15 +307,16 @@ class map_hud_element : public katechon_canvas {
 	bool population_open = false; // the inspector beside the map, or the overview over it
 	bool population_overview = false; // the overview puts the map aside
 	bool population_layer = false; // the population pages paint the map themselves
-	population_metric metric = population_metric::density;
+	population_metric metric = population_metric::needs; // the figure the map, the inspector and the list of regions read
 	population_view population;
 	dcon::nation_id atlas_nation; // the country being studied; the player's own when unset
 	dcon::province_id atlas_province; // one of its regions, when a region is studied
 	dcon::province_id atlas_seen_province; // a new choice on the map changes the region studied
-	float overview_scroll = 0.f;
-	float overview_content_h = 0.f;
-	float overview_view_h = 0.f;
-	std::array<float, 6> overview_anchor{}; // where each part of the overview begins, from its top
+	bool overview_all_regions = false; // the overview shows every region in place of its lower half
+	int32_t overview_page = 0;
+	int32_t selected_class = -1; // the class opened on the overview: 0 poor, 1 middle, 2 rich
+	dcon::province_id nudge_province; // to be moved beside the page, once the map has turned to it
+	int32_t nudge_in = 0;
 	float clip_top = -1e9f; // the part of the window the population pages may answer in
 	float clip_bottom = 1e9f;
 	ogl::lines population_trend{ 32 };
@@ -414,10 +417,10 @@ class map_hud_element : public katechon_canvas {
 		// KATECHON_HUD_MOUSE=<x>,<y> draws the HUD as if the mouse rested there.
 		if(auto const* at = std::getenv("KATECHON_HUD_MOUSE"); at && at[0])
 			std::sscanf(at, "%f,%f", &qa_mouse_x, &qa_mouse_y);
-		// KATECHON_HUD_POPULATION=<0..4> opens the population inspector on that map
+		// KATECHON_HUD_POPULATION=<0..5> opens the population inspector on that map
 		// layer, for the chosen province if there is one. KATECHON_HUD_POPULATION_OVERVIEW=1
 		// opens the overview of the country, =2 of the chosen province.
-		if(auto const* atlas = std::getenv("KATECHON_HUD_POPULATION"); atlas && atlas[0] >= '0' && atlas[0] <= '4') {
+		if(auto const* atlas = std::getenv("KATECHON_HUD_POPULATION"); atlas && atlas[0] >= '0' && atlas[0] <= '5') {
 			metric = population_metric(uint8_t(atlas[0] - '0'));
 			open_population(state, state.map_state.selected_province, false);
 		}
@@ -605,14 +608,30 @@ class map_hud_element : public katechon_canvas {
 	void draw_hint(sys::state& state, float w) {
 		if(tip.empty())
 			return;
-		auto const text_w = shaped(state, tip, 11, 0.14f).width;
+		// A short hint is one tracked line; a long one is set as running text, a few lines deep.
+		constexpr float widest = 420.f;
+		auto const one_line = shaped(state, tip, 11, 0.14f).width <= widest;
+		auto const text_w = one_line ? shaped(state, tip, 11, 0.14f).width : widest;
 		auto const tip_w = text_w + 22.f;
+		auto const tip_h = one_line ? 24.f : paragraph(state, tip, 0.f, text_w, 0.f, 12, cream, 6, false) + 10.f;
 		auto const beside = tip_anchor.y >= top_h - 4.f && tip_anchor.x < ribbon_w;
 		auto const x = beside ? tip_anchor.x + tip_anchor.w + 12.f : std::round(std::clamp(tip_anchor.x + (tip_anchor.w - tip_w) * 0.5f, edge, w - edge - tip_w));
-		auto const y = beside ? std::round(tip_anchor.y + tip_anchor.h * 0.5f - 12.f) : (tip_anchor.y < top_h ? top_h + 8.f : tip_anchor.y - 32.f);
-		sheet(state, x, y, tip_w, 24.f, ogl::color3f{ 0.070f, 0.094f, 0.126f });
-		frame(state, x, y, tip_w, 24.f, ogl::color3f{ 0.89f, 0.75f, 0.49f }, 0.75f);
-		draw_text(state, tip, x + 11.f, y + 12.f, 11, 0.14f, cream);
+		// Under what it explains, so that it never covers the heading above; over it only at the foot of the window.
+		auto y = 0.f;
+		if(beside)
+			y = std::round(tip_anchor.y + tip_anchor.h * 0.5f - tip_h * 0.5f);
+		else if(tip_anchor.y < top_h)
+			y = top_h + 8.f;
+		else if(tip_anchor.y + tip_anchor.h + 6.f + tip_h <= height(state) - edge)
+			y = std::round(tip_anchor.y + tip_anchor.h + 6.f);
+		else
+			y = std::round(tip_anchor.y - tip_h - 6.f);
+		sheet(state, x, y, tip_w, tip_h, ogl::color3f{ 0.070f, 0.094f, 0.126f });
+		frame(state, x, y, tip_w, tip_h, ogl::color3f{ 0.89f, 0.75f, 0.49f }, 0.75f);
+		if(one_line)
+			draw_text(state, tip, x + 11.f, y + 12.f, 11, 0.14f, cream);
+		else
+			paragraph(state, tip, x + 11.f, x + 11.f + text_w, y + 5.f, 12, cream, 6, true);
 	}
 
 	// Shortens a string to the given width, ending it with dots.
@@ -943,6 +962,11 @@ class map_hud_element : public katechon_canvas {
 			}
 			return moved / units * 1000.f;
 		}
+		case population_metric::growth: {
+			// births over deaths, less hunger and the rest, to the thousand inhabitants, a month
+			auto const change = p ? float(demographics::get_monthly_pop_increase(state, p)) : float(demographics::get_monthly_pop_increase(state, n));
+			return change / units * 1000.f;
+		}
 		case population_metric::needs: {
 			auto const strata = get(demographics::poor_total) + get(demographics::middle_total) + get(demographics::rich_total);
 			if(strata <= 0.f)
@@ -957,23 +981,92 @@ class map_hud_element : public katechon_canvas {
 		return std::nullopt;
 	}
 
-	// Where a value falls on the colours of its map, 0 to 1 (-1 to 1 for movement).
-	static float metric_position(population_metric m, float value) {
+	// Each figure has its own scale: five classes with real bounds, colours that
+	// say what the classes mean, and the side on which a place is in trouble.
+	// Red is kept for what is going wrong; plain quantities run from graphite
+	// through cold blue to a muted gold.
+	struct metric_scale {
+		std::array<float, 4> cuts; // the bounds between the five classes, rising
+		std::array<ogl::color3f, 5> colours;
+		int32_t worse = 0; // -1: lower is worse, 1: higher is worse, 0: neither
+		float trouble = 0.f; // on the worse side of this a place is in trouble
+	};
+	// Signed figures: a muted red for loss, a gray-blue for nothing, a muted teal for gain.
+	inline static constexpr ogl::color3f map_loss{ 0.55f, 0.26f, 0.25f };
+	inline static constexpr ogl::color3f map_loss_soft{ 0.45f, 0.33f, 0.34f };
+	inline static constexpr ogl::color3f map_neutral{ 0.27f, 0.30f, 0.35f };
+	inline static constexpr ogl::color3f map_gain_soft{ 0.29f, 0.43f, 0.45f };
+	inline static constexpr ogl::color3f map_gain{ 0.33f, 0.55f, 0.55f };
+	static metric_scale const& scale_of(population_metric m) {
+		// living standards: from a deep burgundy through dusty rose to steel and teal
+		static metric_scale const needs{ { 0.1f, 0.25f, 0.5f, 0.8f },
+			{ ogl::color3f{ 0.38f, 0.14f, 0.16f }, ogl::color3f{ 0.55f, 0.24f, 0.24f }, ogl::color3f{ 0.52f, 0.39f, 0.43f }, ogl::color3f{ 0.33f, 0.43f, 0.52f }, ogl::color3f{ 0.30f, 0.54f, 0.54f } }, -1, 0.5f };
+		static metric_scale const growth{ { -1.f, -0.2f, 0.2f, 1.f }, { map_loss, map_loss_soft, map_neutral, map_gain_soft, map_gain }, -1, -0.2f };
+		static metric_scale const migration{ { -2.f, -0.5f, 0.5f, 2.f }, { map_loss, map_loss_soft, map_neutral, map_gain_soft, map_gain }, -1, -0.5f };
+		// knowledge: ink blue to a cool pale grey, no alarm in it
+		static metric_scale const literacy{ { 0.3f, 0.6f, 0.8f, 0.95f },
+			{ ogl::color3f{ 0.18f, 0.20f, 0.27f }, ogl::color3f{ 0.25f, 0.28f, 0.40f }, ogl::color3f{ 0.33f, 0.38f, 0.52f }, ogl::color3f{ 0.47f, 0.52f, 0.64f }, ogl::color3f{ 0.66f, 0.69f, 0.77f } }, -1, 0.6f };
+		// how crowded: dark slate through steel and soft teal to a pale gold
+		static metric_scale const density{ { 10.f, 50.f, 150.f, 500.f },
+			{ ogl::color3f{ 0.19f, 0.22f, 0.26f }, ogl::color3f{ 0.27f, 0.32f, 0.38f }, ogl::color3f{ 0.35f, 0.44f, 0.52f }, ogl::color3f{ 0.38f, 0.55f, 0.57f }, ogl::color3f{ 0.66f, 0.66f, 0.52f } }, 0, 0.f };
+		// wage work, an economic figure: slate to bronze
+		static metric_scale const work{ { 0.05f, 0.15f, 0.3f, 0.5f },
+			{ ogl::color3f{ 0.20f, 0.21f, 0.24f }, ogl::color3f{ 0.30f, 0.29f, 0.27f }, ogl::color3f{ 0.42f, 0.38f, 0.30f }, ogl::color3f{ 0.56f, 0.48f, 0.32f }, ogl::color3f{ 0.70f, 0.60f, 0.40f } }, 0, 0.f };
 		switch(m) {
-		case population_metric::density:
-			// 0.1 to 3000 people per square kilometre, by powers of ten
-			return std::clamp((std::log10(std::clamp(value, 0.1f, 3000.f)) + 1.f) / 4.477f, 0.f, 1.f);
-		case population_metric::work:
-			return std::clamp(value / 0.5f, 0.f, 1.f);
-		case population_metric::migration:
-			return std::clamp(value / 5.f, -1.f, 1.f);
-		case population_metric::needs:
-		case population_metric::literacy:
-			return std::clamp(value, 0.f, 1.f);
-		case population_metric::count:
-			break;
+		case population_metric::needs: return needs;
+		case population_metric::growth: return growth;
+		case population_metric::migration: return migration;
+		case population_metric::literacy: return literacy;
+		case population_metric::density: return density;
+		default: return work;
 		}
-		return 0.f;
+	}
+	static size_t class_of(population_metric m, float value) {
+		auto const& s = scale_of(m);
+		size_t c = 0;
+		while(c < s.cuts.size() && value >= s.cuts[c])
+			++c;
+		return c;
+	}
+	static ogl::color3f metric_colour(population_metric m, float value) {
+		return scale_of(m).colours[class_of(m, value)];
+	}
+	// Whether a place is in trouble on this figure.
+	static bool in_trouble(population_metric m, float value) {
+		auto const& s = scale_of(m);
+		return (s.worse < 0 && value < s.trouble) || (s.worse > 0 && value > s.trouble);
+	}
+
+	// A bound of a scale, in the figure's own terms.
+	static std::string cut_text(population_metric m, float value) {
+		switch(m) {
+		case population_metric::density: return text::prettify(int64_t(value));
+		case population_metric::growth:
+		case population_metric::migration: return (value > 0.f ? "+" : (value < 0.f ? "-" : "")) + text::format_float(std::abs(value), std::abs(value) < 1.f ? 1 : 0);
+		default: return text::format_percentage(value, 0);
+		}
+	}
+	// The five classes of the scale, in words, for the key of the map.
+	std::array<std::string, 5> class_labels(sys::state& state, population_metric m) const {
+		auto const& s = scale_of(m);
+		std::array<std::string, 5> out;
+		out[0] = "< " + cut_text(m, s.cuts[0]);
+		for(size_t i = 1; i < 4; ++i)
+			out[i] = cut_text(m, s.cuts[i - 1]) + " – " + cut_text(m, s.cuts[i]);
+		out[4] = cut_text(m, s.cuts[3]) + "+";
+		return out;
+	}
+	static std::string metric_unit(sys::state& state, population_metric m) {
+		switch(m) {
+		case population_metric::density: return localized(state, "katechon_ppl_u_density", "people per km²");
+		case population_metric::growth: return localized(state, "katechon_ppl_u_growth", "‰ a month, natural change");
+		case population_metric::migration: return localized(state, "katechon_ppl_u_migration", "‰ a month, net arrivals");
+		case population_metric::needs: return localized(state, "katechon_ppl_u_needs", "of basic needs met");
+		case population_metric::literacy: return localized(state, "katechon_ppl_u_literacy", "can read and write");
+		case population_metric::work: return localized(state, "katechon_ppl_u_work", "of workers under a wage contract");
+		case population_metric::count: break;
+		}
+		return std::string();
 	}
 
 	std::string metric_text(sys::state& state, population_metric m, float value) const {
@@ -984,8 +1077,9 @@ class map_hud_element : public katechon_canvas {
 		case population_metric::needs:
 		case population_metric::literacy:
 			return text::format_percentage(value, value > 0.f && value < 0.1f ? 1 : 0);
+		case population_metric::growth:
 		case population_metric::migration:
-			return (value > 0.f ? "+" : (value < 0.f ? "-" : "")) + text::format_float(std::abs(value), 1) + "‰";
+			return (value > 0.f ? "+" : (value < 0.f ? "-" : "")) + text::format_float(std::abs(value), std::abs(value) < 10.f ? 2 : 1) + "‰";
 		case population_metric::count:
 			break;
 		}
@@ -1001,6 +1095,7 @@ class map_hud_element : public katechon_canvas {
 		case population_metric::density: return localized(state, "katechon_ppl_m_density", "Density");
 		case population_metric::work: return localized(state, "katechon_ppl_m_work", "Wage work");
 		case population_metric::migration: return localized(state, "katechon_ppl_m_migration", "Migration");
+		case population_metric::growth: return localized(state, "katechon_ppl_m_growth", "Natural change");
 		case population_metric::needs: return localized(state, "katechon_ppl_m_needs", "Basic needs met");
 		case population_metric::literacy: return localized(state, "katechon_ppl_m_literacy", "Literacy");
 		case population_metric::count: break;
@@ -1008,49 +1103,36 @@ class map_hud_element : public katechon_canvas {
 		return std::string();
 	}
 
-	// What a figure means, for the hint over it.
+	// What a figure means, for the hint over it and the head of its page.
 	static std::string metric_about(sys::state& state, population_metric m) {
 		switch(m) {
-		case population_metric::density: return localized(state, "katechon_ppl_a_density", "People to the square kilometre of land. The map: brighter is more crowded.");
+		case population_metric::density: return localized(state, "katechon_ppl_a_density", "People to the square kilometre of land.");
 		case population_metric::work: return localized(state, "katechon_ppl_a_work", "Workers under a wage contract, out of all workers. The rest work their own land and workshops or have no work.");
-		case population_metric::migration: return localized(state, "katechon_ppl_a_migration", "Net arrivals a month to every thousand inhabitants. The map: blue gains people, red loses them.");
+		case population_metric::migration: return localized(state, "katechon_ppl_a_migration", "Net arrivals a month to every thousand inhabitants.");
+		case population_metric::growth: return localized(state, "katechon_ppl_a_growth", "Births over deaths, less what hunger, crowding and smaller families take, a month to every thousand inhabitants.");
 		case population_metric::needs: return localized(state, "katechon_ppl_a_needs", "How much of what people need to live they obtain. Below half, people go hungry and the population shrinks.");
-		case population_metric::literacy: return localized(state, "katechon_ppl_a_literacy", "Those who can read and write. It lets people take skilled work and fills the schools of the next generation.");
+		case population_metric::literacy: return localized(state, "katechon_ppl_a_literacy", "Those who can read and write. It lets people take skilled work.");
 		case population_metric::count: break;
 		}
 		return std::string();
 	}
 
-	// The two ends of the map's colours, in words.
-	static std::pair<std::string, std::string> metric_ends(sys::state& state, population_metric m) {
+	// Who is in trouble on a figure, as the end of a sentence that starts with a share of the people.
+	static std::string trouble_words(sys::state& state, population_metric m) {
 		switch(m) {
-		case population_metric::density: return { localized(state, "katechon_ppl_e_empty", "0.1 /km², empty"), localized(state, "katechon_ppl_e_crowded", "crowded, 1,000+") };
-		case population_metric::work: return { "0%", localized(state, "katechon_ppl_e_half", "50% and more") };
-		case population_metric::migration: return { localized(state, "katechon_ppl_e_leaving", "-5‰, leaving"), localized(state, "katechon_ppl_e_arriving", "arriving, +5‰") };
-		case population_metric::needs: return { localized(state, "katechon_ppl_e_hungry", "0%, hungry"), "100%" };
-		case population_metric::literacy: return { "0%", "100%" };
-		case population_metric::count: break;
+		case population_metric::needs: return localized(state, "katechon_ppl_t_needs_bad", "of the people live in regions that meet under half of their basic needs");
+		case population_metric::growth: return localized(state, "katechon_ppl_t_growth_bad", "of the people live in regions that are shrinking");
+		case population_metric::migration: return localized(state, "katechon_ppl_t_migration_bad", "of the people live in regions that people are leaving");
+		case population_metric::literacy: return localized(state, "katechon_ppl_t_literacy_bad", "of the people live in regions where under 60% can read");
+		default: return std::string();
 		}
-		return {};
-	}
-
-	// What the colour of a region on the map says, in a sentence.
-	static std::string metric_reading(sys::state& state, population_metric m) {
-		switch(m) {
-		case population_metric::density: return localized(state, "katechon_ppl_r_density", "The brighter a region, the more people live on each square kilometre of it.");
-		case population_metric::work: return localized(state, "katechon_ppl_r_work", "The bluer a region, the more of its workers are hired for wages. Grey regions live off their own land.");
-		case population_metric::migration: return localized(state, "katechon_ppl_r_migration", "Blue regions take people in, red ones lose them; grey ones neither, or have not moved yet this month.");
-		case population_metric::needs: return localized(state, "katechon_ppl_r_needs", "Red regions go short of food and shelter; green ones have what they need.");
-		case population_metric::literacy: return localized(state, "katechon_ppl_r_literacy", "The lighter a region, the more of its people can read and write.");
-		case population_metric::count: break;
-		}
-		return std::string();
 	}
 
 	// Whether a value of the figure is a concern (-1), a strength (1), or neither.
 	static int32_t metric_tone(population_metric m, float value) {
 		switch(m) {
-		case population_metric::migration: return value > 0.05f ? 1 : (value < -0.05f ? -1 : 0);
+		case population_metric::migration:
+		case population_metric::growth: return value > 0.2f ? 1 : (value < -0.2f ? -1 : 0);
 		case population_metric::needs: return value < 0.5f ? -1 : (value >= 0.9f ? 1 : 0);
 		case population_metric::literacy: return value < 0.3f ? -1 : 0;
 		default: return 0;
@@ -1084,8 +1166,6 @@ class map_hud_element : public katechon_canvas {
 		if(prov) {
 			view.title = text::get_name_as_string(state, prov);
 			view.subtitle = text::get_name_as_string(state, dcon::fatten(state.world, view.nation));
-			if(auto const definition = state.world.province_get_state_from_abstract_state_membership(prov); definition)
-				view.subtitle = text::get_name_as_string(state, definition) + "  ·  " + view.subtitle;
 			view.part_of_country = ratio(view.units, state.world.nation_get_demographics(view.nation, demographics::total));
 		} else {
 			view.title = text::get_name_as_string(state, dcon::fatten(state.world, view.nation));
@@ -1188,8 +1268,9 @@ class map_hud_element : public katechon_canvas {
 			std::sort(view.abroad.begin(), view.abroad.end(), [](auto const& a, auto const& b) { return std::abs(a.amount) > std::abs(b.amount); });
 			if(view.abroad.size() > 4)
 				view.abroad.resize(4);
-			view.external_month = net;
-			view.external_estimated = true;
+			// a forecast, shown as one; the month's change counts only the moves made
+			view.external_forecast = net;
+			view.forecast_known = true;
 		}
 		if(weight > 0.f) {
 			view.job_access = job / weight;
@@ -1239,28 +1320,29 @@ class map_hud_element : public katechon_canvas {
 	// and where the region studied stands among them.
 	void gather_standouts(sys::state& state) {
 		auto& view = population;
-		view.highest.clear();
-		view.lowest.clear();
+		view.ranking.clear();
+		view.affected = -1.f;
 		view.rank = 0;
 		view.ranked = 0;
-		std::vector<std::pair<dcon::province_id, float>> values;
+		auto total = 0.f;
+		auto hurt = 0.f;
 		for(auto const& r : view.regions) {
-			if(auto const value = metric_value(state, view.nation, r.id, metric); value)
-				values.emplace_back(r.id, *value);
+			if(auto const value = metric_value(state, view.nation, r.id, metric); value) {
+				view.ranking.emplace_back(r.id, *value);
+				total += r.units;
+				if(in_trouble(metric, *value))
+					hurt += r.units;
+			}
 		}
-		std::sort(values.begin(), values.end(), [](auto const& a, auto const& b) { return a.second > b.second; });
-		view.ranked = int32_t(values.size());
-		for(size_t i = 0; i < values.size(); ++i) {
-			if(values[i].first == view.province)
+		auto const worse = scale_of(metric).worse;
+		std::stable_sort(view.ranking.begin(), view.ranking.end(), [worse](auto const& a, auto const& b) { return worse < 0 ? a.second < b.second : a.second > b.second; });
+		view.ranked = int32_t(view.ranking.size());
+		for(size_t i = 0; i < view.ranking.size(); ++i) {
+			if(view.ranking[i].first == view.province)
 				view.rank = int32_t(i) + 1;
 		}
-		if(values.size() < 2)
-			return;
-		auto const shown = std::min<size_t>(3, values.size() / 2);
-		for(size_t i = 0; i < shown; ++i) {
-			view.highest.push_back(values[i]);
-			view.lowest.push_back(values[values.size() - 1 - i]);
-		}
+		if(worse != 0 && total > 0.f)
+			view.affected = hurt / total;
 	}
 
 	// ---- the map layers of the population pages ----
@@ -1277,49 +1359,35 @@ class map_hud_element : public katechon_canvas {
 		}
 		return stops.back().colour;
 	}
-	// On a dark map the empty land recedes and the peopled land comes forward.
-	inline static constexpr std::array<ramp_stop, 5> density_ramp{ ramp_stop{ 0.f, { 0.29f, 0.32f, 0.35f } }, ramp_stop{ 0.30f, { 0.45f, 0.44f, 0.40f } },
-		ramp_stop{ 0.55f, { 0.70f, 0.57f, 0.38f } }, ramp_stop{ 0.78f, { 0.86f, 0.54f, 0.30f } }, ramp_stop{ 1.f, { 0.96f, 0.80f, 0.54f } } };
-	// Wage work is no good or evil in itself: it goes from the grey of the
-	// countryside to the blue of the towns, never to red.
-	inline static constexpr std::array<ramp_stop, 3> wage_ramp{ ramp_stop{ 0.f, { 0.34f, 0.35f, 0.37f } }, ramp_stop{ 0.45f, { 0.36f, 0.50f, 0.62f } },
-		ramp_stop{ 1.f, { 0.62f, 0.80f, 0.92f } } };
-	inline static constexpr std::array<ramp_stop, 3> movement_ramp{ ramp_stop{ -1.f, { 0.74f, 0.30f, 0.26f } }, ramp_stop{ 0.f, { 0.50f, 0.51f, 0.52f } },
-		ramp_stop{ 1.f, { 0.28f, 0.56f, 0.74f } } };
-	inline static constexpr std::array<ramp_stop, 4> needs_ramp{ ramp_stop{ 0.f, { 0.66f, 0.24f, 0.22f } }, ramp_stop{ 0.5f, { 0.84f, 0.62f, 0.36f } },
-		ramp_stop{ 0.8f, { 0.62f, 0.68f, 0.44f } }, ramp_stop{ 1.f, { 0.38f, 0.66f, 0.48f } } };
-	inline static constexpr std::array<ramp_stop, 3> literacy_ramp{ ramp_stop{ 0.f, { 0.36f, 0.30f, 0.40f } }, ramp_stop{ 0.6f, { 0.34f, 0.56f, 0.62f } },
-		ramp_stop{ 1.f, { 0.80f, 0.88f, 0.72f } } };
-	// Land the figure says nothing about: darker than the darkest of any ramp.
-	inline static constexpr ogl::color3f no_reading{ 0.17f, 0.18f, 0.20f };
+	// Land the figure says nothing about, and the land of other countries, which recedes.
+	inline static constexpr ogl::color3f no_reading{ 0.13f, 0.14f, 0.16f };
+	inline static constexpr ogl::color3f elsewhere{ 0.15f, 0.16f, 0.18f };
+	std::vector<uint32_t> painted; // the map's colours as last worked out
 
-	static ogl::color3f metric_colour(population_metric m, float t) {
-		switch(m) {
-		case population_metric::density: return along(density_ramp, t);
-		case population_metric::work: return along(wage_ramp, t);
-		case population_metric::migration: return along(movement_ramp, t);
-		case population_metric::needs: return along(needs_ramp, t);
-		case population_metric::literacy: return along(literacy_ramp, t);
-		case population_metric::count: break;
-		}
-		return no_reading;
-	}
-
-	void paint_layer(sys::state& state) {
+	// Paints the map with the figure chosen. The country studied keeps its
+	// colours; the rest of the world recedes towards graphite. The game paints
+	// its own layer over ours now and then; the same colours are sent again
+	// without working them out anew.
+	void paint_layer(sys::state& state, bool rework = true) {
 		if(!areas_read)
 			read_areas(state);
 		auto const province_size = uint32_t(state.world.province_size()) + 1;
 		auto const texture_size = province_size + 256 - province_size % 256;
-		std::vector<uint32_t> colours(size_t(texture_size) * 2, 0);
-		province::for_each_land_province(state, [&](dcon::province_id p) {
-			auto const value = metric_value(state, dcon::nation_id{}, p, metric);
-			auto const c = value ? metric_colour(metric, metric_position(metric, *value)) : no_reading;
-			auto const packed = sys::pack_color(c.r, c.g, c.b);
-			auto const i = province::to_map_id(p);
-			colours[i] = packed;
-			colours[i + texture_size] = packed;
-		});
-		state.map_state.set_province_color(colours, map_mode::mode::handled_from_outside);
+		if(rework || painted.size() != size_t(texture_size) * 2) {
+			painted.assign(size_t(texture_size) * 2, 0);
+			auto const focus = population.nation;
+			province::for_each_land_province(state, [&](dcon::province_id p) {
+				auto const value = metric_value(state, dcon::nation_id{}, p, metric);
+				auto c = value ? metric_colour(metric, *value) : no_reading;
+				if(focus && state.world.province_get_nation_from_province_ownership(p) != focus)
+					c = mix(c, elsewhere, 0.86f);
+				auto const packed = sys::pack_color(c.r, c.g, c.b);
+				auto const i = province::to_map_id(p);
+				painted[i] = packed;
+				painted[i + texture_size] = packed;
+			});
+		}
+		state.map_state.set_province_color(painted, map_mode::mode::handled_from_outside);
 		repaint_in = 20;
 	}
 
@@ -1333,7 +1401,8 @@ class map_hud_element : public katechon_canvas {
 			state.ui_state.topbar_subwindow->set_visible(state, false);
 		population_open = true;
 		population_overview = overview;
-		overview_scroll = 0.f;
+		overview_all_regions = false;
+		overview_page = 0;
 		auto const land = region && region.index() < state.province_definitions.first_sea_province.index();
 		atlas_province = land ? region : dcon::province_id{};
 		atlas_nation = land ? state.world.province_get_nation_from_province_ownership(region) : dcon::nation_id{};
@@ -1343,6 +1412,9 @@ class map_hud_element : public katechon_canvas {
 		map_mode::set_map_mode(state, map_mode::mode::population);
 		gather_population(state);
 		paint_layer(state);
+		// the map beside the page shows what the page is about
+		if(auto const focus = atlas_province ? atlas_province : state.world.nation_get_capital(population.nation); focus)
+			center_beside(state, focus);
 	}
 
 	void close_population(sys::state& state) {
@@ -1362,15 +1434,13 @@ class map_hud_element : public katechon_canvas {
 		metric = chosen;
 		population_layer = true;
 		map_mode::set_map_mode(state, map_mode::mode::population);
-		if(atlas_province) {
+		if(atlas_province)
 			state.set_selected_province(atlas_province);
-			state.map_state.center_map_on_province(state, atlas_province);
-		} else if(auto const capital = state.world.nation_get_capital(population.nation); capital) {
-			state.map_state.center_map_on_province(state, capital);
-		}
 		atlas_seen_province = state.map_state.selected_province;
 		gather_standouts(state);
 		paint_layer(state);
+		if(auto const focus = atlas_province ? atlas_province : state.world.nation_get_capital(population.nation); focus)
+			center_beside(state, focus);
 	}
 
 	void refresh(sys::state& state) {
@@ -1621,6 +1691,12 @@ class map_hud_element : public katechon_canvas {
 		case action::trade_analysis:
 			trade_analysis = !trade_analysis;
 			break;
+		case action::trade_select:
+		case action::trade_sort:
+		case action::trade_chart:
+		case action::trade_findings:
+			trade_act(t.act, t.value);
+			break;
 		case action::trade_details:
 			open_legacy_trade(state);
 			break;
@@ -1663,38 +1739,56 @@ class map_hud_element : public katechon_canvas {
 			break;
 		case action::population_overview:
 			if(t.value != 0) {
+				// the overview keeps the country or region and the figure the inspector had
 				population_overview = true;
-				overview_scroll = 0.f;
+				overview_all_regions = false;
+				if(auto const focus = atlas_province ? atlas_province : state.world.nation_get_capital(population.nation); focus)
+					center_beside(state, focus);
 			} else {
 				population_to_map(state, metric);
 			}
 			break;
-		case action::population_scroll_to:
-			if(size_t(t.value) < overview_anchor.size())
-				overview_scroll = overview_anchor[size_t(t.value)];
+		case action::population_all_regions:
+			overview_all_regions = t.value != 0;
+			overview_page = 0;
 			break;
+		case action::population_page:
+			overview_page += t.value;
+			break;
+		case action::population_class:
+			selected_class = selected_class == t.value ? -1 : t.value;
+			break;
+		case action::population_lens: {
+			auto const n = int32_t(population_metric::count);
+			metric = population_metric(uint8_t(((int32_t(metric) + t.value) % n + n) % n));
+			population_layer = true;
+			map_mode::set_map_mode(state, map_mode::mode::population);
+			gather_standouts(state);
+			paint_layer(state);
+			break;
+		}
 		case action::population_whole_country:
 			atlas_province = dcon::province_id{};
-			overview_scroll = 0.f;
 			gather_population(state);
 			break;
 		case action::population_home:
 			atlas_nation = dcon::nation_id{};
 			atlas_province = dcon::province_id{};
-			overview_scroll = 0.f;
 			gather_population(state);
 			break;
 		case action::population_region:
 			if(auto const region = dcon::province_id{ dcon::province_id::value_base_t(t.value) }; region) {
+				// a region pressed on the overview opens in the inspector, chosen and shown on the map
 				atlas_province = region;
-				overview_scroll = 0.f;
-				if(!population_overview) {
-					// beside the map, the region is also chosen on it
-					state.set_selected_province(region);
-					state.map_state.center_map_on_province(state, region);
-					atlas_seen_province = region;
-				}
+				population_overview = false;
+				overview_all_regions = false;
+				population_layer = true;
+				map_mode::set_map_mode(state, map_mode::mode::population);
+				state.set_selected_province(region);
+				atlas_seen_province = region;
 				gather_population(state);
+				paint_layer(state);
+				center_beside(state, region);
 			}
 			break;
 		case action::toggle_layers:
@@ -2296,6 +2390,9 @@ class map_hud_element : public katechon_canvas {
 	// in the serif of the shell; every figure in the sans, which reads at once.
 
 	inline static constexpr ogl::color3f pop_tile{ 0.060f, 0.078f, 0.104f };
+	// What goes wrong and what goes well, held back: a muted coral and a muted teal.
+	inline static constexpr ogl::color3f pop_bad{ 0.86f, 0.52f, 0.46f };
+	inline static constexpr ogl::color3f pop_good{ 0.46f, 0.72f, 0.66f };
 	inline static constexpr ogl::color3f pop_own{ 0.56f, 0.66f, 0.44f }; // own land and workshops
 	inline static constexpr ogl::color3f pop_wage{ 0.42f, 0.62f, 0.78f }; // wage contracts
 	inline static constexpr ogl::color3f pop_other{ 0.34f, 0.36f, 0.40f };
@@ -2334,7 +2431,7 @@ class map_hud_element : public katechon_canvas {
 		return signed_people(units);
 	}
 	ogl::color3f tone_colour(int32_t tone) const {
-		return tone > 0 ? dip_yes : (tone < 0 ? dip_no : dip_text);
+		return tone > 0 ? pop_good : (tone < 0 ? pop_bad : dip_text);
 	}
 	// A share when it is kept, a dash when it is not.
 	static std::string share_text(float part) {
@@ -2372,17 +2469,6 @@ class map_hud_element : public katechon_canvas {
 			fill(state, at, y, pw, h, colour, 1.f);
 			at += pw;
 		}
-	}
-
-	// A labelled share with a bar under the label: label left, share right.
-	float share_row(sys::state& state, std::string const& label, float part, ogl::color3f colour, float left, float right, float y) {
-		auto const value = share_text(part);
-		auto const vw = sans(state, value, right, y + 8.f, 13, part < 0.f ? dip_faint : dip_text, true);
-		sans(state, sans_fit(state, label, 13, right - left - vw - 12.f), left, y + 8.f, 13, dip_muted);
-		fill(state, left, y + 19.f, right - left, 3.f, ink, 0.45f);
-		if(part > 0.f)
-			fill(state, left, y + 19.f, std::max(2.f, std::round((right - left) * std::min(part, 1.f))), 3.f, colour, 1.f);
-		return y + 30.f;
 	}
 
 	// The place in the bread-crumbs: a region inside a country, a foreign country, one's own.
@@ -2438,7 +2524,7 @@ class map_hud_element : public katechon_canvas {
 		}
 		population_trend.set_y(points.data());
 		auto const falling = series.back() < series.front();
-		auto const colour = series.back() == series.front() ? dip_text : (falling ? dip_no : dip_yes);
+		auto const colour = series.back() == series.front() ? dip_text : (falling ? pop_bad : pop_good);
 		ogl::render_linegraph(state, ogl::color_modification::none, x, y, w, h, colour.r, colour.g, colour.b, 1.f, population_trend);
 		fill(state, x + w - 3.f, y + h * (1.f - points.back()) - 3.f, 6.f, 6.f, colour, 1.f);
 	}
@@ -2454,44 +2540,80 @@ class map_hud_element : public katechon_canvas {
 		clip_bottom = 1e9f;
 	}
 
-	// ---- the inspector, beside the map ----
+	// ---- the inspector: one figure, studied across the map ----
+	//
+	// A narrow page beside a large map. A row of six figures at its head
+	// chooses what the map shows; everything under it is about that figure
+	// alone: its value here, how many people are in trouble on it, its key,
+	// the regions where it is worst, and the region under the pointer.
+
+	static constexpr std::array<icon, 6> metric_glyphs{ icon::society, icon::growth, icon::movement, icon::technology, icon::person, icon::work };
+
+	// The six figures as a row; the chosen one is pressed in and named under it.
+	float metric_row(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
+		auto const n = uint8_t(population_metric::count);
+		auto const cell = (right - left) / float(n);
+		fill(state, left, y, right - left, 34.f, pop_tile, 0.9f);
+		for(uint8_t i = 0; i < n; ++i) {
+			auto const m = population_metric(i);
+			hit_target t{ left + float(i) * cell, y, cell, 34.f, action::population_metric, nullptr, int32_t(i) };
+			auto const chosen = metric == m;
+			auto const hovered = pop_over(t, hovering, mx, my);
+			if(chosen) {
+				fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.28f);
+				fill(state, t.x, t.y + t.h - 2.f, t.w, 2.f, gold, 1.f);
+			} else if(hovered) {
+				fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.12f);
+			}
+			draw_icon(state, metric_glyphs[i], t.x + cell * 0.5f, t.y + 17.f, 17.f, chosen ? gold : (hovered ? dip_name : dip_muted));
+			pop_target(t);
+			if(hovered)
+				hint(metric_name(state, m), t);
+		}
+		return y + 34.f;
+	}
+
+	// The key of the map: the five classes of the figure, with their bounds.
+	float draw_key(sys::state& state, float left, float right, float y) {
+		auto const& s = scale_of(metric);
+		auto const labels = class_labels(state, metric);
+		auto const cell = (right - left) / 5.f;
+		for(size_t i = 0; i < 5; ++i) {
+			auto const cx = left + float(i) * cell;
+			fill(state, cx + 1.f, y, cell - 2.f, 10.f, s.colours[i], 1.f);
+			auto const tw = sans_w(state, labels[i], 11);
+			sans(state, sans_fit(state, labels[i], 11, cell - 2.f), cx + std::max(0.f, (cell - tw) * 0.5f), y + 22.f, 11, dip_muted);
+		}
+		sans(state, metric_unit(state, metric), left, y + 40.f, 11, dip_faint);
+		return y + 50.f;
+	}
+
+	// "12th of 30"
+	static std::string rank_words(sys::state& state, int32_t rank, int32_t of) {
+		return filled(localized(state, "katechon_ppl_rank_of", "%1 of %2"), std::to_string(rank), std::to_string(of));
+	}
+
 	void draw_population_inspector(sys::state& state, float h, bool hovering, float mx, float my) {
 		auto const& v = population;
-		constexpr float w = 360.f;
+		constexpr float w = 380.f;
 		auto const x0 = ribbon_w + 8.f;
 		auto const y0 = top_h + 12.f;
 		auto const left = x0 + 22.f;
 		auto const right = x0 + w - 22.f;
 		auto const foreign = v.nation && v.nation != state.local_player_nation;
 		auto const stepped = v.of_province || foreign;
-		auto const room = h - y0 - 16.f;
+		auto const ph = h - y0 - 16.f;
 		clip_top = -1e9f;
 		clip_bottom = 1e9f;
-
-		// What goes on it decides its height; the standouts give way first.
-		auto const shown = population_layer ? metric_reading(state, metric) : std::string();
-		auto const reading_h = population_layer ? sans_paragraph(state, shown, left, right, 0.f, 12, dip_muted, 3, false) : 0.f;
-		auto const has_history = v.history.size() >= 2;
-		constexpr float metric_h = 34.f;
-		auto content = 18.f + 22.f + 52.f + (stepped ? 26.f : 0.f) + 12.f + 44.f + (has_history ? 40.f : 8.f)
-			+ 24.f + float(uint8_t(population_metric::count)) * metric_h + 10.f
-			+ (population_layer ? 40.f + reading_h + 6.f + 26.f : 0.f) + 58.f;
-		auto standouts_h = 0.f;
-		if(population_layer && v.units > 0.f) {
-			standouts_h = v.of_province ? 30.f : (v.highest.empty() ? 0.f : 26.f + float(v.highest.size()) * 22.f + 8.f);
-			if(content + standouts_h > room)
-				standouts_h = 0.f;
-		}
-		auto const ph = std::min(room, content + standouts_h);
 		dip_frame(state, x0, y0, w, ph);
-		auto const floor_y = y0 + ph - 12.f;
+		auto const floor_y = y0 + ph - 16.f;
 
-		// What this page is.
+		// whose it is
 		auto y = y0 + 18.f;
 		{
 			auto const scope = v.of_province ? localized(state, "katechon_ppl_scope_region", "Population  ·  region")
 				: (foreign ? localized(state, "katechon_ppl_scope_foreign", "Population  ·  foreign country") : localized(state, "katechon_ppl_scope_own", "Population  ·  your country"));
-			sans(state, upper(scope), left, y + 6.f, 10, dip_bronze, false, 0.16f);
+			pop_label(state, localized(state, "katechon_ppl_map_inspector", "Map inspector") + "  ·  " + scope, left, y + 6.f);
 			hit_target close{ right - 12.f, y - 8.f, 26.f, 26.f, action::toggle_population };
 			draw_icon(state, icon::close, close.x + 13.f, close.y + 13.f, 11.f, hovering && over(close, mx, my) ? dip_text : dip_bronze);
 			targets.push_back(close);
@@ -2499,746 +2621,595 @@ class map_hud_element : public katechon_canvas {
 				hint(localized(state, "katechon_ppl_close", "Close"), close);
 		}
 		y += 22.f;
-		// Whose it is.
 		if(v.nation)
 			dip_flag(state, v.nation, left, y + 4.f, 36.f, 24.f);
 		auto const tx = left + (v.nation ? 48.f : 0.f);
 		draw_text(state, fit(state, v.title, 24, 0.01f, right - tx), tx, y + 14.f, 24, 0.01f, dip_name);
-		sans(state, sans_fit(state, v.subtitle, 13, right - tx), tx, y + 38.f, 13, dip_muted);
+		sans(state, sans_fit(state, v.subtitle.empty() ? people(v.units) : people(v.units) + "  ·  " + v.subtitle, 13, right - tx), tx, y + 38.f, 13, dip_muted);
 		y += 52.f;
 		if(stepped) {
 			pop_crumbs(state, v, left, y + 10.f, hovering, mx, my);
 			y += 26.f;
 		}
-		dip_rule_line(state, left, right, y + 4.f);
-		y += 12.f;
+		y += 6.f;
 
-		// How many, and which way it goes.
-		if(v.units <= 0.f) {
-			sans(state, localized(state, "katechon_pop_empty", "Nobody lives here."), left, y + 18.f, 15, dip_faint);
-			y += 44.f;
-		} else {
-			sans(state, people(v.units), left - 1.f, y + 18.f, 30, dip_name, false, 0.f);
-			auto const rate = v.change_month / v.units;
-			auto const tone = rate < -0.00005f ? dip_no : (rate > 0.00005f ? dip_yes : dip_muted);
-			auto const line = change_line(state, v);
-			auto const lw = sans(state, line, right, y + 10.f, 13, tone, true);
-			if(std::abs(rate) > 0.00005f)
-				arrow(state, right - lw - 10.f, y + 10.f, rate > 0.f, tone);
-			sans(state, signed_count(v.change_month) + " " + localized(state, "katechon_ppl_people_word", "people"), right, y + 28.f, 12, dip_muted, true);
-			y += 44.f;
-		}
-		if(has_history) {
-			trend_chart(state, v.history, left, y + 2.f, right - left, 26.f, false);
-			sans(state, localized(state, "katechon_ppl_last_days", "last 30 days"), right, y + 38.f, 10, dip_faint, true);
-			y += 40.f;
-		} else {
-			y += 8.f;
-		}
+		// the figure chosen, and all that follows is about it
+		y = metric_row(state, left - 6.f, right + 6.f, y, hovering, mx, my) + 16.f;
+		sans(state, metric_name(state, metric), left, y + 10.f, 20, dip_name, false, 0.f);
+		y += 24.f;
+		y = sans_paragraph(state, metric_about(state, metric), left, right, y, 12, dip_muted, 3, true) + 8.f;
 
-		// The figures, each the map it can paint.
-		y = pop_heading(state, localized(state, "katechon_ppl_figures", "On the map"), std::string(), left, right, y);
-		static constexpr std::array<icon, 5> metric_icons{ icon::person, icon::work, icon::movement, icon::society, icon::technology };
-		for(uint8_t i = 0; i < uint8_t(population_metric::count); ++i) {
-			auto const m = population_metric(i);
-			auto const value = metric_value(state, v.nation, v.province, m);
-			hit_target t{ left - 10.f, y, right - left + 20.f, metric_h - 2.f, action::population_metric, nullptr, int32_t(i) };
-			auto const hovered = pop_over(t, hovering, mx, my);
-			auto const chosen = population_layer && metric == m;
-			if(chosen) {
-				fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.16f);
-				fill(state, t.x, t.y + 3.f, 2.f, t.h - 6.f, gold, 1.f);
-			} else if(hovered) {
-				fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.08f);
-			}
-			auto const mid = y + (metric_h - 2.f) * 0.5f;
-			draw_icon(state, metric_icons[i], left + 8.f, mid, 16.f, chosen ? gold : dip_bronze);
-			sans(state, metric_name(state, m), left + 26.f, mid, 14, chosen || hovered ? dip_name : dip_muted);
-			auto const tone = value ? metric_tone(m, *value) : 0;
-			sans(state, metric_text(state, m, value), right, mid, 15, value ? tone_colour(tone) : dip_faint, true);
-			pop_target(t);
-			if(hovered)
-				hint(metric_about(state, m), t);
-			y += metric_h;
-		}
-		y += 10.f;
-
-		// What the colours say, and where this place stands on them.
-		if(population_layer) {
-			std::optional<float> own_value;
-			if(v.units > 0.f)
-				own_value = metric_value(state, v.nation, v.province, metric);
-			auto const from = metric == population_metric::migration ? -1.f : 0.f;
-			constexpr int32_t steps = 64;
-			auto const step = (right - left) / float(steps);
-			for(int32_t i = 0; i < steps; ++i) {
-				auto const c = metric_colour(metric, from + (1.f - from) * float(i) / float(steps - 1));
-				fill(state, left + float(i) * step, y + 4.f, step + 0.5f, 6.f, c, 1.f);
-			}
-			if(own_value) {
-				auto const at = (metric_position(metric, *own_value) - from) / (1.f - from);
-				auto const mark_x = std::round(left + (right - left) * std::clamp(at, 0.f, 1.f));
-				fill(state, mark_x - 2.f, y - 2.f, 4.f, 18.f, ink, 0.9f);
-				fill(state, mark_x - 1.f, y - 1.f, 2.f, 16.f, dip_name, 1.f);
-			}
-			auto const ends = metric_ends(state, metric);
-			sans(state, ends.first, left, y + 24.f, 11, dip_faint);
-			sans(state, ends.second, right, y + 24.f, 11, dip_faint, true);
-			y += 40.f;
-			y = sans_paragraph(state, shown, left, right, y, 12, dip_muted, 3, true) + 6.f;
-
-			// Where the place stands among the country's regions, or which regions stand out.
-			if(standouts_h > 0.f) {
-				if(v.of_province) {
-					if(v.rank > 0) {
-						auto const country = metric_value(state, v.nation, dcon::province_id{}, metric);
-						auto line = filled(localized(state, "katechon_ppl_rank", "%1 of %2 regions"), std::to_string(v.rank), std::to_string(v.ranked));
-						if(country)
-							line += "  ·  " + filled(localized(state, "katechon_ppl_country_value", "the country %1"), metric_text(state, metric, *country));
-						sans(state, sans_fit(state, line, 13, right - left), left, y + 10.f, 13, dip_text);
-					}
-					y += 30.f;
-				} else {
-					auto const half = (right - left - 16.f) * 0.5f;
-					sans(state, upper(localized(state, "katechon_ppl_highest", "Highest")), left, y + 8.f, 10, dip_bronze, false, 0.14f);
-					sans(state, upper(localized(state, "katechon_ppl_lowest", "Lowest")), left + half + 16.f, y + 8.f, 10, dip_bronze, false, 0.14f);
-					y += 26.f;
-					for(size_t i = 0; i < v.highest.size(); ++i) {
-						for(int32_t side = 0; side < 2; ++side) {
-							auto const& entry = side == 0 ? v.highest[i] : v.lowest[i];
-							auto const cx = side == 0 ? left : left + half + 16.f;
-							hit_target t{ cx - 4.f, y, half + 8.f, 22.f, action::population_region, nullptr, region_value(entry.first) };
-							auto const hovered = pop_over(t, hovering, mx, my);
-							if(hovered)
-								fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.10f);
-							auto const value = metric_text(state, metric, entry.second);
-							auto const vw = sans(state, value, cx + half, y + 11.f, 12, dip_text, true);
-							sans(state, sans_fit(state, text::get_name_as_string(state, entry.first), 12, half - vw - 8.f), cx, y + 11.f, 12, hovered ? dip_name : dip_muted);
-							pop_target(t);
-						}
-						y += 22.f;
-					}
-					y += 8.f;
-				}
-			}
-
-			// The region under the pointer, read on the same figure.
-			{
-				auto const under = state.map_state.under_mouse_province;
-				auto const on_map = !hovering && under && under.index() < state.province_definitions.first_sea_province.index();
-				if(on_map) {
-					auto const value = metric_value(state, dcon::nation_id{}, under, metric);
-					auto const line = text::get_name_as_string(state, under) + ":  " + metric_text(state, metric, value);
-					sheet(state, left - 8.f, y, right - left + 16.f, 22.f, pop_tile, 0.9f);
-					draw_icon(state, icon::search, left + 4.f, y + 11.f, 11.f, dip_bronze);
-					sans(state, sans_fit(state, line, 12, right - left - 20.f), left + 16.f, y + 11.f, 12, dip_text);
-				} else {
-					sans(state, localized(state, "katechon_ppl_point_hint", "Point at a region to read it; press it to study it"), left, y + 11.f, 11, dip_faint);
-				}
-				y += 26.f;
-			}
-		}
-
-		// The whole of it, with the map put aside.
+		// its value here
 		{
-			auto const by = std::max(y + 6.f, floor_y - 40.f);
-			dip_gold_button(state, left, by, right - left, 34.f, localized(state, "katechon_ppl_open_overview", "Population overview"), true,
+			auto const value = metric_value(state, v.nation, v.province, metric);
+			auto const vw = sans(state, metric_text(state, metric, value), left - 1.f, y + 18.f, 32, value ? tone_colour(metric_tone(metric, *value)) : dip_faint, false, 0.f);
+			if(v.of_province && v.rank > 0) {
+				sans(state, rank_words(state, v.rank, v.ranked), left + vw + 14.f, y + 10.f, 13, dip_text);
+				if(auto const country = metric_value(state, v.nation, dcon::province_id{}, metric); country)
+					sans(state, filled(localized(state, "katechon_ppl_country_value", "the country %1"), metric_text(state, metric, *country)), left + vw + 14.f, y + 28.f, 12, dip_muted);
+			}
+			y += 44.f;
+		}
+		// how many are in trouble on it
+		if(v.affected >= 0.f) {
+			auto const share = share_text(v.affected);
+			auto const sw = sans(state, share, left, y + 10.f, 18, v.affected > 0.f ? pop_bad : pop_good, false, 0.f);
+			y = sans_paragraph(state, trouble_words(state, metric), left + sw + 8.f, right, y, 12, dip_text, 2, true) + 8.f;
+		}
+		// the key of the map
+		y = draw_key(state, left, right, y + 4.f) + 6.f;
+
+		// the regions where it is worst
+		pop_label(state, scale_of(metric).worse != 0 ? localized(state, "katechon_ppl_worst", "Where it is worst") : localized(state, "katechon_ppl_highest", "Highest"), left, y + 6.f);
+		if(v.ranked > 0)
+			sans(state, filled(localized(state, "katechon_ppl_of_regions", "of %1 regions"), std::to_string(v.ranked)), right, y + 6.f, 11, dip_faint, true);
+		y += 20.f;
+		constexpr float row_h = 26.f;
+		auto const rows = std::min<size_t>(v.ranking.size(), size_t(std::max(0.f, (floor_y - 96.f - y) / row_h)));
+		for(size_t i = 0; i < rows; ++i) {
+			auto const& [p, value] = v.ranking[i];
+			hit_target t{ left - 8.f, y, right - left + 16.f, row_h, action::population_region, nullptr, region_value(p) };
+			auto const hovered = pop_over(t, hovering, mx, my);
+			auto const studied = p == v.province;
+			if(studied || hovered)
+				fill(state, t.x, t.y + 1.f, t.w, t.h - 2.f, dip_bronze, studied ? 0.20f : 0.10f);
+			fill(state, left, y + 8.f, 10.f, 10.f, metric_colour(metric, value), 1.f);
+			sans(state, std::to_string(i + 1), left + 30.f, y + 13.f, 12, dip_faint, true);
+			auto const vw = sans(state, metric_text(state, metric, value), right, y + 13.f, 14, tone_colour(metric_tone(metric, value)), true);
+			sans(state, sans_fit(state, text::get_name_as_string(state, p), 14, right - left - 40.f - vw - 10.f), left + 38.f, y + 13.f, 14, studied || hovered ? dip_name : dip_text);
+			pop_target(t);
+			y += row_h;
+		}
+
+		// the region under the pointer, read on the same figure, with its place among the rest
+		{
+			auto const by = floor_y - 82.f;
+			auto const under = state.map_state.under_mouse_province;
+			if(!hovering && under && under.index() < state.province_definitions.first_sea_province.index()) {
+				auto const value = metric_value(state, dcon::nation_id{}, under, metric);
+				auto line = text::get_name_as_string(state, under) + ":  " + metric_text(state, metric, value);
+				for(size_t i = 0; i < v.ranking.size(); ++i) {
+					if(v.ranking[i].first == under)
+						line += "  ·  " + rank_words(state, int32_t(i) + 1, v.ranked);
+				}
+				sheet(state, left - 8.f, by, right - left + 16.f, 26.f, pop_tile, 0.95f);
+				fill(state, left - 8.f, by, 3.f, 26.f, value ? metric_colour(metric, *value) : no_reading, 1.f);
+				sans(state, sans_fit(state, line, 13, right - left - 4.f), left + 2.f, by + 13.f, 13, dip_text);
+			} else {
+				sans(state, localized(state, "katechon_ppl_point_hint", "Point at a region to read it; press it to study it"), left, by + 13.f, 11, dip_faint);
+			}
+		}
+		// the whole picture, of the country or of the region
+		{
+			auto const label = v.of_province ? filled(localized(state, "katechon_ppl_overview_of", "Overview: %1"), v.title) : localized(state, "katechon_ppl_open_overview", "Population overview");
+			dip_gold_button(state, left, floor_y - 44.f, right - left, 34.f, label, true,
 				hit_target{ 0.f, 0.f, 0.f, 0.f, action::population_overview, nullptr, 1 }, hovering, mx, my);
 		}
 	}
 
-	// ---- the overview, with the map put aside ----
+	// ---- the overview: one screen, the map beside it ----
+	//
+	// Everything on one page, sized by what matters. What is happening to the
+	// number of people and why takes the widest place, and a crisis is the
+	// largest thing on it; the way people live stands beside it; under them
+	// society and the regions in trouble. Nothing scrolls; a press opens the
+	// detail. The map stays in view on the right, painted with the figure the
+	// regions are read by.
+
+	// Where the page ends and the map begins, in the window's units.
+	float overview_right(float w) const {
+		auto const x0 = ribbon_w + 8.f;
+		auto const room = w - x0 - 12.f;
+		auto const pw = std::clamp(room - 420.f, 860.f, 1160.f);
+		return room - pw < 320.f ? x0 + room : x0 + pw;
+	}
+
+	// Brings a region into the middle of the part of the map the page leaves free.
+	// The map turns its globe to a new centre only when it next draws, so the
+	// step aside is taken a couple of frames later, from where it then stands.
+	void center_beside(sys::state& state, dcon::province_id p) {
+		state.map_state.center_map_on_province(state, p);
+		nudge_province = p;
+		nudge_in = 3;
+	}
+	void nudge_beside(sys::state& state) {
+		if(nudge_in <= 0 || --nudge_in > 0)
+			return;
+		auto const w = width(state);
+		// beside the inspector or beside the overview: the middle of what the page leaves of the map
+		auto const page_right = population_overview ? overview_right(w) : ribbon_w + 8.f + 380.f;
+		if(!population_open || page_right >= w - 20.f || !nudge_province)
+			return;
+		auto const scale = state.user_settings.ui_scale;
+		auto const size = glm::vec2(float(state.x_size), float(state.y_size));
+		auto const mode = state.map_state.current_view(state);
+		map_space::point_normalized_inverted_y middle{};
+		map_space::point_normalized_inverted_y wanted{};
+		// a flat map wraps round in longitude: a point past its edge is still a place to aim at
+		auto const flat = mode == sys::projection_mode::rectangle;
+		auto const at_middle = state.map_state.screen_to_map(screen_space::point_ui{ size * 0.5f }, size, mode, middle);
+		auto const at_wanted = state.map_state.screen_to_map(screen_space::point_ui{ glm::vec2((page_right + w) * 0.5f * scale, size.y * 0.5f) }, size, mode, wanted);
+		if(flat || (at_middle && at_wanted))
+			state.map_state.set_pos(map_space::point_normalized_inverted_y{ state.map_state.pos.data + (middle.data - wanted.data) });
+	}
+
+	// A link: words in bronze that do something.
+	void pop_link(sys::state& state, std::string const& text, float x, float y, action act, bool hovering, float mx, float my, bool align_right = false, int32_t value = 0) {
+		auto const tw = sans_w(state, text, 13);
+		auto const lx = align_right ? x - tw : x;
+		hit_target t{ lx - 4.f, y - 10.f, tw + 8.f, 20.f, act, nullptr, value };
+		auto const hovered = pop_over(t, hovering, mx, my);
+		sans(state, text, lx, y, 13, hovered ? dip_name : dip_bronze);
+		if(hovered)
+			fill(state, lx, y + 8.f, tw, 1.f, dip_name, 0.8f);
+		pop_target(t);
+	}
+
+	// A label in small capitals: what a part of the page is. Gold is kept for what can be pressed.
+	void pop_label(sys::state& state, std::string const& text, float x, float y, bool align_right = false) {
+		sans(state, upper(text), x, y, 11, dip_muted, align_right, 0.14f);
+	}
+
+	// The key of the map, on the map itself, beside the overview.
+	void draw_map_key(sys::state& state, float x, float y, float w) {
+		constexpr float kh = 94.f;
+		sheet(state, x, y, w, kh, panel_head, 0.92f);
+		frame(state, x, y, w, kh, dip_rule, 1.f);
+		panels.push_back(rect{ x, y, w, kh });
+		sans(state, sans_fit(state, metric_name(state, metric), 14, w - 28.f), x + 14.f, y + 18.f, 14, dip_name);
+		draw_key(state, x + 14.f, x + w - 14.f, y + 34.f);
+	}
+
+	// Classes of the people, as the overview names and colours them.
+	std::array<std::string, 3> class_names(sys::state& state) const {
+		return { localized(state, "katechon_pop_poor", "Poor"), localized(state, "katechon_pop_middle", "Middle"), localized(state, "katechon_pop_rich", "Rich") };
+	}
+
+	// The page answers four questions, in this order: how many people, whether
+	// they grow or shrink, why, and which classes and regions suffer most.
+	// First the diagnosis, in one block; then the causes beside the living
+	// standards behind them; then society and the regions in trouble. What
+	// does not help to answer them is left to the hints and to other screens.
 	void draw_population_overview(sys::state& state, float w, float h, bool hovering, float mx, float my) {
 		auto const& v = population;
 		auto const foreign = v.nation && v.nation != state.local_player_nation;
-		auto const stepped = v.of_province || foreign;
-		// The map recedes; the page takes the room right of the ribbon.
-		fill(state, ribbon_w, top_h, w - ribbon_w, h - top_h, ink, 0.55f);
-		auto const x0 = ribbon_w + 10.f;
+		auto const x0 = ribbon_w + 8.f;
 		auto const y0 = top_h + 10.f;
-		auto const pw = w - x0 - 12.f;
+		auto const page_right = overview_right(w);
+		auto const pw = page_right - x0;
 		auto const ph = h - y0 - 12.f;
 		dip_frame(state, x0, y0, pw, ph, true);
-		auto const inner = std::min(pw - 64.f, 1320.f);
-		auto const left = std::round(x0 + (pw - inner) * 0.5f);
-		auto const right = left + inner;
-		constexpr float head_h = 118.f;
-		auto const body_top = y0 + head_h;
-		auto const body_bottom = y0 + ph - 10.f;
-		overview_view_h = body_bottom - body_top;
-		overview_scroll = std::clamp(overview_scroll, 0.f, std::max(0.f, overview_content_h - overview_view_h));
+		auto const left = x0 + 30.f;
+		auto const right = x0 + pw - 30.f;
+		auto const bottom = y0 + ph - 22.f;
+		clip_top = -1e9f;
+		clip_bottom = 1e9f;
+		// the key of what the map beside the page shows, kept quiet: the map supports the page
+		if(w - page_right > 340.f)
+			draw_map_key(state, page_right + 16.f, h - 12.f - tool_h - 14.f - 94.f, std::min(300.f, w - page_right - 32.f));
 
-		// ---- the head: whose people, how many, which way ----
+		// ---- the head: the place, and where it belongs ----
+		auto y = y0 + 20.f;
 		{
-			auto const scope = v.of_province ? localized(state, "katechon_ppl_scope_region", "Population  ·  region")
-				: (foreign ? localized(state, "katechon_ppl_scope_foreign", "Population  ·  foreign country") : localized(state, "katechon_ppl_scope_own", "Population  ·  your country"));
-			sans(state, upper(localized(state, "katechon_ppl_overview", "Population overview")) + "   ·   " + upper(scope), left, y0 + 26.f, 10, dip_bronze, false, 0.16f);
 			if(v.nation)
-				dip_flag(state, v.nation, left, y0 + 44.f, 54.f, 36.f);
-			auto const tx = left + (v.nation ? 70.f : 0.f);
-			auto const title_room = std::max(120.f, right - tx - 420.f);
-			draw_text(state, fit(state, v.title, 32, 0.01f, title_room), tx, y0 + 60.f, 32, 0.01f, dip_name);
-			auto const asof = filled(localized(state, "katechon_ppl_asof", "as of %1"), text::date_to_string(state, state.current_date));
-			auto const sub = v.subtitle.empty() ? asof : v.subtitle + "  ·  " + asof;
-			auto const sub_w = sans(state, sans_fit(state, sub, 14, title_room), tx, y0 + 90.f, 14, dip_muted);
-			if(stepped) {
-				clip_top = -1e9f;
-				clip_bottom = 1e9f;
-				pop_crumbs(state, v, tx + sub_w + 22.f, y0 + 90.f, hovering, mx, my);
-			}
-			// the close, and the way to the map
-			hit_target close{ right - 12.f, y0 + 14.f, 26.f, 26.f, action::toggle_population };
+				dip_flag(state, v.nation, left, y + 2.f, 42.f, 28.f);
+			auto const tx = left + (v.nation ? 56.f : 0.f);
+			auto const title_w = draw_text(state, fit(state, v.title, 28, 0.01f, right - tx - 300.f), tx, y + 15.f, 28, 0.01f, dip_name);
+			// a region belongs to its country; a country is one's own or a foreign one
+			auto const country = v.nation ? text::get_name_as_string(state, dcon::fatten(state.world, v.nation)) : std::string();
+			auto const where = v.of_province ? country : (foreign ? localized(state, "katechon_ppl_where_foreign", "Foreign country") : localized(state, "katechon_ppl_where_own", "Your country"));
+			pop_label(state, localized(state, "katechon_ppl_population", "Population") + "  ·  " + where, tx + title_w + 16.f, y + 18.f);
+			if(v.of_province || foreign)
+				pop_crumbs(state, v, tx, y + 42.f, hovering, mx, my);
+			else
+				sans(state, filled(localized(state, "katechon_ppl_asof", "as of %1"), text::date_to_string(state, state.current_date)), tx, y + 42.f, 13, dip_faint);
+			hit_target close{ right - 14.f, y - 2.f, 26.f, 26.f, action::toggle_population };
 			draw_icon(state, icon::close, close.x + 13.f, close.y + 13.f, 12.f, hovering && over(close, mx, my) ? dip_text : dip_bronze);
 			targets.push_back(close);
 			if(hovering && over(close, mx, my))
 				hint(localized(state, "katechon_ppl_close", "Close"), close);
-			constexpr float button_w = 170.f;
-			dip_gold_button(state, right - button_w, y0 + 50.f, button_w, 34.f, localized(state, "katechon_ppl_show_map", "Show on the map"), true,
-				hit_target{ 0.f, 0.f, 0.f, 0.f, action::population_overview, nullptr, 0 }, hovering, mx, my);
-			// how many
-			auto const fx = right - button_w - 28.f;
-			if(v.units > 0.f) {
-				sans(state, people(v.units), fx, y0 + 60.f, 34, dip_name, true, 0.f);
-				auto const rate = v.change_month / v.units;
-				auto const tone = rate < -0.00005f ? dip_no : (rate > 0.00005f ? dip_yes : dip_muted);
-				auto const line = change_line(state, v) + "  (" + signed_count(v.change_month) + ")";
-				auto const lw = sans(state, line, fx, y0 + 90.f, 13, tone, true);
-				if(std::abs(rate) > 0.00005f)
-					arrow(state, fx - lw - 10.f, y0 + 90.f, rate > 0.f, tone);
-			} else {
-				sans(state, localized(state, "katechon_pop_empty", "Nobody lives here."), fx, y0 + 64.f, 15, dip_faint, true);
-			}
-			fill(state, left, body_top - 1.f, right - left, 1.f, dip_bronze, 0.45f);
+			pop_link(state, localized(state, "katechon_ppl_to_inspector", "Map inspector  ›"), right - 30.f, y + 13.f, action::population_overview, hovering, mx, my, true);
+			y += 62.f;
 		}
-
-		// ---- the body, which scrolls under the head ----
-		clip_top = body_top;
-		clip_bottom = body_bottom;
-		{
-			ogl::scissor_box clip(state, int32_t(x0 + 2.f), int32_t(body_top), int32_t(pw - 4.f), int32_t(body_bottom - body_top));
-			auto y = body_top + 20.f - overview_scroll;
-			auto const anchor = [&](size_t i, float at) {
-				overview_anchor[i] = std::max(0.f, at + overview_scroll - body_top - 12.f);
-			};
-			if(v.units <= 0.f) {
-				sans(state, localized(state, "katechon_ppl_nobody", "Nobody lives here, so there is nothing to show."), left, y + 12.f, 15, dip_faint);
-				y += 40.f;
-			} else {
-				y = overview_cards(state, left, right, y, hovering, mx, my);
-				y += 26.f;
-				// As many columns as the width takes, one under the other when it takes none.
-				auto const columns = inner >= 1140.f ? 3 : (inner >= 740.f ? 2 : 1);
-				constexpr float gap = 36.f;
-				auto const col_w = (inner - gap * float(columns - 1)) / float(columns);
-				// the course of the number, and what makes it
-				anchor(0, y);
-				if(columns >= 2) {
-					auto const split = std::round(left + (inner - gap) * 0.56f);
-					auto const a = overview_trend(state, left, split, y);
-					auto const b = overview_drivers(state, split + gap, right, y);
-					y = std::max(a, b);
-				} else {
-					y = overview_trend(state, left, right, y) + 20.f;
-					y = overview_drivers(state, left, right, y);
-				}
-				y += 30.f;
-				// the five readings, as many in a row as the width takes
-				using block = float (map_hud_element::*)(sys::state&, float, float, float, bool, float, float);
-				static constexpr std::array<std::pair<block, size_t>, 5> blocks{ std::pair<block, size_t>{ &map_hud_element::overview_labour, 1 },
-					std::pair<block, size_t>{ &map_hud_element::overview_living, 2 }, std::pair<block, size_t>{ &map_hud_element::overview_movement, 3 },
-					std::pair<block, size_t>{ &map_hud_element::overview_identity, 4 }, std::pair<block, size_t>{ &map_hud_element::overview_mind, 5 } };
-				for(size_t i = 0; i < blocks.size(); i += size_t(columns)) {
-					auto row_end = y;
-					for(size_t c = 0; c < size_t(columns) && i + c < blocks.size(); ++c) {
-						auto const bx = left + float(c) * (col_w + gap);
-						anchor(blocks[i + c].second, y);
-						row_end = std::max(row_end, (this->*blocks[i + c].first)(state, bx, bx + col_w, y, hovering, mx, my));
-					}
-					y = row_end + 30.f;
-				}
-				y = overview_regions(state, left, right, y, hovering, mx, my);
-				y += 12.f;
-				sans(state, localized(state, "katechon_ppl_source", "Every figure is the running simulation's own. A dash marks what it does not keep."), left, y + 8.f, 11, dip_faint);
-				y += 30.f;
-			}
-			overview_content_h = y + overview_scroll - body_top;
+		if(v.units <= 0.f) {
+			fill(state, left, y, right - left, 1.f, dip_rule, 1.f);
+			sans(state, localized(state, "katechon_ppl_nobody", "Nobody lives here, so there is nothing to show."), left, y + 34.f, 16, dip_faint);
+			return;
 		}
-
-		// How far down the page is.
-		if(overview_content_h > overview_view_h + 1.f) {
-			auto const track_x = x0 + pw - 14.f;
-			auto const track_h = body_bottom - body_top - 8.f;
-			fill(state, track_x, body_top + 4.f, 3.f, track_h, dip_rule, 1.f);
-			auto const thumb_h = std::max(24.f, track_h * overview_view_h / overview_content_h);
-			auto const thumb_y = body_top + 4.f + (track_h - thumb_h) * overview_scroll / (overview_content_h - overview_view_h);
-			fill(state, track_x, thumb_y, 3.f, thumb_h, dip_bronze, 0.9f);
+		if(overview_all_regions) {
+			fill(state, left, y, right - left, 1.f, dip_rule, 1.f);
+			overview_region_table(state, left, right, y + 20.f, bottom, hovering, mx, my);
+			return;
 		}
+		constexpr float gap = 40.f;
+		// ---- 1: the diagnosis ----
+		y = overview_diagnosis(state, left, right, y, hovering, mx, my) + 26.f;
+		// ---- 2: why ----
+		auto const split = std::round(left + (right - left - gap) * 0.55f);
+		auto const why_end = std::max(overview_causes(state, left, split, y, y + 250.f), overview_standards(state, split + gap, right, y, hovering, mx, my));
+		y = why_end + 18.f;
+		fill(state, left, y, right - left, 1.f, dip_rule, 1.f);
+		y += 22.f;
+		// ---- 3: who and where ----
+		overview_society(state, left, split, y, bottom, hovering, mx, my);
+		overview_trouble(state, split + gap, right, y, bottom, hovering, mx, my);
 	}
 
-	// Four figures that answer the first questions, each a door to its part of the page.
-	float overview_cards(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
+	// The crisis, if there is one: its cause, its toll, and the figure behind it.
+	struct crisis_view {
+		bool on = false;
+		std::string cause;
+		float toll = 0.f; // units a month
+		population_metric linked = population_metric::needs;
+	};
+	crisis_view population_crisis(population_view const& v) const {
+		crisis_view c;
+		if(v.starvation > 0.f && (v.starvation >= 0.5f * v.natural || (v.life >= 0.f && v.life < 0.5f)))
+			return crisis_view{ true, "hunger", v.starvation, population_metric::needs };
+		if(v.army > 0.f && v.army >= 0.5f * std::max(v.natural, 1e-6f))
+			return crisis_view{ true, "war", v.army, population_metric::growth };
+		if(v.external_month < 0.f && -v.external_month >= 0.5f * std::max(v.natural, 1e-6f))
+			return crisis_view{ true, "flight", -v.external_month, population_metric::migration };
+		return c;
+	}
+
+	// One block, four figures: how many, which way, the main cause, and what lies behind it.
+	float overview_diagnosis(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
 		auto const& v = population;
-		struct card {
-			std::string label;
-			icon image;
-			std::string value;
-			ogl::color3f colour;
-			std::string caption;
-			std::string foot;
-			ogl::color3f foot_colour;
-			std::string about;
-			int32_t anchor;
+		auto const crisis = population_crisis(v);
+		constexpr float bh = 112.f;
+		fill(state, left, y, right - left, bh, crisis.on ? pop_bad : pop_tile, crisis.on ? 0.10f : 0.9f);
+		fill(state, left, y, 3.f, bh, crisis.on ? pop_bad : dip_bronze, 1.f);
+		auto const col = (right - left - 24.f) / 4.f;
+		auto const cell = [&](size_t i, std::string const& label, std::string const& value, ogl::color3f colour, std::string const& note) {
+			auto const cx = left + 24.f + float(i) * col;
+			if(i > 0)
+				fill(state, cx - 16.f, y + 18.f, 1.f, bh - 36.f, dip_rule, 1.f);
+			sans(state, upper(label), cx, y + 24.f, 11, crisis.on && i >= 2 ? pop_bad : dip_muted, false, 0.14f);
+			sans(state, sans_fit(state, value, 36, col - 22.f, 0.f), cx - 1.f, y + 60.f, 36, colour, false, 0.f);
+			sans(state, sans_fit(state, note, 13, col - 22.f), cx, y + 92.f, 13, dip_muted);
 		};
-		std::array<card, 4> cards;
-		{
-			auto const density = metric_value(state, v.nation, v.province, population_metric::density);
-			auto foot = v.area > 0.f ? filled(localized(state, "katechon_ppl_land", "%1 km² of land, roughly"), text::prettify(int64_t(v.area))) : std::string();
-			if(v.part_of_country >= 0.f)
-				foot = filled(localized(state, "katechon_ppl_of_country", "%1 of the country"), text::format_percentage(v.part_of_country, 1));
-			cards[0] = card{ localized(state, "katechon_ppl_c_demography", "Demography"), icon::person, metric_text(state, population_metric::density, density), density ? dip_name : dip_faint,
-				localized(state, "katechon_ppl_c_density", "people to the square kilometre"), foot, dip_muted, metric_about(state, population_metric::density), 0 };
-		}
-		{
-			auto const known = v.wage_share >= 0.f;
-			cards[1] = card{ localized(state, "katechon_ppl_c_labour", "Labour"), icon::work, known ? share_text(v.wage_share) : localized(state, "katechon_ppl_no_data", "No data"), known ? dip_name : dip_faint,
-				localized(state, "katechon_ppl_c_wage", "of workers under a wage contract"),
-				v.own_share >= 0.f ? filled(localized(state, "katechon_ppl_c_own", "%1 work their own land and workshops"), share_text(v.own_share)) : localized(state, "katechon_ppl_c_own_none", "Household work is not recorded here"),
-				dip_muted, metric_about(state, population_metric::work), 1 };
-		}
-		{
-			auto const rate = metric_value(state, v.nation, v.province, population_metric::migration);
-			auto const moving = rate && std::abs(*rate) >= 0.05f;
-			auto const foot = v.of_province ? filled(localized(state, "katechon_ppl_c_moves", "%1 from other regions, %2 from abroad"), signed_count(v.internal_month), signed_count(v.external_month))
-				: filled(localized(state, "katechon_ppl_c_abroad", "%1 across the border, this month's estimate"), signed_count(v.external_month));
-			cards[2] = card{ localized(state, "katechon_ppl_c_migration", "Migration"), icon::movement, moving ? metric_text(state, population_metric::migration, rate) : localized(state, "katechon_ppl_c_still", "No movement"),
-				moving ? tone_colour(metric_tone(population_metric::migration, *rate)) : dip_faint,
-				moving ? localized(state, "katechon_ppl_c_net", "net arrivals to the thousand, a month") : localized(state, "katechon_ppl_c_none_yet", "none recorded this month"),
-				foot, dip_muted, metric_about(state, population_metric::migration), 3 };
-		}
-		{
-			auto const known = v.life >= 0.f;
-			cards[3] = card{ localized(state, "katechon_ppl_c_living", "Living standards"), icon::society, known ? share_text(v.life) : localized(state, "katechon_ppl_no_data", "No data"),
-				known ? tone_colour(metric_tone(population_metric::needs, v.life)) : dip_faint, localized(state, "katechon_ppl_c_basic", "of basic needs met"),
-				filled(localized(state, "katechon_ppl_c_more", "everyday %1  ·  luxury %2"), share_text(v.everyday), share_text(v.luxury)), dip_muted, metric_about(state, population_metric::needs), 2 };
-		}
-		auto const columns = right - left >= 1000.f ? 4 : 2;
-		constexpr float gap = 16.f;
-		constexpr float card_h = 124.f;
-		auto const card_w = (right - left - gap * float(columns - 1)) / float(columns);
-		for(size_t i = 0; i < cards.size(); ++i) {
-			auto const& c = cards[i];
-			auto const cx = left + float(i % size_t(columns)) * (card_w + gap);
-			auto const cy = y + float(i / size_t(columns)) * (card_h + gap);
-			hit_target t{ cx, cy, card_w, card_h, action::population_scroll_to, nullptr, c.anchor };
+		auto const rate = v.change_month / v.units;
+		auto const tone = rate < -0.00005f ? pop_bad : (rate > 0.00005f ? pop_good : dip_text);
+		cell(0, localized(state, "katechon_ppl_population", "Population"), people(v.units), dip_name, std::string());
+		cell(1, localized(state, "katechon_ppl_change", "Change"), signed_count(v.change_month), tone, localized(state, "katechon_ppl_a_month", "a month") + "  ·  " + signed_percent(rate));
+		if(crisis.on) {
+			auto const cause = crisis.cause == "hunger" ? localized(state, "katechon_ppl_x_hunger_word", "Hunger")
+				: (crisis.cause == "war" ? localized(state, "katechon_ppl_x_war_word", "War losses") : localized(state, "katechon_ppl_x_flight_word", "Emigration"));
+			cell(2, localized(state, "katechon_ppl_main_cause", "Main cause") + ": " + cause, "-" + people(crisis.toll), pop_bad,
+				filled(localized(state, "katechon_ppl_against_births", "a month, against %1 births over deaths"), "+" + people(std::max(0.f, v.natural))));
+			// what lies behind it; a press shows it on the map
+			auto const linked = metric_value(state, v.nation, v.province, crisis.linked);
+			hit_target t{ left + 24.f + 3.f * col - 12.f, y + 6.f, col, bh - 12.f, action::population_metric, nullptr, int32_t(crisis.linked) };
 			auto const hovered = pop_over(t, hovering, mx, my);
-			sheet(state, cx, cy, card_w, card_h, pop_tile, 0.92f);
-			frame(state, cx, cy, card_w, card_h, hovered ? dip_bronze : dip_rule, hovered ? 0.9f : 1.f);
-			sans(state, upper(c.label), cx + 18.f, cy + 22.f, 10, dip_bronze, false, 0.16f);
-			draw_icon(state, c.image, cx + card_w - 24.f, cy + 22.f, 18.f, hovered ? gold : dip_bronze);
-			sans(state, sans_fit(state, c.value, 32, card_w - 36.f, 0.f), cx + 18.f, cy + 56.f, 32, c.colour, false, 0.f);
-			sans(state, sans_fit(state, c.caption, 12, card_w - 36.f), cx + 18.f, cy + 84.f, 12, dip_muted);
-			sans(state, sans_fit(state, c.foot, 12, card_w - 36.f), cx + 18.f, cy + 104.f, 12, c.foot_colour);
+			if(hovered)
+				fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.10f);
+			cell(3, localized(state, "katechon_ppl_caused_by", "Caused by"), metric_text(state, crisis.linked, linked), linked ? tone_colour(metric_tone(crisis.linked, *linked)) : dip_faint,
+				metric_name(state, crisis.linked) + "  ›");
 			pop_target(t);
 			if(hovered)
-				hint(c.about, t);
-		}
-		return y + float((cards.size() + size_t(columns) - 1) / size_t(columns)) * (card_h + gap) - gap;
-	}
-
-	float overview_trend(sys::state& state, float left, float right, float y) {
-		auto const& v = population;
-		std::string aside;
-		if(v.history.size() >= 2 && v.history.front() > 0.f) {
-			auto const change = v.history.back() / v.history.front() - 1.f;
-			aside = filled(localized(state, "katechon_ppl_over_days", "%1 over the period"), signed_percent(change));
-		}
-		y = pop_heading(state, localized(state, "katechon_ppl_trend", "Population, the last 30 days"), aside, left, right, y);
-		constexpr float chart_h = 168.f;
-		if(v.history.size() >= 2) {
-			trend_chart(state, v.history, left, y + 6.f, right - left, chart_h, true);
-			sans(state, localized(state, "katechon_ppl_days_ago", "30 days ago"), left, y + chart_h + 20.f, 11, dip_faint);
-			sans(state, localized(state, "katechon_ppl_today", "today"), right, y + chart_h + 20.f, 11, dip_faint, true);
+				hint(localized(state, "katechon_ppl_linked_hint", "Show this figure on the map, region by region"), t);
 		} else {
-			sheet(state, left, y + 6.f, right - left, chart_h, pop_tile, 0.6f);
-			auto const why = v.of_province || (v.nation && v.nation != state.local_player_nation) ? localized(state, "katechon_ppl_trend_own_only", "The game keeps this record for your own country only.")
-				: localized(state, "katechon_ppl_trend_filling", "The record fills as the days pass.");
-			auto const tw = sans_w(state, why, 13);
-			sans(state, why, left + (right - left - tw) * 0.5f, y + 6.f + chart_h * 0.5f, 13, dip_faint);
+			// no crisis: the largest of the causes, and the living standard
+			struct cause_value {
+				std::string label;
+				float amount;
+			};
+			std::array<cause_value, 4> causes{ cause_value{ localized(state, "katechon_ppl_d_natural", "Births over deaths"), v.natural },
+				cause_value{ localized(state, "katechon_ppl_d_hunger", "Hunger"), -v.starvation }, cause_value{ localized(state, "katechon_ppl_d_abroad", "From abroad"), v.external_month },
+				cause_value{ localized(state, "katechon_ppl_d_transition", "Smaller families"), -v.transition } };
+			auto const* top = &causes[0];
+			for(auto const& c : causes) {
+				if(std::abs(c.amount) > std::abs(top->amount))
+					top = &c;
+			}
+			cell(2, localized(state, "katechon_ppl_main_cause", "Main cause") + ": " + top->label, signed_count(top->amount), top->amount < 0.f ? pop_bad : pop_good, localized(state, "katechon_ppl_a_month", "a month"));
+			cell(3, localized(state, "katechon_ppl_m_needs", "Basic needs met"), share_text(v.life), v.life >= 0.f ? tone_colour(metric_tone(population_metric::needs, v.life)) : dip_faint, std::string());
 		}
-		return y + chart_h + 30.f;
+		return y + bh;
 	}
 
-	// What makes the month's change, cause by cause, on one scale.
-	float overview_drivers(sys::state& state, float left, float right, float y) {
+	// The month's change, cause by cause, on one scale.
+	float overview_causes(sys::state& state, float left, float right, float y, float bottom) {
 		auto const& v = population;
-		y = pop_heading(state, localized(state, "katechon_ppl_drivers", "Why it changes, a month"), std::string(), left, right, y);
+		pop_label(state, localized(state, "katechon_ppl_breakdown", "Monthly change, by cause"), left, y + 6.f);
+		y += 26.f;
 		if(!v.drivers_known) {
-			sans(state, localized(state, "katechon_ppl_no_record", "The simulation keeps no record of this here."), left, y + 12.f, 13, dip_faint);
-			return y + 34.f;
+			sans(state, localized(state, "katechon_ppl_no_record", "The simulation keeps no record of this here."), left, y + 12.f, 14, dip_faint);
+			return y + 28.f;
 		}
 		struct driver {
 			std::string label;
 			float amount;
 		};
-		std::vector<driver> rows{ driver{ localized(state, "katechon_ppl_d_natural", "Births over deaths"), v.natural },
-			driver{ localized(state, "katechon_ppl_d_hunger", "Hunger"), -v.starvation },
-			driver{ localized(state, "katechon_ppl_d_crowding", "Crowded housing"), -v.overcrowding },
-			driver{ localized(state, "katechon_ppl_d_transition", "Smaller families"), -v.transition } };
-		if(!v.of_province)
-			rows.push_back(driver{ localized(state, "katechon_ppl_d_army", "Losses in the army"), -v.army });
-		if(v.of_province)
-			rows.push_back(driver{ localized(state, "katechon_ppl_d_internal", "From other regions"), v.internal_month });
-		rows.push_back(driver{ v.external_estimated ? localized(state, "katechon_ppl_d_abroad_estimate", "From abroad (estimate)") : localized(state, "katechon_ppl_d_abroad", "From abroad"), v.external_month });
+		std::vector<driver> rows;
+		auto const add = [&](std::string label, float amount) {
+			if(std::abs(amount) * people_per_unit >= 0.5f)
+				rows.push_back(driver{ std::move(label), amount });
+		};
+		add(localized(state, "katechon_ppl_d_natural", "Births over deaths"), v.natural);
+		add(localized(state, "katechon_ppl_d_hunger", "Hunger"), -v.starvation);
+		add(localized(state, "katechon_ppl_d_crowding", "Crowded housing"), -v.overcrowding);
+		add(localized(state, "katechon_ppl_d_transition", "Smaller families"), -v.transition);
+		add(localized(state, "katechon_ppl_d_army", "Losses in the army"), -v.army);
+		add(localized(state, "katechon_ppl_d_internal", "From other regions"), v.internal_month);
+		add(localized(state, "katechon_ppl_d_abroad", "From abroad"), v.external_month);
+		std::stable_sort(rows.begin(), rows.end(), [](driver const& a, driver const& b) { return std::abs(a.amount) > std::abs(b.amount); });
+		constexpr float row_h = 30.f;
+		auto const room = int32_t((bottom - y - 40.f) / row_h);
+		if(int32_t(rows.size()) > std::max(room, 1))
+			rows.resize(size_t(std::max(room, 1)));
 		auto largest = std::abs(v.change_month);
 		for(auto const& r : rows)
 			largest = std::max(largest, std::abs(r.amount));
-		auto const label_w = std::min(170.f, (right - left) * 0.36f);
-		constexpr float value_w = 92.f;
-		auto const bar_left = left + label_w + 8.f;
-		auto const bar_right = right - value_w - 8.f;
+		auto const label_w = std::min(170.f, (right - left) * 0.34f);
+		constexpr float value_w = 84.f;
+		auto const bar_left = left + label_w + 10.f;
+		auto const bar_right = right - value_w - 10.f;
 		auto const zero = std::round((bar_left + bar_right) * 0.5f);
 		auto const half = (bar_right - bar_left) * 0.5f;
 		auto const row = [&](std::string const& label, float amount, bool total) {
-			auto const tone = std::abs(amount) * people_per_unit < 0.5f ? dip_faint : (amount > 0.f ? dip_yes : dip_no);
-			sans(state, sans_fit(state, label, total ? 14 : 13, label_w), left, y + 11.f, total ? 14 : 13, total ? dip_text : dip_muted);
+			auto const tone = std::abs(amount) * people_per_unit < 0.5f ? dip_faint : (amount > 0.f ? pop_good : pop_bad);
+			sans(state, sans_fit(state, label, total ? 15 : 14, label_w), left, y + 14.f, total ? 15 : 14, total ? dip_name : dip_text);
 			if(largest > 0.f && std::abs(amount) > 0.f) {
 				auto const bw = std::max(2.f, std::round(half * std::abs(amount) / largest));
-				fill(state, amount > 0.f ? zero : zero - bw, y + 5.f, bw, 12.f, tone, total ? 1.f : 0.80f);
+				fill(state, amount > 0.f ? zero : zero - bw, y + 7.f, bw, 14.f, tone, total ? 1.f : 0.75f);
 			}
-			sans(state, signed_count(amount), right, y + 11.f, total ? 14 : 13, tone, true);
-			y += total ? 28.f : 26.f;
+			sans(state, signed_count(amount), right, y + 14.f, total ? 16 : 14, tone, true);
+			y += row_h;
 		};
-		auto const top = y;
+		auto const rows_top = y;
 		for(auto const& r : rows)
 			row(r.label, r.amount, false);
-		fill(state, zero, top, 1.f, y - top, dip_text, 0.35f);
-		fill(state, left, y + 2.f, right - left, 1.f, dip_rule, 1.f);
-		y += 6.f;
+		if(!rows.empty())
+			fill(state, zero, rows_top, 1.f, y - rows_top, dip_text, 0.25f);
+		fill(state, left, y + 3.f, right - left, 1.f, dip_rule, 1.f);
+		y += 8.f;
 		row(localized(state, "katechon_ppl_d_net", "Net change"), v.change_month, true);
-		// The cause that weighs most, said plainly.
-		driver const* heaviest = nullptr;
-		for(auto const& r : rows) {
-			if(!heaviest || std::abs(r.amount) > std::abs(heaviest->amount))
-				heaviest = &r;
-		}
-		if(heaviest && std::abs(heaviest->amount) * people_per_unit >= 0.5f) {
-			auto const sentence = filled(localized(state, "katechon_ppl_d_main", "Weighs most: %1, %2 a month."), heaviest->label, signed_count(heaviest->amount));
-			y = sans_paragraph(state, sentence, left, right, y + 4.f, 13, dip_text, 2, true);
-		}
-		return y + 4.f;
+		return y;
 	}
 
-	float overview_labour(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
+	// How the people live, in three lines: the share of needs met, how many fall below half, and by class.
+	float overview_standards(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
 		auto const& v = population;
-		y = pop_heading(state, localized(state, "katechon_ppl_labour", "How people make a living"), std::string(), left, right, y);
-		if(v.wage_share < 0.f && v.own_share < 0.f) {
-			sans(state, localized(state, "katechon_ppl_no_record", "The simulation keeps no record of this here."), left, y + 12.f, 13, dip_faint);
-			return y + 34.f;
-		}
-		auto const wage = std::max(0.f, v.wage_share);
-		auto const own = std::max(0.f, v.own_share);
-		auto const other = v.own_share >= 0.f && v.wage_share >= 0.f ? std::max(0.f, 1.f - wage - own) : -1.f;
-		parts_bar(state, left, y + 2.f, right - left, 12.f, { { own, pop_own }, { wage, pop_wage }, { std::max(0.f, other), pop_other } });
-		y += 24.f;
-		auto const workforce = v.units / persons_per_unit;
-		auto const legend = [&](ogl::color3f colour, std::string const& label, float part, std::string const& about) {
-			fill(state, left, y + 6.f, 10.f, 10.f, colour, 1.f);
-			hit_target t{ left - 4.f, y, right - left + 8.f, 24.f, action::none };
-			auto const value = part < 0.f ? std::string("—") : share_text(part) + "   " + people(workforce * part);
-			auto const vw = sans(state, value, right, y + 11.f, 13, part < 0.f ? dip_faint : dip_text, true);
-			sans(state, sans_fit(state, label, 13, right - left - vw - 30.f), left + 18.f, y + 11.f, 13, dip_muted);
-			if(pop_over(t, hovering, mx, my))
+		pop_label(state, localized(state, "katechon_ppl_c_living", "Living standards"), left, y + 6.f);
+		y += 26.f;
+		auto const strata = v.poor + v.middle + v.rich;
+		std::array<float, 3> const sizes{ v.poor, v.middle, v.rich };
+		auto const row = [&](std::string const& label, std::string const& value, ogl::color3f colour, std::string const& about) {
+			hit_target t{ left, y, right - left, 40.f, action::none };
+			sans(state, label, left, y + 18.f, 14, dip_text);
+			sans(state, value, right, y + 18.f, 24, colour, true, 0.f);
+			fill(state, left, y + 38.f, right - left, 1.f, dip_rule, 0.7f);
+			if(pop_over(t, hovering, mx, my) && !about.empty())
 				hint(about, t);
-			y += 24.f;
+			y += 44.f;
 		};
-		legend(pop_own, localized(state, "katechon_ppl_l_own", "Own land and workshops"), v.own_share,
-			localized(state, "katechon_ppl_l_own_about", "Households that work their own farms and crafts, unpaid, and live off what they make."));
-		legend(pop_wage, localized(state, "katechon_ppl_l_wage", "For wages"), v.wage_share,
-			localized(state, "katechon_ppl_l_wage_about", "Workers hired by firms and the state under a contract."));
-		legend(pop_other, localized(state, "katechon_ppl_l_other", "Army, bonded, between jobs"), other,
-			localized(state, "katechon_ppl_l_other_about", "Everyone else of working age: in uniform, in bondage, or looking for work."));
-		if(v.job_access >= 0.f) {
-			y += 6.f;
-			y = share_row(state, localized(state, "katechon_ppl_job_access", "Labour on offer that found an employer"), v.job_access, pop_wage, left, right, y);
-		}
-		if(!v.occupations.empty()) {
-			y += 8.f;
-			sans(state, upper(localized(state, "katechon_ppl_trades", "Occupations")), left, y + 8.f, 10, dip_bronze, false, 0.14f);
-			y += 24.f;
-			for(auto const& o : v.occupations)
-				y = share_row(state, o.label, o.part, dip_bronze, left, right, y);
+		row(localized(state, "katechon_ppl_m_needs", "Basic needs met"), share_text(v.life), v.life >= 0.f ? tone_colour(metric_tone(population_metric::needs, v.life)) : dip_faint,
+			metric_about(state, population_metric::needs) + "  " + filled(localized(state, "katechon_ppl_c_more", "everyday %1  ·  luxury %2"), share_text(v.everyday), share_text(v.luxury)));
+		if(strata > 0.f) {
+			auto short_of = 0.f;
+			for(size_t s = 0; s < 3; ++s) {
+				if(sizes[s] > 0.f && v.strata_needs[s][0] >= 0.f && v.strata_needs[s][0] < 0.5f)
+					short_of += sizes[s];
+			}
+			row(localized(state, "katechon_ppl_below_half", "People below half of their needs"), share_text(short_of / strata), short_of > 0.f ? pop_bad : pop_good,
+				localized(state, "katechon_ppl_below_half_about", "The people of the classes that obtain less than half of their basic needs."));
+			// by class, in one line; each class tells the rest of its state in its hint
+			auto const names = class_names(state);
+			sans(state, localized(state, "katechon_ppl_by_class_short", "By class"), left, y + 16.f, 14, dip_text);
+			auto x = right;
+			for(size_t s = 3; s-- > 0;) {
+				auto const part = sizes[s] > 0.f ? v.strata_needs[s][0] : -1.f;
+				auto const value = share_text(part);
+				auto const vw = sans_w(state, value, 16);
+				auto const nw = sans_w(state, names[s], 13);
+				auto const cw = nw + 6.f + vw;
+				hit_target t{ x - cw - 4.f, y, cw + 8.f, 32.f, action::none };
+				sans(state, value, x, y + 16.f, 16, part < 0.f ? dip_faint : tone_colour(metric_tone(population_metric::needs, part)), true);
+				sans(state, names[s], x - vw - 6.f, y + 16.f, 13, dip_muted, true);
+				if(sizes[s] > 0.f && pop_over(t, hovering, mx, my))
+					hint(names[s] + ": " + share_text(sizes[s] / strata) + " " + localized(state, "katechon_ppl_of_people_short", "of the people") + "  ·  " + localized(state, "katechon_ppl_everyday", "Everyday") + " "
+						+ share_text(v.strata_needs[s][1]) + "  ·  " + localized(state, "katechon_ppl_luxury", "Luxury") + " " + share_text(v.strata_needs[s][2]), t);
+				x -= cw + 22.f;
+			}
+			y += 36.f;
 		}
 		return y;
 	}
 
-	float overview_living(sys::state& state, float left, float right, float y, bool, float, float) {
+	// Who the people are and what they do: the classes, the leading occupations, and one line of how they live and work.
+	void overview_society(sys::state& state, float left, float right, float top, float bottom, bool hovering, float mx, float my) {
 		auto const& v = population;
-		y = pop_heading(state, localized(state, "katechon_ppl_living", "Social structure and living standards"), std::string(), left, right, y);
+		auto y = top;
+		pop_label(state, localized(state, "katechon_ppl_society", "Society and work"), left, y + 6.f);
+		y += 26.f;
 		auto const strata = v.poor + v.middle + v.rich;
-		if(strata <= 0.f) {
-			sans(state, localized(state, "katechon_ppl_no_record", "The simulation keeps no record of this here."), left, y + 12.f, 13, dip_faint);
-			return y + 34.f;
-		}
-		parts_bar(state, left, y + 2.f, right - left, 12.f, { { v.poor / strata, pop_poor }, { v.middle / strata, pop_middle }, { v.rich / strata, pop_rich } });
-		y += 24.f;
-		std::array<std::string, 3> const names{ localized(state, "katechon_pop_poor", "Poor"), localized(state, "katechon_pop_middle", "Middle"), localized(state, "katechon_pop_rich", "Rich") };
-		std::array<float, 3> const sizes{ v.poor, v.middle, v.rich };
-		std::array<ogl::color3f, 3> const colours{ pop_poor, pop_middle, pop_rich };
-		{
-			auto const third = (right - left) / 3.f;
-			for(size_t i = 0; i < 3; ++i) {
-				auto const cx = left + float(i) * third;
-				fill(state, cx, y + 6.f, 10.f, 10.f, colours[i], 1.f);
-				sans(state, names[i], cx + 16.f, y + 11.f, 13, dip_muted);
-				sans(state, share_text(sizes[i] / strata), cx + 16.f, y + 30.f, 16, dip_text);
+		if(strata > 0.f) {
+			parts_bar(state, left, y, right - left, 12.f, { { v.poor / strata, pop_poor }, { v.middle / strata, pop_middle }, { v.rich / strata, pop_rich } });
+			auto const names = class_names(state);
+			std::array<float, 3> const sizes{ v.poor, v.middle, v.rich };
+			std::array<ogl::color3f, 3> const colours{ pop_poor, pop_middle, pop_rich };
+			auto x = left;
+			for(size_t s = 0; s < 3; ++s) {
+				fill(state, x, y + 24.f, 8.f, 8.f, colours[s], 1.f);
+				x += 14.f + sans(state, names[s] + " " + share_text(sizes[s] / strata), x + 14.f, y + 28.f, 14, dip_text) + 20.f;
 			}
 			y += 50.f;
 		}
-		// What each class obtains of what it needs: a row each, a column for each kind of need.
-		sans(state, upper(localized(state, "katechon_ppl_needs_by_class", "Needs met, by class")), left, y + 8.f, 10, dip_bronze, false, 0.14f);
-		y += 22.f;
-		auto const label_w = std::min(110.f, (right - left) * 0.28f);
-		auto const cell_w = (right - left - label_w) / 3.f;
-		std::array<std::string, 3> const kinds{ localized(state, "katechon_ppl_basic", "Basic"), localized(state, "katechon_ppl_everyday", "Everyday"), localized(state, "katechon_ppl_luxury", "Luxury") };
-		for(size_t k = 0; k < 3; ++k) {
-			auto const tw = sans_w(state, kinds[k], 11);
-			sans(state, kinds[k], left + label_w + float(k) * cell_w + (cell_w - tw) * 0.5f, y + 8.f, 11, dip_faint);
-		}
-		y += 18.f;
-		auto const cell = [&](float part, float cx, bool strong) {
-			if(part >= 0.f)
-				fill(state, cx + 2.f, y + 1.f, cell_w - 4.f, 24.f, mix(dip_no, dip_yes, std::clamp(part, 0.f, 1.f)), strong ? 0.42f : 0.28f);
-			else
-				fill(state, cx + 2.f, y + 1.f, cell_w - 4.f, 24.f, pop_tile, 0.8f);
-			auto const value = share_text(part);
-			auto const tw = sans_w(state, value, strong ? 14 : 13);
-			sans(state, value, cx + (cell_w - tw) * 0.5f, y + 13.f, strong ? 14 : 13, part < 0.f ? dip_faint : dip_text);
-		};
-		for(size_t s = 0; s < 3; ++s) {
-			sans(state, names[s], left, y + 13.f, 13, sizes[s] > 0.f ? dip_muted : dip_faint);
-			for(size_t k = 0; k < 3; ++k)
-				cell(sizes[s] > 0.f ? v.strata_needs[s][k] : -1.f, left + label_w + float(k) * cell_w, false);
-			y += 28.f;
-		}
-		sans(state, localized(state, "katechon_ppl_everyone", "Everyone"), left, y + 13.f, 14, dip_text);
-		cell(v.life, left + label_w, true);
-		cell(v.everyday, left + label_w + cell_w, true);
-		cell(v.luxury, left + label_w + 2.f * cell_w, true);
-		y += 34.f;
-		if(v.life >= 0.f && v.life < 0.5f)
-			y = sans_paragraph(state, localized(state, "katechon_ppl_hunger_note", "Under half of basic needs met: people go hungry, and hunger takes lives."), left, right, y, 12, dip_no, 2, true);
-		return y;
-	}
-
-	float overview_movement(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
-		auto const& v = population;
-		y = pop_heading(state, localized(state, "katechon_ppl_movement", "Migration, a month"), std::string(), left, right, y);
-		{
-			auto const half = (right - left - 16.f) * 0.5f;
-			auto const figure = [&](float x, std::string const& label, float amount, std::string const& note) {
-				sans(state, sans_fit(state, label, 12, half), x, y + 8.f, 12, dip_muted);
-				auto const tone = std::abs(amount) * people_per_unit < 0.5f ? dip_faint : (amount > 0.f ? dip_yes : dip_no);
-				sans(state, signed_count(amount), x, y + 32.f, 22, tone, false, 0.f);
-				sans(state, sans_fit(state, note, 11, half), x, y + 52.f, 11, dip_faint);
-			};
-			if(v.of_province)
-				figure(left, localized(state, "katechon_ppl_between_regions", "From other regions"), v.internal_month, localized(state, "katechon_ppl_net", "net"));
-			else
-				figure(left, localized(state, "katechon_ppl_relocating", "Moving between regions"), v.relocations, localized(state, "katechon_ppl_relocating_note", "no change to the total"));
-			figure(left + half + 16.f, localized(state, "katechon_ppl_across", "Across the border"), v.external_month,
-				v.external_estimated ? localized(state, "katechon_ppl_estimate", "this month's estimate") : localized(state, "katechon_ppl_net", "net"));
-			y += 68.f;
-		}
-		auto const region_rows = [&](std::string const& label, std::vector<population_view::region> const& rows) {
-			if(rows.empty())
-				return;
-			sans(state, upper(label), left, y + 8.f, 10, dip_bronze, false, 0.14f);
-			y += 22.f;
-			for(auto const& r : rows) {
-				hit_target t{ left - 4.f, y, right - left + 8.f, 24.f, action::population_region, nullptr, region_value(r.id) };
-				auto const hovered = pop_over(t, hovering, mx, my);
-				if(hovered)
-					fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.10f);
-				auto const vw = sans(state, signed_count(r.moved), right, y + 12.f, 13, r.moved > 0.f ? dip_yes : dip_no, true);
-				sans(state, sans_fit(state, r.name, 13, right - left - vw - 12.f), left, y + 12.f, 13, hovered ? dip_name : dip_text);
-				pop_target(t);
-				y += 24.f;
-			}
-			y += 6.f;
-		};
-		if(!v.of_province) {
-			region_rows(localized(state, "katechon_pop_gaining", "Gaining people"), v.gaining);
-			region_rows(localized(state, "katechon_pop_losing", "Losing people"), v.losing);
-		}
-		if(!v.abroad.empty()) {
-			sans(state, upper(localized(state, "katechon_ppl_abroad_with", "Abroad: where to and where from")), left, y + 8.f, 10, dip_bronze, false, 0.14f);
-			y += 22.f;
-			for(auto const& p : v.abroad) {
-				dip_flag(state, p.nation, left, y + 6.f, 18.f, 12.f);
-				auto const vw = sans(state, signed_count(p.amount), right, y + 12.f, 13, p.amount > 0.f ? dip_yes : dip_no, true);
-				sans(state, sans_fit(state, nation_name(state, p.nation), 13, right - left - vw - 40.f), left + 26.f, y + 12.f, 13, dip_text);
-				y += 24.f;
-			}
-		}
-		if(v.gaining.empty() && v.losing.empty() && v.abroad.empty() && std::abs(v.internal_month) * people_per_unit < 0.5f && std::abs(v.external_month) * people_per_unit < 0.5f)
-			y = sans_paragraph(state, localized(state, "katechon_pop_none", "No movement recorded yet."), left, right, y, 13, dip_faint, 2, true);
-		return y;
-	}
-
-	float overview_identity(sys::state& state, float left, float right, float y, bool, float, float) {
-		auto const& v = population;
-		y = pop_heading(state, localized(state, "katechon_ppl_identity", "Who they are"), std::string(), left, right, y);
-		if(v.cultures.empty() && v.religions.empty()) {
-			sans(state, localized(state, "katechon_ppl_no_record", "The simulation keeps no record of this here."), left, y + 12.f, 13, dip_faint);
-			return y + 34.f;
-		}
-		if(v.accepted >= 0.f)
-			y = share_row(state, localized(state, "katechon_ppl_accepted", "Of the state's own or accepted cultures"), v.accepted, gold, left, right, y) + 6.f;
-		if(!v.cultures.empty()) {
-			sans(state, upper(localized(state, "katechon_pop_cultures", "Cultures")), left, y + 8.f, 10, dip_bronze, false, 0.14f);
-			y += 24.f;
-			for(auto const& c : v.cultures)
-				y = share_row(state, c.label, c.part, pop_poor, left, right, y);
-		}
-		if(!v.religions.empty()) {
-			y += 6.f;
-			sans(state, upper(localized(state, "katechon_pop_religions", "Religions")), left, y + 8.f, 10, dip_bronze, false, 0.14f);
-			y += 24.f;
-			for(auto const& r : v.religions)
-				y = share_row(state, r.label, r.part, pop_middle, left, right, y);
-		}
-		return y;
-	}
-
-	// What people know, what they have and how they feel about it.
-	float overview_mind(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
-		auto const& v = population;
-		y = pop_heading(state, localized(state, "katechon_ppl_mind", "Development and mood"), std::string(), left, right, y);
-		auto const row = [&](std::string const& label, float part, ogl::color3f colour, std::string const& about) {
-			hit_target t{ left - 4.f, y, right - left + 8.f, 30.f, action::none };
-			y = share_row(state, label, part, colour, left, right, y);
-			if(pop_over(t, hovering, mx, my))
-				hint(about, t);
-		};
-		row(localized(state, "katechon_ppl_literacy", "Literacy"), v.literacy, pop_wage, metric_about(state, population_metric::literacy));
-		row(localized(state, "katechon_ppl_schooling", "Access to schooling"), v.education_access, pop_wage,
-			localized(state, "katechon_ppl_schooling_about", "How much of the education people seek they can obtain, paid for or free."));
-		row(localized(state, "katechon_ppl_towns", "Living in towns"), v.urbanization, pop_middle,
-			localized(state, "katechon_ppl_towns_about", "The share of the people who live in towns and cities."));
-		row(localized(state, "katechon_ppl_housing", "Housing to be had in towns"), v.housing_access, pop_middle,
-			localized(state, "katechon_ppl_housing_about", "Where towns have a housing market, how much of the housing sought is found. Short housing crowds people and costs births."));
-		row(localized(state, "katechon_ppl_development", "Human development"), v.development, pop_own,
-			localized(state, "katechon_ppl_development_about", "Housing, literacy and schooling taken together."));
-		// militancy and consciousness run from 0 to 10
-		auto const mood = [&](std::string const& label, float value, std::string const& about) {
-			hit_target t{ left - 4.f, y, right - left + 8.f, 30.f, action::none };
-			auto const known = value >= 0.f;
-			auto const text_value = known ? text::format_float(value, 1) + " / 10" : std::string("—");
-			auto const tone = known && value >= 5.f ? dip_no : dip_text;
-			auto const vw = sans(state, text_value, right, y + 8.f, 13, known ? tone : dip_faint, true);
-			sans(state, sans_fit(state, label, 13, right - left - vw - 12.f), left, y + 8.f, 13, dip_muted);
-			fill(state, left, y + 19.f, right - left, 3.f, ink, 0.45f);
-			if(known && value > 0.f)
-				fill(state, left, y + 19.f, std::max(2.f, std::round((right - left) * std::min(value / 10.f, 1.f))), 3.f, value >= 5.f ? dip_no : dip_bronze, 1.f);
-			if(pop_over(t, hovering, mx, my))
-				hint(about, t);
+		for(size_t i = 0; i < v.occupations.size() && i < 4; ++i) {
+			if(y + 28.f > bottom - 30.f)
+				break;
+			auto const& o = v.occupations[i];
+			auto const vw = sans(state, share_text(o.part), right, y + 10.f, 14, dip_text, true);
+			sans(state, sans_fit(state, o.label, 14, right - left - vw - 12.f), left, y + 10.f, 14, dip_text);
+			fill(state, left, y + 21.f, right - left, 2.f, ink, 0.45f);
+			fill(state, left, y + 21.f, std::max(2.f, std::round((right - left) * std::min(o.part, 1.f))), 2.f, dip_bronze, 0.85f);
 			y += 30.f;
-		};
-		y += 4.f;
-		mood(localized(state, "katechon_ppl_militancy", "Militancy"), v.militancy,
-			localized(state, "katechon_ppl_militancy_about", "How ready people are to take up arms against the state. From five on, unrest is near."));
-		mood(localized(state, "katechon_ppl_consciousness", "Political consciousness"), v.consciousness,
-			localized(state, "katechon_ppl_consciousness_about", "How much people think about politics and want a say in it."));
-		return y;
+		}
+		// how they live and work, in one line
+		if(y + 24.f <= bottom) {
+			std::string line;
+			if(v.urbanization >= 0.f)
+				line = localized(state, "katechon_ppl_urban", "Urban") + " " + share_text(v.urbanization);
+			if(v.wage_share >= 0.f)
+				line += (line.empty() ? "" : "  ·  ") + localized(state, "katechon_ppl_wage_work", "Wage work") + " " + share_text(v.wage_share);
+			if(v.own_share >= 0.f)
+				line += (line.empty() ? "" : "  ·  ") + localized(state, "katechon_ppl_own_land", "Own land") + " " + share_text(v.own_share);
+			hit_target t{ left, y + 2.f, right - left, 24.f, action::none };
+			sans(state, sans_fit(state, line, 14, right - left), left, y + 14.f, 14, dip_muted);
+			if(pop_over(t, hovering, mx, my))
+				hint(localized(state, "katechon_ppl_livelihood_hint", "How workers make a living: their own farms and crafts, a wage contract, or neither (army, bondage, looking for work)."), t);
+		}
 	}
 
-	// The regions, largest first, with what sets them apart; a press studies one.
-	float overview_regions(sys::state& state, float left, float right, float y, bool hovering, float mx, float my) {
+	// The regions where the chosen figure is worst: eight of them, and the way to the rest.
+	void overview_trouble(sys::state& state, float left, float right, float top, float bottom, bool hovering, float mx, float my) {
 		auto const& v = population;
-		if(v.regions.size() < 2)
-			return y;
-		auto const country_name = text::get_name_as_string(state, dcon::fatten(state.world, v.nation));
-		y = pop_heading(state, filled(localized(state, "katechon_ppl_regions", "The regions of %1"), country_name),
-			filled(localized(state, "katechon_ppl_regions_count", "%1 regions, largest first"), std::to_string(v.regions.size())), left, right, y);
-		// the columns, from the right: migration, literacy, needs, growth, share, population
+		auto y = top;
+		pop_label(state, localized(state, "katechon_ppl_trouble", "Regions in trouble"), left, y + 6.f);
+		// one switch for the figure, which the map follows
+		{
+			auto const name = metric_name(state, metric);
+			auto const nw = sans_w(state, name, 14);
+			auto const sx = right - nw - 56.f;
+			for(int32_t dir : { -1, 1 }) {
+				hit_target t{ dir < 0 ? sx - 4.f : right - 24.f, y - 6.f, 26.f, 26.f, action::population_lens, nullptr, dir };
+				auto const hovered = pop_over(t, hovering, mx, my);
+				draw_icon(state, dir < 0 ? icon::chevron_left : icon::chevron_right, t.x + 13.f, t.y + 13.f, 10.f, hovered ? dip_name : dip_bronze);
+				pop_target(t);
+				if(hovered)
+					hint(localized(state, "katechon_ppl_lens_hint", "Another figure: the list and the map follow it"), t);
+			}
+			sans(state, name, right - 28.f, y + 7.f, 14, gold, true);
+		}
+		y += 28.f;
+		constexpr float row_h = 30.f;
+		auto const rows = std::min<size_t>({ v.ranking.size(), size_t(8), size_t(std::max(0.f, (bottom - y - 34.f) / row_h)) });
+		for(size_t i = 0; i < rows; ++i) {
+			auto const& [p, value] = v.ranking[i];
+			float units = 0.f;
+			for(auto const& r : v.regions) {
+				if(r.id == p)
+					units = r.units;
+			}
+			hit_target t{ left - 6.f, y, right - left + 12.f, row_h, action::population_region, nullptr, region_value(p) };
+			auto const hovered = pop_over(t, hovering, mx, my);
+			auto const studied = p == v.province;
+			if(studied || hovered)
+				fill(state, t.x, t.y + 1.f, t.w, t.h - 2.f, dip_bronze, studied ? 0.18f : 0.09f);
+			sans(state, std::to_string(i + 1), left + 14.f, y + 15.f, 13, dip_faint, true);
+			auto const vw = sans(state, metric_text(state, metric, value), right, y + 15.f, 15, tone_colour(metric_tone(metric, value)), true);
+			auto const pw = sans(state, people(units), right - vw - 22.f, y + 15.f, 13, dip_muted, true);
+			sans(state, sans_fit(state, text::get_name_as_string(state, p), 14, right - left - 26.f - vw - pw - 36.f), left + 26.f, y + 15.f, 14, studied || hovered ? dip_name : dip_text);
+			pop_target(t);
+			if(hovered)
+				hint(localized(state, "katechon_ppl_region_hint", "Open it in the map inspector"), t);
+			y += row_h;
+		}
+		pop_link(state, filled(localized(state, "katechon_ppl_view_all", "View all %1 regions  ›"), std::to_string(v.regions.size())), left, std::min(bottom - 10.f, y + 18.f), action::population_all_regions, hovering, mx, my, false, 1);
+	}
+
+	// Every region, in pages that fit the page: the detail behind the short list.
+	void overview_region_table(sys::state& state, float left, float right, float top, float bottom, bool hovering, float mx, float my) {
+		auto const& v = population;
+		auto y = top;
+		pop_link(state, localized(state, "katechon_ppl_back_overview", "‹  Back to the overview"), left, y + 8.f, action::population_all_regions, hovering, mx, my, false, 0);
+		{
+			// the figure of the last column, which the map follows
+			auto const name = metric_name(state, metric);
+			auto const nw = sans_w(state, name, 14);
+			for(int32_t dir : { -1, 1 }) {
+				hit_target t{ dir < 0 ? right - nw - 64.f : right - 26.f, y - 4.f, 26.f, 26.f, action::population_lens, nullptr, dir };
+				draw_icon(state, dir < 0 ? icon::chevron_left : icon::chevron_right, t.x + 13.f, t.y + 13.f, 10.f, pop_over(t, hovering, mx, my) ? dip_name : dip_bronze);
+				pop_target(t);
+			}
+			sans(state, name, right - 32.f, y + 9.f, 14, gold, true);
+		}
+		y += 30.f;
 		struct column {
 			std::string label;
 			float w;
 		};
-		std::array<column, 6> columns{ column{ localized(state, "katechon_ppl_t_people", "People"), 110.f }, column{ localized(state, "katechon_ppl_t_share", "Share"), 76.f },
-			column{ localized(state, "katechon_ppl_t_growth", "Growth a month"), 120.f }, column{ localized(state, "katechon_ppl_t_needs", "Basic needs"), 100.f },
-			column{ localized(state, "katechon_ppl_t_literacy", "Literacy"), 86.f }, column{ localized(state, "katechon_ppl_t_moved", "Migration ‰"), 104.f } };
-		auto narrow = right - left < 900.f;
-		std::array<float, 6> edges{};
-		{
-			auto at = right;
-			for(size_t i = columns.size(); i-- > 0;) {
-				if(narrow && (i == 1 || i == 4)) {
-					edges[i] = -1.f;
-					continue;
-				}
-				edges[i] = at;
-				at -= columns[i].w;
-			}
+		std::array<column, 7> const columns{ column{ localized(state, "katechon_ppl_t_people", "People"), 110.f }, column{ localized(state, "katechon_ppl_t_share", "Share"), 80.f },
+			column{ localized(state, "katechon_ppl_t_growth", "Growth a month"), 124.f }, column{ localized(state, "katechon_ppl_t_needs", "Basic needs"), 104.f },
+			column{ localized(state, "katechon_ppl_t_literacy", "Literacy"), 90.f }, column{ localized(state, "katechon_ppl_t_moved", "Migration ‰"), 108.f },
+			column{ metric_name(state, metric), 130.f } };
+		std::array<float, 7> edges{};
+		auto at = right;
+		for(size_t i = columns.size(); i-- > 0;) {
+			edges[i] = at;
+			at -= columns[i].w;
 		}
-		auto const name_right = [&]() {
-			auto lowest = right;
-			for(auto const e : edges) {
-				if(e > 0.f)
-					lowest = std::min(lowest, e);
-			}
-			for(size_t i = 0; i < columns.size(); ++i) {
-				if(edges[i] > 0.f && edges[i] == lowest)
-					return lowest - columns[i].w - 12.f;
-			}
-			return right;
-		}();
-		sans(state, localized(state, "katechon_ppl_t_region", "Region"), left, y + 8.f, 11, dip_faint);
-		for(size_t i = 0; i < columns.size(); ++i) {
-			if(edges[i] > 0.f)
-				sans(state, columns[i].label, edges[i], y + 8.f, 11, dip_faint, true);
-		}
-		y += 22.f;
-		auto const total = std::max(1.f, v.units > 0.f && !v.of_province ? v.units : state.world.nation_get_demographics(v.nation, demographics::total));
-		std::vector<population_view::region const*> rows;
-		for(size_t i = 0; i < v.regions.size() && rows.size() < 12; ++i)
-			rows.push_back(&v.regions[i]);
-		if(v.of_province && std::none_of(rows.begin(), rows.end(), [&](auto const* r) { return r->id == v.province; })) {
-			for(auto const& r : v.regions) {
-				if(r.id == v.province)
-					rows.push_back(&r);
-			}
-		}
-		for(auto const* r : rows) {
-			hit_target t{ left - 8.f, y, right - left + 16.f, 26.f, action::population_region, nullptr, region_value(r->id) };
+		auto const name_right = at - 12.f;
+		sans(state, localized(state, "katechon_ppl_t_region", "Region"), left, y + 10.f, 12, dip_faint);
+		for(size_t i = 0; i < columns.size(); ++i)
+			sans(state, sans_fit(state, columns[i].label, 12, columns[i].w - 8.f), edges[i], y + 10.f, 12, i + 1 == columns.size() ? gold : dip_faint, true);
+		y += 26.f;
+		constexpr float row_h = 28.f;
+		auto const per_page = std::max<size_t>(1, size_t((bottom - y - 36.f) / row_h));
+		auto const pages = (v.regions.size() + per_page - 1) / per_page;
+		overview_page = std::clamp<int32_t>(overview_page, 0, int32_t(std::max<size_t>(pages, 1)) - 1);
+		auto const total = std::max(1.f, state.world.nation_get_demographics(v.nation, demographics::total));
+		for(size_t i = size_t(overview_page) * per_page; i < v.regions.size() && i < size_t(overview_page + 1) * per_page; ++i) {
+			auto const& r = v.regions[i];
+			hit_target t{ left - 8.f, y, right - left + 16.f, row_h, action::population_region, nullptr, region_value(r.id) };
 			auto const hovered = pop_over(t, hovering, mx, my);
-			auto const studied = r->id == v.province;
-			if(studied)
-				fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.18f);
-			else if(hovered)
-				fill(state, t.x, t.y, t.w, t.h, dip_bronze, 0.09f);
-			fill(state, left, y + 25.f, right - left, 1.f, dip_rule, 0.7f);
-			auto const mid = y + 13.f;
-			sans(state, sans_fit(state, r->name, 13, name_right - left), left, mid, 13, studied || hovered ? dip_name : dip_text);
-			std::array<std::pair<std::string, ogl::color3f>, 6> cells{
-				std::pair{ people(r->units), dip_text },
-				std::pair{ text::format_percentage(r->units / total, 1), dip_muted },
-				std::pair{ r->units > 0.f ? signed_percent(r->growth / r->units) : std::string("—"), r->growth < 0.f ? dip_no : (r->growth > 0.f ? dip_yes : dip_faint) },
-				std::pair{ share_text(r->needs), r->needs < 0.f ? dip_faint : tone_colour(metric_tone(population_metric::needs, r->needs)) },
-				std::pair{ share_text(r->literacy), r->literacy < 0.f ? dip_faint : dip_text },
-				std::pair{ metric_text(state, population_metric::migration, r->units > 0.f ? r->moved / r->units * 1000.f : 0.f), std::abs(r->moved) * people_per_unit < 0.5f ? dip_faint : (r->moved > 0.f ? dip_yes : dip_no) } };
-			for(size_t i = 0; i < cells.size(); ++i) {
-				if(edges[i] > 0.f)
-					sans(state, cells[i].first, edges[i], mid, 13, cells[i].second, true);
-			}
+			auto const studied = r.id == v.province;
+			if(studied || hovered)
+				fill(state, t.x, t.y, t.w, t.h, dip_bronze, studied ? 0.18f : 0.09f);
+			fill(state, left, y + row_h - 1.f, right - left, 1.f, dip_rule, 0.7f);
+			auto const mid = y + 14.f;
+			sans(state, sans_fit(state, r.name, 14, name_right - left), left, mid, 14, studied || hovered ? dip_name : dip_text);
+			auto const chosen = metric_value(state, v.nation, r.id, metric);
+			std::array<std::pair<std::string, ogl::color3f>, 7> const cells{
+				std::pair{ people(r.units), dip_text },
+				std::pair{ text::format_percentage(r.units / total, 1), dip_muted },
+				std::pair{ r.units > 0.f ? signed_percent(r.growth / r.units) : std::string("—"), r.growth < 0.f ? pop_bad : (r.growth > 0.f ? pop_good : dip_faint) },
+				std::pair{ share_text(r.needs), r.needs < 0.f ? dip_faint : tone_colour(metric_tone(population_metric::needs, r.needs)) },
+				std::pair{ share_text(r.literacy), r.literacy < 0.f ? dip_faint : dip_text },
+				std::pair{ metric_text(state, population_metric::migration, r.units > 0.f ? r.moved / r.units * 1000.f : 0.f), std::abs(r.moved) * people_per_unit < 0.5f ? dip_faint : (r.moved > 0.f ? pop_good : pop_bad) },
+				std::pair{ metric_text(state, metric, chosen), chosen ? tone_colour(metric_tone(metric, *chosen)) : dip_faint } };
+			for(size_t c = 0; c < cells.size(); ++c)
+				sans(state, cells[c].first, edges[c], mid, 14, cells[c].second, true);
 			pop_target(t);
 			if(hovered)
-				hint(localized(state, "katechon_ppl_t_hint", "Study this region"), t);
-			y += 26.f;
+				hint(localized(state, "katechon_ppl_region_hint", "Open it in the map inspector"), t);
+			y += row_h;
 		}
-		if(v.regions.size() > rows.size())
-			sans(state, filled(localized(state, "katechon_ppl_t_more", "and %1 smaller regions"), std::to_string(v.regions.size() - rows.size())), left, y + 12.f, 11, dip_faint);
-		return y + 26.f;
+		if(pages > 1) {
+			auto const label = std::to_string(overview_page + 1) + " / " + std::to_string(pages);
+			auto const lw = sans_w(state, label, 14);
+			auto const cx = (left + right) * 0.5f;
+			sans(state, label, cx - lw * 0.5f, bottom - 12.f, 14, dip_text);
+			for(int32_t dir : { -1, 1 }) {
+				hit_target t{ dir < 0 ? cx - lw * 0.5f - 40.f : cx + lw * 0.5f + 10.f, bottom - 26.f, 30.f, 28.f, action::population_page, nullptr, dir };
+				auto const usable = (dir < 0 && overview_page > 0) || (dir > 0 && overview_page + 1 < int32_t(pages));
+				draw_icon(state, dir < 0 ? icon::chevron_left : icon::chevron_right, t.x + 15.f, t.y + 14.f, 12.f, !usable ? dip_faint : (pop_over(t, hovering, mx, my) ? dip_name : dip_bronze));
+				if(usable)
+					pop_target(t);
+			}
+		}
 	}
 
 	// ---- The land forces ----
@@ -3804,6 +3775,7 @@ class map_hud_element : public katechon_canvas {
 
 #include "gui_map_hud_diplomacy.hpp"
 
+#include "gui_map_hud_atlas.hpp"
 #include "gui_map_hud_trade.hpp"
 
 	void draw_navigation(sys::state& state, float w, float h, bool hovering, float mx, float my) {
@@ -3961,6 +3933,7 @@ public:
 		for(size_t i = targets.size(); i-- > 0;) {
 			auto const t = targets[i];
 			if(over(t, float(x), float(y))) {
+				atlas_note_press(t); // what was pressed sinks for a moment
 				activate(state, t);
 				return message_result::consumed;
 			}
@@ -3981,16 +3954,15 @@ public:
 	}
 
 	message_result on_scroll(sys::state& state, int32_t x, int32_t y, float amount, sys::key_modifiers mods) noexcept override {
-		// The population overview is longer than the window; the wheel runs it up and down.
-		if(population_open && population_overview) {
-			overview_scroll = std::clamp(overview_scroll - amount * 72.f, 0.f, std::max(0.f, overview_content_h - overview_view_h));
+		if(trade_wheel(float(x), float(y), amount)) // the tables of the trade analysis scroll under the mouse
 			return message_result::consumed;
-		}
 		dip_wheel(float(x), float(y), amount); // the diplomacy sheet scrolls under the mouse
 		return message_result::consumed;
 	}
 
 	message_result on_key_down(sys::state& state, sys::virtual_key key, sys::key_modifiers mods) noexcept override {
+		if(trade_search_key(state, key)) // the trade search has the keyboard
+			return message_result::consumed;
 		if(key == sys::virtual_key::ESCAPE && layers_open) {
 			layers_open = false;
 			return message_result::consumed;
@@ -4004,7 +3976,9 @@ public:
 			return message_result::consumed;
 		}
 		if(key == sys::virtual_key::ESCAPE && trade_open) {
-			if(trade_analysis)
+			if(trade_analysis && trade_focus != 0)
+				trade_focus = 0; // the details close first
+			else if(trade_analysis)
 				trade_analysis = false; // back to the map
 			else if(trade_focus != 0)
 				trade_focus = 0; // one step back, to the world
@@ -4016,7 +3990,6 @@ public:
 			// one step back: from a region to its country, then out
 			if(atlas_province) {
 				atlas_province = dcon::province_id{};
-				overview_scroll = 0.f;
 				gather_population(state);
 			} else {
 				close_population(state);
@@ -4059,8 +4032,9 @@ public:
 	void render(sys::state& state, int32_t x, int32_t y) noexcept override {
 		if(!resolved)
 			resolve(state);
-		// Beside the map, a region chosen on the map is the region studied.
-		if(population_open && !population_overview && state.map_state.selected_province != atlas_seen_province) {
+		nudge_beside(state);
+		// A region chosen on the map is the region studied, the overview's as well: the map stays in view beside it.
+		if(population_open && state.map_state.selected_province != atlas_seen_province) {
 			atlas_seen_province = state.map_state.selected_province;
 			if(auto const p = atlas_seen_province; p && p.index() < state.province_definitions.first_sea_province.index() && state.world.province_get_nation_from_province_ownership(p))
 				atlas_province = p;
@@ -4151,10 +4125,8 @@ public:
 		}
 
 		// A country window takes the whole screen; only the bar stays with it.
-		auto const overview = population_open && population_overview;
 		if(!country_window_open(state)) {
-			if(!overview)
-				draw_map_names(state, w, h);
+			draw_map_names(state, w, h);
 			auto* details = state.ui_state.province_window;
 			if(military_open) {
 				draw_forces(state, w, h, hovering, mx, my);
@@ -4186,7 +4158,7 @@ public:
 				draw_trade(state, w, h, hovering, mx, my);
 			} else if(population_open) {
 				if(population_layer && --repaint_in <= 0)
-					paint_layer(state); // the game repaints its own layer when the world moves on
+					paint_layer(state, false); // the game repaints its own layer when the world moves on
 				// The inspector has its own key for what it paints.
 				if(auto* legend = state.ui_state.map_gradient_legend; population_layer && legend && legend->is_visible())
 					legend->set_visible(state, false);
@@ -4194,9 +4166,7 @@ public:
 			} else if(snap.province && !(details && details->is_visible())) {
 				draw_card(state, hovering, mx, my);
 			}
-			// the overview has put the map aside, and the map's tools with it
-			if(!overview)
-				draw_navigation(state, w, h, hovering, mx, my);
+			draw_navigation(state, w, h, hovering, mx, my);
 		}
 		draw_ribbon(state, hovering, mx, my);
 		draw_top_bar(state, w, hovering, mx, my);
