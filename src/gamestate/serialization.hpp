@@ -191,8 +191,9 @@ inline uint8_t const* deserialize(uint8_t const* ptr_in, ankerl::unordered_dense
 }
 
 // Version 57 adds the canonical organization-held research and capability kernel. Earlier aggregate save
-// layouts are intentionally unsupported.
-constexpr inline uint32_t save_file_version = 61;
+// layouts are intentionally unsupported. Version 62 merges collected tariffs, the paid army and
+// contracted construction into the DCON schema; older scenarios and saves cannot be read.
+constexpr inline uint32_t save_file_version = 62;
 constexpr inline uint32_t scenario_file_version = 139 + save_file_version;
 
 struct scenario_header {

@@ -246,6 +246,8 @@ revenue_source source_of_topic(policy::topic_id topic) {
 	case policy::topic_id::income_tax: return revenue_source::income_tax;
 	case policy::topic_id::dividend_tax: return revenue_source::dividend_tax;
 	case policy::topic_id::resource_royalty: return revenue_source::resource_royalties;
+	case policy::topic_id::import_tariff:
+	case policy::topic_id::export_tariff: return revenue_source::customs_duties;
 	default: return revenue_source::other;
 	}
 }

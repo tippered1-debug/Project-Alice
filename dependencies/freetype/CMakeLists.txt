@@ -50,6 +50,10 @@ FetchContent_Declare(
 	GIT_PROGRESS TRUE
 )
 FetchContent_MakeAvailable(harfbuzz)
+# Newer macOS SDK headers trip harfbuzz's own -Wcast-align error pragma; keep it a warning.
+if(APPLE)
+	target_compile_definitions(harfbuzz PRIVATE HB_NO_PRAGMA_GCC_DIAGNOSTIC_ERROR)
+endif()
 if(WIN32)
 	set(CMAKE_CXX_FLAGS "")
 	set(CMAKE_CXX_FLAGS_DEBUG "")

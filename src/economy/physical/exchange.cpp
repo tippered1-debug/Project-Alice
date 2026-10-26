@@ -148,7 +148,8 @@ void assess_person_sales_tax(sys::state& state, persons::person_key buyer,
 	if(paid <= 1.0e-6f || !economy::exact_person_economy::transfer(state, wallet,
 		economy::exact_person_economy::account_ref::from_dcon(household_account), paid,
 		relations::transaction_kind::tax_payment, date)) return;
-	(void)governance::finance::pay_tax(state, obligation, household_account, treasury, paid, date);
+	(void)governance::finance::pay_tax(state, obligation, household_account, treasury, paid, date,
+		governance::finance::source_of_topic(governance::policy::topic_id::sales_tax));
 }
 
 dcon::commodity_id settlement_for_purchase(sys::state const& state, dcon::economic_actor_id buyer) {

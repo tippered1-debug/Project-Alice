@@ -57,6 +57,7 @@
 #include "governance/public_administration.hpp"
 #include "governance/offices.hpp"
 #include "governance/government.hpp"
+#include "governance/finance/finance.hpp"
 #include "governance/finance/fiscal_ledger.hpp"
 #include <vector>
 #include <algorithm>

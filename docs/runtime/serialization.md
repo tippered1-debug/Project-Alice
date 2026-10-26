@@ -1,6 +1,6 @@
 # Serialization and continuity
 
-The current normal save is version 61. Its framed `AOEX` v19 extension stores runtime state that lives outside the DCON world:
+The current normal save is version 62. Its framed `AOEX` v19 extension stores runtime state that lives outside the DCON world:
 
 - exact-person identity catalog, active memberships, birth/death ranges, and transfers;
 - exact household accounts, transactions, job applications, contracts, and separations;
