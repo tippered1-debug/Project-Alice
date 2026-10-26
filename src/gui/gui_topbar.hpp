@@ -10,6 +10,7 @@
 #include "gui_military_window.hpp"
 #include "gui_chat_window.hpp"
 #include "gui_common_elements.hpp"
+#include "user_interactions.hpp"
 #include "gui_diplomacy_request_templates.hpp"
 #include "nations.hpp"
 #include "politics.hpp"
@@ -1057,6 +1058,13 @@ class topbar_budget_tab_button : public topbar_tab_button {
 public:
 	sound::audio_instance& get_click_sound(sys::state& state) noexcept override {
 		return sound::get_tab_budget_sound(state);
+	}
+	void button_action(sys::state& state) noexcept override {
+		if(sys::finance_screen)
+			sys::finance_screen(state);
+	}
+	bool is_active(sys::state& state) noexcept override {
+		return sys::finance_screen_open && sys::finance_screen_open();
 	}
 };
 class topbar_trade_tab_button : public topbar_tab_button {
@@ -2109,14 +2117,8 @@ public:
 			state.ui_state.root->add_child_to_back(std::move(tab));
 			return btn;
 		} else if(name == "topbarbutton_budget") {
-			auto btn = make_element_by_type<topbar_budget_tab_button>(state, id);
-
-			//auto tab = make_element_by_type<budget_window>(state, "country_budget");
-			auto tab = alice_ui::make_budgetwindow_main(state);
-			tab->set_visible(state, false);
-			btn->topbar_subwindow = tab.get();
-			state.ui_state.root->add_child_to_back(std::move(tab));
-			return btn;
+			// The state's finances are a sheet of the map HUD, not a window of the top bar.
+			return make_element_by_type<topbar_budget_tab_button>(state, id);
 		} else if(name == "topbarbutton_tech") {
 			auto btn = make_element_by_type<topbar_technology_tab_button>(state, id);
 

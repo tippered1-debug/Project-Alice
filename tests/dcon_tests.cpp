@@ -1288,7 +1288,7 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	auto tax = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(assessment);
 	REQUIRE(tax);
 	REQUIRE(::governance::finance::fiscal_position_for(*state, institution, settlement).tax_receivables == Approx(100.0f));
-	REQUIRE(::governance::finance::pay_tax(*state, tax, taxpayer_account, treasury, 100.0f, sys::date{21}));
+	REQUIRE(::governance::finance::pay_tax(*state, tax, taxpayer_account, treasury, 100.0f, sys::date{21}, ::governance::finance::revenue_source::income_tax));
 	REQUIRE(::economy::relations::total_due(*state, tax) == Approx(0.0f));
 	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(100.0f));
 	auto recipient = state->world.create_economic_actor();
@@ -1320,7 +1320,7 @@ TEST_CASE("state_finance_treasury_tax_spending_and_public_debt", "[governance][f
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, taxpayer_account, 10.0f));
 	auto taxpayer_cash_before_default = ::economy::accounts::balance(*state, taxpayer_account);
 	auto treasury_cash_before_default = ::economy::accounts::balance(*state, treasury);
-	REQUIRE_FALSE(::governance::finance::pay_tax(*state, defaulted_tax, taxpayer_account, treasury, 10.0f, sys::date{26}));
+	REQUIRE_FALSE(::governance::finance::pay_tax(*state, defaulted_tax, taxpayer_account, treasury, 10.0f, sys::date{26}, ::governance::finance::revenue_source::income_tax));
 	REQUIRE(::economy::accounts::balance(*state, taxpayer_account) == Approx(taxpayer_cash_before_default));
 	REQUIRE(::economy::accounts::balance(*state, treasury) == Approx(treasury_cash_before_default));
 	REQUIRE(::economy::relations::total_due(*state, defaulted_tax) == Approx(10.0f));
@@ -1630,7 +1630,7 @@ TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][se
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*state, taxpayer_account, 20.0f));
 	auto tax_action = ::governance::finance::authorized_assess_tax(*state, person, taxpayer, treasury, 20.0f, sys::date{30}, sys::date{20});
 	auto tax = state->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(tax_action);
-	auto tax_payment = ::governance::finance::pay_tax(*state, tax, taxpayer_account, treasury, 20.0f, sys::date{21});
+	auto tax_payment = ::governance::finance::pay_tax(*state, tax, taxpayer_account, treasury, 20.0f, sys::date{21}, ::governance::finance::revenue_source::income_tax);
 	auto bank = test_create_bank(*state, settlement, 100.0f);
 	auto reserve = ::economy::banking::reserve_account_for(*state, bank, settlement);
 	REQUIRE(reserve);
@@ -1658,7 +1658,7 @@ TEST_CASE("state_finance_relations_survive_save_load", "[governance][finance][se
 	REQUIRE(::economy::accounts::bootstrap_set_balance(*loaded, ltaxpayer_account, 20.0f));
 	auto ltax_action = ::governance::finance::authorized_assess_tax(*loaded, lperson, ltaxpayer, ltreasury, 20.0f, sys::date{30}, sys::date{20});
 	auto ltax = loaded->world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(ltax_action);
-	auto ltax_payment = ::governance::finance::pay_tax(*loaded, ltax, ltaxpayer_account, ltreasury, 20.0f, sys::date{21});
+	auto ltax_payment = ::governance::finance::pay_tax(*loaded, ltax, ltaxpayer_account, ltreasury, 20.0f, sys::date{21}, ::governance::finance::revenue_source::income_tax);
 	auto lbank = test_create_bank(*loaded, lsettlement, 100.0f);
 	auto lreserve = ::economy::banking::reserve_account_for(*loaded, lbank, lsettlement);
 	REQUIRE(lreserve);

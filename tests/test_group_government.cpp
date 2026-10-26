@@ -8,3 +8,4 @@
 #include "monetary_policy_tests.cpp"
 #include "constitution_tests.cpp"
 #include "politics_tests.cpp"
+#include "fiscal_ledger_tests.cpp"

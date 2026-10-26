@@ -45,7 +45,6 @@ static std::map<int, std::string> readableCommandTypes = {
 {13,"release_and_play_nation"},
 {14,"war_subsidies"},
 {15,"cancel_war_subsidies"},
-{16,"change_budget"},
 {17,"start_election"},
 {18,"change_influence_priority"},
 {19,"discredit_advisors"},

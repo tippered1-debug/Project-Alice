@@ -397,7 +397,8 @@ void collect_taxes(sys::state& state) {
 				economy::relations::transaction_kind::tax_payment, state.current_date)) collected += contribution;
 		}
 		if(collected > 1.0e-6f)
-			(void)governance::finance::pay_tax(state, obligation, household_account, treasury, collected, state.current_date);
+			(void)governance::finance::pay_tax(state, obligation, household_account, treasury, collected, state.current_date,
+				governance::finance::revenue_source::income_tax);
 	}
 }
 tax_information explain_tax_income_local(sys::state const& state, dcon::nation_id n, dcon::province_id province) {

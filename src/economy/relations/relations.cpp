@@ -1,4 +1,5 @@
 #include "relations.hpp"
+#include "governance/finance/fiscal_ledger.hpp"
 #include "system_state.hpp"
 
 #include <cmath>
@@ -21,6 +22,7 @@ dcon::transaction_id record_transaction(sys::state& state, dcon::economic_actor_
 	state.world.transaction_set_timestamp(transaction, timestamp);
 	state.world.force_create_transaction_payer(transaction, payer);
 	state.world.force_create_transaction_payee(transaction, payee);
+	governance::finance::observe_transfer(state, payer, payee, amount, settlement, kind);
 	return transaction;
 }
 

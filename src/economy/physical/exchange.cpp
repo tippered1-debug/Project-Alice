@@ -81,12 +81,12 @@ void assess_customs_duties(sys::state& state, dcon::economic_actor_id buyer,
 	if(export_market && customs_duty_applies(state, source, destination, true)) {
 		auto rate = economy::effective_tariff_export_rate(state, exporter, export_market);
 		(void)governance::finance::assess_and_collect_tax_at_rate(state, exporter, seller,
-			declared_value, rate, seller_wallet, seller_deposit, date);
+			declared_value, rate, seller_wallet, seller_deposit, date, governance::finance::revenue_source::customs_duties);
 	}
 	if(import_market && customs_duty_applies(state, source, destination, false)) {
 		auto rate = economy::effective_tariff_import_rate(state, importer, import_market);
 		(void)governance::finance::assess_and_collect_tax_at_rate(state, importer, buyer,
-			declared_value, rate, buyer_wallet, buyer_deposit, date);
+			declared_value, rate, buyer_wallet, buyer_deposit, date, governance::finance::revenue_source::customs_duties);
 	}
 }
 

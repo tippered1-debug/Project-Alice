@@ -477,9 +477,6 @@ event_show_odds;Szanse na wydarzenie
 value_mod_product;Wartość $val$ jest iloczynem:
 value_mod_sum;Wartość $val$ jest sumą:
 value_mod_sum_factor;Wartość $val$ to $x$ razy suma:
-admin_explain_1;Modyfikator wydajności administracyjnej $val$
-admin_explain_2;W odniesieniu do stosunku niekolonialnych biurokratów: $val$
-admin_explain_3;Do wymaganego procentu: $val$ (podstawa $x$ + $y$ z reform)
 factory_condition_1;Naród jest cywilizowany
 factory_condition_2;To nie jest państwo kolonialne
 factory_condition_3;Partia rządząca pozwala na budowę fabryk
@@ -1031,8 +1028,6 @@ et_on_po_accepted;Skutki wynikające z przyjęcia oferty pokojowej z tym celem w
 alice_no_possible_units;Nie można zbudować żadnych możliwych jednostek i żadna jednostka nie jest w budowie.
 alice_debt_spending;Włącz/wyłącz wydawanie długów
 alice_loan_size;Nasza obecna maksymalna pożyczka wynosi $x$. Większy dług doprowadzi nas do bankructwa
-alice_currently_bankrupt;Jesteśmy bankrutem (do $x$)
-alice_no_loans_possible;Obecnie nie możemy brać kredytów
 alice_rf_demands_enforced_trigger;Rebelianci będą egzekwować swoje żądania tylko wtedy, gdy:
 alice_rf_demands_enforced_effect;Gdy rebelianci wyegzekwują swoje żądania, zastosują następujący efekt:
 alice_rf_siege_won_trigger;Jeśli buntownik wygra oblężenie, sprawdzane są następujące elementy, na przykład w Twojej stolicy $x$:

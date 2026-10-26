@@ -162,6 +162,19 @@ struct project_credit_quote {
 project_credit_quote quote_project_credit(sys::state const&, dcon::economic_actor_id borrower,
 	dcon::commodity_id settlement, float requested_amount, float expected_annual_cashflow,
 	float sponsor_equity, float project_value);
+// What the best willing domestic bank would pay now for a sovereign bond of
+// the nation; changes nothing. A bank buys only when the state's credit
+// assessment (governance::finance::assess_credit) clears its risk appetite, as
+// it does for project credit, pays from its reserves, and asks its own lending
+// rate; the bond is limited by its capital, liquidity and exposure to the borrower.
+// The bank pays the principal of a sovereign bond from its reserves into the
+// issuing treasury and holds the bond. Only the fiscal API calls this, after the
+// issuing office, the law and the bank's own underwriting have allowed it.
+dcon::obligation_id buy_sovereign_bond(sys::state&, dcon::organization_id bank,
+	dcon::monetary_account_id treasury_account, float principal, float annual_interest_rate,
+	sys::date due_date, sys::date date);
+project_credit_quote quote_sovereign_credit(sys::state const&, dcon::economic_actor_id borrower,
+	dcon::nation_id nation, dcon::commodity_id settlement, float requested_amount, float credit_score);
 factory_credit_result underwrite_project_credit(sys::state&, dcon::capital_project_id,
 	dcon::monetary_account_id operating_account, float requested_amount, float expected_annual_cashflow,
 	float sponsor_equity, float project_value);

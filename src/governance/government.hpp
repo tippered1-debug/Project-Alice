@@ -3,6 +3,7 @@
 #include "dcon_generated.hpp"
 #include "date_interface.hpp"
 #include "governance/policy.hpp"
+#include "governance/finance/fiscal_ledger.hpp"
 
 #include <vector>
 
@@ -46,6 +47,20 @@ void fill_vacancies(sys::state&, dcon::nation_id, sys::date);
 // Turns a negotiated programme into a bill and submits it through the
 // constitutionally deciding legislature and assent offices.
 void implement(sys::state&, dcon::nation_id, sys::date);
+// Lays a fiscal bill (the tax rates, disbursement and appropriations of
+// `target`) before the deciding chambers. Each member votes on their own
+// economic exposure and their party's platform; governing parties also on
+// `whip`, the government's bill. The assenting offices must assent and a
+// member (or the office holding `legislate`) enacts it. A next bill may not be
+// laid for 30 days.
+finance::bill_notice lay_fiscal_bill(sys::state&, dcon::nation_id, policy::position const& target,
+	policy::position const& whip, sys::date);
+// The government's own fiscal bill: the player's proposal of tax and budget
+// priorities, laid like any other. Once enacted, the governing parties take it
+// into their programme, so that their finance minister keeps it.
+finance::bill_notice propose_fiscal_bill(sys::state&, dcon::nation_id, policy::position const& proposal, sys::date);
+// The fiscal topics a player's proposal may change.
+bool fiscal_topic(policy::topic_id);
 
 // Founding politics: parties from the electorate, the first elections, the
 // first government, the remaining offices, and the first fiscal law.

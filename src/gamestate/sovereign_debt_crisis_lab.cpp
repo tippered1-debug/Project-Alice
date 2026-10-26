@@ -238,7 +238,7 @@ run_output run(config const& cfg) {
 		if(!tax_action) throw std::runtime_error("daily tax assessment was rejected");
 		auto tax_obligation = state.world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(tax_action);
 		auto tax_payment = governance::finance::pay_tax(state, tax_obligation,
-			h.taxpayer_account, h.treasury, revenue, state.current_date);
+			h.taxpayer_account, h.treasury, revenue, state.current_date, governance::finance::revenue_source::income_tax);
 		if(!tax_payment) throw std::runtime_error("daily tax collection was not settled");
 		add_event(out, day, "tax_assessed_and_collected", revenue, revenue,
 			"authorized tax assessment and linked account settlement");

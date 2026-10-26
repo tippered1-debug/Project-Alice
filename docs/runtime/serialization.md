@@ -1,12 +1,13 @@
 # Serialization and continuity
 
-The current normal save is version 61. Its framed `AOEX` v17 extension stores runtime state that lives outside the DCON world:
+The current normal save is version 61. Its framed `AOEX` v18 extension stores runtime state that lives outside the DCON world:
 
 - exact-person identity catalog, active memberships, birth/death ranges, and transfers;
 - exact household accounts, transactions, job applications, contracts, and separations;
 - household goods, needs, purchases, freight requests, and shipment ownership;
 - labor history and deterministic causal ordering;
-- construction request-to-project bindings and typed project results.
+- construction request-to-project bindings and typed project results;
+- the books of each state (v18): its closed fiscal days and months, see [Government](../architecture/government.md#the-books-of-the-state). A v17 extension loads with empty books.
 
 Land-force snapshot v4 also stores native formation-to-battle-view bindings and
 retreat continuation state. The corresponding armies, regiments, active battles,

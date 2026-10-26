@@ -477,9 +477,6 @@ event_show_odds;Probabilidades del evento
 value_mod_product;
 value_mod_sum;
 value_mod_sum_factor;
-admin_explain_1;
-admin_explain_2;
-admin_explain_3;
 factory_condition_1;
 factory_condition_2;
 factory_condition_3;
@@ -1030,8 +1027,6 @@ et_on_po_accepted;
 alice_no_possible_units;
 alice_debt_spending;
 alice_loan_size;
-alice_currently_bankrupt;
-alice_no_loans_possible;
 alice_rf_demands_enforced_trigger;
 alice_rf_demands_enforced_effect;
 alice_rf_siege_won_trigger;

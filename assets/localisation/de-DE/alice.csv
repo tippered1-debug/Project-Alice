@@ -477,9 +477,6 @@ event_show_odds;Quoten des Ereignisses
 value_mod_product;Der Wert $val$ ist das Produkt von:
 value_mod_sum;Der Wert $val$ ist die Summe von:
 value_mod_sum_factor;Der Wert $val$ ist $x$ mal die Summe von:
-admin_explain_1;Verwaltungseffizienzmodifikator von $val$
-admin_explain_2;Auf das Verhältnis nichtkolonialer Bürokraten angewendet: $val$
-admin_explain_3;Zum erforderlichen Prozentsatz: $val$ (Basis $x$ + $y$ aus Reformen)
 factory_condition_1;Die Nation ist zivilisiert
 factory_condition_2;Dies ist kein Kolonialstaat
 factory_condition_3;Die Regierungspartei erlaubt den Bau von Fabriken
@@ -1031,8 +1028,6 @@ et_on_po_accepted;Die Auswirkungen, die sich aus der Annahme eines Friedensangeb
 alice_no_possible_units;Es können keine möglichen Einheiten gebaut werden und es befinden sich keine Einheiten im Bau.
 alice_debt_spending;Schuldenausgaben aktivieren/deaktivieren
 alice_loan_size;Unser aktueller maximaler Kredit beträgt $x$. Höhere Schulden führen dazu, dass wir bankrott gehen
-alice_currently_bankrupt;Wir sind bankrott (bis $x$)
-alice_no_loans_possible;Derzeit können wir keine Kredite aufnehmen
 alice_rf_demands_enforced_trigger;Die Rebellen werden ihre Forderungen nur dann durchsetzen, wenn:
 alice_rf_demands_enforced_effect;Sobald die Rebellen ihre Forderungen durchsetzen, werden sie den folgenden Effekt anwenden:
 alice_rf_siege_won_trigger;Wenn ein Rebell eine Belagerung gewinnt, wird beispielsweise in Ihrer Hauptstadt $x$ Folgendes überprüft:

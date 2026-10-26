@@ -543,9 +543,6 @@ event_show_odds;Odds of the event
 value_mod_product;Value $val$ is the product of:
 value_mod_sum;Value $val$ is the sum of:
 value_mod_sum_factor;Value $val$ is $x$ times the sum of:
-admin_explain_1;Administrative efficiency modifier of $val$
-admin_explain_2;Applied to the ratio of non-colonial bureaucrats: $val$
-admin_explain_3;To the required percentage: $val$ (base $x$ + $y$ from reforms)
 factory_condition_1;The nation is civilized
 factory_condition_2;This is not a colonial state
 factory_condition_3;The ruling party allows building factories
@@ -1286,16 +1283,10 @@ CANBUILD_FORCEDISARM;Nation has not been disarmed.
 alice_debt_spending;Enable/disable debt spending
 alice_loan_size;Our current maximum loan is $x$. Debt greater than that will cause us to go bankrupt
 alice_loan_size_mod;Max loan free money modifier: ?G+$x$
-capitalists_savings_ratio;Capitalists saving ratio: ?G$x$?!
-middle_class_savings_ratio;Middle class saving ratio: ?G$x$?!
-farmers_savings_ratio;Farmers saving ratio: ?G$x$?!
-landowners_savings_ratio;Landowners saving ratio: ?G$x$?!
 capitalists_investment_ratio;Capitalists investment ratio: ?G$x$?!
 middle_class_investment_ratio;Middle class investment ratio: ?G$x$?!
 farmers_investment_ratio;Farmers investment ratio: ?G$x$?!
 landowners_investment_ratio;Landowners investment ratio: ?G$x$?!
-alice_currently_bankrupt;We are bankrupt (until $x$)
-alice_no_loans_possible;We are currently unable to take loans
 alice_rf_demands_enforced_trigger;The rebels will only enforce their demands if:
 alice_rf_demands_enforced_effect;Once the rebels enforce their demands they will apply the following effect:
 alice_rf_siege_won_trigger;If a rebel wins a siege, the following is checked for, for example in your capital $x$:
@@ -1679,16 +1670,13 @@ alice_factory_type_tab;Factory types
 alice_player_date_sync;Player $name$ ($country$), last command: $date$
 alice_only_host_speed;Only host can change speed
 alice_host_date;Host date: $date$
-alice_budget_gold;Gold Mines
 alice_budget_construction;Construction
 alice_budget_army_upkeep;Army Upkeep
 alice_budget_navy_upkeep;Navy Upkeep
 alice_budget_domestic_investment;Investment Grants
 alice_budget_debt_service;Debt Service
-alice_budget_diplo_income;Diplomatic
 alice_budget_diplo_expenses;Diplomatic
 alice_budget_taxes;Taxes
-alice_budget_indemnities;War Indemnities
 alice_budget_subjects;Income from Subjects
 alice_budget_item;Item
 alice_budget_amount;Amount
@@ -1696,11 +1684,6 @@ alice_budget_minimum_button;Set value to minimum
 alice_budget_maximum_button;Set value to maximum
 alice_budget_decrease_button;Decrease setting by 10 (hold shift for fine control)
 alice_budget_increase_button;Increase setting by 10 (hold shift for fine control)
-alice_budget_max;Max $x$
-alice_budget_min;Min $x$
-alice_budget_overlord;Taxes to overlord
-alice_budget_expand_tt;Show detailed breakdown
-alice_budget_contract_tt;Hide detailed breakdown
 alice_budget_admin_eff1;Admin.
 alice_budget_admin_eff2;Efficiency:
 alice_budget_chart_top;100%
@@ -1712,9 +1695,6 @@ alice_budget_debt;Debt
 alice_budget_total_debt;Total:
 alice_budget_max_debt;Maximum:
 alice_budget_debt_enable;Enable
-alice_budget_tariffs_import;Import Duties
-alice_budget_tariffs_export;Export Duties
-alice_budget_overseas_maintanance;Colonial
 alice_budget_social_spending;Benefits
 tb_suppression_points;Suppression points:
 aristocrat_reinvestment;Aristocrats reinvestment rate

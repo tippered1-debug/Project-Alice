@@ -439,9 +439,18 @@ void implement(sys::state& state, dcon::nation_id nation, sys::date date) {
 	if(policy::law_matches(state, nation, target, date)) return;
 	auto next_bill = state.world.nation_get_next_policy_bill_date(nation);
 	if(next_bill && date < next_bill) return;
+	(void)lay_fiscal_bill(state, nation, target, program(state, nation), date);
+}
 
+finance::bill_notice lay_fiscal_bill(sys::state& state, dcon::nation_id nation, policy::position const& target,
+	policy::position const& whip, sys::date date) {
+	finance::bill_notice notice;
+	notice.laid_on = date;
 	auto instrument = law::create_draft_instrument(state, law::legal_instrument_kind::statute, nation);
-	if(!instrument) return;
+	if(!instrument) {
+		notice.outcome = finance::bill_outcome::invalid;
+		return notice;
+	}
 	auto fiscal = policy::rules_for(state, nation, target);
 	bool valid_bill = true;
 	for(uint8_t bucket = 0; bucket < 3; ++bucket)
@@ -456,7 +465,10 @@ void implement(sys::state& state, dcon::nation_id nation, sys::date date) {
 		if(spec && spec->enacted_by == policy::implementation::statute)
 			valid_bill = law::add_topic_rule(state, instrument, item.topic, item.value) && valid_bill;
 	}
-	if(!valid_bill) return;
+	if(!valid_bill) {
+		notice.outcome = finance::bill_outcome::invalid;
+		return notice;
+	}
 
 	// Each member compares the bill with current law using their own economic
 	// exposure. Party and coalition positions add discipline, but ordinary
@@ -464,7 +476,6 @@ void implement(sys::state& state, dcon::nation_id nation, sys::date date) {
 	auto voters = electorate::voters(state, nation);
 	auto prior = policy::position{};
 	(void)policy::current(state, nation, date, prior);
-	auto agreement = program(state, nation);
 	auto chambers = legislature::deciding_chambers(state, authority_kind::legislate, national(nation), date);
 	for(auto chamber : chambers)
 		for(auto seat : legislature::seats_of(state, chamber)) {
@@ -492,10 +503,14 @@ void implement(sys::state& state, dcon::nation_id nation, sys::date date) {
 			};
 			float utility = own_position && own_salience ? 0.65f * support(*own_position, *own_salience) : 0.0f;
 			if(party) utility += 0.25f * support(platform, {});
-			if(party && state.world.organization_get_party_governing(party)) utility += 0.10f * support(agreement, {});
+			if(party && state.world.organization_get_party_governing(party)) utility += 0.10f * support(whip, {});
+			auto in_favor = utility >= -1.0e-5f;
 			(void)legislature::vote_on_instrument(state, member, chamber, instrument,
-				legislature::motion_kind::enact, utility >= -1.0e-5f, date);
+				legislature::motion_kind::enact, in_favor, date);
+			if(in_favor) ++notice.ayes;
+			else ++notice.noes;
 		}
+	for(auto chamber : chambers) notice.seats += legislature::filled_seats(state, chamber, date);
 
 	state.world.nation_set_next_policy_bill_date(nation, date + 30);
 	dcon::person_id enactor{};
@@ -507,7 +522,10 @@ void implement(sys::state& state, dcon::nation_id nation, sys::date date) {
 			for(auto office : offices_of(state, institution))
 				if(has_authority(state, office, authority_kind::legislate, national(nation), date))
 					if(auto candidate = holder_on(state, office, date)) { enactor = candidate; break; }
-	if(!enactor) return;
+	if(!enactor) {
+		notice.outcome = finance::bill_outcome::no_enactor;
+		return notice;
+	}
 
 	bool assent_ok = true;
 	for(auto institution : institutions_of(state, nation))
@@ -516,8 +534,70 @@ void implement(sys::state& state, dcon::nation_id nation, sys::date date) {
 				auto holder = holder_on(state, office, date);
 				if(!holder || !law::authorized_assent(state, holder, instrument, date)) assent_ok = false;
 			}
-	if(!assent_ok) return;
-	(void)law::authorized_enact(state, enactor, instrument, date, date + 1);
+	if(!assent_ok) {
+		notice.outcome = finance::bill_outcome::no_assent;
+		return notice;
+	}
+	notice.outcome = law::authorized_enact(state, enactor, instrument, date, date + 1)
+		? finance::bill_outcome::enacted : finance::bill_outcome::rejected;
+	return notice;
+}
+
+bool fiscal_topic(policy::topic_id topic) {
+	switch(topic) {
+	case policy::topic_id::income_tax:
+	case policy::topic_id::progressivity:
+	case policy::topic_id::education_appropriation:
+	case policy::topic_id::policing_appropriation:
+	case policy::topic_id::public_works_appropriation:
+	case policy::topic_id::local_government_appropriation:
+		return true;
+	default:
+		return false;
+	}
+}
+
+finance::bill_notice propose_fiscal_bill(sys::state& state, dcon::nation_id nation, policy::position const& proposal, sys::date date) {
+	finance::bill_notice notice;
+	notice.laid_on = date;
+	if(!nation || !law::constitution_of(state, nation)) {
+		notice.outcome = finance::bill_outcome::no_constitution;
+		return notice;
+	}
+	policy::position target;
+	(void)policy::current(state, nation, date, target);
+	for(auto const& item : proposal.entries) {
+		if(!fiscal_topic(item.topic) || !policy::set(target, item.topic, item.value)) {
+			notice.outcome = finance::bill_outcome::invalid;
+			return notice;
+		}
+	}
+	target = policy::clamp(std::move(target));
+	if(policy::law_matches(state, nation, target, date)) {
+		notice.outcome = finance::bill_outcome::unchanged;
+		return notice;
+	}
+	auto next_bill = state.world.nation_get_next_policy_bill_date(nation);
+	if(next_bill && date < next_bill) {
+		notice.outcome = finance::bill_outcome::too_soon;
+		return notice;
+	}
+	notice = lay_fiscal_bill(state, nation, target, target, date);
+	if(notice.outcome == finance::bill_outcome::enacted) {
+		// The government now governs by what it carried: its programme takes the enacted figures.
+		auto governing = coalition(state, nation);
+		if(!governing.empty()) {
+			auto programme = program(state, nation);
+			for(auto const& item : proposal.entries) (void)policy::set(programme, item.topic, item.value);
+			auto agreement = state.world.create_coalition_agreement();
+			state.world.coalition_agreement_set_started_on(agreement, date);
+			state.world.force_create_coalition_agreement_nation(agreement, nation);
+			for(auto party : governing) state.world.force_create_coalition_agreement_member(agreement, party);
+			for(auto const& item : policy::clamp(std::move(programme)).entries)
+				save_agreement_value(state, agreement, item.topic, item.value);
+		}
+	}
+	return notice;
 }
 
 void bootstrap(sys::state& state, dcon::nation_id nation, sys::date date) {

@@ -477,9 +477,6 @@ event_show_odds;Az esemény esélyei
 value_mod_product;A $val$ érték a következő szorzata:
 value_mod_sum;A $val$ érték a következők összege:
 value_mod_sum_factor;A $val$ érték a következők összegének $x$-szorosa:
-admin_explain_1;$val$ adminisztratív hatékonyság módosító
-admin_explain_2;A nem gyarmati bürokraták arányára vonatkoztatva: $val$
-admin_explain_3;A szükséges százalékhoz: $val$ (alap $x$ + $y$ reformokból)
 factory_condition_1;A nemzet civilizált
 factory_condition_2;Ez nem gyarmati állam
 factory_condition_3;A kormánypárt engedélyezi a gyárak építését
@@ -1031,8 +1028,6 @@ et_on_po_accepted;Az ezzel a hadicéllal tett békeajánlat elfogadásának köv
 alice_no_possible_units;Egyetlen lehetséges egységet sem lehet építeni, és nincsenek is építés alatt.
 alice_debt_spending;Adósságköltés engedélyezése/letiltása
 alice_loan_size;Jelenlegi maximális hitelünk $x$. Az ennél nagyobb adósság csődöt fog okozni
-alice_currently_bankrupt;Csődben vagyunk ($x$-ig)
-alice_no_loans_possible;Jelenleg nem áll módunkban hitelt felvenni
 alice_rf_demands_enforced_trigger;A lázadók csak akkor érvényesítik követeléseiket, ha:
 alice_rf_demands_enforced_effect;Amint a lázadók érvényesítik követeléseiket, a következő hatást alkalmazzák:
 alice_rf_siege_won_trigger;Ha egy lázadó nyer egy ostromot, a következőket kell ellenőrizni, például a fővárosban, $x$-ban:

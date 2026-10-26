@@ -477,9 +477,6 @@ event_show_odds;Коэффициенты события
 value_mod_product;Значение $val$ является произведением:
 value_mod_sum;Значение $val$ — это сумма:
 value_mod_sum_factor;Значение $val$ в $x$ раз превышает сумму:
-admin_explain_1;Модификатор административной эффективности $val$
-admin_explain_2;Применимо к соотношению неколониальных бюрократов: $val$
-admin_explain_3;До необходимого процента: $val$ (база $x$+$y$ от реформ)
 factory_condition_1;Нация цивилизованная
 factory_condition_2;Это не колониальное государство
 factory_condition_3;Правящая партия разрешает строить заводы
@@ -1082,8 +1079,6 @@ et_on_po_accepted;Эффекты принятия мирного предлож�
 alice_no_possible_units;Ни один из возможных юнитов не может быть построен, и ни один юнит не находится в стадии строительства.
 alice_debt_spending;Включить/отключить расходование долга
 alice_loan_size;Наш текущий максимальный кредит составляет $x$. Долг, превышающий эту сумму, приведет к тому, что мы обанкротимся.
-alice_currently_bankrupt;Мы банкроты (до $x$)
-alice_no_loans_possible;В настоящее время мы не можем брать кредиты
 alice_rf_demands_enforced_trigger;Повстанцы будут выполнять свои требования только в том случае, если:
 alice_rf_demands_enforced_effect;Как только повстанцы выполнят свои требования, они применят следующий эффект:
 alice_rf_siege_won_trigger;Если повстанец выигрывает осаду, проверяется следующее, например, в вашей столице $x$:
@@ -1403,16 +1398,13 @@ unit_macro_template_tooltip;Шаблон макробилдера юнитов
 alice_player_date_sync;Игрок $name$ ($country$), последняя команда: $date$
 alice_only_host_speed;Только хост может менять скорость
 alice_host_date;Дата у хоста: $date$
-alice_budget_gold;Золотые шахты
 alice_budget_construction;Строительные расходы
 alice_budget_army_upkeep;Содержание армии
 alice_budget_navy_upkeep;Содержание флота
 alice_budget_domestic_investment;Инвестиционные гранты
 alice_budget_debt_service;Обслуживание долга
-alice_budget_diplo_income;Дипломатические доходы
 alice_budget_diplo_expenses;Дипломатические расходы
 alice_budget_taxes;Налоги
-alice_budget_indemnities;От войны
 alice_budget_subjects;От субъектов
 alice_budget_item;Статья
 alice_budget_amount;Размер
@@ -1420,11 +1412,6 @@ alice_budget_minimum_button;Поставить минимум
 alice_budget_maximum_button;Поставить максимум
 alice_budget_decrease_button;Снизить на 10 (при зажатом shift - на 1)
 alice_budget_increase_button;Увеличить на 10 (при зажатом shift - на 1)
-alice_budget_max;Максимум $x$
-alice_budget_min;Минимум $x$
-alice_budget_overlord;Налоги сюзерену
-alice_budget_expand_tt;Показать разбивку
-alice_budget_contract_tt;Скрыть разбивку
 alice_budget_admin_eff1;Администр.
 alice_budget_admin_eff2;Эффективность:
 alice_budget_chart_top;100%
