@@ -9,6 +9,8 @@
 #include "advanced_province_buildings.hpp"
 #include "province_templates.hpp"
 #include "economy_production.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/policy.hpp"
 
 namespace economy {
 
@@ -371,7 +373,7 @@ float domestic_trade_volume(
 		auto market = state.world.state_instance_get_market_from_local_market(sid);
 
 		state.world.market_for_each_trade_route(market, [&](auto trade_route) {
-			trade_and_tariff<dcon::trade_route_id> explanation = explain_trade_route_commodity(state, trade_route, c);
+			trade_route_explanation<dcon::trade_route_id> explanation = explain_trade_route_commodity(state, trade_route, c);
 			if(explanation.origin_nation == s && explanation.target_nation == s)
 				total_volume += explanation.amount_origin;
 		});
@@ -1202,15 +1204,11 @@ bool has_factory(sys::state const& state, dcon::state_instance_id s, dcon::facto
 	return false;
 }
 
-float effective_tariff_import_rate(sys::state const& state, dcon::nation_id n, dcon::market_id m) {
-	auto tariff_efficiency = std::max(0.0f, nations::tariff_efficiency(state, n, m));
-	auto r = tariff_efficiency * float(state.world.nation_get_tariffs_import(n)) / 100.0f;
-	return std::max(r, 0.0f);
+float effective_tariff_import_rate(sys::state const& state, dcon::nation_id n) {
+	return governance::finance::enacted_rate(state, governance::policy::topic_id::import_tariff, n, state.current_date);
 }
-float effective_tariff_export_rate(sys::state const& state, dcon::nation_id n, dcon::market_id m) {
-	auto tariff_efficiency = std::max(0.0f, nations::tariff_efficiency(state, n, m));
-	auto r = tariff_efficiency * float(state.world.nation_get_tariffs_export(n)) / 100.0f;
-	return std::max(r, 0.0f);
+float effective_tariff_export_rate(sys::state const& state, dcon::nation_id n) {
+	return governance::finance::enacted_rate(state, governance::policy::topic_id::export_tariff, n, state.current_date);
 }
 
 
@@ -1287,7 +1285,7 @@ market_budget breakdown_market_budget(sys::state const& state, dcon::market_id m
 
 	state.world.for_each_commodity([&](auto cid) {
 		state.world.market_for_each_trade_route(m, [&](auto route){
-			trade_and_tariff<dcon::trade_route_id> details = explain_trade_route_commodity(state, route, cid);
+			trade_route_explanation<dcon::trade_route_id> details = explain_trade_route_commodity(state, route, cid);
 			if(m == details.origin) {
 				result.exports += details.payment_received_per_unit * details.amount_origin;
 			} else {

@@ -20,21 +20,24 @@ described in [Regime architecture and power topology](regime-architecture.md).
 
 **Ideal positions.** A voter's ideal position follows from their position in the economy, against the national median income:
 
-- **Higher income:** a lower tax level and less progressive taxes.
+- **Higher income:** a lower tax level and less progressive taxes, and a higher sales tax.
 - **Public employment:** more of everything public.
 - **Dependents:** more for schooling.
-- **Wealth:** more for policing.
-- **Rural livelihood:** more for public works and local government.
+- **Wealth:** more for policing and defense.
+- **Rural livelihood:** more for public works and local government, and no land tax or export tariff.
+- **Shareholding:** a low profit tax; workers without shares want a higher one.
+- **Employing labor:** a protective import tariff; everyone else a low one.
 
 **Turnout.** Turnout rises with income, wealth, and public employment.
 
 ## Policy space
 
-Parties compete over six dimensions. Each is a lever the fiscal law already has:
+Parties compete over the topics of the policy registry (`governance::policy::topics`). The fiscal ones are:
 
 - **Tax level:** the base rate on wage income, from 0 to 40%.
 - **Progressivity:** from 0 (one rate for all) to 1 (the poor pay 40% of the base rate and the rich pay twice it).
-- **Budget weights:** education, policing, public works, and local government.
+- **Other taxes:** dividend tax, profit tax, sales tax, land tax, resource royalty, and import and export tariffs (see [Taxes](government.md#taxes)).
+- **Budget weights:** education, policing, public works, local government, and defense.
 
 `governance::policy` turns a position into tax rates per stratum and appropriation shares. A position becomes law as a regulation enacted by the office holder empowered to regulate public finance, normally the finance minister.
 

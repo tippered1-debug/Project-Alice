@@ -63,6 +63,11 @@ struct public_debt_service_result {
 	uint32_t newly_defaulted = 0;
 };
 
+// The rate a nation's law in force sets on a tax topic; zero without one.
+float enacted_rate(sys::state const&, policy::topic_id, dcon::nation_id, sys::date);
+// Realized current-day receipts for import/export tariff topics.
+float tax_collected_for_topic(sys::state const&, dcon::nation_id, policy::topic_id, sys::date);
+
 // Reads the enacted national policy rate, records a tax obligation against the
 // exact liable actor, and collects from the supplied operating wallet or bank
 // deposit. Any amount the payment rail cannot settle remains due on the
@@ -71,8 +76,7 @@ policy_tax_result assess_and_collect_topic_tax(sys::state&, policy::topic_id,
 	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
 	float taxable_value, economy::exact_person_economy::account_ref payer_wallet,
 	dcon::deposit_account_id payer_deposit, sys::date date);
-// Assesses a tax defined by a fiscal rule outside the policy-topic registry,
-// such as the existing import/export tariff settings.
+// Assesses and collects a tax at an explicit rate after the caller resolves it.
 policy_tax_result assess_and_collect_tax_at_rate(sys::state&,
 	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor,
 	float taxable_value, float rate,
@@ -88,6 +92,14 @@ dcon::fiscal_action_id authorized_spend_by_institution(sys::state&, dcon::instit
 dcon::fiscal_action_id authorized_spend_exact_person_by_institution(sys::state&, dcon::institution_id authority,
 	dcon::monetary_account_id treasury_account, economy::exact_person_economy::person_key recipient,
 	economy::exact_person_economy::account_ref recipient_account, float amount, sys::date date);
+
+// Pays a private ledger (a person, firm, or household cohort) from the
+// institution's own treasury, such as soldiers' pay. The institution needs
+// `spend_public_funds` over its jurisdiction; cash reserved for its active bids
+// is not available.
+dcon::fiscal_action_id authorized_pay_by_institution(sys::state&, dcon::institution_id authority,
+	dcon::monetary_account_id treasury_account, economy::exact_person_economy::account_ref recipient,
+	float amount, economy::relations::transaction_kind kind, sys::date date);
 
 // Transfers appropriated money from the allocating institution's treasury to
 // a recipient institution's treasury. The allocator needs `appropriate` and

@@ -5,7 +5,10 @@
 #include "actors/ownership.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/accounts/accounts.hpp"
+#include "economy/money.hpp"
 #include "economy/wallets.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/policy.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -222,6 +225,29 @@ void settle_rents(sys::state& state) {
 		state.world.land_lease_set_unpaid_rent(lease, std::max(0.0f, due - paid));
 		state.world.land_lease_set_last_settled(lease, end);
 		if(expired) state.world.land_lease_set_status(lease, uint8_t(lease_status::ended));
+	}
+}
+
+void assess_land_tax(sys::state& state) {
+	if(state.current_date.to_ymd(state.start_date).day != 1) return;
+	std::vector<dcon::land_title_id> titles;
+	state.world.for_each_land_title([&](dcon::land_title_id title) { titles.push_back(title); });
+	std::sort(titles.begin(), titles.end(), [](auto left, auto right) { return left.index() < right.index(); });
+	for(auto title : titles) {
+		auto asset = asset_of(state, title);
+		auto value = asset ? state.world.asset_get_appraised_value(asset) : 0.0f;
+		auto site = state.world.land_title_get_site_from_land_title_site(title);
+		auto province = site ? state.world.site_get_province_from_site_location(site) : dcon::province_id{};
+		auto nation = province ? state.world.province_get_nation_from_province_ownership(province) : dcon::nation_id{};
+		auto owner = owner_of(state, title);
+		// Public land owes the state nothing.
+		if(!(std::isfinite(value) && value > 0.0f) || !nation || !owner
+			|| state.world.economic_actor_get_institution_from_institution_actor(owner)) continue;
+		auto settlement = economy::accounts::first_settlement_for(state, owner);
+		auto wallet = economy::wallets::account_for(state, owner, settlement ? settlement : economy::money);
+		if(!wallet) continue;
+		(void)governance::finance::assess_and_collect_topic_tax(state, governance::policy::topic_id::land_tax,
+			nation, owner, value / 12.0f, wallet, {}, state.current_date);
 	}
 }
 

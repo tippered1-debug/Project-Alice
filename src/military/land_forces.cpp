@@ -1641,4 +1641,32 @@ uint64_t canonical_checksum(sys::state const& state) {
 
 void clear_store(sys::state& state) { state.land_forces.reset(); }
 
+std::vector<stable_id> formations_of(sys::state const& state, dcon::nation_id owner) {
+	std::vector<stable_id> result;
+	if(!state.land_forces || !owner) return result;
+	for(auto const& unit : ensure(state)->formations)
+		if(unit.owner == owner && unit.status != formation_status::destroyed) result.push_back(unit.id);
+	return result;
+}
+
+std::vector<stockpile> stockpiles_of(sys::state const& state, dcon::nation_id owner) {
+	std::vector<stockpile> result;
+	if(!state.land_forces || !owner) return result;
+	for(auto const& pile : ensure(state)->stockpiles)
+		if(pile.owner == owner) result.push_back(pile);
+	return result;
+}
+
+dcon::economic_actor_id stockpile_custodian(sys::state const& state, dcon::nation_id owner) {
+	return state.land_forces && owner ? inventory_owner(state, owner) : dcon::economic_actor_id{};
+}
+
+dcon::commodity_id stockpile_commodity(sys::state const& state, stockpile const& pile) {
+	return state.land_forces ? commodity_for_stockpile(state, pile) : dcon::commodity_id{};
+}
+
+double stockpile_stock(sys::state const& state, stockpile const& pile) {
+	return state.land_forces ? stockpile_quantity(state, pile) : 0.0;
+}
+
 } // namespace military::land_forces

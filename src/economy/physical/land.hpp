@@ -54,6 +54,10 @@ float output_share_owed(sys::state const&, dcon::factory_id, sys::date);
 float deliver_output_share(sys::state&, dcon::factory_id, float share_quantity, sys::date);
 // Settles cash rent for every active lease once per rent period.
 void settle_rents(sys::state&);
+// On the first of each month, owners of titled land owe the land tax of the
+// nation that owns the province: a twelfth of the annual rate on the title's
+// appraised value. Public land is exempt.
+void assess_land_tax(sys::state&);
 
 // Sets each farm recipe's output per worker from content: a worker on a
 // reference holding yields reference_food_security times the value of the life

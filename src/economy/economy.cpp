@@ -52,6 +52,7 @@
 #include "economy/social_entitlements.hpp"
 #include "economy/collective_labor.hpp"
 #include "world/spatial_runtime.hpp"
+#include "governance/defense.hpp"
 #include "governance/public_administration.hpp"
 #include "governance/offices.hpp"
 #include "governance/government.hpp"
@@ -802,8 +803,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 		ankerl::unordered_dense::map<int32_t, bool> direct_block;
 		ankerl::unordered_dense::map<int32_t, bool> trade_closed;
-		ankerl::unordered_dense::map<int32_t, bool> direct_no_tariffs;
-		ankerl::unordered_dense::map<int32_t, bool> no_tariffs;
 
 		// US3AC9. Wartime embargoes
 
@@ -875,70 +874,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			});
 		});
 
-		// US3AC15. Equal/unequal trade treaties
-		state.world.for_each_unilateral_relationship([&](auto rel) {
-			if(state.world.unilateral_relationship_get_no_tariffs_until(rel)) {
-				dcon::nation_id n1 = state.world.unilateral_relationship_get_source(rel);
-				dcon::nation_id n2 = state.world.unilateral_relationship_get_target(rel);
-
-				auto index_pair = n1.index() * state.world.nation_size() + n2.index();
-				direct_no_tariffs[index_pair] = true;
-			}
-		});
-		// Reflexivity of free trade
-		state.world.for_each_nation([&](auto nid) {
-			auto index_pair = nid.index() * state.world.nation_size() + nid.index();
-			direct_no_tariffs[index_pair] = true;
-		});
-		state.world.for_each_nation([&](auto nid) {
-			dcon::nation_id sphere = state.world.nation_get_in_sphere_of(nid);
-			if(sphere) {
-				auto index_pair = nid.index() * state.world.nation_size() + sphere.index();
-				direct_no_tariffs[index_pair] = true;
-			}
-		});
-		state.world.for_each_overlord([&](auto ovid) {
-			dcon::nation_id subject = state.world.overlord_get_subject(ovid);
-			dcon::nation_id overlord = state.world.overlord_get_ruler(ovid);
-			auto index_pair = subject.index() * state.world.nation_size() + overlord.index();
-			direct_no_tariffs[index_pair] = true;
-		});
-
-		state.world.for_each_nation([&](auto A) {
-			dcon::nation_id market_leader_A = market_leader.get(A);
-			state.world.for_each_nation([&](auto B) {
-				dcon::nation_id market_leader_B = market_leader.get(B);
-
-				int32_t base_pair = A.index() * state.world.nation_size() + B.index();
-
-				int32_t indices[3]{
-					market_leader_A.index() * int32_t(state.world.nation_size()) + market_leader_B.index(),
-					market_leader_A.index() * int32_t(state.world.nation_size()) + B.index(),
-					A.index() * int32_t(state.world.nation_size()) + market_leader_B.index(),
-				};
-
-				if(market_leader_A && market_leader_B) {
-					if(direct_no_tariffs.find(indices[0]) != direct_no_tariffs.end()) {
-						no_tariffs[base_pair] = true;
-					}
-				}
-				if(market_leader_A) {
-					if(direct_no_tariffs.find(indices[1]) != direct_no_tariffs.end()) {
-						no_tariffs[base_pair] = true;
-					}
-				}
-				if(market_leader_B) {
-					if(direct_no_tariffs.find(indices[2]) != direct_no_tariffs.end()) {
-						no_tariffs[base_pair] = true;
-					}
-				}
-				{
-					if(direct_no_tariffs.find(base_pair) != direct_no_tariffs.end()) {
-						no_tariffs[base_pair] = true;
-					}
-				}
-			});
-		});
 
 		// update cache:
 
@@ -955,7 +890,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			auto controller_B = state.world.province_get_nation_from_province_control(capital_B);
 
 			auto index = controller_A.index() * state.world.nation_size() + controller_B.index();
-			auto index_T = controller_B.index() * state.world.nation_size() + controller_A.index();
 
 			if(trade_closed.find(index) != trade_closed.end()) {
 				state.world.trade_route_set_is_trade_forbidden(route, true);
@@ -963,17 +897,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 				state.world.trade_route_set_is_trade_forbidden(route, false);
 			}
 
-			if(no_tariffs.find(index) != no_tariffs.end()) {
-				state.world.trade_route_set_is_tariff_applied_0(route, false);
-			} else {
-				state.world.trade_route_set_is_tariff_applied_0(route, true);
-			}
-
-			if(no_tariffs.find(index_T) != no_tariffs.end()) {
-				state.world.trade_route_set_is_tariff_applied_1(route, false);
-			} else {
-				state.world.trade_route_set_is_tariff_applied_1(route, true);
-			}
 		});
 	};
 
@@ -997,6 +920,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 	// Factories order inputs against their canonical firm accounts and inventories.
 	update_production_consumption(state);
+	// The military command bids for the army's stores before today's clearing.
+	governance::defense::post_procurement_bids(state);
 	// Production sees only inventory that has actually arrived at the factory.
 		economy::physical::factory_inputs::fulfill(state);
 
@@ -1058,6 +983,8 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 			governance::public_administration::allocate_budget(state, nation.id);
 			governance::public_administration::plan_public_staffing(state, nation.id);
 		}
+		// The military command pays the armed forces from what it was allocated.
+		governance::defense::process_payroll(state);
 		governance::public_administration::synchronize_local_governments(state);
 	}
 
@@ -1107,6 +1034,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 		::economy::physical::freight_market::process_pending_requests(state);
 		::economy::physical::shipments::process_arrivals(state);
 		governance::public_administration::deliver_public_services(state);
+		governance::defense::take_delivery(state);
 		::economy::capital_projects::process_projects(state);
 	}
 
@@ -1118,6 +1046,7 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 	::economy::collective_labor::process(state);
 	update_factories_production(state);
 	::economy::physical::land::settle_rents(state);
+	::economy::physical::land::assess_land_tax(state);
 	::economy::firm_agency::post_output_asks(state);
 	::economy::physical::labor_dynamics::process_factory_labor_dynamics(state);
 	::economy::physical::job_market::process(state);
@@ -1165,12 +1094,6 @@ void daily_update(sys::state& state, bool presimulation, float presimulation_sta
 
 
 	collect_taxes(state);
-
-	for(auto mid : state.world.in_market) {
-		// This DCON field is a legacy market projection. Actual customs liabilities
-		// are assessed against buyer/seller accounts on concrete cross-border fills.
-		mid.set_tariff_collected(0.f);
-	};
 
 
 	sanity_check(state);
@@ -1487,38 +1410,16 @@ float estimate_gold_income(sys::state& state, dcon::nation_id n) {
 	return amount * state.defines.gold_to_cash_rate;
 }
 
-float estimate_tariff_import_income(sys::state& state, dcon::nation_id n) {
-	float result = 0.f;
-	// The tariff breakdown is displayed every frame. Build the network
-	// shipment allocation once for the whole estimate; rebuilding it inside
-	// explain_trade_route_commodity for every route/commodity made the UI
-	// allocate and clear the entire trade network thousands of times per second.
-	auto const shipment_allocation = world_trade::clear_trade_shipments(state);
-	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		state.world.for_each_trade_route([&](auto route) {
-			if(!economy::is_trade_route_relevant(state, route, n)) return;
-			trade_and_tariff route_data = explain_trade_route_commodity(state, route, cid, shipment_allocation);
-			if(route_data.target_nation == n) {
-				result += route_data.tariff_target;
-			}
-		});
-	});
-	return result;
+float collected_tariff_import_income(sys::state& state, dcon::nation_id n) {
+	return governance::finance::tax_collected_for_topic(state, n, governance::policy::topic_id::import_tariff, state.current_date);
 }
 
-float estimate_tariff_export_income(sys::state& state, dcon::nation_id n) {
-	float result = 0.f;
-	auto const shipment_allocation = world_trade::clear_trade_shipments(state);
-	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		state.world.for_each_trade_route([&](auto route) {
-			if(!economy::is_trade_route_relevant(state, route, n)) return;
-			trade_and_tariff route_data = explain_trade_route_commodity(state, route, cid, shipment_allocation);
-			if(route_data.origin_nation == n) {
-				result += route_data.tariff_origin;
-			}
-		});
-	});
-	return result;
+float collected_tariff_export_income(sys::state& state, dcon::nation_id n) {
+	return governance::finance::tax_collected_for_topic(state, n, governance::policy::topic_id::export_tariff, state.current_date);
+}
+
+float collected_tariff_income(sys::state& state, dcon::nation_id n) {
+	return collected_tariff_import_income(state, n) + collected_tariff_export_income(state, n);
 }
 
 float estimate_war_subsidies_income(sys::state& state, dcon::nation_id n) {
@@ -1716,7 +1617,7 @@ float unit_construction_progress(sys::state& state, dcon::province_naval_constru
 // This is used specifically in AI calculations, and omits subject income calculation because that requires iterating over all subjects and calculating their tax income seperately, will will cause OOS when parallelized over nations in ai::update_budget
 float estimate_daily_income_ai(sys::state& state, dcon::nation_id n) {
 	auto tax = explain_tax_income(state, n);
-	auto tariff = estimate_tariff_export_income(state, n) + estimate_tariff_import_income(state, n);
+	auto tariff = collected_tariff_export_income(state, n) + collected_tariff_import_income(state, n);
 	auto gold = estimate_gold_income(state, n);
 	auto diplomacy = estimate_war_subsidies_income(state, n) + estimate_reparations_income(state, n);
 	return tax.mid + tax.poor + tax.rich + tariff + gold + diplomacy;
@@ -1728,7 +1629,7 @@ float estimate_daily_income_ai(sys::state& state, dcon::nation_id n) {
  */
 float estimate_daily_income(sys::state& state, dcon::nation_id n) {
 	auto tax = explain_tax_income(state, n);
-	auto tariff = estimate_tariff_export_income(state, n) + estimate_tariff_import_income(state, n);
+	auto tariff = collected_tariff_export_income(state, n) + collected_tariff_import_income(state, n);
 	auto gold = estimate_gold_income(state, n);
 	auto diplomacy = estimate_diplomatic_income(state, n);
 	return tax.mid + tax.poor + tax.rich + tariff + gold + diplomacy;
@@ -1751,16 +1652,9 @@ command::budget_settings_data budget_minimums(sys::state& state, dcon::nation_id
 	result.poor_tax = 0;
 	result.middle_tax = 0;
 	result.rich_tax = 0;
-	result.tariffs_import = 0;
-	result.tariffs_export = 0;
 	result.domestic_investment = 0;
 	result.overseas = 0;
 
-	{
-		auto min_tariff = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::min_tariff));
-		result.tariffs_import = int8_t(std::clamp(min_tariff, 0, 100));
-		result.tariffs_export = int8_t(std::clamp(min_tariff, 0, 100));
-	}
 	{
 		auto min_tax = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::min_tax));
 		result.poor_tax = int8_t(std::clamp(min_tax, 0, 100));
@@ -1797,20 +1691,10 @@ command::budget_settings_data budget_maximums(sys::state& state, dcon::nation_id
 	result.poor_tax = 100;
 	result.middle_tax = 100;
 	result.rich_tax = 100;
-	result.tariffs_import = 100;
-	result.tariffs_export = 100;
 	result.domestic_investment = 100;
 	result.overseas = 100;
 	result.subsidies = 100;
 
-	{
-		auto min_tariff = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::min_tariff));
-		auto max_tariff = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::max_tariff));
-		max_tariff = std::max(min_tariff, max_tariff);
-
-		result.tariffs_import = int8_t(std::clamp(max_tariff, 0, 100));
-		result.tariffs_export = int8_t(std::clamp(max_tariff, 0, 100));
-	}
 	{
 		auto min_tax = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::min_tax));
 		auto max_tax = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::max_tax));
@@ -1854,21 +1738,6 @@ command::budget_settings_data budget_maximums(sys::state& state, dcon::nation_id
 	return result;
 }
 void bound_budget_settings(sys::state& state, dcon::nation_id n) {
-	{
-		auto min_tariff = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::min_tariff));
-		auto max_tariff = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::max_tariff));
-		max_tariff = std::max(min_tariff, max_tariff);
-
-		{
-			auto& tariff = state.world.nation_get_tariffs_import(n);
-			state.world.nation_set_tariffs_import(n, int8_t(std::clamp(std::clamp(int32_t(tariff), min_tariff, max_tariff), 0, 100)));
-		}
-
-		{
-			auto& tariff = state.world.nation_get_tariffs_export(n);
-			state.world.nation_set_tariffs_export(n, int8_t(std::clamp(std::clamp(int32_t(tariff), min_tariff, max_tariff), 0, 100)));
-		}
-	}
 	{
 		auto min_tax = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::min_tax));
 		auto max_tax = int32_t(100.0f * state.world.nation_get_modifier_values(n, sys::national_mod_offsets::max_tax));

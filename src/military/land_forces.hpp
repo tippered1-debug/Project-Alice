@@ -261,4 +261,13 @@ snapshot export_snapshot(sys::state const&);
 bool import_snapshot(sys::state&, snapshot const&);
 void clear_store(sys::state&);
 
+// Read access for defense finance. Formations are the owner's not destroyed
+// ones; the custodian is the actor that holds the owner's warehouse and depot
+// inventory; a stockpile's stock is what that inventory holds at its site.
+std::vector<stable_id> formations_of(sys::state const&, dcon::nation_id owner);
+std::vector<stockpile> stockpiles_of(sys::state const&, dcon::nation_id owner);
+dcon::economic_actor_id stockpile_custodian(sys::state const&, dcon::nation_id owner);
+dcon::commodity_id stockpile_commodity(sys::state const&, stockpile const&);
+double stockpile_stock(sys::state const&, stockpile const&);
+
 } // namespace military::land_forces

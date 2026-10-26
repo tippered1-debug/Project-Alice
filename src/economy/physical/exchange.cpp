@@ -5,11 +5,18 @@
 #include "inventory.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/economy_stats.hpp"
+#include "economy/households.hpp"
+#include "economy/wallets.hpp"
 #include "economy/relations/relations.hpp"
 #include "governance/finance/finance.hpp"
+#include "governance/governance.hpp"
 #include "governance/policy.hpp"
+#include "governance/public_administration.hpp"
+#include "persons/exact_population.hpp"
+#include "persons/persons.hpp"
 #include "system_state.hpp"
 #include "money.hpp"
+#include "nations/nations.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -28,25 +35,31 @@ dcon::nation_id customs_jurisdiction(sys::state const& state, dcon::site_id site
 		: dcon::nation_id{};
 }
 
-bool customs_duty_applies(sys::state const& state, dcon::site_id source,
-	dcon::site_id destination, bool export_duty) {
-	auto source_market = concrete_market::market_for_site(state, source);
-	auto destination_market = concrete_market::market_for_site(state, destination);
-	if(!source_market || !destination_market) return true;
-	auto route = state.world.get_trade_route_by_province_pair(source_market,
-		destination_market);
-	if(!route || !state.world.trade_route_is_valid(route)) return true;
-	auto market_0 = state.world.trade_route_get_connected_markets(route, 0);
-	auto market_1 = state.world.trade_route_get_connected_markets(route, 1);
-	if(source_market == market_0)
-		return export_duty
-			? state.world.trade_route_get_is_tariff_applied_0(route)
-			: state.world.trade_route_get_is_tariff_applied_1(route);
-	if(source_market == market_1)
-		return export_duty
-			? state.world.trade_route_get_is_tariff_applied_1(route)
-			: state.world.trade_route_get_is_tariff_applied_0(route);
-	return true;
+bool direct_no_tariffs(sys::state const& state, dcon::nation_id source, dcon::nation_id target) {
+	if(!source || !target) return false;
+	if(source == target) return true;
+	auto relation = state.world.get_unilateral_relationship_by_unilateral_pair(target, source);
+	if(relation && state.world.unilateral_relationship_get_no_tariffs_until(relation))
+		return true;
+	if(state.world.nation_get_in_sphere_of(source) == target) return true;
+	auto overlord = state.world.nation_get_overlord_as_subject(source);
+	return overlord && state.world.overlord_get_ruler(overlord) == target;
+}
+
+bool no_tariffs_between(sys::state const& state, dcon::nation_id source, dcon::nation_id target) {
+	auto source_leader = nations::get_market_leader(state, source);
+	auto target_leader = nations::get_market_leader(state, target);
+	return direct_no_tariffs(state, source, target)
+		|| direct_no_tariffs(state, source_leader, target_leader)
+		|| direct_no_tariffs(state, source_leader, target)
+		|| direct_no_tariffs(state, source, target_leader);
+}
+
+bool customs_duty_applies(sys::state const& state, dcon::nation_id exporter,
+	dcon::nation_id importer, bool export_duty) {
+	return export_duty
+		? !no_tariffs_between(state, exporter, importer)
+		: !no_tariffs_between(state, importer, exporter);
 }
 
 void assess_resource_royalty(sys::state& state, dcon::site_id site, dcon::commodity_id commodity,
@@ -78,16 +91,64 @@ void assess_customs_duties(sys::state& state, dcon::economic_actor_id buyer,
 	if(!exporter || !importer || exporter == importer) return;
 	auto export_market = concrete_market::market_for_site(state, source);
 	auto import_market = concrete_market::market_for_site(state, destination);
-	if(export_market && customs_duty_applies(state, source, destination, true)) {
-		auto rate = economy::effective_tariff_export_rate(state, exporter, export_market);
-		(void)governance::finance::assess_and_collect_tax_at_rate(state, exporter, seller,
-			declared_value, rate, seller_wallet, seller_deposit, date);
-	}
-	if(import_market && customs_duty_applies(state, source, destination, false)) {
-		auto rate = economy::effective_tariff_import_rate(state, importer, import_market);
-		(void)governance::finance::assess_and_collect_tax_at_rate(state, importer, buyer,
-			declared_value, rate, buyer_wallet, buyer_deposit, date);
-	}
+	// Rates are those of each nation's enacted tariff law; without one, nothing is due.
+	if(export_market && customs_duty_applies(state, exporter, importer, true))
+		(void)governance::finance::assess_and_collect_topic_tax(state,
+			governance::policy::topic_id::export_tariff, exporter, seller,
+			declared_value, seller_wallet, seller_deposit, date);
+	if(import_market && customs_duty_applies(state, exporter, importer, false))
+		(void)governance::finance::assess_and_collect_topic_tax(state,
+			governance::policy::topic_id::import_tariff, importer, buyer,
+			declared_value, buyer_wallet, buyer_deposit, date);
+}
+
+void assess_sales_tax(sys::state& state, dcon::economic_actor_id buyer, dcon::site_id destination,
+	float purchase_value, economy::exact_person_economy::account_ref buyer_wallet,
+	dcon::deposit_account_id buyer_deposit, sys::date date) {
+	if(!buyer || !state.world.economic_actor_is_valid(buyer)
+		|| !std::isfinite(purchase_value) || purchase_value <= 0.0f) return;
+	auto final_consumer = bool(state.world.economic_actor_get_person_from_person_actor(buyer))
+		|| economy::households::is_household(state, buyer);
+	if(!final_consumer) return;
+	auto nation = customs_jurisdiction(state, destination);
+	if(!nation) return;
+	(void)governance::finance::assess_and_collect_topic_tax(state,
+		governance::policy::topic_id::sales_tax, nation, buyer, purchase_value,
+		buyer_wallet, buyer_deposit, date);
+}
+
+void assess_person_sales_tax(sys::state& state, persons::person_key buyer,
+	economy::exact_person_economy::account_ref wallet, dcon::site_id destination,
+	float purchase_value, sys::date date) {
+	if(!std::isfinite(purchase_value) || purchase_value <= 0.0f || !wallet) return;
+	if(auto profile = persons::exact_population::profile_for_person(state, buyer))
+		if(auto actor = persons::actor_for_person(state, profile)) {
+			assess_sales_tax(state, actor, destination, purchase_value, wallet, {}, date);
+			return;
+		}
+	// A person without an economic profile pays through the household sector,
+	// as the wage tax is collected.
+	auto nation = customs_jurisdiction(state, destination);
+	if(!nation) return;
+	auto rate = governance::finance::enacted_rate(state, governance::policy::topic_id::sales_tax, nation, date);
+	if(!(rate > 0.0f)) return;
+	auto due = purchase_value * rate;
+	auto authority = governance::public_administration::tax_authority_for(state, nation);
+	auto treasury = governance::public_administration::tax_treasury_for(state, nation);
+	auto household_actor = governance::public_administration::household_sector_actor(state, nation);
+	auto household_account = governance::public_administration::household_sector_account(state, nation);
+	if(!authority || !treasury || !household_actor || !household_account || !(due > 1.0e-6f)) return;
+	auto assessment = governance::finance::authorized_assess_tax_by_institution(state, authority,
+		household_actor, treasury, due, date, date);
+	auto obligation = assessment
+		? state.world.fiscal_action_get_obligation_from_fiscal_action_resulting_obligation(assessment)
+		: dcon::obligation_id{};
+	if(!obligation) return;
+	auto paid = std::min(due, economy::wallets::spendable(state, wallet));
+	if(paid <= 1.0e-6f || !economy::exact_person_economy::transfer(state, wallet,
+		economy::exact_person_economy::account_ref::from_dcon(household_account), paid,
+		relations::transaction_kind::tax_payment, date)) return;
+	(void)governance::finance::pay_tax(state, obligation, household_account, treasury, paid, date);
 }
 
 dcon::commodity_id settlement_for_purchase(sys::state const& state, dcon::economic_actor_id buyer) {

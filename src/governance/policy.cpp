@@ -26,7 +26,13 @@ constexpr topic_definition registry[] = {
 	{ topic_id::unemployment_duration, "unemployment_duration", value_kind::ordinal, implementation::statute, jurisdiction_kind::national, 0.0f, 365.0f, 0, int32_t(0) },
 	{ topic_id::dividend_tax, "dividend_tax", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.6f, 0, 0.0f },
 	{ topic_id::resource_royalty, "resource_royalty", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.8f, 0, 0.0f },
-	{ topic_id::bank_reserve_requirement, "bank_reserve_requirement", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.5f, 0, 0.0f }
+	{ topic_id::bank_reserve_requirement, "bank_reserve_requirement", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.5f, 0, 0.0f },
+	{ topic_id::corporate_profit_tax, "corporate_profit_tax", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.6f, 0, 0.0f },
+	{ topic_id::sales_tax, "sales_tax", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.3f, 0, 0.0f },
+	{ topic_id::land_tax, "land_tax", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 0.1f, 0, 0.0f },
+	{ topic_id::import_tariff, "import_tariff", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.0f },
+	{ topic_id::export_tariff, "export_tariff", value_kind::continuous, implementation::statute, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.0f },
+	{ topic_id::defense_appropriation, "defense_appropriation", value_kind::continuous, implementation::appropriation, jurisdiction_kind::national, 0.0f, 1.0f, 0, 0.3f }
 };
 
 float numeric(policy_value const& value) {
@@ -228,6 +234,7 @@ fiscal_rules rules_for(sys::state const& state, dcon::nation_id nation, position
 		else if(service == service_kind::policing || service == service_kind::intelligence
 			|| service == service_kind::counterintelligence) policing_services.push_back(institution);
 		else if(service == service_kind::construction) share = numeric(value_or(value, topic_id::public_works_appropriation));
+		else if(service == service_kind::defense) share = numeric(value_or(value, topic_id::defense_appropriation));
 		if(share > 0.0f) result.shares.push_back({ institution, share });
 	}
 	auto policing_share = numeric(value_or(value, topic_id::policing_appropriation));
@@ -262,11 +269,13 @@ bool current(sys::state const& state, dcon::nation_id nation, sys::date date, po
 			(void)set(result, topic_id::policing_appropriation,
 				numeric(value_or(result, topic_id::policing_appropriation)) + entry.share);
 		else if(service == service_kind::construction) (void)set(result, topic_id::public_works_appropriation, entry.share);
+		else if(service == service_kind::defense) (void)set(result, topic_id::defense_appropriation, entry.share);
 	}
 	for(auto const& spec : topics())
 		if(spec.id != topic_id::income_tax && spec.id != topic_id::progressivity
 			&& spec.id != topic_id::education_appropriation && spec.id != topic_id::policing_appropriation
-			&& spec.id != topic_id::public_works_appropriation && spec.id != topic_id::local_government_appropriation)
+			&& spec.id != topic_id::public_works_appropriation && spec.id != topic_id::local_government_appropriation
+			&& spec.id != topic_id::defense_appropriation)
 			if(auto value = law::effective_topic(state, scope, spec.id, date)) (void)set(result, spec.id, *value);
 	return true;
 }

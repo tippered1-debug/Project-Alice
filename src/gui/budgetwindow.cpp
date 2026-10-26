@@ -657,50 +657,16 @@ void  budgetwindow_main_income_table_t::update(sys::state& state, layout_window_
 	add_section_header(budget_categories::tariffs_import);
 	if(budget_categories::expanded[budget_categories::tariffs_import]) {
 		add_bottom_spacer();
-		auto totals = economy::explain_national_tariff(state, state.local_player_nation, true, false);
-		for(auto& item : totals) {
-			add_budget_row(
-				text::produce_simple_string(state,
-					state.world.national_identity_get_name(
-						state.world.nation_get_identity_from_identity_holder(item.trade_partner)
-					)
-				)
-				+
-				" ("
-				+ 
-				text::produce_simple_string(state,
-					state.world.commodity_get_name(item.commodity)
-				)
-				+
-				")",
-				item.tariff
-			);
-		}
+		add_budget_row(text::produce_simple_string(state, "alice_budget_tariff_collected"),
+			economy::collected_tariff_import_income(state, state.local_player_nation));
 	} 
 	add_neutral_spacer();
 	
 	add_section_header(budget_categories::tariffs_export);
 	if(budget_categories::expanded[budget_categories::tariffs_export]) {
 		add_bottom_spacer();
-		auto totals = economy::explain_national_tariff(state, state.local_player_nation, false, true);
-		for(auto& item : totals) {
-			add_budget_row(
-				text::produce_simple_string(state,
-					state.world.national_identity_get_name(
-						state.world.nation_get_identity_from_identity_holder(item.trade_partner)
-					)
-				)
-				+
-				" ("
-				+
-				text::produce_simple_string(state,
-					state.world.commodity_get_name(item.commodity)
-				)
-				+
-				")",
-				item.tariff
-			);
-		}
+		add_budget_row(text::produce_simple_string(state, "alice_budget_tariff_collected"),
+			economy::collected_tariff_export_income(state, state.local_player_nation));
 	} 
 	add_neutral_spacer();
 
@@ -1367,8 +1333,8 @@ void budgetwindow_main_income_amount_t::on_update(sys::state& state) noexcept {
 	total += tax_info.poor;
 	total += tax_info.mid;
 	total += tax_info.rich;
-	total += economy::estimate_tariff_import_income(state, state.local_player_nation);
-	total += economy::estimate_tariff_export_income(state, state.local_player_nation);
+	total += economy::collected_tariff_import_income(state, state.local_player_nation);
+	total += economy::collected_tariff_export_income(state, state.local_player_nation);
 	total += economy::estimate_gold_income(state, state.local_player_nation);
 	set_text(state, text::prettify_currency(total));
 // END
@@ -2731,8 +2697,8 @@ void budgetwindow_section_header_llbutton_t::on_update(sys::state& state) noexce
 	case budget_categories::poor_tax: set_visible(state, true); break;
 	case budget_categories::middle_tax: set_visible(state, true); break;
 	case budget_categories::rich_tax: set_visible(state, true); break;
-	case budget_categories::tariffs_import: set_visible(state, true); break;
-	case budget_categories::tariffs_export: set_visible(state, true); break;
+	case budget_categories::tariffs_import: set_visible(state, false); break;
+	case budget_categories::tariffs_export: set_visible(state, false); break;
 	case budget_categories::gold: set_visible(state, false); break;
 	case budget_categories::diplomatic_expenses: set_visible(state, false); break;
 	case budget_categories::social: set_visible(state, true); break;
@@ -2761,8 +2727,8 @@ bool budgetwindow_section_header_llbutton_t::button_action(sys::state& state) no
 	case budget_categories::poor_tax: vals.poor_tax = economy::budget_minimums(state, state.local_player_nation).poor_tax; break;
 	case budget_categories::middle_tax: vals.middle_tax = economy::budget_minimums(state, state.local_player_nation).middle_tax; break;
 	case budget_categories::rich_tax: vals.rich_tax = economy::budget_minimums(state, state.local_player_nation).rich_tax; break;
-	case budget_categories::tariffs_import: vals.tariffs_import = economy::budget_minimums(state, state.local_player_nation).tariffs_import; break;
-	case budget_categories::tariffs_export: vals.tariffs_export = economy::budget_minimums(state, state.local_player_nation).tariffs_export; break;
+	case budget_categories::tariffs_import: break;
+	case budget_categories::tariffs_export: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: vals.social_spending = economy::budget_minimums(state, state.local_player_nation).social_spending; break;
@@ -2792,8 +2758,8 @@ void budgetwindow_section_header_lbutton_t::on_update(sys::state& state) noexcep
 	case budget_categories::poor_tax: set_visible(state, true); break;
 	case budget_categories::middle_tax: set_visible(state, true); break;
 	case budget_categories::rich_tax: set_visible(state, true); break;
-	case budget_categories::tariffs_import: set_visible(state, true); break;
-	case budget_categories::tariffs_export: set_visible(state, true); break;
+	case budget_categories::tariffs_import: set_visible(state, false); break;
+	case budget_categories::tariffs_export: set_visible(state, false); break;
 	case budget_categories::gold: set_visible(state, false); break;
 	case budget_categories::diplomatic_expenses: set_visible(state, false); break;
 	case budget_categories::social: set_visible(state, true); break;
@@ -2822,8 +2788,8 @@ bool budgetwindow_section_header_lbutton_t::button_action(sys::state& state) noe
 	case budget_categories::poor_tax: vals.poor_tax = int8_t(std::clamp(state.world.nation_get_poor_tax(state.local_player_nation) - 10, 0, 100)); break;
 	case budget_categories::middle_tax: vals.middle_tax = int8_t(std::clamp(state.world.nation_get_middle_tax(state.local_player_nation) - 10, 0, 100)); break;
 	case budget_categories::rich_tax: vals.rich_tax = int8_t(std::clamp(state.world.nation_get_rich_tax(state.local_player_nation) - 10, 0, 100)); break;
-	case budget_categories::tariffs_import: vals.tariffs_import = int8_t(std::clamp(state.world.nation_get_tariffs_import(state.local_player_nation) - 10, 0, 100)); break;
-	case budget_categories::tariffs_export: vals.tariffs_export = int8_t(std::clamp(state.world.nation_get_tariffs_export(state.local_player_nation) - 10, 0, 100)); break;
+	case budget_categories::tariffs_import: break;
+	case budget_categories::tariffs_export: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: vals.social_spending = int8_t(std::clamp(state.world.nation_get_social_spending(state.local_player_nation) - 10, 0, 100)); break;
@@ -2854,8 +2820,8 @@ bool budgetwindow_section_header_lbutton_t::button_shift_action(sys::state& stat
 		case budget_categories::poor_tax: vals.poor_tax = int8_t(std::clamp(state.world.nation_get_poor_tax(state.local_player_nation) - 1, 0, 100)); break;
 		case budget_categories::middle_tax: vals.middle_tax = int8_t(std::clamp(state.world.nation_get_middle_tax(state.local_player_nation) - 1, 0, 100)); break;
 		case budget_categories::rich_tax: vals.rich_tax = int8_t(std::clamp(state.world.nation_get_rich_tax(state.local_player_nation) - 1, 0, 100)); break;
-		case budget_categories::tariffs_import: vals.tariffs_import = int8_t(std::clamp(state.world.nation_get_tariffs_import(state.local_player_nation) - 1, 0, 100)); break;
-		case budget_categories::tariffs_export: vals.tariffs_export = int8_t(std::clamp(state.world.nation_get_tariffs_export(state.local_player_nation) - 1, 0, 100)); break;
+		case budget_categories::tariffs_import: break;
+		case budget_categories::tariffs_export: break;
 		case budget_categories::gold:  break;
 		case budget_categories::diplomatic_expenses:  break;
 		case budget_categories::social: vals.social_spending = int8_t(std::clamp(state.world.nation_get_social_spending(state.local_player_nation) - 1, 0, 100)); break;
@@ -2885,8 +2851,8 @@ void budgetwindow_section_header_rbutton_t::on_update(sys::state& state) noexcep
 	case budget_categories::poor_tax: set_visible(state, true); break;
 	case budget_categories::middle_tax: set_visible(state, true); break;
 	case budget_categories::rich_tax: set_visible(state, true); break;
-	case budget_categories::tariffs_import: set_visible(state, true); break;
-	case budget_categories::tariffs_export: set_visible(state, true); break;
+	case budget_categories::tariffs_import: set_visible(state, false); break;
+	case budget_categories::tariffs_export: set_visible(state, false); break;
 	case budget_categories::gold: set_visible(state, false); break;
 	case budget_categories::diplomatic_expenses: set_visible(state, false); break;
 	case budget_categories::social: set_visible(state, true); break;
@@ -2915,8 +2881,8 @@ bool budgetwindow_section_header_rbutton_t::button_action(sys::state& state) noe
 	case budget_categories::poor_tax: vals.poor_tax = int8_t(std::clamp(state.world.nation_get_poor_tax(state.local_player_nation) + 10, 0, 100)); break;
 	case budget_categories::middle_tax: vals.middle_tax = int8_t(std::clamp(state.world.nation_get_middle_tax(state.local_player_nation) + 10, 0, 100)); break;
 	case budget_categories::rich_tax: vals.rich_tax = int8_t(std::clamp(state.world.nation_get_rich_tax(state.local_player_nation) + 10, 0, 100)); break;
-	case budget_categories::tariffs_import: vals.tariffs_import = int8_t(std::clamp(state.world.nation_get_tariffs_import(state.local_player_nation) + 10, 0, 100)); break;
-	case budget_categories::tariffs_export: vals.tariffs_export = int8_t(std::clamp(state.world.nation_get_tariffs_export(state.local_player_nation) + 10, 0, 100)); break;
+	case budget_categories::tariffs_import: break;
+	case budget_categories::tariffs_export: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: vals.social_spending = int8_t(std::clamp(state.world.nation_get_social_spending(state.local_player_nation) + 10, 0, 100)); break;
@@ -2947,8 +2913,8 @@ bool budgetwindow_section_header_rbutton_t::button_shift_action(sys::state& stat
 		case budget_categories::poor_tax: vals.poor_tax = int8_t(std::clamp(state.world.nation_get_poor_tax(state.local_player_nation) + 1, 0, 100)); break;
 		case budget_categories::middle_tax: vals.middle_tax = int8_t(std::clamp(state.world.nation_get_middle_tax(state.local_player_nation) + 1, 0, 100)); break;
 		case budget_categories::rich_tax: vals.rich_tax = int8_t(std::clamp(state.world.nation_get_rich_tax(state.local_player_nation) + 1, 0, 100)); break;
-		case budget_categories::tariffs_import: vals.tariffs_import = int8_t(std::clamp(state.world.nation_get_tariffs_import(state.local_player_nation) + 1, 0, 100)); break;
-		case budget_categories::tariffs_export: vals.tariffs_export = int8_t(std::clamp(state.world.nation_get_tariffs_export(state.local_player_nation) + 1, 0, 100)); break;
+		case budget_categories::tariffs_import: break;
+		case budget_categories::tariffs_export: break;
 		case budget_categories::gold:  break;
 		case budget_categories::diplomatic_expenses:  break;
 		case budget_categories::social: vals.social_spending = int8_t(std::clamp(state.world.nation_get_social_spending(state.local_player_nation) + 1, 0, 100)); break;
@@ -2978,8 +2944,8 @@ void budgetwindow_section_header_rrbutton_t::on_update(sys::state& state) noexce
 	case budget_categories::poor_tax: set_visible(state, true); break;
 	case budget_categories::middle_tax: set_visible(state, true); break;
 	case budget_categories::rich_tax: set_visible(state, true); break;
-	case budget_categories::tariffs_import: set_visible(state, true); break;
-	case budget_categories::tariffs_export: set_visible(state, true); break;
+	case budget_categories::tariffs_import: set_visible(state, false); break;
+	case budget_categories::tariffs_export: set_visible(state, false); break;
 	case budget_categories::gold: set_visible(state, false); break;
 	case budget_categories::diplomatic_expenses: set_visible(state, false); break;
 	case budget_categories::social: set_visible(state, true); break;
@@ -3008,8 +2974,8 @@ bool budgetwindow_section_header_rrbutton_t::button_action(sys::state& state) no
 	case budget_categories::poor_tax: vals.poor_tax = economy::budget_maximums(state, state.local_player_nation).poor_tax; break;
 	case budget_categories::middle_tax: vals.middle_tax = economy::budget_maximums(state, state.local_player_nation).middle_tax; break;
 	case budget_categories::rich_tax: vals.rich_tax = economy::budget_maximums(state, state.local_player_nation).rich_tax; break;
-	case budget_categories::tariffs_import: vals.tariffs_import = economy::budget_maximums(state, state.local_player_nation).tariffs_import; break;
-	case budget_categories::tariffs_export: vals.tariffs_export = economy::budget_maximums(state, state.local_player_nation).tariffs_export; break;
+	case budget_categories::tariffs_import: break;
+	case budget_categories::tariffs_export: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: vals.social_spending = economy::budget_maximums(state, state.local_player_nation).social_spending; break;
@@ -3039,8 +3005,8 @@ void budgetwindow_section_header_setting_amount_t::on_update(sys::state& state) 
 	case budget_categories::poor_tax: set_text(state, std::to_string(state.world.nation_get_poor_tax(state.local_player_nation))); break;
 	case budget_categories::middle_tax: set_text(state, std::to_string(state.world.nation_get_middle_tax(state.local_player_nation))); break;
 	case budget_categories::rich_tax: set_text(state, std::to_string(state.world.nation_get_rich_tax(state.local_player_nation))); break;
-	case budget_categories::tariffs_import: set_text(state, std::to_string(state.world.nation_get_tariffs_import(state.local_player_nation))); break;
-	case budget_categories::tariffs_export: set_text(state, std::to_string(state.world.nation_get_tariffs_export(state.local_player_nation))); break;
+	case budget_categories::tariffs_import: set_text(state, std::to_string(int32_t(std::lround(100.0f * economy::effective_tariff_import_rate(state, state.local_player_nation))))); break;
+	case budget_categories::tariffs_export: set_text(state, std::to_string(int32_t(std::lround(100.0f * economy::effective_tariff_export_rate(state, state.local_player_nation))))); break;
 	case budget_categories::gold: set_text(state, ""); break;
 	case budget_categories::diplomatic_expenses: set_text(state, ""); break;
 	case budget_categories::social: set_text(state, std::to_string(state.world.nation_get_social_spending(state.local_player_nation))); break;
@@ -3086,8 +3052,8 @@ void budgetwindow_section_header_expand_button_t::on_update(sys::state& state) n
 	case budget_categories::poor_tax: disabled = false; break;
 	case budget_categories::middle_tax: disabled = false; break;
 	case budget_categories::rich_tax: disabled = false; break;
-	case budget_categories::tariffs_import: disabled = (economy::estimate_tariff_import_income(state, state.local_player_nation) <= 0); break;
-	case budget_categories::tariffs_export: disabled = (economy::estimate_tariff_export_income(state, state.local_player_nation) <= 0); break;
+	case budget_categories::tariffs_import: disabled = false; break;
+	case budget_categories::tariffs_export: disabled = false; break;
 	case budget_categories::gold: disabled = (economy::estimate_gold_income(state, state.local_player_nation) <= 0); break;
 	case budget_categories::diplomatic_expenses: disabled = (spending_details.diplomacy.actual_spending <= 0); break;
 	case budget_categories::social: disabled = (spending_details.social.actual_spending <= 0); break;
@@ -3140,8 +3106,8 @@ void budgetwindow_section_header_total_amount_t::on_update(sys::state& state) no
 	case budget_categories::poor_tax: set_text(state, adjust_income_value(info.poor)); break;
 	case budget_categories::middle_tax: set_text(state, adjust_income_value(info.mid)); break;
 	case budget_categories::rich_tax: set_text(state, adjust_income_value(info.rich)); break;
-	case budget_categories::tariffs_import: set_text(state, adjust_income_value(economy::estimate_tariff_import_income(state, state.local_player_nation))); break;
-	case budget_categories::tariffs_export: set_text(state, adjust_income_value(economy::estimate_tariff_export_income(state, state.local_player_nation))); break;
+	case budget_categories::tariffs_import: set_text(state, adjust_income_value(economy::collected_tariff_import_income(state, state.local_player_nation))); break;
+	case budget_categories::tariffs_export: set_text(state, adjust_income_value(economy::collected_tariff_export_income(state, state.local_player_nation))); break;
 	case budget_categories::gold: set_text(state, adjust_income_value(economy::estimate_gold_income(state, state.local_player_nation))); break;
 	case budget_categories::diplomatic_expenses: set_text(state, adjust_spending_value(spending_details.diplomacy.actual_spending)); break;
 	case budget_categories::social: set_text(state, adjust_spending_value(spending_details.social.actual_spending)); break;
@@ -3170,8 +3136,8 @@ void budgetwindow_section_header_min_setting_t::update_tooltip(sys::state& state
 	case budget_categories::poor_tax: value = economy::budget_minimums(state, state.local_player_nation).poor_tax; break;
 	case budget_categories::middle_tax: value = economy::budget_minimums(state, state.local_player_nation).middle_tax; break;
 	case budget_categories::rich_tax: value = economy::budget_minimums(state, state.local_player_nation).rich_tax; break;
-	case budget_categories::tariffs_export: value = economy::budget_minimums(state, state.local_player_nation).tariffs_export; break;
-	case budget_categories::tariffs_import: value = economy::budget_minimums(state, state.local_player_nation).tariffs_import; break;
+	case budget_categories::tariffs_export: break;
+	case budget_categories::tariffs_import: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: value = economy::budget_minimums(state, state.local_player_nation).social_spending; break;
@@ -3196,8 +3162,8 @@ void budgetwindow_section_header_min_setting_t::update_tooltip(sys::state& state
 		case budget_categories::poor_tax: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::min_tax, true); break;
 		case budget_categories::middle_tax: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::min_tax, true); break;
 		case budget_categories::rich_tax:  ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::min_tax, true); break;
-		case budget_categories::tariffs_import: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::min_tariff, true); break;
-		case budget_categories::tariffs_export: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::min_tariff, true); break;
+		case budget_categories::tariffs_import: break;
+		case budget_categories::tariffs_export: break;
 		case budget_categories::gold:  break;
 		case budget_categories::diplomatic_expenses:  break;
 		case budget_categories::social: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::min_social_spending, true); break;
@@ -3227,8 +3193,8 @@ void budgetwindow_section_header_min_setting_t::on_update(sys::state& state) noe
 	case budget_categories::poor_tax: value = economy::budget_minimums(state, state.local_player_nation).poor_tax; break;
 	case budget_categories::middle_tax: value = economy::budget_minimums(state, state.local_player_nation).middle_tax; break;
 	case budget_categories::rich_tax: value = economy::budget_minimums(state, state.local_player_nation).rich_tax; break;
-	case budget_categories::tariffs_import: value = economy::budget_minimums(state, state.local_player_nation).tariffs_import; break;
-	case budget_categories::tariffs_export: value = economy::budget_minimums(state, state.local_player_nation).tariffs_export; break;
+	case budget_categories::tariffs_import: break;
+	case budget_categories::tariffs_export: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: value = economy::budget_minimums(state, state.local_player_nation).social_spending; break;
@@ -3264,8 +3230,8 @@ void budgetwindow_section_header_max_setting_t::update_tooltip(sys::state& state
 	case budget_categories::poor_tax: value = economy::budget_maximums(state, state.local_player_nation).poor_tax; break;
 	case budget_categories::middle_tax: value = economy::budget_maximums(state, state.local_player_nation).middle_tax; break;
 	case budget_categories::rich_tax: value = economy::budget_maximums(state, state.local_player_nation).rich_tax; break;
-	case budget_categories::tariffs_import: value = economy::budget_maximums(state, state.local_player_nation).tariffs_import; break;
-	case budget_categories::tariffs_export: value = economy::budget_maximums(state, state.local_player_nation).tariffs_export; break;
+	case budget_categories::tariffs_import: break;
+	case budget_categories::tariffs_export: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: value = economy::budget_maximums(state, state.local_player_nation).social_spending; break;
@@ -3290,8 +3256,8 @@ void budgetwindow_section_header_max_setting_t::update_tooltip(sys::state& state
 		case budget_categories::poor_tax: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::max_tax, true); break;
 		case budget_categories::middle_tax: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::max_tax, true); break;
 		case budget_categories::rich_tax:  ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::max_tax, true); break;
-		case budget_categories::tariffs_import: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::max_tariff, true); break;
-		case budget_categories::tariffs_export: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::max_tariff, true); break;
+		case budget_categories::tariffs_import: break;
+		case budget_categories::tariffs_export: break;
 		case budget_categories::gold:  break;
 		case budget_categories::diplomatic_expenses:  break;
 		case budget_categories::social: ui::active_modifiers_description(state, contents, state.local_player_nation, 0, sys::national_mod_offsets::max_social_spending, true); break;
@@ -3321,8 +3287,8 @@ void budgetwindow_section_header_max_setting_t::on_update(sys::state& state) noe
 	case budget_categories::poor_tax: value = economy::budget_maximums(state, state.local_player_nation).poor_tax; break;
 	case budget_categories::middle_tax: value = economy::budget_maximums(state, state.local_player_nation).middle_tax; break;
 	case budget_categories::rich_tax: value = economy::budget_maximums(state, state.local_player_nation).rich_tax; break;
-	case budget_categories::tariffs_import: value = economy::budget_maximums(state, state.local_player_nation).tariffs_import; break;
-	case budget_categories::tariffs_export: value = economy::budget_maximums(state, state.local_player_nation).tariffs_export; break;
+	case budget_categories::tariffs_import: break;
+	case budget_categories::tariffs_export: break;
 	case budget_categories::gold:  break;
 	case budget_categories::diplomatic_expenses:  break;
 	case budget_categories::social: value = economy::budget_maximums(state, state.local_player_nation).social_spending; break;

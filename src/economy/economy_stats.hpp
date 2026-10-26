@@ -407,8 +407,9 @@ bool has_constructed_factory(sys::state const& state, dcon::state_instance_id si
 bool has_factory(sys::state const& state, dcon::state_instance_id s, dcon::factory_type_id ft);
 
 
-float effective_tariff_import_rate(sys::state const& state, dcon::nation_id n, dcon::market_id m);
-float effective_tariff_export_rate(sys::state const& state, dcon::nation_id n, dcon::market_id m);
+// The tariff rates of the nation's law in force; zero without one.
+float effective_tariff_import_rate(sys::state const& state, dcon::nation_id n);
+float effective_tariff_export_rate(sys::state const& state, dcon::nation_id n);
 
 float estimate_probability_to_buy_after_demand_increase(sys::state const& state, dcon::market_id, dcon::commodity_id, float additional_demand);
 float estimate_probability_to_sell_after_supply_increase(sys::state const& state, dcon::market_id m, dcon::commodity_id c, float additional_supply);

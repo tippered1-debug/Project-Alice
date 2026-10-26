@@ -1355,6 +1355,7 @@ alice_budget_max_debt;최고:
 alice_budget_debt_enable;활성화
 alice_budget_tariffs_import;수입 관세
 alice_budget_tariffs_export;수출 관세
+alice_budget_tariff_collected;오늘 징수
 alice_budget_overseas_maintanance;식민지
 alice_budget_social_spending;복지
 potentials;잠재

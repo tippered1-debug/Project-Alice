@@ -304,6 +304,17 @@ void assess(voter& value, float median) {
 	if(value.shareholder) prefer(topic_id::dividend_tax, riches > 0.5f ? 0.05f : 0.15f, 0.9f);
 	if(value.rural) prefer(topic_id::resource_royalty, 0.1f, 0.45f);
 	if(value.depositor) prefer(topic_id::bank_reserve_requirement, 0.12f, 0.2f);
+	// Each tax is opposed most by those who pay it; defense is valued by those
+	// with property to protect.
+	if(value.shareholder) prefer(topic_id::corporate_profit_tax, riches > 0.5f ? 0.05f : 0.12f, 0.8f);
+	else if(value.worker) prefer(topic_id::corporate_profit_tax, 0.3f, 0.35f);
+	prefer(topic_id::sales_tax, std::clamp(0.03f + 0.03f * relative, 0.0f, 0.3f), 0.2f + 0.4f * (1.0f - riches));
+	prefer(topic_id::land_tax, value.rural ? 0.0f : 0.01f, value.rural ? 0.6f : 0.15f);
+	bool employer = value.employer_labor_share > 0.05f;
+	prefer(topic_id::import_tariff, employer ? 0.25f : 0.05f,
+		employer ? 0.3f + 0.5f * value.employer_labor_share : 0.15f + 0.15f * (1.0f - riches));
+	prefer(topic_id::export_tariff, value.rural ? 0.0f : 0.05f, value.rural ? 0.4f : 0.1f);
+	prefer(topic_id::defense_appropriation, 0.25f + 0.15f * riches + public_bonus, 0.2f + 0.3f * riches);
 	value.ideal = policy::clamp(std::move(ideal));
 	value.issue_salience = std::move(issue_salience);
 	value.turnout = std::clamp(0.45f + 0.15f * std::tanh(relative) + (value.public_employee ? 0.1f : 0.0f) + 0.1f * riches, 0.2f, 0.9f);

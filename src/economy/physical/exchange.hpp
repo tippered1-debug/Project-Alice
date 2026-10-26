@@ -47,4 +47,15 @@ void assess_customs_duties(sys::state&, dcon::economic_actor_id buyer,
 	economy::exact_person_economy::account_ref seller_wallet,
 	dcon::deposit_account_id seller_deposit, sys::date date);
 
+// Charges the sales tax of the nation where the goods are delivered on what a
+// final consumer paid: a person or a household cohort. Firms, banks, and public
+// institutions buy free of it. The buyer pays from the same wallet or deposit.
+void assess_sales_tax(sys::state&, dcon::economic_actor_id buyer, dcon::site_id destination,
+	float purchase_value, economy::exact_person_economy::account_ref buyer_wallet,
+	dcon::deposit_account_id buyer_deposit, sys::date date);
+// The same tax on an exact person's purchase paid from `wallet`.
+void assess_person_sales_tax(sys::state&, persons::person_key buyer,
+	economy::exact_person_economy::account_ref wallet, dcon::site_id destination,
+	float purchase_value, sys::date date);
+
 } // namespace economy::physical::exchange

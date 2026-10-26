@@ -166,7 +166,8 @@ Every state rule is a legal instrument: a constitution, a statute, a regulation,
 - income tax rate per stratum;
 - appropriation share per institution;
 - monthly disbursement rate;
-- central bank inflation target.
+- central bank inflation target;
+- substantive policy: a topic of the policy registry and its value, such as a tax rate.
 
 **Which rule applies.** For each rule, the newest effective instrument of the jurisdiction decides.
 
@@ -174,15 +175,43 @@ Every state rule is a legal instrument: a constitution, a statute, a regulation,
 
 Money moves only between real accounts; allocating a budget never creates money.
 
-1. The tax authority assesses wage taxes under its delegated `levy_tax` power, at the rates of the fiscal law in force. Without a law, nothing is due.
+1. The tax authority assesses taxes under its delegated `levy_tax` power, at the rates of the law in force. Without a law, nothing is due. Each tax is assessed as an obligation of the actual payer and collected at once from that payer's ledger or bank deposit; what cannot be paid stays owed.
 2. On the first of the month, the tax authority hands collected revenue to the finance ministry's national treasury.
 3. Every day, each institution accrues interest on its own public-debt obligations for the elapsed days. At maturity, its treasury pays available cash to the recorded holder; partial payments pay accrued interest first and then principal. Other institutions' balances are never used to pay the debt.
-4. An unpaid maturity remains an active, overdue obligation. After a 30-day grace period it is marked defaulted and a fiscal action records the event. Default does not write off the claim; later cash payments can still reduce it. Outstanding defaulted bonds remain on creditor bank balance sheets at face amount because the banking model has no impairment valuation rule yet.
+4. An unpaid maturity remains an active, overdue obligation. After a 30-day grace period it is marked defaulted and a fiscal action records the event. Default does not write off the claim; later cash payments can still reduce it. A creditor bank carries a defaulted bond at zero and books an equal impairment (see [Banking](banking.md)).
 5. On the first of the month, debt service runs after tax remittance and before appropriations. The finance ministry then disburses the share the law sets, transferring to each institution the law appropriates using its `appropriate` and `spend_public_funds` powers. On other days, debt service runs from each debtor institution's existing treasury.
 6. Institutions spend their own treasuries on staff, procurement, and projects under their own spending powers:
    - ministries recruit staff where they govern, paid from their own treasury;
    - municipal administrations buy office supplies;
-   - the public works ministry commissions and pays for public construction.
+   - the public works ministry commissions and pays for public construction;
+   - the military command pays the armed forces and buys their stores (below).
+
+## Taxes
+
+| Tax | Base | Payer | Where |
+| --- | --- | --- | --- |
+| Income tax | wages, per stratum | the worker, through the household sector | the nation of the worker's home |
+| Dividend tax | dividends received | the owner | the owner's nation |
+| Profit tax | a firm's net realized operating profit of the day, per nation | the firm; booked against retained earnings | where its plants produce |
+| Sales tax | what a person or household cohort pays for goods | the buyer | the nation controlling the delivery site |
+| Land tax | a twelfth of the annual rate on a title's appraised value, monthly | the title's owner; public land is exempt | the nation owning the province |
+| Resource royalty | the first sale of extracted output | the seller | the deposit's jurisdiction |
+| Import and export tariffs | declared value crossing the customs border | the importer or exporter | each customs nation |
+
+Tariff rates come from the tariff law of each nation, at the enacted rate. The Victoria 2 tariff sliders, their modifier bounds, and tariff efficiency are removed; the budget window shows the enacted rate and has no tariff controls. Firms, banks, and institutions pay no sales tax: it falls on final consumption. Household cohorts pay no profit tax: their farms and workshops are not firms. Bank profit is not yet taxed.
+
+A person without an economic profile has no actor that could owe a tax. Such a person's sales tax, like the wage tax, is owed by the nation's household sector and paid from the person's own account through it.
+
+## Armed forces finance
+
+The defense appropriation is the military command's share of each monthly disbursement; the command holds `spend_public_funds` under the default constitution. Its treasury pays for the armed forces as `governance::defense` describes:
+
+- **Pay.** On the first of each month, every serving soldier earns thirty days of the unskilled wage of the province the soldier's family lives in, times the command's wage multiplier. The army feeds the soldier in kind, so the pay goes to the family's household cohort. Bonded soldiers have no free cohort and draw no pay.
+- **Arrears.** When the treasury cannot pay everything, its free cash is shared pro rata over each family group's arrears and current pay, arrears first. The unpaid remainder is a payroll obligation of the command to the cohort.
+- **Desertion.** Once a group's arrears exceed three months of the current pay of its serving soldiers, a third of them (rounded up) leave service each month, the most recently recruited first, and rejoin their cohort. Their families' claim remains.
+- **Stores.** Each day the command bids for what the army lacks: consumables up to 60 days of its formations' demand, and the authorized equipment of each model it keeps a stockpile for, net of stock in formations, stockpiles, and transit. It spends at most a tenth of the cash left after the next payroll and the arrears, and pays at most 10% over the reference price. Bought goods are delivered to the stockpile's site and handed to the stockpile's custodian.
+
+A scenario's custom constitution must grant the military command `spend_public_funds` for the command to pay anything.
 
 ## Fiscal policy
 

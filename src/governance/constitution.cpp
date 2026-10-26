@@ -170,6 +170,7 @@ institution:education;administer;national;institution:cabinet;
 institution:education;spend_public_funds;national;;constitution
 institution:works;administer;national;institution:cabinet;
 institution:works;spend_public_funds;national;;constitution
+institution:defense;spend_public_funds;national;;constitution
 institution:prosecution;enforce;national;;constitution
 office:finance_minister;regulate;national;;constitution
 office:finance_minister;issue_public_debt;national;;constitution

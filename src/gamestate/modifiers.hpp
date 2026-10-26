@@ -86,8 +86,6 @@ namespace sys {
 	MOD_LIST_ELEMENT(19, min_social_spending, true, modifier_display_type::percent, "modifier_min_social_spending")                \
 	MOD_LIST_ELEMENT(20, max_social_spending, true, modifier_display_type::percent, "modifier_max_social_spending")                \
 	MOD_LIST_ELEMENT(21, factory_owner_cost, false, modifier_display_type::percent, "modifier_factory_owner_cost")                 \
-	MOD_LIST_ELEMENT(22, min_tariff, true, modifier_display_type::percent, "modifier_min_tariff")                                  \
-	MOD_LIST_ELEMENT(23, max_tariff, true, modifier_display_type::percent, "modifier_max_tariff")                                  \
 	MOD_LIST_ELEMENT(24, ruling_party_support, true, modifier_display_type::percent, "modifier_ruling_party_support")              \
 	MOD_LIST_ELEMENT(25, rich_vote, true, modifier_display_type::percent, "modifier_rich_vote")                                    \
 	MOD_LIST_ELEMENT(26, middle_vote, true, modifier_display_type::percent, "modifier_middle_vote")                                \
@@ -161,7 +159,6 @@ namespace sys {
 	MOD_LIST_ELEMENT(86, naval_defense_modifier, true, modifier_display_type::percent, "modifier_naval_defense")                   \
 	MOD_LIST_ELEMENT(87, land_attack_modifier, true, modifier_display_type::percent, "modifier_land_attack")                       \
 	MOD_LIST_ELEMENT(88, land_defense_modifier, true, modifier_display_type::percent, "modifier_land_defense")                     \
-	MOD_LIST_ELEMENT(89, tariff_efficiency_modifier, true, modifier_display_type::percent, "modifier_tariff_efficiency")           \
 	MOD_LIST_ELEMENT(90, max_loan_modifier, true, modifier_display_type::percent, "modifier_max_loan_amount")                      \
 	MOD_LIST_ELEMENT(91, unciv_economic_modifier, false, modifier_display_type::percent, "modifier_unciv_economic")                 \
 	MOD_LIST_ELEMENT(92, unciv_military_modifier, false, modifier_display_type::percent, "modifier_unciv_military")                 \
