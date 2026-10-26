@@ -33,7 +33,6 @@
 	LUA_DEFINES_LIST_ELEMENT(diplomat_travel_time, -1.000000)                                                                      \
 	LUA_DEFINES_LIST_ELEMENT(province_overseas_penalty, 0.030000)                                                                  \
 	LUA_DEFINES_LIST_ELEMENT(noncore_tax_penalty, -0.075000)                                                                       \
-	LUA_DEFINES_LIST_ELEMENT(base_tariff_efficiency, 0.100000)                                                                     \
 	LUA_DEFINES_LIST_ELEMENT(colony_formed_prestige, 1.000000)                                                                     \
 	LUA_DEFINES_LIST_ELEMENT(created_cb_valid_time, 24.000000)                                                                     \
 	LUA_DEFINES_LIST_ELEMENT(loyalty_boost_on_party_win, 0.100000)                                                                 \

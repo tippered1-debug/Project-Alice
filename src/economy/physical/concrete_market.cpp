@@ -569,6 +569,9 @@ std::vector<dcon::concrete_trade_fill_id> match_impl(sys::state& state,
 				funding,
 				seller_wallet ? economy::exact_person_economy::account_ref::from_dcon(seller_wallet)
 					: economy::exact_person_economy::account_ref{}, seller_deposit, date);
+			economy::physical::exchange::assess_sales_tax(state, buyer, destination, quantity * price,
+				buyer_payment_wallet ? economy::exact_person_economy::account_ref::from_dcon(buyer_payment_wallet)
+					: economy::exact_person_economy::account_ref{}, funding, date);
 			auto fill = state.world.create_concrete_trade_fill();
 			state.world.concrete_trade_fill_set_quantity(fill, quantity);
 			state.world.concrete_trade_fill_set_execution_price(fill, price);

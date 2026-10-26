@@ -341,16 +341,47 @@ policy_tax_result assess_and_collect_tax_at_rate(sys::state& state,
 	return result;
 }
 
+float enacted_rate(sys::state const& state, policy::topic_id topic, dcon::nation_id nation, sys::date date) {
+	if(!nation) return 0.0f;
+	auto policy_value = law::effective_topic(state, governance::national(nation), topic, date);
+	auto rate = policy_value ? std::get_if<float>(&*policy_value) : nullptr;
+	return rate && std::isfinite(*rate) ? std::clamp(*rate, 0.0f, 1.0f) : 0.0f;
+}
+
 policy_tax_result assess_and_collect_topic_tax(sys::state& state, policy::topic_id topic,
 	dcon::nation_id jurisdiction, dcon::economic_actor_id taxpayer_actor, float taxable_value,
 	economy::exact_person_economy::account_ref payer_wallet, dcon::deposit_account_id payer_deposit,
 	sys::date date) {
 	if(!jurisdiction) return {};
-	auto policy_value = law::effective_topic(state, governance::national(jurisdiction), topic, date);
-	auto rate = policy_value ? std::get_if<float>(&*policy_value) : nullptr;
-	if(!rate) return {};
-	return assess_and_collect_tax_at_rate(state, jurisdiction, taxpayer_actor,
-		taxable_value, *rate, payer_wallet, payer_deposit, date, source_of_topic(topic));
+	auto rate = enacted_rate(state, topic, jurisdiction, date);
+	if(!(rate > 0.0f)) return {};
+	auto result = assess_and_collect_tax_at_rate(state, jurisdiction, taxpayer_actor,
+		taxable_value, rate, payer_wallet, payer_deposit, date, source_of_topic(topic));
+	if(result.collected > 0.0f && (topic == policy::topic_id::import_tariff || topic == policy::topic_id::export_tariff)) {
+		if(state.world.nation_get_tariff_collected_on(jurisdiction) != date) {
+			state.world.nation_set_tariff_collected_on(jurisdiction, date);
+			state.world.nation_set_tariff_import_collected_today(jurisdiction, 0.0f);
+			state.world.nation_set_tariff_export_collected_today(jurisdiction, 0.0f);
+		}
+		if(topic == policy::topic_id::import_tariff)
+			state.world.nation_set_tariff_import_collected_today(jurisdiction,
+				state.world.nation_get_tariff_import_collected_today(jurisdiction) + result.collected);
+		else
+			state.world.nation_set_tariff_export_collected_today(jurisdiction,
+				state.world.nation_get_tariff_export_collected_today(jurisdiction) + result.collected);
+	}
+	return result;
+}
+
+float tax_collected_for_topic(sys::state const& state, dcon::nation_id nation,
+	policy::topic_id topic, sys::date date) {
+	if(!nation || !state.world.nation_is_valid(nation)
+		|| state.world.nation_get_tariff_collected_on(nation) != date) return 0.0f;
+	if(topic == policy::topic_id::import_tariff)
+		return state.world.nation_get_tariff_import_collected_today(nation);
+	if(topic == policy::topic_id::export_tariff)
+		return state.world.nation_get_tariff_export_collected_today(nation);
+	return 0.0f;
 }
 
 dcon::fiscal_action_id authorized_spend(sys::state& state, dcon::person_id initiator,
@@ -404,6 +435,30 @@ dcon::fiscal_action_id authorized_spend_exact_person_by_institution(sys::state& 
 	auto action = record_action(state, fiscal_action_kind::public_spending, {}, {}, authority,
 		treasury_account, date);
 	if(action) state.world.fiscal_action_set_exact_transaction_id(action, transfer.exact_transaction_id);
+	return action;
+}
+
+dcon::fiscal_action_id authorized_pay_by_institution(sys::state& state,
+	dcon::institution_id authority, dcon::monetary_account_id treasury_account,
+	economy::exact_person_economy::account_ref recipient, float amount,
+	transaction_kind kind, sys::date date) {
+	if(!authority || !state.world.institution_is_valid(authority) || !valid_amount(amount)
+		|| !treasury_account || !state.world.monetary_account_is_valid(treasury_account)
+		|| treasury_institution_for(state, treasury_account) != authority
+		|| !economy::exact_person_economy::account_exists(state, recipient)
+		|| (recipient.kind == economy::exact_person_economy::account_kind::dcon && recipient.dcon_account == treasury_account)
+		|| economy::exact_person_economy::settlement_of(state, recipient) != economy::accounts::settlement_of(state, treasury_account)
+		|| !governance::acts_administratively(state, authority, governance::authority_kind::spend_public_funds,
+			governance::jurisdiction_of(state, authority), date)) return {};
+	auto free_cash = economy::accounts::balance(state, treasury_account)
+		- economy::physical::concrete_market::reserved_bid_amount(state, treasury_account);
+	if(free_cash + 1.0e-5f < amount) return {};
+	auto transfer = economy::exact_person_economy::transfer_with_result(state,
+		economy::exact_person_economy::account_ref::from_dcon(treasury_account), recipient, amount, kind, date);
+	if(!transfer.success) return {};
+	auto action = record_action(state, fiscal_action_kind::public_spending, {}, {}, authority,
+		treasury_account, date, {}, transfer.dcon_transaction_id);
+	if(action && transfer.exact_transaction_id) state.world.fiscal_action_set_exact_transaction_id(action, transfer.exact_transaction_id);
 	return action;
 }
 

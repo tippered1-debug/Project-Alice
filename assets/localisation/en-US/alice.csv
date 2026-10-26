@@ -1695,6 +1695,10 @@ alice_budget_debt;Debt
 alice_budget_total_debt;Total:
 alice_budget_max_debt;Maximum:
 alice_budget_debt_enable;Enable
+alice_budget_tariffs_import;Import Duties
+alice_budget_tariffs_export;Export Duties
+alice_budget_tariff_collected;Collected today
+alice_budget_overseas_maintanance;Colonial
 alice_budget_social_spending;Benefits
 tb_suppression_points;Suppression points:
 aristocrat_reinvestment;Aristocrats reinvestment rate

@@ -125,25 +125,20 @@ embargo_explanation embargo_exists(
 	return result;
 }
 
-// Legacy route estimates are a read model. Concrete market fills now move the
-// goods and settle buyer/seller accounts; this helper only describes projected
-// route quantities for compatibility UI and budget estimates.
+// Legacy route estimates are a read model for aggregate network statistics.
+// Concrete market fills settle goods and duties through buyer/seller accounts.
 
 template<typename TRADE_ROUTE>
-trade_and_tariff<TRADE_ROUTE> explain_trade_route_commodity_internal(
+trade_route_explanation<TRADE_ROUTE> explain_trade_route_commodity_internal(
 	sys::state const& state,
 	TRADE_ROUTE trade_route,
-	tariff_data<TRADE_ROUTE>& additional_data,
+	trade_route_data<TRADE_ROUTE>& additional_data,
 	dcon::commodity_id cid,
-	typename trade_and_tariff<TRADE_ROUTE>::VALUE shipment_scale,
-	typename trade_and_tariff<TRADE_ROUTE>::VALUE transport_effect_scale
+	typename trade_route_explanation<TRADE_ROUTE>::VALUE shipment_scale,
+	typename trade_route_explanation<TRADE_ROUTE>::VALUE transport_effect_scale
 ) {
 	using VALUE = typename std::conditional_t<ve::is_vector_type_s<TRADE_ROUTE>::value, ve::fp_vector, float>;
 	auto current_volume = state.world.trade_route_get_volume(trade_route, cid);
-
-	auto m0 = ve::apply([&](auto route, auto volume) {
-		return state.world.trade_route_get_connected_markets(route, 0);
-	}, trade_route, current_volume);
 
 
 	auto origin = ve::apply([&](auto route, auto volume) {
@@ -157,9 +152,6 @@ trade_and_tariff<TRADE_ROUTE> explain_trade_route_commodity_internal(
 			: state.world.trade_route_get_connected_markets(route, 0);
 	}, trade_route, current_volume);
 
-
-	auto origin_is_0 = origin == m0;
-	auto origin_is_1 = !origin_is_0;
 
 
 	auto s_origin = state.world.market_get_zone_from_local_market(origin);
@@ -195,9 +187,6 @@ trade_and_tariff<TRADE_ROUTE> explain_trade_route_commodity_internal(
 
 	auto merchant_cut = ve::select(actual_n_origin == actual_n_target, cut_domestic, cut_foreign);
 
-	auto export_tariff = ve::select(origin_is_0, additional_data.export_tariff[0], additional_data.export_tariff[1]);
-	auto import_tariff = ve::select(origin_is_0, additional_data.import_tariff[1], additional_data.import_tariff[0]);
-
 	return {
 		.origin = origin,
 		.target = target,
@@ -207,12 +196,6 @@ trade_and_tariff<TRADE_ROUTE> explain_trade_route_commodity_internal(
 		.amount_origin = absolute_volume,
 		.amount_target = import_amount,
 
-		.tariff_origin = absolute_volume * price_origin * export_tariff,
-		.tariff_target = import_amount * price_target * import_tariff,
-
-		.tariff_rate_origin = export_tariff,
-		.tariff_rate_target = import_tariff,
-
 		.price_origin = price_origin,
 		.price_target = price_target,
 
@@ -221,10 +204,7 @@ trade_and_tariff<TRADE_ROUTE> explain_trade_route_commodity_internal(
 		.distance = additional_data.distance,
 
 		.payment_per_unit = price_origin
-			* (1.f + export_tariff)
 			* (1.f - import_profit_priority + merchant_cut)
-			+ price_target
-			* import_tariff
 			+ transport_cost,
 
 		// the rest of payment is handled as satisfaction of generic demand
@@ -232,18 +212,18 @@ trade_and_tariff<TRADE_ROUTE> explain_trade_route_commodity_internal(
 	};
 }
 
-//trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
+//trade_route_explanation<dcon::trade_route_id> explain_trade_route_commodity(
 //	sys::state& state,
 //	dcon::trade_route_id trade_route,
-//	tariff_data<dcon::trade_route_id>& additional_data,
+//	trade_route_data<dcon::trade_route_id>& additional_data,
 //	dcon::commodity_id cid
 //) {
 //	return explain_trade_route_commodity_internal<dcon::trade_route_id>(state, trade_route, additional_data, cid);
 //}
-trade_and_tariff<ve::contiguous_tags<dcon::trade_route_id>> explain_trade_route_commodity(
+trade_route_explanation<ve::contiguous_tags<dcon::trade_route_id>> explain_trade_route_commodity(
 	sys::state const& state,
 	ve::contiguous_tags<dcon::trade_route_id> trade_route,
-	tariff_data<ve::contiguous_tags<dcon::trade_route_id>>& additional_data,
+	trade_route_data<ve::contiguous_tags<dcon::trade_route_id>>& additional_data,
 	dcon::commodity_id cid
 ) {
 	auto const allocation = world_trade::clear_trade_shipments(state);
@@ -264,10 +244,10 @@ trade_and_tariff<ve::contiguous_tags<dcon::trade_route_id>> explain_trade_route_
 		state, trade_route, additional_data, cid,
 		shipment_scale, transport_effect_scale);
 }
-trade_and_tariff<ve::partial_contiguous_tags<dcon::trade_route_id>> explain_trade_route_commodity(
+trade_route_explanation<ve::partial_contiguous_tags<dcon::trade_route_id>> explain_trade_route_commodity(
 	sys::state const& state,
 	ve::partial_contiguous_tags<dcon::trade_route_id> trade_route,
-	tariff_data<ve::partial_contiguous_tags<dcon::trade_route_id>>& additional_data,
+	trade_route_data<ve::partial_contiguous_tags<dcon::trade_route_id>>& additional_data,
 	dcon::commodity_id cid
 ) {
 	auto const allocation = world_trade::clear_trade_shipments(state);
@@ -287,30 +267,6 @@ trade_and_tariff<ve::partial_contiguous_tags<dcon::trade_route_id>> explain_trad
 	return explain_trade_route_commodity_internal(
 		state, trade_route, additional_data, cid,
 		shipment_scale, transport_effect_scale);
-}
-
-bool is_trade_route_relevant(sys::state& state, dcon::trade_route_id trade_route, dcon::nation_id n) {
-	auto origin = state.world.trade_route_get_connected_markets(trade_route, 0);
-	auto target = state.world.trade_route_get_connected_markets(trade_route, 1);
-	auto s_origin = state.world.market_get_zone_from_local_market(origin);
-	auto s_target = state.world.market_get_zone_from_local_market(target);
-	auto n_origin = state.world.state_instance_get_nation_from_state_ownership(s_origin);
-	auto n_target = state.world.state_instance_get_nation_from_state_ownership(s_target);
-	auto capital_origin = state.world.state_instance_get_capital(s_origin);
-	auto capital_target = state.world.state_instance_get_capital(s_target);
-	auto controller_capital_origin = state.world.province_get_nation_from_province_control(capital_origin);
-	auto controller_capital_target = state.world.province_get_nation_from_province_control(capital_target);
-
-	controller_capital_origin = controller_capital_origin ? controller_capital_origin : n_origin;
-	controller_capital_target = controller_capital_target ? controller_capital_target : n_target;
-
-	if(controller_capital_origin == n) {
-		return true;
-	}
-	if(controller_capital_target == n) {
-		return true;
-	}
-	return false;
 }
 
 float estimate_port_service_price(sys::state const& state, dcon::state_instance_id s) {
@@ -331,7 +287,7 @@ float estimate_port_service_price(sys::state const& state, dcon::state_instance_
 	return price_port_target;
 }
 
-trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
+trade_route_explanation<dcon::trade_route_id> explain_trade_route_commodity(
 		sys::state const& state, dcon::trade_route_id trade_route,
 		dcon::commodity_id cid,
 		world_trade::shipment_allocation const& allocation) {
@@ -356,14 +312,6 @@ trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
 
 	controller_capital_origin = controller_capital_origin ? controller_capital_origin : n_origin;
 	controller_capital_target = controller_capital_target ? controller_capital_target : n_target;
-
-	auto origin_apply_tariff = current_volume > 0.f
-		? state.world.trade_route_get_is_tariff_applied_0(trade_route)
-		: state.world.trade_route_get_is_tariff_applied_1(trade_route);
-
-	auto target_apply_tariff = current_volume > 0.f
-		? state.world.trade_route_get_is_tariff_applied_1(trade_route)
-		: state.world.trade_route_get_is_tariff_applied_0(trade_route);
 
 	auto sat = market_clearing::fill(state, origin, cid,
 		market_clearing::demand_class::trade);
@@ -402,9 +350,6 @@ trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
 		* (transport_cost_origin + transport_cost_target) * effect_of_scale
 		* route_capacity.transport_cost_multiplier;
 
-	auto export_tariff = origin_apply_tariff ? effective_tariff_export_rate(state, controller_capital_origin, origin) : 0.f;
-	auto import_tariff = target_apply_tariff ? effective_tariff_import_rate(state, controller_capital_target, target) : 0.f;
-
 	auto price_origin = price(state, origin, cid);
 	auto price_target = price(state, target, cid);
 
@@ -417,12 +362,6 @@ trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
 
 			.amount_origin = absolute_volume,
 			.amount_target = import_amount,
-
-			.tariff_origin = 0.f,
-			.tariff_target = 0.f,
-
-			.tariff_rate_origin = 0.f,
-			.tariff_rate_target = 0.f,
 
 			.price_origin = price_origin,
 			.price_target = price_target,
@@ -444,12 +383,6 @@ trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
 
 			.amount_origin = absolute_volume,
 			.amount_target = import_amount,
-			.tariff_origin = absolute_volume * price_origin * export_tariff,
-			.tariff_target = import_amount * price_target * import_tariff,
-
-			.tariff_rate_origin = export_tariff,
-			.tariff_rate_target = import_tariff,
-
 			.price_origin = price_origin,
 			.price_target = price_target,
 
@@ -458,10 +391,7 @@ trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
 			.distance = distance,
 
 			.payment_per_unit = price_origin
-				* (1.f + export_tariff)
 				* (1.f - import_profit_priority + economy::merchant_cut_foreign)
-				+ price(state, target, cid)
-				* import_tariff
 				+ transport_cost,
 			// the rest of payment is handled as satisfaction of generic demand
 			.payment_received_per_unit = price_origin * (economy::merchant_cut_foreign - import_profit_priority)
@@ -469,62 +399,10 @@ trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
 	}
 }
 
-trade_and_tariff<dcon::trade_route_id> explain_trade_route_commodity(
+trade_route_explanation<dcon::trade_route_id> explain_trade_route_commodity(
 		sys::state const& state, dcon::trade_route_id trade_route,
 		dcon::commodity_id cid) {
 	auto const allocation = world_trade::clear_trade_shipments(state);
 	return explain_trade_route_commodity(state, trade_route, cid, allocation);
 }
-
-// DO NOT USE OUTSIDE OF UI
-std::vector<trade_breakdown_item> explain_national_tariff(sys::state& state, dcon::nation_id n, bool import_flag, bool export_flag) {
-	std::vector<trade_breakdown_item> result;
-	auto const shipment_allocation = world_trade::clear_trade_shipments(state);
-	auto buffer_volume_per_nation = state.world.nation_make_vectorizable_float_buffer();
-	auto buffer_tariff_per_nation = state.world.nation_make_vectorizable_float_buffer();
-
-	state.world.for_each_commodity([&](dcon::commodity_id cid) {
-		state.world.execute_serial_over_nation([&](auto nids) {
-			buffer_volume_per_nation.set(nids, 0.f);
-			buffer_tariff_per_nation.set(nids, 0.f);
-		});
-
-		state.world.for_each_trade_route([&](auto route) {
-			if(!is_trade_route_relevant(state, route, n)) return;
-			trade_and_tariff route_data = explain_trade_route_commodity(
-				state, route, cid, shipment_allocation);
-
-			if(import_flag && route_data.target_nation == n) {
-				buffer_volume_per_nation.get(route_data.origin_nation) += route_data.amount_target;
-				buffer_tariff_per_nation.get(route_data.origin_nation) += route_data.tariff_target;
-			}
-
-			if(export_flag && route_data.origin_nation == n) {
-				buffer_volume_per_nation.get(route_data.target_nation) += route_data.amount_origin;
-				buffer_tariff_per_nation.get(route_data.target_nation) += route_data.tariff_origin;
-			}
-		});
-
-		state.world.for_each_nation([&](auto nid) {
-			trade_breakdown_item item = {
-				.trade_partner = nid,
-				.commodity = cid,
-				.traded_amount = buffer_volume_per_nation.get(nid),
-				.tariff = buffer_tariff_per_nation.get(nid)
-			};
-
-			if(item.traded_amount == 0.f || item.tariff < 0.001f) {
-				return;
-			}
-
-			result.push_back(item);
-		});
-	});
-
-	return result;
-}
-
-
-
-
 }

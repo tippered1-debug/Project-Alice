@@ -1339,6 +1339,10 @@ alice_budget_debt;债务
 alice_budget_total_debt;总计：
 alice_budget_max_debt;最高：
 alice_budget_debt_enable;启用
+alice_budget_tariffs_import;进口关税
+alice_budget_tariffs_export;出口关税
+alice_budget_tariff_collected;今日收取
+alice_budget_overseas_maintanance;殖民
 alice_budget_social_spending;福利
 potentials;潜在
 factory_build_condition_11;地区有潜在资源

@@ -22,6 +22,9 @@
 #include "economy/economy_stats.hpp"
 #include "economy/payroll.hpp"
 #include "economy/banking/banking.hpp"
+#include "economy/wallets.hpp"
+#include "governance/finance/finance.hpp"
+#include "governance/policy.hpp"
 #include "relations/relations.hpp"
 #include "system_state.hpp"
 #include "world/site.hpp"
@@ -460,6 +463,8 @@ void update_decisions(sys::state& state) {
 	std::unordered_set<uint32_t> serviced_actors;
 	std::unordered_set<uint32_t> defaulted_factories;
 	std::unordered_set<uint32_t> actors_with_unscoped_defaults;
+	// Realized operating profit per firm and per nation where its plants produce.
+	std::map<std::pair<uint32_t, uint32_t>, float> taxable_profit;
 	state.world.for_each_factory([&](dcon::factory_id factory) {
 		if(state.world.factory_get_agency_lifecycle_status(factory) >= 2) return;
 		auto actor = actors::organizations::operator_actor_for_factory(state, factory);
@@ -541,6 +546,9 @@ void update_decisions(sys::state& state) {
 		if(firm_organization) {
 			state.world.organization_set_retained_earnings(firm_organization,
 				state.world.organization_get_retained_earnings(firm_organization) + realized_profit);
+			auto source_nation = state.world.province_get_nation_from_province_ownership(province);
+			if(source_nation && std::isfinite(realized_profit) && !households::is_household(state, firm_organization))
+				taxable_profit[{ uint32_t(firm_organization.index()), uint32_t(source_nation.index()) }] += realized_profit;
 			auto equity_asset = actors::organizations::equity_asset_for_organization(state, firm_organization);
 			if(equity_asset)
 				state.world.asset_set_appraised_value(equity_asset,
@@ -716,6 +724,31 @@ void update_decisions(sys::state& state) {
 		}
 		state.world.factory_set_agency_last_planning_date(factory, state.current_date);
 	});
+
+	// The profit tax of each nation is due on a firm's net realized profit from
+	// its plants there; the assessed tax is an expense against retained earnings.
+	for(auto const& [key, profit] : taxable_profit)
+		(void)assess_profit_tax(state, dcon::organization_id{ dcon::organization_id::value_base_t(key.first) },
+			dcon::nation_id{ dcon::nation_id::value_base_t(key.second) }, profit);
+}
+
+float assess_profit_tax(sys::state& state, dcon::organization_id organization, dcon::nation_id nation, float profit) {
+	if(!organization || !state.world.organization_is_valid(organization) || !nation
+		|| !std::isfinite(profit) || !(profit > epsilon) || households::is_household(state, organization)) return 0.0f;
+	auto actor = actors::organizations::actor_for_organization(state, organization);
+	auto wallet = actor ? wallets::account_for(state, actor, accounts::first_settlement_for(state, actor))
+		: wallets::account_ref{};
+	if(!wallet) return 0.0f;
+	auto tax = governance::finance::assess_and_collect_topic_tax(state,
+		governance::policy::topic_id::corporate_profit_tax, nation, actor, profit, wallet, {}, state.current_date);
+	if(!(tax.assessed > 0.0f)) return 0.0f;
+	state.world.organization_set_retained_earnings(organization,
+		state.world.organization_get_retained_earnings(organization) - tax.assessed);
+	if(auto equity_asset = actors::organizations::equity_asset_for_organization(state, organization))
+		state.world.asset_set_appraised_value(equity_asset,
+			std::max(0.0f, state.world.organization_get_paid_in_equity(organization)
+				+ state.world.organization_get_retained_earnings(organization)));
+	return tax.assessed;
 }
 
 void post_output_asks(sys::state& state) {

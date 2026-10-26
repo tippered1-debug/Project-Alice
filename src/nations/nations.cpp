@@ -2052,17 +2052,6 @@ float get_debt(sys::state& state, dcon::nation_id n) {
 	return governance::finance::national_public_debt(state, n, economy::money);
 }
 
-// estimates rate of tariffs collected in a market
-float tariff_efficiency(sys::state const& state, dcon::nation_id n, dcon::market_id m) {
-	auto sid = state.world.market_get_zone_from_local_market(m);
-	auto pid = state.world.state_instance_get_capital(sid);
-	auto eff_mod = state.world.nation_get_modifier_values(n, sys::national_mod_offsets::tariff_efficiency_modifier);
-	// control_scale is an unbounded stock of bureaucratic work used to derive
-	// control_ratio. Applying it directly made almost every non-zero province
-	// jump to 100% tariff execution and mixed incompatible units.
-	auto adm_eff = std::clamp(state.world.province_get_control_ratio(pid), 0.f, 1.f);
-	return std::clamp((state.defines.base_tariff_efficiency + eff_mod) * adm_eff, 0.f, 1.f);
-}
 
 // Calculates all modifiers to tax efficiency from modifiers + base taxe efficiency
 float tax_efficiency(sys::state const& state, dcon::nation_id n) {
@@ -2240,8 +2229,6 @@ void create_nation_based_on_template(sys::state& state, dcon::nation_id n, dcon:
 	state.world.nation_set_poor_tax(n, int8_t(50));
 	state.world.nation_set_middle_tax(n, int8_t(50));
 	state.world.nation_set_rich_tax(n, int8_t(50));
-	state.world.nation_set_tariffs_import(n, int8_t(5));
-	state.world.nation_set_tariffs_export(n, int8_t(5));
 
 	auto base_ruling_ideology = state.world.political_party_get_ideology(state.world.nation_get_ruling_party(base));
 

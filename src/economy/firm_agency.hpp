@@ -26,7 +26,13 @@ struct production_decision {
 
 production_decision decide_factory(sys::state const&, dcon::factory_id);
 float desired_production(sys::state const&, dcon::factory_id);
+// Also charges each firm the profit tax of every nation it produces in, on its
+// net realized profit there that day.
 void update_decisions(sys::state&);
+// The profit tax a nation's law sets on `profit`, collected from the firm's
+// ledger; the assessed tax is booked against retained earnings. Household
+// cohorts are not firms and owe none. Returns the amount assessed.
+float assess_profit_tax(sys::state&, dcon::organization_id, dcon::nation_id, float profit);
 void post_output_asks(sys::state&);
 void observe_production(sys::state&, dcon::factory_id, float planned_units, float realized_units);
 

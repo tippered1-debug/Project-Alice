@@ -4544,16 +4544,9 @@ object {
 		type{ int8_t }
 		tag{ save }
 	}
-	property {
-		name{ tariffs_import }
-		type{ int8_t }
-		tag{ save }
-	}
-	property {
-		name{ tariffs_export }
-		type{ int8_t }
-		tag{ save }
-	}
+	property{ name{ tariff_import_collected_today } type{ float } tag{ save } }
+	property{ name{ tariff_export_collected_today } type{ float } tag{ save } }
+	property{ name{ tariff_collected_on } type{ sys::date } tag{ save } }
 	property {
 		name{ last_treasury }
 		type{ float }
@@ -5019,11 +5012,6 @@ object{
 	property {
 		name{ export }
 		type{ array{commodity_id}{float} }
-		tag{ save }
-	}
-	property {
-		name{ tariff_collected }
-		type{ float }
 		tag{ save }
 	}
 
@@ -5917,18 +5905,6 @@ relationship{
 		tag{ save }
 	}
 
-
-	property{
-		name{ is_tariff_applied_0 }
-		type{ bitfield }
-		tag{ save }
-	}
-
-	property{
-		name{ is_tariff_applied_1 }
-		type{ bitfield }
-		tag{ save }
-	}
 
 	property {
 		name{ volume }

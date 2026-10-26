@@ -1340,6 +1340,10 @@ alice_budget_debt;부채
 alice_budget_total_debt;총계:
 alice_budget_max_debt;최고:
 alice_budget_debt_enable;활성화
+alice_budget_tariffs_import;수입 관세
+alice_budget_tariffs_export;수출 관세
+alice_budget_tariff_collected;오늘 징수
+alice_budget_overseas_maintanance;식민지
 alice_budget_social_spending;복지
 potentials;잠재
 factory_build_condition_11;지역에 잠재 자원이 있음

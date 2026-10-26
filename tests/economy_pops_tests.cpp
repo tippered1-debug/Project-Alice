@@ -378,18 +378,3 @@ TEST_CASE("non-labor pops get a neutral real-opportunity adjustment", "[economy]
 		*state, pop, origin, target) == Approx(1.f));
 }
 
-TEST_CASE("tariff execution uses normalized provincial control", "[economy][administration]") {
-	auto state = std::make_unique<sys::state>();
-	auto nation = state->world.create_nation();
-	auto province = state->world.create_province();
-	auto state_instance = state->world.create_state_instance();
-	auto market = state->world.create_market();
-	state->world.nation_resize_modifier_values(sys::national_mod_offsets::count);
-	state->world.market_set_zone_from_local_market(market, state_instance);
-	state->world.state_instance_set_capital(state_instance, province);
-	state->world.province_set_control_scale(province, 1000.f);
-	state->world.province_set_control_ratio(province, 0.25f);
-	state->defines.base_tariff_efficiency = 0.8f;
-
-	REQUIRE(nations::tariff_efficiency(*state, nation, market) == Approx(0.2f));
-}

@@ -377,8 +377,8 @@ public:
 		auto const tax = economy::explain_tax_income(state, n);
 		auto const income = economy::estimate_diplomatic_income(state, n)
 			+ tax.poor + tax.mid + tax.rich
-			+ economy::estimate_tariff_import_income(state, n)
-			+ economy::estimate_tariff_export_income(state, n)
+			+ economy::collected_tariff_import_income(state, n)
+			+ economy::collected_tariff_export_income(state, n)
 			+ economy::estimate_gold_income(state, n);
 		auto const projected_treasury = economy::estimate_next_budget(state, n);
 		auto const spending = 0.0f;
@@ -419,8 +419,8 @@ public:
 		auto const tax = economy::explain_tax_income(state, nation_id);
 		auto const income = economy::estimate_diplomatic_income(state, nation_id)
 			+ tax.poor + tax.mid + tax.rich
-			+ economy::estimate_tariff_import_income(state, nation_id)
-			+ economy::estimate_tariff_export_income(state, nation_id)
+			+ economy::collected_tariff_import_income(state, nation_id)
+			+ economy::collected_tariff_export_income(state, nation_id)
 			+ economy::estimate_gold_income(state, nation_id);
 		auto const projected_treasury = economy::estimate_next_budget(state, nation_id);
 		auto const net = 0.0f;
@@ -517,8 +517,8 @@ public:
 		auto const tax = economy::explain_tax_income(state, nation_id);
 		auto const income = economy::estimate_diplomatic_income(state, nation_id)
 			+ tax.poor + tax.mid + tax.rich
-			+ economy::estimate_tariff_import_income(state, nation_id)
-			+ economy::estimate_tariff_export_income(state, nation_id)
+			+ economy::collected_tariff_import_income(state, nation_id)
+			+ economy::collected_tariff_export_income(state, nation_id)
 			+ economy::estimate_gold_income(state, nation_id);
 		auto const projected_treasury = economy::estimate_next_budget(state, nation_id);
 		auto const spending = 0.0f;
@@ -545,7 +545,7 @@ public:
 		text::add_line(state, contents, std::string_view("taxes_rich"), text::variable_type::val,
 				text::fp_one_place{ economy::estimate_tax_income_by_strata(state, nation_id, culture::pop_strata::rich) }); // $VAL
 		text::add_line(state, contents, std::string_view("tariffs_income"), text::variable_type::val,
-					text::fp_one_place{ economy::estimate_tariff_income(state, nation_id) }); // $VAL
+					text::fp_one_place{ economy::collected_tariff_income(state, nation_id) }); // $VAL
 		text::add_line(state, contents, std::string_view("budget_exports")); // $VAL	TODO
 		text::add_line(state, contents, std::string_view("budget_gold"), text::variable_type::val, text::fp_one_place{ economy::estimate_gold_income(state, nation_id) }); // $VAL
 		text::add_line(state, contents, std::string_view("budget_total_expense"), text::variable_type::val,

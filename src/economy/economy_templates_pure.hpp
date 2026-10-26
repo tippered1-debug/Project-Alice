@@ -12,16 +12,8 @@ using convert_value_type = typename std::conditional_t<
 >;
 
 template<typename TRADE_ROUTE>
-struct tariff_data {
+struct trade_route_data {
 	using VALUE = typename std::conditional_t<ve::is_vector_type_s<TRADE_ROUTE>::value, ve::fp_vector, float>;
-	using BOOL_VALUE = typename std::conditional_t<ve::is_vector_type_s<TRADE_ROUTE>::value, ve::mask_vector, bool>;
-	using MARKET = convert_value_type<TRADE_ROUTE, dcon::trade_route_id, dcon::market_id>;
-
-	std::array<BOOL_VALUE, 2> applies_tariff;
-	std::array<VALUE, 2> export_tariff;
-	std::array<VALUE, 2> import_tariff;
-	std::array<MARKET, 2> markets;
-
 	VALUE distance;
 	VALUE loss;
 	VALUE base_distance_cost;
@@ -31,9 +23,8 @@ struct tariff_data {
 };
 
 template<typename TRADE_ROUTE>
-struct trade_and_tariff {
+struct trade_route_explanation {
 	using VALUE = typename std::conditional_t<ve::is_vector_type_s<TRADE_ROUTE>::value, ve::fp_vector, float>;
-	using BOOL_VALUE = typename std::conditional_t<ve::is_vector_type_s<TRADE_ROUTE>::value, ve::mask_vector, bool>;
 	using MARKET = convert_value_type<TRADE_ROUTE, dcon::trade_route_id, dcon::market_id>;
 	using NATION = convert_value_type<TRADE_ROUTE, dcon::trade_route_id, dcon::nation_id>;
 
@@ -45,12 +36,6 @@ struct trade_and_tariff {
 
 	VALUE amount_origin;
 	VALUE amount_target;
-
-	VALUE tariff_origin;
-	VALUE tariff_target;
-
-	VALUE tariff_rate_origin;
-	VALUE tariff_rate_target;
 
 	VALUE price_origin;
 	VALUE price_target;

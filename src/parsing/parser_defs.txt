@@ -79,8 +79,6 @@ modifier_base
 	max_domestic_investment              value      float            member_fn
 	factory_owner_cost                        value      float            member_fn
 	local_factory_owner_cost          value     float          discard
-	min_tariff                                value      float            member_fn
-	max_tariff                                value      float            member_fn
 	trade_routes_attraction                   value      float            member_fn
 	ruling_party_support                      value      float            member_fn
 	local_ruling_party_support                value      float            member_fn
@@ -183,7 +181,6 @@ modifier_base
 	land_attack_modifier                      value      float            member_fn
 	land_defense_modifier                     value      float            member_fn
 	land_defence_modifier                     value      float            member_fn (land_defense_modifier)
-	tariff_efficiency_modifier                value      float            member_fn
 	max_loan_modifier                         value      float            member_fn
 	movement_cost                             value      float            member_fn
 	unciv_economic_modifier                   value      float            member_fn

@@ -730,6 +730,8 @@ uint64_t try_fill(sys::state& state, uint64_t exact_bid_id, dcon::concrete_marke
 			bid->destination, commodity, quantity * price,
 			buyer_payment_account, {},
 			account_ref::from_dcon(seller_account), {}, date);
+	exchange::assess_person_sales_tax(state, bid->buyer, buyer_payment_account,
+		bid->destination, quantity * price, date);
 	bid->remaining_quantity = std::max(0.0f, bid->remaining_quantity - quantity);
 	bid->reserved_amount = bid->remaining_quantity * bid->limit_price;
 	if(bid->remaining_quantity <= epsilon) {

@@ -91,6 +91,7 @@
 #include "culture.cpp"
 #include "military.cpp"
 #include "military/land_forces.cpp"
+#include "governance/defense.cpp"
 #include "debug_string_convertions.cpp"
 #include "modifiers.cpp"
 #include "province.cpp"

@@ -31,7 +31,17 @@ enum class topic_id : uint16_t {
 	unemployment_duration = 10,
 	dividend_tax = 11,
 	resource_royalty = 12,
-	bank_reserve_requirement = 13
+	bank_reserve_requirement = 13,
+	// Rate on a firm's realized operating profit, where the plant produces.
+	corporate_profit_tax = 14,
+	// Rate on what persons and household cohorts pay for goods.
+	sales_tax = 15,
+	// Annual rate on the appraised value of a land title.
+	land_tax = 16,
+	// Rates on the declared value of goods crossing the nation's customs border.
+	import_tariff = 17,
+	export_tariff = 18,
+	defense_appropriation = 19
 };
 
 enum class value_kind : uint8_t { continuous = 0, ordinal = 1, categorical = 2, binary = 3, structured = 4 };

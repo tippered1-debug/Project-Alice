@@ -324,8 +324,6 @@ struct budget_settings_data {
 	int8_t poor_tax;
 	int8_t middle_tax;
 	int8_t rich_tax;
-	int8_t tariffs_import;
-	int8_t tariffs_export;
 	int8_t domestic_investment;
 	int8_t overseas;
 	int8_t subsidies;
