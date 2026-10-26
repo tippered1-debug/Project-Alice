@@ -18,6 +18,7 @@
 #include "governance/governance.hpp"
 #include "military/military.hpp"
 #include "economy/economy.hpp"
+#include "economy/construction_industry.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -44,8 +45,13 @@ bool requirements_satisfied(sys::state const& s, dcon::capital_project_id p) {
 	});
 	return any && all;
 }
+bool work_satisfied(sys::state const& s, dcon::capital_project_id p) {
+	auto required = s.world.capital_project_get_required_work(p);
+	auto done = s.world.capital_project_get_work_done(p);
+	return std::isfinite(required) && required > 0.0f && std::isfinite(done) && done == required;
+}
 void refresh(sys::state& s, dcon::capital_project_id p) {
-	s.world.capital_project_set_progress(p, material_progress(s, p));
+	s.world.capital_project_set_progress(p, physical_progress(s, p));
 }
 }
 
@@ -55,7 +61,7 @@ dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic
 	if(!owner || !responsible || !project_site || !settlement || !s.world.economic_actor_is_valid(owner)
 		|| !s.world.organization_is_valid(responsible) || !s.world.site_is_valid(project_site)
 		|| !s.world.commodity_is_valid(settlement)
-		|| uint8_t(kind) > uint8_t(project_kind::naval_construction)
+		|| uint8_t(kind) > uint8_t(project_kind::naval_construction) || kind == project_kind::retired_military_production
 		|| ((kind == project_kind::factory || kind == project_kind::factory_expansion) && !type)
 		|| (type && !s.world.factory_type_is_valid(type))
 		// An extraction recipe needs a deposit; only create_extraction_plant binds one.
@@ -84,6 +90,8 @@ dcon::capital_project_id create(sys::state& s, project_kind kind, dcon::economic
 	s.world.capital_project_set_factory_type(p, type);
 	s.world.capital_project_set_target_commodity(p, target_commodity);
 	s.world.capital_project_set_planned_daily_capacity(p, planned_daily_capacity);
+	s.world.capital_project_set_required_work(p, 0.0f);
+	s.world.capital_project_set_work_done(p, 0.0f);
 	s.world.force_create_capital_project_sponsor(p, owner);
 	s.world.force_create_capital_project_responsible(p, responsible);
 	s.world.force_create_capital_project_site(p, yard);
@@ -167,29 +175,130 @@ dcon::shipment_id deliver_material(sys::state& s, dcon::capital_project_id p, dc
 	return shipment;
 }
 
-float consume(sys::state& s, dcon::capital_project_requirement_id r, float amount) {
-	if(!r || !s.world.capital_project_requirement_is_valid(r) || !std::isfinite(amount) || amount <= 0.0f) return 0.0f;
-	auto p = s.world.capital_project_requirement_get_capital_project_from_capital_project_requirement_project(r);
-	if(!valid(s, p) || s.world.capital_project_get_status(p) == uint8_t(status::suspended)
-		|| s.world.capital_project_get_status(p) >= uint8_t(status::completed)) return 0.0f;
-	auto c = s.world.capital_project_requirement_get_commodity_from_capital_project_requirement_commodity(r);
-	auto owner = sponsor(s, p);
-	auto required = s.world.capital_project_requirement_get_required_quantity(r);
-	auto used = s.world.capital_project_requirement_get_consumed_quantity(r);
-	if(!std::isfinite(required) || required <= 0.0f || !std::isfinite(used) || used < 0.0f || used > required) return 0.0f;
-	auto need = required - used;
-	auto taken = physical::inventory::remove(s, site(s, p), c, std::min({amount, need, physical::inventory::quantity(s, site(s, p), c, owner)}), owner);
-	s.world.capital_project_requirement_set_consumed_quantity(r, s.world.capital_project_requirement_get_consumed_quantity(r) + taken);
-	if(taken > 0.0f) {
-		s.world.capital_project_set_status(p, uint8_t(status::active));
-		if(!s.world.capital_project_get_started_on(p)) s.world.capital_project_set_started_on(p, s.current_date);
-	}
-	refresh(s, p);
-	if(requirements_satisfied(s, p)) complete(s, p);
-	return taken;
+float material_quantity(sys::state const& s, dcon::capital_project_id p) {
+	double total = 0.0;
+	if(valid(s, p)) s.world.capital_project_for_each_capital_project_requirement_project_as_capital_project(p, [&](auto rel) {
+		auto r = s.world.capital_project_requirement_project_get_capital_project_requirement(rel);
+		auto need = s.world.capital_project_requirement_get_required_quantity(r);
+		if(std::isfinite(need) && need > 0.0f) total += need;
+	});
+	return float(total);
 }
 
-float material_progress(sys::state const& s, dcon::capital_project_id p) {
+float build_days(sys::state const& s, dcon::capital_project_id p) {
+	if(!valid(s, p)) return 0.0f;
+	auto kind = project_kind(s.world.capital_project_get_project_kind(p));
+	auto type = s.world.capital_project_get_factory_type(p);
+	float days = 0.0f;
+	if(kind == project_kind::factory || kind == project_kind::extraction_plant || kind == project_kind::factory_expansion) {
+		if(type && s.world.factory_type_is_valid(type))
+			days = float(s.world.factory_type_get_construction_time(type)) * s.defines.alice_factory_build_time_mult
+				* (kind == project_kind::factory_expansion ? 0.5f : 1.0f);
+	} else if(s.capital_projects_runtime) {
+		for(auto const& r : s.capital_projects_runtime->requests) {
+			if(r.project != p) continue;
+			if(kind == project_kind::infrastructure && r.building_type < uint8_t(economy::max_building_types))
+				days = float(s.economy_definitions.building_definitions[r.building_type].time) * s.defines.alice_province_building_build_time_mult;
+			else if(kind == project_kind::naval_construction && r.unit && r.unit.index() < s.military_definitions.unit_base_definitions.size())
+				days = float(s.military_definitions.unit_base_definitions[r.unit].build_time) * s.defines.alice_naval_unit_build_time_mult;
+		}
+	}
+	return std::isfinite(days) && days >= 1.0f ? days : construction_industry::default_build_days;
+}
+
+float required_work(sys::state const& s, dcon::capital_project_id p) {
+	if(!valid(s, p)) return 0.0f;
+	auto sealed = s.world.capital_project_get_required_work(p);
+	if(std::isfinite(sealed) && sealed > 0.0f) return sealed;
+	auto materials = material_quantity(s, p);
+	return materials > 0.0f ? construction_industry::required_work(materials, build_days(s, p)) : 0.0f;
+}
+
+bool seal_required_work(sys::state& s, dcon::capital_project_id p) {
+	if(!valid(s, p)) return false;
+	auto sealed = s.world.capital_project_get_required_work(p);
+	if(std::isfinite(sealed) && sealed > 0.0f) return true;
+	auto work = required_work(s, p);
+	if(!std::isfinite(work) || work <= 0.0f) return false;
+	s.world.capital_project_set_required_work(p, work);
+	return true;
+}
+
+float work_done(sys::state const& s, dcon::capital_project_id p) {
+	return valid(s, p) ? std::max(0.0f, s.world.capital_project_get_work_done(p)) : 0.0f;
+}
+
+float workable(sys::state const& s, dcon::capital_project_id p) {
+	if(!valid(s, p)) return 0.0f;
+	auto total = s.world.capital_project_get_required_work(p);
+	auto done = s.world.capital_project_get_work_done(p);
+	if(!std::isfinite(total) || total <= 0.0f || !std::isfinite(done) || done < 0.0f || done >= total) return 0.0f;
+	auto yard = site(s, p);
+	auto owner = sponsor(s, p);
+	double limit = total;
+	bool any = false, malformed = false;
+	s.world.capital_project_for_each_capital_project_requirement_project_as_capital_project(p, [&](auto rel) {
+		auto r = s.world.capital_project_requirement_project_get_capital_project_requirement(rel);
+		auto need = s.world.capital_project_requirement_get_required_quantity(r);
+		auto used = s.world.capital_project_requirement_get_consumed_quantity(r);
+		if(!std::isfinite(need) || need <= 0.0f || !std::isfinite(used) || used < 0.0f || used > need) { malformed = true; return; }
+		any = true;
+		auto c = s.world.capital_project_requirement_get_commodity_from_capital_project_requirement_commodity(r);
+		auto stock = std::max(0.0f, physical::inventory::quantity(s, yard, c, owner));
+		// Work may advance only as far as each material, installed or at hand, carries it.
+		limit = std::min(limit, double(used + stock) / double(need) * double(total));
+	});
+	if(malformed || !any) return 0.0f;
+	return float(std::max(0.0, limit - double(done)));
+}
+
+float apply_work(sys::state& s, dcon::capital_project_id p, float work) {
+	if(!accepts_work(s, p) || !std::isfinite(work) || work <= 0.0f) return 0.0f;
+	auto total = s.world.capital_project_get_required_work(p);
+	auto done = s.world.capital_project_get_work_done(p);
+	auto allowed = workable(s, p);
+	if(allowed <= 0.0f) return 0.0f;
+	auto yard = site(s, p);
+	auto owner = sponsor(s, p);
+	auto after = std::min(total, done + std::min(work, allowed));
+	// The last sliver of work installs every remaining material exactly, but
+	// only when every remaining material is physically at the yard. The
+	// tolerance absorbs float drift between the stock and the ledger, relative
+	// to each requirement, never a real shortage.
+	auto drift = [&](float need) { return 1.0e-5f * need; };
+	if(total - after <= 1.0e-5f * total) {
+		bool covered = true;
+		s.world.capital_project_for_each_capital_project_requirement_project_as_capital_project(p, [&](auto rel) {
+			auto r = s.world.capital_project_requirement_project_get_capital_project_requirement(rel);
+			auto c = s.world.capital_project_requirement_get_commodity_from_capital_project_requirement_commodity(r);
+			auto need = s.world.capital_project_requirement_get_required_quantity(r);
+			auto missing = need - s.world.capital_project_requirement_get_consumed_quantity(r);
+			if(missing > 0.0f && physical::inventory::quantity(s, yard, c, owner) < missing - drift(need)) covered = false;
+		});
+		if(covered) after = total;
+		else if(after >= total) after = std::nextafter(total, 0.0f);
+	}
+	if(after <= done) return 0.0f;
+	s.world.capital_project_for_each_capital_project_requirement_project_as_capital_project(p, [&](auto rel) {
+		auto r = s.world.capital_project_requirement_project_get_capital_project_requirement(rel);
+		auto c = s.world.capital_project_requirement_get_commodity_from_capital_project_requirement_commodity(r);
+		auto need = s.world.capital_project_requirement_get_required_quantity(r);
+		auto used = s.world.capital_project_requirement_get_consumed_quantity(r);
+		auto target = after == total ? need : std::min(need, float(double(need) * double(after) / double(total)));
+		if(target <= used) return;
+		auto taken = physical::inventory::remove(s, yard, c, target - used, owner);
+		s.world.capital_project_requirement_set_consumed_quantity(r,
+			after == total && taken >= target - used - drift(need) ? need : std::min(need, used + taken));
+	});
+	s.world.capital_project_set_work_done(p, after);
+	s.world.capital_project_set_status(p, uint8_t(status::active));
+	if(!s.world.capital_project_get_started_on(p)) s.world.capital_project_set_started_on(p, s.current_date);
+	refresh(s, p);
+	if(requirements_satisfied(s, p) && work_satisfied(s, p)) (void)complete(s, p);
+	return after - done;
+}
+
+float physical_progress(sys::state const& s, dcon::capital_project_id p) {
 	if(!valid(s, p)) return 0.0f;
 	double required = 0.0, consumed = 0.0;
 	bool malformed = false, all = true;
@@ -205,7 +314,35 @@ float material_progress(sys::state const& s, dcon::capital_project_id p) {
 	// Progress is a projection, never permission to create an asset. An empty
 	// recipe cannot be completed for free, even if a save/UI says progress=1.
 	if(malformed || required <= 0.0) return 0.0f;
-	return all ? 1.0f : std::min(float(consumed / required), std::nextafter(1.0f, 0.0f));
+	auto total = s.world.capital_project_get_required_work(p);
+	auto done = s.world.capital_project_get_work_done(p);
+	auto work_fraction = std::isfinite(total) && total > 0.0f && std::isfinite(done) ? std::clamp(double(done) / double(total), 0.0, 1.0) : 0.0;
+	if(all && work_satisfied(s, p)) return 1.0f;
+	return std::min(float(std::min(consumed / required, work_fraction)), std::nextafter(1.0f, 0.0f));
+}
+
+bool accepts_work(sys::state const& s, dcon::capital_project_id p) {
+	if(!valid(s, p)) return false;
+	auto current = s.world.capital_project_get_status(p);
+	return current == uint8_t(status::funded) || current == uint8_t(status::active);
+}
+
+float free_cash(sys::state const& s, dcon::capital_project_id p) {
+	auto account = valid(s, p) ? s.world.capital_project_get_monetary_account_from_capital_project_account(p) : dcon::monetary_account_id{};
+	return account ? std::max(0.0f, accounts::balance(s, account) - physical::concrete_market::reserved_bid_amount(s, account)) : 0.0f;
+}
+
+float remaining_labor_cost(sys::state const& s, dcon::capital_project_id p) {
+	if(!valid(s, p)) return 0.0f;
+	auto remaining = std::max(0.0f, required_work(s, p) - work_done(s, p));
+	auto contract = construction_industry::active_contract(s, p);
+	auto price = contract ? s.world.construction_contract_get_unit_price(contract)
+		: construction_industry::reference_unit_price(s, s.world.site_get_province_from_site_location(site(s, p)));
+	return std::isfinite(price) && price > 0.0f ? remaining * price : 0.0f;
+}
+
+float labor_cost_estimate(sys::state const& s, dcon::province_id province, float materials, float days) {
+	return construction_industry::required_work(materials, days) * construction_industry::reference_unit_price(s, province);
 }
 namespace {
 void release_bids(sys::state& s, dcon::capital_project_id p) {
@@ -249,6 +386,8 @@ bool resume(sys::state& s, dcon::capital_project_id p) {
 	return true;
 }
 bool is_construction_site(sys::state const& s, dcon::site_id yard) {
+	// A contractor's equipment at its works is not stock for sale either.
+	if(construction_industry::is_works_site(s, yard)) return true;
 	bool result = false;
 	s.world.for_each_capital_project([&](auto p) {
 		if(s.world.capital_project_get_status(p) < uint8_t(status::completed) && site(s, p) == yard) result = true;
@@ -256,15 +395,18 @@ bool is_construction_site(sys::state const& s, dcon::site_id yard) {
 	return result;
 }
 bool cancel(sys::state& s, dcon::capital_project_id p) {
-	if(!valid(s,p) || s.world.capital_project_get_status(p) == uint8_t(status::completed)) return false;
+	if(!valid(s, p) || s.world.capital_project_get_status(p) == uint8_t(status::completed)) return false;
+	// Installed work stays installed and the contractor keeps what it was paid
+	// for work it did; the rest of the budget goes back to the sponsor.
 	release_bids(s, p);
+	construction_industry::end_contracts_for(s, p, construction_industry::contract_status::cancelled);
 	close_account(s, p);
-	s.world.capital_project_set_status(p,uint8_t(status::cancelled));
+	s.world.capital_project_set_status(p, uint8_t(status::cancelled));
 	return true;
 }
 
 bool complete(sys::state& s, dcon::capital_project_id p) {
-	if(!valid(s,p) || !requirements_satisfied(s,p) || s.world.capital_project_get_status(p) == uint8_t(status::suspended)
+	if(!valid(s,p) || !requirements_satisfied(s,p) || !work_satisfied(s,p) || s.world.capital_project_get_status(p) == uint8_t(status::suspended)
 		|| s.world.capital_project_get_status(p) >= uint8_t(status::completed)) return false;
 	if(s.world.capital_project_get_factory_from_capital_project_factory(p)
 		|| s.world.capital_project_get_asset_from_capital_project_asset(p)) return false;
@@ -356,11 +498,6 @@ bool complete(sys::state& s, dcon::capital_project_id p) {
 			s.world.factory_get_size(factory) + added_capacity
 				* float(std::max<int32_t>(1, s.world.factory_type_get_base_workforce(s.world.factory_get_building_type(factory)))));
 		s.world.force_create_capital_project_factory(p, factory);
-	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::military_production)) {
-		auto output = s.world.capital_project_get_target_commodity(p);
-		auto quantity = s.world.capital_project_get_planned_daily_capacity(p);
-		if(!physical::factory_inputs::ordinary_physical_input(s, output) || !std::isfinite(quantity) || quantity <= 0.0f) return false;
-		if(physical::inventory::add(s, project_site, output, quantity, sponsor(s, p)) < quantity) return false;
 	} else if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::naval_construction)) {
 		if(!s.capital_projects_runtime) return false;
 		auto it = std::find_if(s.capital_projects_runtime->requests.begin(), s.capital_projects_runtime->requests.end(), [&](auto const& r) { return r.project == p; });
@@ -526,11 +663,10 @@ dcon::capital_project_id public_request(sys::state& s, dcon::nation_id nation, d
 	if(!settlement) return {};
 	auto location = s.world.create_site();
 	s.world.force_create_site_location(location, province);
-	// A public contractor belongs to the state that commissions it, so its
-	// earnings have an owner.
-	auto contractor = actors::organizations::create_company(s);
-	if(!contractor || !actors::ownership::create_stake(s, owner,
-		actors::organizations::equity_asset_for_organization(s, contractor), 1.0f, 1.0f, 1.0f)) return {};
+	// Public works are built under the same contracts as private ones; the
+	// state's own enterprise is the responsible organization and the builder of
+	// last resort.
+	auto contractor = construction_industry::public_works_enterprise(s, nation);
 	auto p = create(s, kind, owner, contractor, location, settlement, type);
 	if(p) s.world.force_create_institution_treasury_account(
 		s.world.capital_project_get_monetary_account_from_capital_project_account(p), authority);
@@ -563,6 +699,8 @@ void fund_public_request(sys::state& s, request_record const& r) {
 		});
 		needed += remaining * physical::concrete_market::canonical_reference_price(s, market, c, s.current_date) * 1.20f;
 	});
+	// The treasury pays for the crew's work as well as the materials.
+	needed += remaining_labor_cost(s, r.project);
 	auto amount = std::min(std::max(0.0f, needed - accounts::balance(s, account)),
 		std::max(0.0f, accounts::balance(s, treasury) - physical::concrete_market::reserved_bid_amount(s, treasury)));
 	if(amount > 0.0f && governance::finance::authorized_spend_by_institution(s, authority, treasury, account, amount, s.current_date)) {
@@ -591,6 +729,35 @@ void isolate_pre_cut_projects(sys::state& s) {
 		release_bids(s, p);
 		refresh(s, p);
 	});
+}
+void adopt_pre_industry_projects(sys::state& s) {
+	std::vector<dcon::capital_project_id> projects;
+	s.world.for_each_capital_project([&](auto p) {
+		if(s.world.capital_project_get_status(p) < uint8_t(status::completed)) projects.push_back(p);
+	});
+	for(auto p : projects) {
+		if(s.world.capital_project_get_project_kind(p) == uint8_t(project_kind::retired_military_production)) {
+			(void)cancel(s, p);
+			continue;
+		}
+		if(!seal_required_work(s, p)) continue;
+		// The old engine installed each material the day it arrived; that much
+		// of the structure stands, as far as every material carries it.
+		double fraction = 1.0;
+		bool any = false;
+		s.world.capital_project_for_each_capital_project_requirement_project_as_capital_project(p, [&](auto rel) {
+			auto r = s.world.capital_project_requirement_project_get_capital_project_requirement(rel);
+			auto need = s.world.capital_project_requirement_get_required_quantity(r);
+			auto used = s.world.capital_project_requirement_get_consumed_quantity(r);
+			if(!std::isfinite(need) || need <= 0.0f || !std::isfinite(used)) return;
+			any = true;
+			fraction = std::min(fraction, std::clamp(double(used) / double(need), 0.0, 1.0));
+		});
+		if(!any) continue;
+		auto total = s.world.capital_project_get_required_work(p);
+		s.world.capital_project_set_work_done(p, fraction >= 1.0 ? total : std::min(float(double(total) * fraction), std::nextafter(total, 0.0f)));
+		refresh(s, p);
+	}
 }
 bool import_requests(sys::state& s, std::vector<request_record> const& rows) {
 	std::vector<dcon::capital_project_id> seen;
@@ -640,13 +807,6 @@ dcon::capital_project_id create_infrastructure(sys::state& s, dcon::economic_act
 	request_record r; r.project = p; r.building_type = building_type;
 	r.target_level = uint8_t(std::min(255, int(s.world.province_get_building_level(s.world.site_get_province_from_site_location(location), building_type)) + 1));
 	requests(s).push_back(r);
-	return p;
-}
-dcon::capital_project_id create_military_production(sys::state& s, dcon::economic_actor_id owner, dcon::organization_id company,
-	dcon::site_id location, dcon::commodity_id settlement, dcon::commodity_id output, float quantity, economy::commodity_set const& recipe) {
-	if(!valid_recipe(s, recipe) || !physical::factory_inputs::ordinary_physical_input(s, output) || !std::isfinite(quantity) || quantity <= 0.0f) return {};
-	auto p = create(s, project_kind::military_production, owner, company, location, settlement, {}, output, quantity);
-	if(p && !add_recipe(s, p, recipe)) { cancel(s, p); return {}; }
 	return p;
 }
 void adopt_legacy_requests(sys::state& s) {
@@ -786,7 +946,7 @@ void process_projects(sys::state& s) {
 			|| s.world.capital_project_get_status(project) >= uint8_t(status::completed)) return;
 		auto project_status = s.world.capital_project_get_status(project);
 		if((project_status == uint8_t(status::funded) || project_status == uint8_t(status::active))
-			&& requirements_satisfied(s, project)) {
+			&& requirements_satisfied(s, project) && work_satisfied(s, project)) {
 			(void)complete(s, project);
 			return;
 		}
@@ -797,18 +957,17 @@ void process_projects(sys::state& s) {
 		if(!owner || !site || !account) return;
 		struct procurement_line { dcon::commodity_id commodity; float remaining; float limit; };
 		std::vector<procurement_line> lines;
+		// Cost of all material still to be paid for, including what is already bid.
+		double unpaid_material_cost = 0.0;
 		s.world.capital_project_for_each_capital_project_requirement_project_as_capital_project(project, [&](auto relation) {
 			auto requirement = s.world.capital_project_requirement_project_get_capital_project_requirement(relation);
 			auto commodity = s.world.capital_project_requirement_get_commodity_from_capital_project_requirement_commodity(requirement);
 			auto remaining = std::max(0.0f, s.world.capital_project_requirement_get_required_quantity(requirement)
 				- s.world.capital_project_requirement_get_consumed_quantity(requirement));
 			if(remaining <= 0.0f || !commodity) return;
-			auto available = physical::inventory::quantity(s, site, commodity, owner);
-			if(available > 0.0f) (void)consume(s, requirement, available);
-			remaining = std::max(0.0f, s.world.capital_project_requirement_get_required_quantity(requirement)
-				- s.world.capital_project_requirement_get_consumed_quantity(requirement));
-			if(remaining <= 0.0f) return;
-			float committed = 0.0f;
+			// Stock at the yard waits for the crew; it is never installed here.
+			float committed = std::max(0.0f, physical::inventory::quantity(s, site, commodity, owner));
+			float bid_quantity = 0.0f;
 			s.world.for_each_freight_request([&](auto request) {
 				if(s.world.freight_request_get_status(request) == 0
 					&& s.world.freight_request_get_economic_actor_from_freight_request_requester(request) == owner
@@ -828,12 +987,15 @@ void process_projects(sys::state& s) {
 				if(s.world.concrete_market_bid_get_status(bid) == 0
 					&& s.world.concrete_market_bid_get_monetary_account_from_concrete_bid_account(bid) == account
 					&& s.world.concrete_market_bid_get_site_from_concrete_bid_destination(bid) == site
-					&& s.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) == commodity)
+					&& s.world.concrete_market_bid_get_commodity_from_concrete_bid_commodity(bid) == commodity) {
 					committed += std::max(0.0f, s.world.concrete_market_bid_get_remaining_quantity(bid));
+					bid_quantity += std::max(0.0f, s.world.concrete_market_bid_get_remaining_quantity(bid));
+				}
 			});
 			if(!market) return;
 			auto price = physical::concrete_market::canonical_reference_price(s, market, commodity, s.current_date);
 			auto limit = price * 1.20f;
+			if(limit > 0.0f && std::isfinite(limit)) unpaid_material_cost += double(std::max(0.0f, remaining - committed + bid_quantity)) * limit;
 			if(remaining > committed && limit > 0.0f && std::isfinite(limit)) lines.push_back({commodity, std::max(remaining - committed, 1.0e-4f), limit});
 		});
 		// A tiny physical replacement lot clears transport losses without rounding
@@ -843,8 +1005,15 @@ void process_projects(sys::state& s) {
 		std::sort(lines.begin(), lines.end(), [](auto const& a, auto const& b) { return a.commodity.index() < b.commodity.index(); });
 		double cost = 0.0;
 		for(auto const& line : lines) cost += double(line.remaining) * line.limit;
-		auto cash = std::max(0.0f, accounts::balance(s, account) - physical::concrete_market::reserved_bid_amount(s, account));
-		auto ratio = cost > 0.0 ? std::min(1.0, double(cash) / cost) : 0.0;
+		// Scarce cash is shared between materials and the crew's work in
+		// proportion to what each still costs, so neither starves the other.
+		// The cap covers the project's whole cash, so bids already standing count
+		// against the material share.
+		auto labor = double(remaining_labor_cost(s, project));
+		auto cash = double(std::max(0.0f, accounts::balance(s, account)));
+		auto material_cap = unpaid_material_cost + labor > 0.0 ? cash * unpaid_material_cost / (unpaid_material_cost + labor) : 0.0;
+		auto material_cash = std::max(0.0, material_cap - double(physical::concrete_market::reserved_bid_amount(s, account)));
+		auto ratio = cost > 0.0 ? std::min(1.0, material_cash / cost) : 0.0;
 		for(auto const& line : lines) {
 			auto free_cash = std::max(0.0f, accounts::balance(s, account) - physical::concrete_market::reserved_bid_amount(s, account));
 			auto quantity = std::min(float(line.remaining * ratio), free_cash / line.limit);
@@ -852,6 +1021,8 @@ void process_projects(sys::state& s) {
 				quantity, line.limit, physical::concrete_market::order_purpose::general);
 		}
 	});
+	// Contracts, tendering, the crews' daily work and their payroll.
+	construction_industry::process(s);
 	// Offer physical stock for the same shared clearing used by factory inputs.
 	// Subtract existing ask reservations; posting twice cannot sell stock twice.
 	s.world.for_each_physical_stock([&](auto stock) {

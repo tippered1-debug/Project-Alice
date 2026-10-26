@@ -42,6 +42,7 @@
 #include "economy/industrial_production.cpp"
 #include "economy/payroll.cpp"
 #include "economy/capital_projects.cpp"
+#include "economy/construction_industry.cpp"
 #include "economy/information/information.cpp"
 #include "economy/consent/consent.cpp"
 #include "economy/banking/banking.cpp"

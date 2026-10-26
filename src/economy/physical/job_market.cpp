@@ -3,6 +3,7 @@
 #include "accounts/accounts.hpp"
 #include "actors/organizations/organizations.hpp"
 #include "economy/firm_agency.hpp"
+#include "economy/construction_industry.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "economy/collective_labor.hpp"
 #include "economy/households.hpp"
@@ -101,9 +102,12 @@ wage_offer_terms wage_offer_for_factory(sys::state const& state, dcon::factory_i
 		if(std::isfinite(contract->wage_rate) && contract->wage_rate >= 0.0f && contract->pay_period_days != 0)
 			return {contract->wage_rate, contract->pay_period_days};
 	}
-	auto expected_revenue = firm_agency::decide_factory(state, factory).expected_unit_revenue;
 	float occupation_multiplier = occupation == professional_occupation ? 1.40f
 		: occupation == skilled_occupation ? 1.10f : 0.75f;
+	// A contractor hires at the local going wage; its price follows its wages.
+	if(construction_industry::is_works(state, factory))
+		return {construction_industry::offer_wage(state, factory) * occupation_multiplier / 0.75f, 1};
+	auto expected_revenue = firm_agency::decide_factory(state, factory).expected_unit_revenue;
 	auto bootstrap = std::isfinite(expected_revenue)
 		? expected_revenue * 0.10f * occupation_multiplier : 0.0f;
 	return {std::max(1.0f, bootstrap), 1};

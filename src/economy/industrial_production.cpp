@@ -14,6 +14,7 @@
 #include "economy/payroll.hpp"
 #include "economy/accounts/accounts.hpp"
 #include "economy/firm_agency.hpp"
+#include "economy/construction_industry.hpp"
 #include "economy/exact_person_economy.hpp"
 #include "technology/technology_kernel.hpp"
 
@@ -45,7 +46,7 @@ bool set_productivity_factor(sys::state& state, dcon::factory_id factory, float 
 }
 
 void bootstrap_factory(sys::state& state, dcon::factory_id factory) {
-	if(!factory || !state.world.factory_is_valid(factory)) return;
+	if(!factory || !state.world.factory_is_valid(factory) || construction_industry::is_works(state, factory)) return;
 	auto type = state.world.factory_get_building_type(factory);
 	auto base_workforce = type ? float(state.world.factory_type_get_base_workforce(type)) : 0.0f;
 	auto output = type ? state.world.factory_type_get_output(type) : dcon::commodity_id{};
@@ -78,6 +79,8 @@ void bootstrap_factories(sys::state& state) {
 }
 
 bool plan_factory_inputs(sys::state& state, dcon::factory_id factory, dcon::province_id province, dcon::market_id market) {
+	// A construction works buys no recipe inputs; its sponsors buy the materials.
+	if(construction_industry::is_works(state, factory)) return true;
 	if(!factory || !province || !market) return false;
 	auto type = state.world.factory_get_building_type(factory);
 	auto site = world::site::site_for_factory(state, factory);
@@ -100,7 +103,8 @@ bool plan_factory_inputs(sys::state& state, dcon::factory_id factory, dcon::prov
 }
 
 float produce_factory(sys::state& state, dcon::factory_id factory) {
-	if(!factory || !state.world.factory_is_valid(factory)) return 0.0f;
+	// A construction works produces work on its contracted sites, not goods.
+	if(!factory || !state.world.factory_is_valid(factory) || construction_industry::is_works(state, factory)) return 0.0f;
 	auto type = state.world.factory_get_building_type(factory);
 	auto province = compat::alice::province_for_factory(state, factory);
 	auto site = world::site::site_for_factory(state, factory);

@@ -1,4 +1,5 @@
 #include "dcon_generated_ids.hpp"
+#include "economy/construction_industry.hpp"
 #include "system_state.hpp"
 
 #include "adaptive_ve.hpp"
@@ -1628,7 +1629,7 @@ float estimate_factory_consumption(sys::state& state, dcon::commodity_id c, dcon
 float estimate_factory_consumption(sys::state& state, dcon::commodity_id c) {
 	auto result = 0.f;
 	state.world.for_each_factory([&](auto f) {
-		result += estimate_factory_consumption(state, c, f);
+		if(!::economy::construction_industry::is_works(state, f)) result += estimate_factory_consumption(state, c, f);
 	});
 	return result;
 }

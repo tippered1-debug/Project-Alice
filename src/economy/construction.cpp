@@ -329,7 +329,7 @@ factory_construction_data explain_factory_building_construction(
 
 
 float factory_construction_progress(sys::state& state, dcon::factory_construction_id construction) {
-	return capital_projects::material_progress(state, capital_projects::project_for(state, construction));
+	return capital_projects::physical_progress(state, capital_projects::project_for(state, construction));
 }
 
 void factory_construction_tooltip(sys::state& state, text::columnar_layout& contents, dcon::factory_construction_id fcid) {
