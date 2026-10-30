@@ -1682,3 +1682,29 @@ katechon_fin_mon_11;ноя
 katechon_fin_month_11;Ноябрь
 katechon_fin_mon_12;дек
 katechon_fin_month_12;Декабрь
+katechon_fin_chart_waits;График заполнится по мере закрытия дней
+katechon_fin_over_days;за %1 дн.
+katechon_fin_rating_short;Рейтинг %1
+katechon_fin_unrated;Рейтинг ещё не присвоен
+katechon_fin_allocation;Распределение бюджета
+katechon_fin_draft_short;Проект
+katechon_fin_in_force_short;Действует
+katechon_fin_law_short;Закон
+katechon_fin_spent_period;Исполнено за период: %1
+katechon_fin_was;было %1
+katechon_fin_as_law;как в законе
+katechon_fin_nudge_less;Меньше на 1 п.п.
+katechon_fin_nudge_more;Больше на 1 п.п.
+katechon_fin_outside_priorities;Вне приоритетов:
+katechon_fin_rebalance_note;Рост одной статьи пропорционально урезает остальные. Сумма долей всегда 100%
+katechon_fin_reform;Бюджетная реформа
+katechon_fin_reform_idle;Измените налоги или приоритеты, и здесь появится законопроект в сравнении с действующим законом
+katechon_fin_reform_changes;Изменений: %1
+katechon_fin_procedure;Порядок принятия
+katechon_fin_step_draft;Проект подготовлен
+katechon_fin_step_no_draft;Проект ещё не подготовлен
+katechon_fin_step_chambers;Палаты готовы рассмотреть проект
+katechon_fin_step_no_result;Голосования ещё не было
+katechon_fin_nothing_shared;Приоритеты не заданы
+katechon_fin_no_law_short;Закона нет
+katechon_fin_more_changes;и ещё %1

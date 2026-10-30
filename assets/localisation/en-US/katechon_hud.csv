@@ -490,3 +490,29 @@ katechon_fin_mon_11;Nov
 katechon_fin_month_11;November
 katechon_fin_mon_12;Dec
 katechon_fin_month_12;December
+katechon_fin_chart_waits;The chart fills in as the days close
+katechon_fin_over_days;over %1 days
+katechon_fin_rating_short;Rating %1
+katechon_fin_unrated;Not yet rated
+katechon_fin_allocation;Budget Allocation
+katechon_fin_draft_short;Draft
+katechon_fin_in_force_short;In force
+katechon_fin_law_short;Law
+katechon_fin_spent_period;Spent over the period: %1
+katechon_fin_was;was %1
+katechon_fin_as_law;as in law
+katechon_fin_nudge_less;One point less
+katechon_fin_nudge_more;One point more
+katechon_fin_outside_priorities;Outside the priorities:
+katechon_fin_rebalance_note;Raising one priority takes from the others in proportion. The shares always make 100%
+katechon_fin_reform;Budget Reform
+katechon_fin_reform_idle;Move the taxes or the priorities. The bill appears here, set against the law in force
+katechon_fin_reform_changes;%1 changes
+katechon_fin_procedure;How it passes
+katechon_fin_step_draft;The bill is drafted
+katechon_fin_step_no_draft;No bill drafted yet
+katechon_fin_step_chambers;The chambers can take a bill now
+katechon_fin_step_no_result;No vote yet
+katechon_fin_nothing_shared;No priorities set
+katechon_fin_no_law_short;No law
+katechon_fin_more_changes;and %1 more

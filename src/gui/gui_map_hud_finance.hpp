@@ -444,7 +444,7 @@ void toggle_finance(sys::state& state) {
 
 // QA hooks: KATECHON_HUD_FINANCE=<0..4> opens the sheet on that section,
 // KATECHON_HUD_FIN_PERIOD=<0..2> on a period, KATECHON_HUD_FIN_LINES=1 the chart as lines,
-// KATECHON_HUD_FIN_DRAFT=<base>,<progressivity> moves the tax sliders,
+// KATECHON_HUD_FIN_DRAFT=<base>,<progressivity>[,<four shares>] moves the sliders,
 // KATECHON_HUD_FIN_PROPOSE=1 lays the bill, KATECHON_HUD_FIN_BONDS=<choice> offers bonds
 // (each after KATECHON_HUD_FIN_AFTER=<frames>, default 60).
 void fin_resolve(sys::state& state) {
@@ -486,9 +486,13 @@ void fin_qa(sys::state& state) {
 	fin_qa_done = true;
 	if(auto const* draft = std::getenv("KATECHON_HUD_FIN_DRAFT"); draft && draft[0]) {
 		float base = fin_draft[0], spread = fin_draft[1];
-		std::sscanf(draft, "%f,%f", &base, &spread);
+		std::array<float, 4> shares{};
+		auto const read = std::sscanf(draft, "%f,%f,%f,%f,%f,%f", &base, &spread, &shares[0], &shares[1], &shares[2], &shares[3]);
 		fin_draft[0] = std::clamp(base, 0.f, 0.4f);
 		fin_draft[1] = std::clamp(spread, 0.f, 1.f);
+		if(read == 6)
+			for(size_t i = 0; i < 4; ++i)
+				fin_draft[2 + i] = std::clamp(shares[i], 0.f, 1.f);
 	}
 	if(auto const* propose = std::getenv("KATECHON_HUD_FIN_PROPOSE"); propose && propose[0] == '1')
 		fin_propose(state);
@@ -526,6 +530,7 @@ bool fin_handles(action a) const {
 	case action::toggle_finance: case action::fin_page: case action::fin_period: case action::fin_step_menu:
 	case action::fin_step: case action::fin_chart: case action::fin_slider: case action::fin_propose:
 	case action::fin_reset: case action::fin_bond: case action::fin_tenor: case action::fin_offer: case action::fin_repay:
+	case action::fin_nudge:
 		return true;
 	default:
 		return false;
@@ -584,6 +589,11 @@ void fin_activate(sys::state& state, hit_target const& t) {
 	case action::fin_reset:
 		fin_draft = fin_law();
 		break;
+	case action::fin_nudge: { // a priority by one point up or down
+		auto const index = size_t(std::clamp(t.value, 2, 5));
+		fin_set_share(index, std::round((fin_draft[index] + (t.formation ? 0.01f : -0.01f)) * 100.f) / 100.f);
+		break;
+	}
 	case action::fin_bond:
 		fin_bond_choice = std::clamp(t.value, 0, 3);
 		break;
@@ -958,6 +968,19 @@ void fin_chart(sys::state& state, float x, float y, float w, float h, std::strin
 			}
 		}
 	}
+	// No closed day yet: no axes over nothing, only what the chart is waiting for.
+	if(!any) {
+		auto const cx = plot_x + plot_w * 0.5f;
+		auto const cy = plot_y + plot_h * 0.5f;
+		fin_sprite(state, fin_medallion, cx - 30.f, cy - 64.f, 60.f, 60.f);
+		fin_draw_icon(state, fin_icon::calendar, cx, cy - 34.f, 36.f);
+		auto const note = filled(localized(state, "katechon_fin_books_open", "The books open on %1. The first day closes at midnight"), fin_day(state, state.current_date));
+		fin_text(state, note, cx - fin_w(state, note, 16) * 0.5f, cy + 14.f, 16, fin_type);
+		auto const more = localized(state, "katechon_fin_chart_waits", "The chart fills in as the days close");
+		fin_text(state, more, cx - fin_w(state, more, 14) * 0.5f, cy + 40.f, 14, fin_muted);
+		panels.push_back(rect{ x, y, w, h });
+		return;
+	}
 	if(hi - lo < 1.0e-3f)
 		hi = lo + 1.f;
 	// a round step, four or five of them over the range
@@ -1000,10 +1023,6 @@ void fin_chart(sys::state& state, float x, float y, float w, float h, std::strin
 			auto const lw = fin_w(state, label, 13);
 			fin_text(state, label, cx - lw * 0.5f, plot_b + 22.f, 13, fin_muted);
 		}
-	}
-	if(!any) {
-		auto const note = filled(localized(state, "katechon_fin_books_open", "The books open on %1. The first day closes at midnight"), fin_day(state, state.current_date));
-		fin_text(state, note, plot_x + plot_w * 0.5f - fin_w(state, note, 15) * 0.5f, plot_y + plot_h * 0.5f, 15, fin_muted);
 	}
 	// what the mouse rests on
 	int32_t hovered = -1;
@@ -1798,6 +1817,527 @@ void fin_policy_page(sys::state& state, fin_layout const& l, bool hovering, floa
 	}
 }
 
+// ---- the overview ----
+//
+// The overview is where the budget is made, not read: the treasury in one
+// band, and under it, from left to right, where the money comes from (the
+// sources and the taxes), how it is shared (the four priorities of the law,
+// the draft set against it) and how a change becomes law. The chart and the
+// full tables live on the sections of the bar.
+
+static ogl::color3f fin_priority_colour(size_t i) {
+	static constexpr std::array<ogl::color3f, 4> colours{ ogl::color3f{ 0.851f, 0.706f, 0.447f }, ogl::color3f{ 0.431f, 0.588f, 0.792f },
+		ogl::color3f{ 0.388f, 0.698f, 0.588f }, ogl::color3f{ 0.698f, 0.537f, 0.808f } };
+	return colours[std::min<size_t>(i, 3)];
+}
+static constexpr std::array<std::pair<char const*, char const*>, 4> fin_priority_names{ std::pair{ "katechon_fin_education", "Education" },
+	std::pair{ "katechon_fin_public_order", "Public Order" }, std::pair{ "katechon_fin_infrastructure", "Infrastructure" },
+	std::pair{ "katechon_fin_local_government", "Local Government" } };
+static constexpr std::array<fin_icon, 4> fin_priority_icons{ fin_icon::book, fin_icon::shield, fin_icon::aqueduct, fin_icon::facade };
+static constexpr std::array<governance::finance::spending_function, 4> fin_priority_functions{ governance::finance::spending_function::education,
+	governance::finance::spending_function::public_order, governance::finance::spending_function::infrastructure,
+	governance::finance::spending_function::administration };
+
+// Running text broken at the right edge; returns the bottom.
+float fin_paragraph(sys::state& state, std::string const& content, float x, float right, float y, int32_t size, ogl::color3f colour, int32_t max_lines = 4) {
+	auto const pitch = std::round(float(size) * 1.45f);
+	std::string line;
+	int32_t lines = 0;
+	size_t at = 0;
+	auto const put = [&]() {
+		fin_text(state, line, x, y + pitch * 0.5f, size, colour);
+		y += pitch;
+		++lines;
+	};
+	while(at <= content.size() && lines < max_lines) {
+		auto const next = content.find(' ', at);
+		auto const word = content.substr(at, next == std::string::npos ? std::string::npos : next - at);
+		auto const candidate = line.empty() ? word : line + " " + word;
+		if(!line.empty() && fin_w(state, candidate, size) > right - x) {
+			put();
+			line = word;
+		} else {
+			line = candidate;
+		}
+		if(next == std::string::npos)
+			break;
+		at = next + 1;
+	}
+	if(!line.empty() && lines < max_lines)
+		put();
+	return y;
+}
+
+// The band of the treasury: the cash first and largest, then the period's flows and the debt.
+void fin_strip(sys::state& state, float x, float y, float w, float h, bool hovering, float mx, float my) {
+	auto const& r = fin_rep;
+	fin_board(state, fin_card, x, y, w, h);
+	auto const known = r.recorded_days > 0;
+	auto const hero_w = std::round(std::clamp(w * 0.36f, 420.f, 600.f));
+	{
+		auto const med = std::round(std::min(h - 30.f, 76.f));
+		auto const my0 = std::round(y + (h - med) * 0.5f);
+		fin_sprite(state, fin_medallion, x + 20.f, my0, med, med);
+		fin_draw_icon(state, fin_icon::coin_stack, x + 20.f + med * 0.5f, my0 + med * 0.5f, std::round(med * 0.70f));
+		auto const tx = x + 20.f + med + 22.f;
+		fin_caps(state, localized(state, "katechon_fin_treasury", "Treasury"), tx, y + h * 0.25f, 13, fin_gold, 0.16f);
+		auto const vw = fin_lifted(state, fin_money(r.treasury), tx, y + h * 0.52f, 40, fin_type, false, 0.004f);
+		std::string note;
+		auto colour = fin_quiet;
+		if(known) {
+			note = fin_money(r.treasury_per_day, true) + " " + localized(state, "katechon_fin_per_day", "/ day");
+			colour = r.treasury_per_day >= 0.f ? fin_green_text : fin_red;
+		} else {
+			note = filled(localized(state, "katechon_fin_books_open", "The books open on %1. The first day closes at midnight"), fin_day(state, state.current_date));
+		}
+		fin_text(state, fin_fit(state, note, 14, x + hero_w - 20.f - tx), tx, y + h * 0.79f, 14, colour);
+		// the course of the cash, once there is a course to show
+		std::vector<float> cash;
+		for(auto const& b : r.buckets)
+			if(b.recorded)
+				cash.push_back(b.treasury);
+		auto const sx = tx + vw + 30.f;
+		auto const sw = x + hero_w - 26.f - sx;
+		if(cash.size() >= 2 && sw > 70.f)
+			fin_spark(state, cash, sx, y + h * 0.30f, sw, h * 0.40f, ogl::color3f{ 0.42f, 0.66f, 0.52f });
+		hit_target t{ x, y, hero_w, h, action::none };
+		if(hovering && over(t, mx, my))
+			hint(filled(localized(state, "katechon_fin_treasury_tip", "Cash in every treasury of the state. The finance ministry holds %1 of it"), fin_money(r.ministry)), t);
+	}
+	fill(state, x + hero_w, y + 16.f, 1.f, h - 32.f, fin_line, 0.45f);
+	fill(state, x + hero_w + 1.f, y + 16.f, 1.f, h - 32.f, fin_black, 0.5f);
+	// the period's figures
+	struct figure {
+		std::string label, value, note, tip;
+		ogl::color3f value_colour, note_colour;
+	};
+	auto const flow_note = [&](float now, float before, bool more_is_good, ogl::color3f& colour) -> std::string {
+		if(!known) {
+			colour = fin_quiet;
+			return "\xE2\x80\x94";
+		}
+		if(!r.previous_known || before <= 1.0e-4f) {
+			colour = fin_quiet;
+			return filled(localized(state, "katechon_fin_over_days", "over %1 days"), std::to_string(r.recorded_days));
+		}
+		auto const part = now / before - 1.f;
+		colour = (part >= 0.f) == more_is_good ? fin_green_text : fin_red;
+		return fin_pct(part, 1, true) + " " + fin_versus(state);
+	};
+	std::array<figure, 4> figures;
+	{
+		ogl::color3f c{};
+		auto note = flow_note(r.revenue_total, r.previous_revenue, true, c);
+		figures[0] = figure{ localized(state, "katechon_fin_revenue_total", "Total Revenue"), fin_money(r.revenue_total), note,
+			localized(state, "katechon_fin_revenue_tip", "Taxes received and other income from outside the state, over the period"), fin_type, c };
+	}
+	{
+		ogl::color3f c{};
+		auto note = flow_note(r.spending_total, r.previous_spending, false, c);
+		figures[1] = figure{ localized(state, "katechon_fin_spending_total", "Total Spending"), fin_money(r.spending_total), note,
+			localized(state, "katechon_fin_spending_tip", "Payroll, purchases, transfers and interest paid outside the state. Money moved between its institutions is not counted"), fin_type, c };
+	}
+	{
+		auto const good = r.balance >= 0.f;
+		auto const share = r.revenue_total > 0.f ? r.balance / r.revenue_total : 0.f;
+		figures[2] = figure{ localized(state, "katechon_fin_balance", "Budget Balance"), fin_money(r.balance, true),
+			r.revenue_total > 0.f ? filled(localized(state, "katechon_fin_of_revenue", "%1 of revenue"), fin_pct(share, 1, true)) : std::string("\xE2\x80\x94"),
+			localized(state, "katechon_fin_balance_tip", "Revenue less spending over the period. Borrowing and repaid principal are financing, not revenue or spending"),
+			known ? (good ? fin_green_text : fin_red) : fin_type, r.revenue_total > 0.f ? (good ? fin_green_text : fin_red) : fin_quiet };
+	}
+	{
+		auto const& c = r.credit;
+		figures[3] = figure{ localized(state, "katechon_fin_public_debt", "Public Debt"), fin_money(r.public_debt),
+			c.assessed ? filled(localized(state, "katechon_fin_rating_short", "Rating %1"), fin_grade_name(c.grade)) : localized(state, "katechon_fin_unrated", "Not yet rated"),
+			localized(state, "katechon_fin_debt_tip", "Public debt of every institution of the state: principal and interest accrued"),
+			r.public_debt > 0.005f ? fin_violet : fin_type, c.assessed ? fin_gold_light : fin_quiet };
+	}
+	auto const cell_w = (x + w - 12.f - (x + hero_w + 12.f)) / 4.f;
+	for(size_t i = 0; i < figures.size(); ++i) {
+		auto const& f = figures[i];
+		auto const cx = x + hero_w + 12.f + cell_w * float(i);
+		auto const tx = cx + 22.f;
+		auto const room = cell_w - 34.f;
+		if(i > 0)
+			fill(state, cx, y + 26.f, 1.f, h - 52.f, fin_grid, 0.45f);
+		fin_caps(state, fin_fit(state, f.label, 12, room), tx, y + h * 0.28f, 12, fin_muted, 0.12f);
+		fin_lifted(state, fin_fit(state, f.value, 26, room), tx, y + h * 0.53f, 26, f.value_colour);
+		fin_text(state, fin_fit(state, f.note, 13, room), tx, y + h * 0.78f, 13, f.note_colour);
+		hit_target t{ cx, y, cell_w, h, action::none };
+		if(hovering && over(t, mx, my))
+			hint(f.tip, t);
+	}
+}
+
+// Where the money comes from, by source, for the period.
+void fin_sources(sys::state& state, float x, float y, float w, float h, bool hovering, float mx, float my) {
+	auto const& r = fin_rep;
+	fin_board(state, fin_panel, x, y, w, h);
+	fin_panel_head(state, localized(state, "katechon_fin_revenue", "Revenue"), x, y, w);
+	fin_text(state, fin_money(r.revenue_total), x + w - 22.f, y + 26.f, 17, fin_gold_light, true);
+	fin_rule(state, x + 20.f, y + 48.f, w - 40.f);
+	auto const rows = fin_revenue_rows(state);
+	auto const pitch = std::clamp((h - 64.f) / float(rows.size()), 24.f, 40.f);
+	auto ry = y + 56.f;
+	for(auto const& row : rows) {
+		auto const cy = ry + pitch * 0.42f;
+		hit_target t{ x + 14.f, ry, w - 28.f, pitch, action::none };
+		auto const lit = hovering && over(t, mx, my);
+		if(lit)
+			fin_plate(state, fin_row, t.x, t.y + 1.f, t.w, t.h - 2.f, 64.f, 32.f, 8.f, 4.f);
+		auto const has = row.amount > 0.005f;
+		fin_draw_icon(state, row.image, x + 32.f, cy, 20.f, has ? ogl::color3f{ 1.f, 1.f, 1.f } : ogl::color3f{ 0.62f, 0.62f, 0.62f });
+		auto const amount = fin_money(row.amount);
+		auto const aw = fin_w(state, amount, 15);
+		fin_text(state, fin_fit(state, row.name, 15, w - 74.f - aw - 16.f), x + 52.f, cy, 15, has ? fin_type : fin_muted);
+		fin_text(state, amount, x + w - 22.f, cy, 15, has ? fin_type : fin_quiet, true);
+		auto const share = r.revenue_total > 0.f ? row.amount / r.revenue_total : 0.f;
+		fin_groove(state, x + 52.f, ry + pitch * 0.82f, w - 74.f, 4.f, share, ogl::color3f{ 0.31f, 0.64f, 0.53f });
+		if(lit && !row.tip.empty())
+			hint(row.tip, t);
+		ry += pitch;
+	}
+	panels.push_back(rect{ x, y, w, h });
+}
+
+// The income tax of the law, and what each stratum would pay under the draft.
+void fin_taxes(sys::state& state, float x, float y, float w, float h, bool hovering, float mx, float my) {
+	fin_board(state, fin_panel, x, y, w, h);
+	fin_panel_head(state, localized(state, "katechon_fin_income_tax", "Income Tax"), x, y, w);
+	auto const dirty = std::abs(fin_draft[0] - fin_rep.base_rate) > 0.0005f || std::abs(fin_draft[1] - fin_rep.progressivity) > 0.0005f;
+	if(dirty)
+		fin_caps(state, localized(state, "katechon_fin_as_proposed", "as proposed"), x + w - 22.f - fin_caps_w(state, localized(state, "katechon_fin_as_proposed", "as proposed"), 12), y + 26.f, 12, fin_gold, 0.12f);
+	fin_rule(state, x + 20.f, y + 48.f, w - 40.f);
+	auto const k = std::clamp((h - 60.f) / 240.f, 0.85f, 1.2f);
+	auto cy = y + 52.f + 30.f * k;
+	fin_slider_row(state, 0, x + 14.f, x + w - 4.f, cy, 150.f, fin_icon::bank_coin, false, localized(state, "katechon_fin_base_rate", "Base Rate"),
+		fin_pct(fin_draft[0], 1), fin_draft[0] / 0.4f, hovering, mx, my, localized(state, "katechon_fin_base_rate_tip", "The rate on the wages of the middle stratum, from 0 to 40%"));
+	cy += 36.f * k;
+	fin_slider_row(state, 1, x + 14.f, x + w - 4.f, cy, 150.f, fin_icon::progressivity, false, localized(state, "katechon_fin_progressivity", "Progressivity"),
+		fin_pct(fin_draft[1], 0), fin_draft[1], hovering, mx, my, localized(state, "katechon_fin_progressivity_tip", "At 0 every stratum pays the base rate. At 100% the poor pay 40% of it and the rich twice it"));
+	cy += 30.f * k;
+	// one cell for each stratum: the rate in force, and the draft's beside it
+	auto const proposed = fin_draft_rates(state);
+	static constexpr std::array<std::pair<char const*, char const*>, 3> strata{ std::pair{ "katechon_fin_poor", "Poor" }, std::pair{ "katechon_fin_middle", "Middle" }, std::pair{ "katechon_fin_rich", "Rich" } };
+	static constexpr std::array<fin_icon, 3> marks{ fin_icon::person_one, fin_icon::person_two, fin_icon::person_crown };
+	auto const gap = 8.f;
+	auto const cell_w = std::floor((w - 28.f - gap * 2.f) / 3.f);
+	auto const cell_h = std::round(std::clamp(y + h - 16.f - cy, 52.f, 76.f));
+	for(size_t i = 0; i < 3; ++i) {
+		auto const cx = x + 14.f + float(i) * (cell_w + gap);
+		fin_plate(state, fin_inset, cx, cy, cell_w, cell_h, 64.f, 64.f, 10.f, 5.f);
+		fin_draw_icon(state, marks[i], cx + 20.f, cy + cell_h * 0.32f, 20.f, ogl::color3f{ 0.85f, 0.85f, 0.85f });
+		fin_text(state, fin_fit(state, localized(state, strata[i].first, strata[i].second), 13, cell_w - 44.f), cx + 36.f, cy + cell_h * 0.32f, 13, fin_muted);
+		auto const now = fin_rep.stratum_rates[i];
+		auto const changed = dirty && std::abs(proposed[i] - now) > 0.0005f;
+		auto const value = changed ? proposed[i] : now;
+		auto const vw = fin_lifted(state, fin_pct(value), cx + 12.f, cy + cell_h * 0.70f, 20, changed ? fin_gold_light : fin_type);
+		if(changed)
+			fin_text(state, fin_pct(proposed[i] - now, 1, true), cx + 12.f + vw + 8.f, cy + cell_h * 0.72f, 13, proposed[i] > now ? fin_coral : fin_green_text);
+	}
+	panels.push_back(rect{ x, y, w, h });
+}
+
+// The four priorities of the law: how the national treasury's disbursements are shared,
+// the law in force over the draft, one row for each with what was spent on it.
+void fin_allocation(sys::state& state, float x, float y, float w, float h, bool hovering, float mx, float my) {
+	auto const& r = fin_rep;
+	fin_board(state, fin_panel, x, y, w, h);
+	fin_panel_head(state, localized(state, "katechon_fin_allocation", "Budget Allocation"), x, y, w, 24);
+	auto dirty = false;
+	for(size_t i = 0; i < 4; ++i)
+		dirty = dirty || std::abs(fin_draft[2 + i] - r.priorities[i]) > 0.0005f;
+	auto const state_word = dirty ? localized(state, "katechon_fin_draft_short", "Draft")
+		: (r.law_in_force ? localized(state, "katechon_fin_in_force_short", "In force") : localized(state, "katechon_fin_no_law_short", "No law"));
+	fin_caps(state, state_word, x + w - 22.f - fin_caps_w(state, state_word, 12), y + 26.f, 12, dirty ? fin_gold : fin_muted, 0.12f);
+	fin_rule(state, x + 20.f, y + 48.f, w - 40.f);
+
+	// which row the mouse is on, so that its share lights in the bars too
+	auto const rows_top = std::round(y + 164.f);
+	auto const footer_h = 62.f;
+	auto const pitch = std::clamp((y + h - footer_h - rows_top) / 4.f, 58.f, 96.f);
+	int32_t lit_row = fin_drag >= 2 ? fin_drag - 2 : -1;
+	if(lit_row < 0 && hovering)
+		for(int32_t i = 0; i < 4; ++i)
+			if(over(hit_target{ x + 14.f, rows_top + float(i) * pitch, w - 28.f, pitch - 8.f }, mx, my))
+				lit_row = i;
+
+	// the law and the draft, one bar each
+	auto const bar_x = std::round(x + 120.f);
+	auto const bar_w = std::round(x + w - 24.f - bar_x);
+	auto const shares_bar = [&](float by, float bh, auto const& share, bool labels) {
+		fill(state, bar_x, by, bar_w, bh, fin_track, 1.f);
+		float sum = 0.f;
+		for(size_t i = 0; i < 4; ++i)
+			sum += share(i);
+		if(sum <= 1.0e-5f) { // nothing shared yet: an empty groove, not invented quarters
+			fill(state, bar_x, by, bar_w, 1.f, fin_black, 0.8f);
+			fill(state, bar_x, by + bh - 1.f, bar_w, 1.f, fin_grid, 0.4f);
+			if(labels) {
+				auto const words = localized(state, "katechon_fin_nothing_shared", "No priorities set");
+				fin_text(state, words, bar_x + bar_w * 0.5f - fin_w(state, words, 14) * 0.5f, by + bh * 0.5f, 14, fin_quiet);
+			}
+			return;
+		}
+		auto bx = bar_x;
+		for(size_t i = 0; i < 4; ++i) {
+			auto const part = share(i) / sum;
+			auto const right = i == 3 ? bar_x + bar_w : std::round(bx + part * bar_w);
+			auto const sw = right - bx;
+			if(sw >= 1.f) {
+				auto const colour = fin_priority_colour(i);
+				auto const alpha = lit_row < 0 || lit_row == int32_t(i) ? 0.95f : 0.55f;
+				fill(state, bx, by, sw, bh, colour, alpha);
+				fill(state, bx, by, sw, std::max(1.f, std::round(bh * 0.35f)), mix(colour, ogl::color3f{ 1.f, 1.f, 1.f }, 0.25f), alpha * 0.45f);
+				if(i > 0)
+					fill(state, bx, by, 2.f, bh, fin_black, 0.85f);
+				if(labels && sw > 46.f) {
+					auto const words = fin_pct(part, 0);
+					fin_text(state, words, bx + sw * 0.5f - fin_w(state, words, 15) * 0.5f, by + bh * 0.5f, 15, fin_deep);
+				}
+			}
+			bx = right;
+		}
+		fill(state, bar_x, by, bar_w, 1.f, fin_black, 0.8f);
+		fill(state, bar_x, by + bh - 1.f, bar_w, 1.f, fin_grid, 0.4f);
+	};
+	{
+		auto const law_y = y + 70.f;
+		fin_caps(state, localized(state, "katechon_fin_law_short", "Law"), x + 24.f, law_y + 6.f, 12, fin_muted, 0.14f);
+		shares_bar(law_y, 12.f, [&](size_t i) { return r.priorities[i]; }, false);
+		auto const draft_y = y + 94.f;
+		fin_caps(state, dirty || !r.law_in_force ? localized(state, "katechon_fin_draft_short", "Draft") : localized(state, "katechon_fin_in_force_short", "In force"), x + 24.f, draft_y + 21.f, 12,
+			dirty ? fin_gold : fin_type, 0.14f);
+		shares_bar(draft_y, 42.f, [&](size_t i) { return fin_draft[2 + i]; }, true);
+		// the legend under the bars
+		auto lx = bar_x;
+		auto const ly = y + 152.f;
+		for(size_t i = 0; i < 4; ++i) {
+			fill(state, lx, ly - 4.f, 8.f, 8.f, fin_priority_colour(i), 1.f);
+			lx += 14.f + fin_text(state, localized(state, fin_priority_names[i].first, fin_priority_names[i].second), lx + 14.f, ly, 13, fin_muted) + 22.f;
+		}
+	}
+
+	// a row for each priority
+	auto const value_r = x + w - 26.f;
+	auto const name_r = std::round(x + std::max(250.f, w * 0.38f));
+	for(size_t i = 0; i < 4; ++i) {
+		auto const ry = rows_top + float(i) * pitch;
+		auto const rh = pitch - 8.f;
+		auto const colour = fin_priority_colour(i);
+		auto const lit = lit_row == int32_t(i);
+		fin_plate(state, fin_row, x + 14.f, ry, w - 28.f, rh, 64.f, 32.f, 8.f, 4.f);
+		if(lit)
+			fill(state, x + 16.f, ry + 2.f, w - 32.f, rh - 4.f, colour, 0.06f);
+		fill(state, x + 14.f, ry, 4.f, rh, colour, 1.f);
+		auto const top_line = ry + rh * 0.34f;
+		auto const low_line = ry + rh * 0.72f;
+		fin_draw_icon(state, fin_priority_icons[i], x + 42.f, top_line, 24.f);
+		fin_text(state, fin_fit(state, localized(state, fin_priority_names[i].first, fin_priority_names[i].second), 17, name_r - x - 70.f), x + 62.f, top_line, 17, fin_type);
+		auto const spent = r.spending[size_t(fin_priority_functions[i])];
+		fin_text(state, fin_fit(state, filled(localized(state, "katechon_fin_spent_period", "Spent over the period: %1"), fin_money(spent)), 13, name_r - x - 70.f),
+			x + 62.f, low_line, 13, spent > 0.005f ? fin_muted : fin_quiet);
+		// the share, and how far the draft moves it
+		auto const law = r.priorities[i];
+		auto const draft = fin_draft[2 + i];
+		auto const moved = std::abs(draft - law) > 0.0005f;
+		fin_lifted(state, fin_pct(draft, 0), value_r, top_line, 22, moved ? fin_gold_light : fin_type, true);
+		if(moved) {
+			auto const delta = fin_pct(draft - law, 0, true);
+			auto const dw = fin_text(state, delta, value_r, low_line, 13, draft > law ? fin_green_text : fin_coral, true);
+			fin_text(state, filled(localized(state, "katechon_fin_was", "was %1"), fin_pct(law, 0)), value_r - dw - 8.f, low_line, 13, fin_quiet, true);
+		} else {
+			fin_text(state, localized(state, "katechon_fin_as_law", "as in law"), value_r, low_line, 13, fin_quiet, true);
+		}
+		// minus, the track, plus
+		auto const bh = 26.f;
+		auto const by = std::round(ry + rh * 0.5f - bh * 0.5f);
+		auto const minus_x = name_r;
+		auto const plus_x = value_r - 112.f - bh;
+		{
+			hit_target t{ 0.f, 0.f, 0.f, 0.f, action::fin_nudge, nullptr, int32_t(2 + i) };
+			t.formation = 0;
+			fin_button_at(state, minus_x, by, bh, bh, {}, fin_icon::minus, false, draft > 0.005f, t, hovering, mx, my, localized(state, "katechon_fin_nudge_less", "One point less"), 13);
+			t.formation = 1;
+			fin_button_at(state, plus_x, by, bh, bh, {}, fin_icon::plus, false, draft < 0.995f, t, hovering, mx, my, localized(state, "katechon_fin_nudge_more", "One point more"), 13);
+		}
+		auto const tx = std::round(minus_x + bh + 14.f);
+		auto const tr = std::round(plus_x - 14.f);
+		auto const tw = tr - tx;
+		auto const cy = std::round(ry + rh * 0.5f);
+		if(tw > 20.f) {
+			fin_tracks[2 + i] = rect{ tx, cy - 3.f, tw, 6.f };
+			fill(state, tx, cy - 3.f, tw, 6.f, fin_track, 1.f);
+			fill(state, tx, cy - 3.f, tw, 1.f, fin_black, 0.9f);
+			fill(state, tx, cy + 2.f, tw, 1.f, fin_grid, 0.45f);
+			auto const knob_x = tx + tw * std::clamp(draft, 0.f, 1.f);
+			if(knob_x - tx >= 1.f) {
+				fill(state, tx, cy - 3.f, knob_x - tx, 6.f, colour, 0.95f);
+				fill(state, tx, cy - 3.f, knob_x - tx, 2.f, mix(colour, ogl::color3f{ 1.f, 1.f, 1.f }, 0.3f), 0.8f);
+			}
+			// where the law stands, when the draft has left it
+			if(moved) {
+				auto const lx = std::round(tx + tw * std::clamp(law, 0.f, 1.f));
+				fill(state, lx - 1.f, cy - 9.f, 2.f, 18.f, fin_type, 0.75f);
+			}
+			hit_target t{ tx - 10.f, cy - 12.f, tw + 20.f, 24.f, action::fin_slider, nullptr, int32_t(2 + i) };
+			auto const held = fin_drag == int32_t(2 + i) || (hovering && over(t, mx, my));
+			if(held)
+				fin_sprite(state, fin_glow, knob_x - 18.f, cy - 18.f, 36.f, 36.f, colour);
+			fin_sprite(state, fin_knob, knob_x - 11.f, cy - 11.f, 22.f, 22.f);
+			targets.push_back(t);
+			if(held && fin_drag < 0)
+				hint(localized(state, "katechon_fin_share_tip", "The share of each monthly disbursement of the national treasury. The other priorities make room"), t);
+		}
+	}
+
+	// what the priorities do not cover, and how the shares give way
+	{
+		using governance::finance::spending_function;
+		auto const fy = y + h - footer_h + 6.f;
+		fin_rule(state, x + 20.f, fy, w - 40.f, 0.4f);
+		auto const outside = localized(state, "katechon_fin_outside_priorities", "Outside the priorities:") + "  "
+			+ localized(state, "katechon_fin_military", "Military") + " " + fin_money(r.spending[size_t(spending_function::military)]) + "  \xC2\xB7  "
+			+ localized(state, "katechon_fin_social", "Social Transfers") + " " + fin_money(r.spending[size_t(spending_function::social_transfers)]) + "  \xC2\xB7  "
+			+ localized(state, "katechon_fin_debt_service", "Debt Service") + " " + fin_money(r.spending[size_t(spending_function::debt_service)]);
+		fin_text(state, fin_fit(state, outside, 13, w - 48.f), x + 24.f, fy + 18.f, 13, fin_muted);
+		fin_text(state, fin_fit(state, localized(state, "katechon_fin_rebalance_note", "Raising one priority takes from the others in proportion; the shares always make 100%"), 13, w - 48.f),
+			x + 24.f, fy + 40.f, 13, fin_quiet);
+	}
+	panels.push_back(rect{ x, y, w, h });
+}
+
+// The bill: what the draft changes against the law in force, and the way it takes through the chambers.
+void fin_reform(sys::state& state, float x, float y, float w, float h, bool hovering, float mx, float my) {
+	auto const& r = fin_rep;
+	fin_board(state, fin_panel, x, y, w, h);
+	fin_panel_head(state, localized(state, "katechon_fin_reform", "Budget Reform"), x, y, w);
+	fin_rule(state, x + 20.f, y + 48.f, w - 40.f);
+	auto const today = state.current_date;
+	auto const dirty = fin_dirty();
+	auto const too_soon = r.next_bill && today < r.next_bill;
+	auto const can = dirty && !too_soon && r.law_in_force;
+	struct change {
+		fin_icon image;
+		std::string label, then, now;
+		bool up;
+	};
+	std::vector<change> changes;
+	auto const law = fin_law();
+	static constexpr std::array<std::pair<char const*, char const*>, 2> taxes{ std::pair{ "katechon_fin_base_rate", "Base Rate" }, std::pair{ "katechon_fin_progressivity", "Progressivity" } };
+	for(size_t i = 0; i < 6; ++i) {
+		if(std::abs(law[i] - fin_draft[i]) <= 0.0005f)
+			continue;
+		auto const digits = i == 0 ? 1 : 0;
+		if(i < 2)
+			changes.push_back(change{ i == 0 ? fin_icon::bank_coin : fin_icon::progressivity, localized(state, taxes[i].first, taxes[i].second), fin_pct(law[i], digits), fin_pct(fin_draft[i], digits), fin_draft[i] > law[i] });
+		else
+			changes.push_back(change{ fin_priority_icons[i - 2], localized(state, fin_priority_names[i - 2].first, fin_priority_names[i - 2].second), fin_pct(law[i], 0), fin_pct(fin_draft[i], 0), fin_draft[i] > law[i] });
+	}
+	{
+		auto const badge = !changes.empty() ? filled(localized(state, "katechon_fin_reform_changes", "%1 changes"), std::to_string(changes.size()))
+			: (r.law_in_force ? localized(state, "katechon_fin_in_force_short", "In force") : localized(state, "katechon_fin_no_law_short", "No law"));
+		fin_caps(state, badge, x + w - 22.f - fin_caps_w(state, badge, 12), y + 26.f, 12, changes.empty() ? fin_muted : fin_gold, 0.12f);
+	}
+	// the way through the chambers, from the bottom up
+	auto const buttons_y = y + h - 18.f - 34.f;
+	auto const step_pitch = 25.f;
+	auto const steps_top = buttons_y - 14.f - step_pitch * 3.f;
+	auto const changes_bottom = steps_top - 28.f;
+	auto cy = y + 60.f;
+	if(changes.empty()) {
+		fin_paragraph(state, localized(state, "katechon_fin_reform_idle", "Move the taxes or the priorities. The bill appears here, set against the law in force"),
+			x + 22.f, x + w - 22.f, cy, 15, fin_muted);
+	} else {
+		auto const pitch = std::clamp((changes_bottom - cy) / float(changes.size()), 20.f, 30.f);
+		auto const fits = std::max<size_t>(1, size_t((changes_bottom - cy) / pitch));
+		for(size_t n = 0; n < changes.size(); ++n) {
+			auto const& c = changes[n];
+			if(n + 1 == fits && changes.size() > fits) { // the rest, counted
+				fin_text(state, filled(localized(state, "katechon_fin_more_changes", "and %1 more"), std::to_string(changes.size() - n)), x + 50.f, cy + pitch * 0.5f, 14, fin_muted);
+				break;
+			}
+			auto const mid = cy + pitch * 0.5f;
+			fin_draw_icon(state, c.image, x + 32.f, mid, 18.f);
+			auto const nw = fin_text(state, c.now, x + w - 22.f, mid, 15, fin_gold_light, true);
+			auto const arrow = std::string(" \xE2\x86\x92 ");
+			auto const aw = fin_text(state, arrow, x + w - 22.f - nw, mid, 15, fin_muted, true);
+			auto const tw = fin_text(state, c.then, x + w - 22.f - nw - aw, mid, 15, fin_quiet, true);
+			fin_text(state, fin_fit(state, c.label, 15, w - 74.f - nw - aw - tw - 12.f), x + 50.f, mid, 15, fin_type);
+			cy += pitch;
+		}
+	}
+	// the steps
+	{
+		auto const notice = governance::finance::last_bill(state, state.local_player_nation);
+		fin_caps(state, localized(state, "katechon_fin_procedure", "How it passes"), x + 22.f, steps_top - 14.f, 12, fin_gold, 0.14f);
+		struct step {
+			std::string words;
+			ogl::color3f mark;
+			bool done;
+		};
+		std::array<step, 3> steps;
+		steps[0] = step{ dirty ? localized(state, "katechon_fin_step_draft", "The bill is drafted") : localized(state, "katechon_fin_step_no_draft", "No bill drafted yet"), fin_gold, dirty };
+		steps[1] = !r.law_in_force ? step{ localized(state, "katechon_fin_no_law", "No fiscal law is in force to amend"), fin_red, false } : step{ too_soon ? filled(localized(state, "katechon_fin_bill_too_soon", "The chambers take a new fiscal bill from %1"), fin_day(state, r.next_bill))
+			: localized(state, "katechon_fin_step_chambers", "The chambers can take a bill now"), fin_gold, !too_soon };
+		if(notice.outcome == governance::finance::bill_outcome::none)
+			steps[2] = step{ localized(state, "katechon_fin_step_no_result", "No vote yet"), fin_quiet, false };
+		else
+			steps[2] = step{ fin_bill_words(state, notice), notice.outcome == governance::finance::bill_outcome::enacted ? fin_green : fin_red, true };
+		fill(state, x + 30.f, steps_top + step_pitch * 0.5f, 1.f, step_pitch * 2.f, fin_line, 0.45f);
+		for(size_t i = 0; i < steps.size(); ++i) {
+			auto const mid = steps_top + step_pitch * (float(i) + 0.5f);
+			if(steps[i].done)
+				fin_draw_icon(state, fin_icon::dot, x + 30.f, mid, 11.f, steps[i].mark);
+			else
+				fin_draw_icon(state, fin_icon::ring, x + 30.f, mid, 11.f, fin_muted);
+			fin_text(state, fin_fit(state, steps[i].words, 14, w - 70.f), x + 46.f, mid, 14, steps[i].done ? fin_type : fin_muted);
+		}
+	}
+	// the buttons
+	{
+		auto const gap = 8.f;
+		auto const keep_w = std::round((w - 44.f - gap) * 0.38f);
+		auto const propose_w = w - 44.f - gap - keep_w;
+		std::string why;
+		if(!r.law_in_force)
+			why = localized(state, "katechon_fin_no_law", "No fiscal law is in force to amend");
+		else if(!dirty)
+			why = localized(state, "katechon_fin_move_first", "Move the sliders to draft a bill");
+		else if(too_soon)
+			why = filled(localized(state, "katechon_fin_bill_too_soon", "The chambers take a new fiscal bill from %1"), fin_day(state, r.next_bill));
+		else
+			why = localized(state, "katechon_fin_propose_tip", "Lay these rates and priorities before the chambers as a fiscal bill");
+		auto const px = x + 22.f;
+		fin_button_at(state, px, buttons_y, propose_w, 34.f, localized(state, "katechon_fin_propose", "Propose Changes"), fin_icon::gavel, true, can,
+			hit_target{ 0.f, 0.f, 0.f, 0.f, action::fin_propose }, hovering, mx, my, why, 15);
+		if(!can && hovering && over(hit_target{ px, buttons_y, propose_w, 34.f }, mx, my))
+			hint(why, hit_target{ px, buttons_y, propose_w, 34.f });
+		fin_button_at(state, px + propose_w + gap, buttons_y, keep_w, 34.f, localized(state, "katechon_fin_reset", "Keep the law"), fin_icon::count, false, dirty,
+			hit_target{ 0.f, 0.f, 0.f, 0.f, action::fin_reset }, hovering, mx, my, localized(state, "katechon_fin_reset_tip", "Put the sliders back to the law in force"), 14);
+	}
+	panels.push_back(rect{ x, y, w, h });
+}
+
+void fin_overview(sys::state& state, fin_layout const& l, bool hovering, float mx, float my) {
+	auto const top = l.cards_top;
+	auto const strip_h = std::round(l.cards_h - 12.f);
+	fin_strip(state, l.left, top, l.right - l.left, strip_h, hovering, mx, my);
+	auto const body = top + strip_h + 10.f;
+	auto const bottom = l.nav_top - 10.f; // the bar of sections lies under the two columns at the left
+	auto const left_w = std::round((l.main_w - 10.f) * 0.41f);
+	auto const centre_x = l.left + left_w + 10.f;
+	auto const centre_w = l.left + l.main_w - centre_x;
+	auto const sources_h = std::round((bottom - body - 10.f) * 0.50f);
+	fin_sources(state, l.left, body, left_w, sources_h, hovering, mx, my);
+	fin_taxes(state, l.left, body + sources_h + 10.f, left_w, bottom - body - sources_h - 10.f, hovering, mx, my);
+	fin_allocation(state, centre_x, body, centre_w, bottom - body, hovering, mx, my);
+	// the right column stops where the others do: the map's tool bar sits in the corner under it
+	auto const reform_h = std::round((bottom - body - 10.f) * 0.64f);
+	fin_reform(state, l.side_x, body, l.side_w, reform_h, hovering, mx, my);
+	fin_debt(state, l.side_x, body + reform_h + 10.f, l.side_w, bottom - body - reform_h - 10.f, hovering, mx, my);
+}
+
 void draw_finance(sys::state& state, float w, float h, bool hovering, float mx, float my) {
 	if(!fin_art_read)
 		fin_load(state);
@@ -1809,7 +2349,8 @@ void draw_finance(sys::state& state, float w, float h, bool hovering, float mx, 
 	panels.push_back(rect{ ribbon_w, top_h - 3.f, w - ribbon_w, h - top_h + 3.f });
 	fin_backdrop(state, l, w, h);
 	fin_heading(state, l, hovering, mx, my);
-	fin_cards(state, l, hovering, mx, my);
+	if(fin_page != fin_page_kind::overview) // the overview has its own band of the treasury
+		fin_cards(state, l, hovering, mx, my);
 	switch(fin_page) {
 	case fin_page_kind::revenue:
 		fin_revenue_page(state, l, hovering, mx, my);
@@ -1823,22 +2364,9 @@ void draw_finance(sys::state& state, float w, float h, bool hovering, float mx, 
 	case fin_page_kind::policy:
 		fin_policy_page(state, l, hovering, mx, my);
 		break;
-	default: {
-		auto const bottom = l.nav_top - 10.f;
-		auto const tables_h = std::round(std::max(250.f, (bottom - l.body_top) * 0.47f));
-		auto const chart_h = bottom - l.body_top - tables_h - 10.f;
-		fin_chart(state, l.left, l.body_top, l.main_w, chart_h, localized(state, "katechon_fin_chart", "Revenue & Spending"), fin_chart_spec{}, hovering, mx, my);
-		auto const table_w = std::floor((l.main_w - 10.f) * 0.5f);
-		auto const ty = l.body_top + chart_h + 10.f;
-		fin_table(state, l.left, ty, table_w, tables_h, localized(state, "katechon_fin_by_source", "Revenue by Source"), localized(state, "katechon_fin_source", "Source"),
-			fin_revenue_rows(state), fin_rep.revenue_total, ogl::color3f{ 0.31f, 0.64f, 0.53f }, false, hovering, mx, my);
-		fin_table(state, l.left + table_w + 10.f, ty, l.main_w - table_w - 10.f, tables_h, localized(state, "katechon_fin_by_function", "Spending by Function"),
-			localized(state, "katechon_fin_function", "Function"), fin_spending_rows(state), fin_rep.spending_total, ogl::color3f{ 0.72f, 0.56f, 0.33f }, false, hovering, mx, my);
-		auto const policy_h = std::round((l.body_bottom - l.body_top - 10.f) * 0.665f);
-		fin_policy(state, l.side_x, l.body_top, l.side_w, policy_h, hovering, mx, my);
-		fin_debt(state, l.side_x, l.body_top + policy_h + 10.f, l.side_w, l.body_bottom - l.body_top - policy_h - 10.f, hovering, mx, my);
+	default:
+		fin_overview(state, l, hovering, mx, my);
 		break;
-	}
 	}
 	fin_navigation(state, l.left + 70.f, l.nav_top, l.main_w - 140.f, l.nav_h, hovering, mx, my);
 	if(fin_step_menu) // the menu of the chart lies over the tables

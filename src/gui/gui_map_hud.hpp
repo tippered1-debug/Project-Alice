@@ -53,7 +53,7 @@ class map_hud_element : public katechon_canvas {
 		center_province, diplomacy, toggle_outliner, toggle_log, toggle_population, population_metric, population_overview, population_all_regions, population_page, population_class, population_lens, population_inspect,
 		population_whole_country, population_home, population_region, population_tab, demography_page, demography_generation, demography_year, demography_flows, demography_inputs, demography_compare, toggle_military, pick_formation, military_back, military_order, military_march, military_more, military_mobilize,
 		toggle_diplomacy, diplomacy_target, diplomacy_home, diplomacy_deed, dip_deal_toggle, dip_why, dip_item, dip_send, dip_trade, dip_answer, dip_radial, dip_radial_close, dip_tab, dip_review, toggle_trade, trade_details, trade_span, trade_focus, trade_analysis, trade_select, trade_sort, trade_chart, trade_findings,
-		toggle_finance, fin_page, fin_period, fin_step_menu, fin_step, fin_chart, fin_slider, fin_propose, fin_reset, fin_bond, fin_tenor, fin_offer, fin_repay
+		toggle_finance, fin_page, fin_period, fin_step_menu, fin_step, fin_chart, fin_slider, fin_propose, fin_reset, fin_bond, fin_tenor, fin_offer, fin_repay, fin_nudge
 	};
 	// The cells of assets/katechon_hud_icons.png, in the order tools/katechon_ui/build_icons.py draws them.
 	enum class icon : int32_t {
